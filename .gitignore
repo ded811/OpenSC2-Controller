@@ -1,0 +1,12 @@
+# Build folders
+build/
+build-*/
+twister-out*/
+*.uf2
+*.hex
+
+# Editors and tools
+.vscode/
+.idea/
+*.swp
+__pycache__/
