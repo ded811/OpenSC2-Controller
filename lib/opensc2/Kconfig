@@ -1,0 +1,179 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+
+menuconfig OPENSC2
+	bool "OpenSC2: act as a Steam Controller 2 towards the official puck"
+	depends on SOC_FAMILY_NORDIC_NRF
+	select ESB
+	select EVENTS
+	imply ENTROPY_GENERATOR
+	help
+	  Make this board a Steam Controller 2 for an unmodified Steam Controller 2 puck, over the
+	  puck's 2.4 GHz Enhanced ShockBurst link. The library does the radio protocol, pairing and
+	  the vendor commands; the application fills in the inputs and handles the outputs. Needs
+	  CONFIG_ESB_MAX_PAYLOAD_LENGTH=128 (checked at build time). Written for and built on the
+	  nRF52840; other nRF52 chips with the same radio should work but are untested.
+
+if OPENSC2
+
+module = OPENSC2
+module-str = OpenSC2
+source "subsys/logging/Kconfig.template.log_config"
+
+config OPENSC2_THREAD_PRIORITY
+	int "Radio thread priority"
+	default 5
+	help
+	  The radio thread answers the puck every few milliseconds; keep it above (numerically
+	  below) application threads that may run for long.
+
+config OPENSC2_THREAD_STACK_SIZE
+	int "Radio thread stack size"
+	default 2048
+
+config OPENSC2_RX_QUEUE_DEPTH
+	int "Received packets waiting for the radio thread"
+	default 8
+
+config OPENSC2_REPORT_QUEUE_DEPTH
+	int "Extra input reports waiting to ride along with state reports"
+	default 6
+	help
+	  Battery reports, lizard-mode mouse and keyboard reports and whatever the application
+	  sends with opensc2_send_report().
+
+config OPENSC2_TX_POWER_DBM
+	int "Transmit power of the acknowledgements, dBm"
+	default 6
+	range -40 8
+	help
+	  The real controller uses +6 dBm.
+
+config OPENSC2_REPORT_DELAY_US
+	int "Delay from a keep-alive to sampling the next state report, microseconds"
+	default 2000
+	range 0 2800
+	help
+	  The puck sends a keep-alive about every 3 ms, and the state report rides with the
+	  acknowledgement of the next one. Building the report this long after a keep-alive makes
+	  it fresher. The real controller waits about 2.08 ms. 0 builds it at once.
+
+config OPENSC2_LISTEN_TIMEOUT_S
+	int "Stop listening for the puck after this many seconds (0 = never)"
+	default 0
+	help
+	  The real controller gives up after 60 s and turns itself off on battery. 0 keeps
+	  listening, which suits boards on USB power. On expiry the link goes OFF with reason
+	  OPENSC2_REASON_LISTEN_TIMEOUT.
+
+config OPENSC2_PAIRING_TIMEOUT_S
+	int "Default pairing window, seconds"
+	default 60
+
+config OPENSC2_RUMBLE_TIMEOUT_MS
+	int "Stop a rumble the host stopped repeating after this many milliseconds"
+	default 500
+	help
+	  The real controller plays each rumble report for 500 ms; hosts repeat it to keep it going.
+
+config OPENSC2_BATTERY_REPORT_INTERVAL_MS
+	int "Battery report (input report 0x43) interval, milliseconds (0 = never)"
+	default 3500
+
+config OPENSC2_TRIGGER_CLICK_AUTO
+	bool "Set the triggers' digital bits from their values"
+	default y
+	help
+	  The trigger bits follow controller setting 68 (90 % by default) with 5 % hysteresis, as on
+	  the real controller. Turn off to set OPENSC2_CLICK_LEFT/RIGHT_TRIGGER yourself.
+
+config OPENSC2_LIZARD_MODE
+	bool "Lizard mode: a simple mouse and keyboard until Steam turns it off"
+	default y
+	help
+	  Until Steam turns lizard mode off (controller setting 9), the right trackpad moves the
+	  mouse pointer, the left one scrolls, and A, B, the D-pad and the menu buttons type Enter,
+	  Escape, the arrows and Tab. Simplified: no pointer momentum.
+
+config OPENSC2_STEAM_WATCHDOG
+	bool "Turn lizard mode back on when Steam goes quiet for 10 s"
+	default y
+	help
+	  As on the real controller (controller setting 71): Steam repeats "lizard mode off" every
+	  few seconds; without it, lizard mode comes back and the settings return to their defaults.
+
+config OPENSC2_STORAGE
+	bool "Keep bonds and the identity in Zephyr settings"
+	default y
+	depends on SETTINGS
+	help
+	  Keys under "opensc2/". Without it, pairings are lost at every reboot.
+
+config OPENSC2_SHELL
+	bool "Shell commands (opensc2 ...)"
+	default y
+	depends on SHELL
+
+config OPENSC2_FUSION
+	bool "IMU fusion helper (quaternion from accelerometer and gyroscope)"
+	help
+	  opensc2_fusion_*(): a small Mahony filter for IMUs without their own sensor fusion. Uses
+	  floating point; enable the FPU (CONFIG_FPU).
+
+config OPENSC2_IDENTITY_VENDOR_WRITE
+	bool "Let vendor commands 0xEE/0xEF change the stored identity"
+	help
+	  Accept the setting names opensc2/unit_serial, opensc2/board_serial, opensc2/git_revision
+	  and opensc2/board_revision in the generic "set a setting by name" command, so a host tool
+	  can change the identity over the radio link. Off by default: anyone who can send feature
+	  reports to the puck could then change it.
+
+menu "Identity (defaults)"
+
+config OPENSC2_UNIT_SERIAL
+	string "Unit serial (13 characters, 0-9 and A-Z)"
+	default "OSC2DEV000001"
+	help
+	  The serial Steam shows for the controller. The default is a development serial that no
+	  real controller has. With OPENSC2_SERIAL_FROM_CHIP it is replaced by one made from the
+	  chip's unique ID.
+
+config OPENSC2_BOARD_SERIAL
+	string "Board (PCBA) serial (13 characters, 0-9 and A-Z)"
+	default "OSC2PCB000001"
+
+config OPENSC2_SERIAL_FROM_CHIP
+	bool "Make the serials from the chip's unique ID"
+	default y
+	select HWINFO
+	help
+	  "OSC" (unit) and "OSB" (board) followed by ten hex digits of the chip's device ID, so two
+	  boards never share a serial. These are development serials, not a real controller's.
+
+config OPENSC2_GIT_REVISION
+	string "Firmware revision string (1 to 12 characters)"
+	default "opensc2-0.1"
+
+config OPENSC2_PRODUCT_ID
+	hex "Product ID"
+	default 0x1302
+	help
+	  0x1302 is the Steam Controller 2. Steam may not treat other values as one.
+
+config OPENSC2_BOARD_REVISION
+	hex "Board revision (hardware ID)"
+	default 0x4b
+	help
+	  Real controllers accept 0x45 and 0x48 to 0x4B.
+
+config OPENSC2_BUILD_TIME
+	hex "Firmware build time (Unix seconds); 0 = when the build was configured"
+	default 0x0
+
+config OPENSC2_BOOTLOADER_BUILD_TIME
+	hex "Bootloader build time (Unix seconds); 0 = none"
+	default 0x0
+
+endmenu
+
+endif # OPENSC2

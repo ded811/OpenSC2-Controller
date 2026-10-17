@@ -1,0 +1,4 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+
+rsource "lib/opensc2/Kconfig"
