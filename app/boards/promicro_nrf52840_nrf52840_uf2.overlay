@@ -1,0 +1,169 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * OpenSC2 "blank canvas" for the SuperMini / Pro Micro nRF52840 (nice!nano pinout, Adafruit UF2
+ * bootloader). EVERY input of the controller is set up in this one file.
+ *
+ *  - Buttons: wire each between its pin and GND. The internal pull-up holds it released.
+ *  - Sticks: a potentiometer per axis, ends to VCC and GND, wiper to the pin.
+ *  - Anything you do not wire reads neutral: buttons released, sticks centred, triggers released.
+ *    Analog pins that are listed but not wired are held at mid-scale (sticks) or at ground
+ *    (triggers) by the chip's own bias resistors, so they never drift.
+ *  - To move an input, change its pin. To drop one, delete its node (or its io-channel name).
+ *
+ * The SuperMini brings out 21 usable pins, and only three of them (P0.02, P0.29, P0.31) can be
+ * analog. This default spends them on every main button, digital triggers, the left stick and a
+ * pairing button. The right stick, analog triggers and the four back buttons (L4, L5, R4, R5) are
+ * listed at the bottom, ready to enable on a board with more pins. Pin labels on the SuperMini's
+ * silkscreen: "006" is P0.06, "111" is P1.11, and so on.
+ *
+ *   Left edge (USB at the top)        Right edge                     Bottom pads
+ *   P0.06  D-pad up                   P0.31  pairing button          P1.01  RT (digital)
+ *   P0.08  D-pad down                 P0.29  left stick Y (AIN5)     P1.02  R3 (right stick click)
+ *   P0.17  D-pad left                 P0.02  left stick X (AIN0)     P1.07  VIEW
+ *   P0.20  D-pad right                P1.15  A
+ *   P0.22  L (left bumper)            P1.13  B
+ *   P0.24  LT (digital)               P1.11  X
+ *   P1.00  L3 (left stick click)      P0.10  Y
+ *   P0.11  MENU                       P0.09  R (right bumper)
+ *   P1.04  STEAM
+ *   P1.06  QAM (quick access, "...")
+ *
+ *   On-board LED (P0.15): pairing status.
+ */
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+#include <dt-bindings/opensc2/inputs.h>
+
+#define BUTTON(port, pin) <&gpio##port pin (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>
+
+/ {
+	/* ---- Buttons ---------------------------------------------------------------------------
+	 * zephyr,code is the bit of the Steam Controller 2 button word (dt-bindings/opensc2/inputs.h).
+	 * Two codes are special: OPENSC2_KEY_LEFT/RIGHT_TRIGGER_CLICK on a button make that trigger a
+	 * digital one (pressed = fully pulled), and OPENSC2_KEY_PAIR is the pairing button.
+	 */
+	opensc2_buttons: opensc2_buttons {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <5>;
+
+		dpad_up    { gpios = BUTTON(0, 6);  zephyr,code = <OPENSC2_KEY_DPAD_UP>; };
+		dpad_down  { gpios = BUTTON(0, 8);  zephyr,code = <OPENSC2_KEY_DPAD_DOWN>; };
+		dpad_left  { gpios = BUTTON(0, 17); zephyr,code = <OPENSC2_KEY_DPAD_LEFT>; };
+		dpad_right { gpios = BUTTON(0, 20); zephyr,code = <OPENSC2_KEY_DPAD_RIGHT>; };
+		bumper_l   { gpios = BUTTON(0, 22); zephyr,code = <OPENSC2_KEY_L>; };
+		trigger_l  { gpios = BUTTON(0, 24); zephyr,code = <OPENSC2_KEY_LEFT_TRIGGER_CLICK>; };
+		stick_l    { gpios = BUTTON(1, 0);  zephyr,code = <OPENSC2_KEY_L3>; };
+		menu       { gpios = BUTTON(0, 11); zephyr,code = <OPENSC2_KEY_MENU>; };
+		steam      { gpios = BUTTON(1, 4);  zephyr,code = <OPENSC2_KEY_STEAM>; };
+		qam        { gpios = BUTTON(1, 6);  zephyr,code = <OPENSC2_KEY_QAM>; };
+
+		pair       { gpios = BUTTON(0, 31); zephyr,code = <OPENSC2_KEY_PAIR>; };
+		button_a   { gpios = BUTTON(1, 15); zephyr,code = <OPENSC2_KEY_A>; };
+		button_b   { gpios = BUTTON(1, 13); zephyr,code = <OPENSC2_KEY_B>; };
+		button_x   { gpios = BUTTON(1, 11); zephyr,code = <OPENSC2_KEY_X>; };
+		button_y   { gpios = BUTTON(0, 10); zephyr,code = <OPENSC2_KEY_Y>; };
+		bumper_r   { gpios = BUTTON(0, 9);  zephyr,code = <OPENSC2_KEY_R>; };
+
+		trigger_r  { gpios = BUTTON(1, 1);  zephyr,code = <OPENSC2_KEY_RIGHT_TRIGGER_CLICK>; };
+		stick_r    { gpios = BUTTON(1, 2);  zephyr,code = <OPENSC2_KEY_R3>; };
+		view       { gpios = BUTTON(1, 7);  zephyr,code = <OPENSC2_KEY_VIEW>; };
+
+		/* No pins left on the SuperMini for these. Give them pins to use them:
+		 * grip_l4 { gpios = BUTTON(x, y); zephyr,code = <OPENSC2_KEY_L4>; };
+		 * grip_l5 { gpios = BUTTON(x, y); zephyr,code = <OPENSC2_KEY_L5>; };
+		 * grip_r4 { gpios = BUTTON(x, y); zephyr,code = <OPENSC2_KEY_R4>; };
+		 * grip_r5 { gpios = BUTTON(x, y); zephyr,code = <OPENSC2_KEY_R5>; };
+		 * Touch bits work the same way, e.g. a capacitive grip sensor's digital output:
+		 * grip_touch_l { gpios = <...>; zephyr,code = <OPENSC2_KEY_LEFT_GRIP_TOUCH>; };
+		 */
+	};
+
+	zephyr,user {
+		/* ---- Sticks and analog triggers ----------------------------------------------------
+		 * Each axis is an ADC channel (defined below) with one of these names:
+		 *   left-stick-x, left-stick-y, right-stick-x, right-stick-y, left-trigger, right-trigger
+		 * A name that is not listed reads neutral. A trigger with an analog channel ignores
+		 * its digital button above.
+		 */
+		io-channels = <&adc 0>, <&adc 1>;
+		io-channel-names = "left-stick-x", "left-stick-y";
+
+		/* Up must be positive: flip an axis that comes out the wrong way round. */
+		/* invert-left-stick-x; */
+		/* invert-left-stick-y; */
+		/* invert-right-stick-x; */
+		/* invert-right-stick-y; */
+		/* invert-left-trigger; */
+		/* invert-right-trigger; */
+
+		/* Centre dead zone of the sticks, percent of the half range. */
+		stick-deadzone-percent = <6>;
+
+		/* nice!nano-style boards switch their VCC pin with P0.13 (low = on). The firmware
+		 * turns VCC on at boot so potentiometers powered from VCC work. Check your board;
+		 * delete this line if your VCC is always on or switched differently. */
+		vcc-enable-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
+
+		/* ---- Optional outputs (pins needed: take them from buttons above) --------------------
+		 * A vibration motor or LRA driver on a PWM channel (see samples/rumble):
+		 *   rumble-pwms = <&pwm1 0 PWM_USEC(200) PWM_POLARITY_NORMAL>;
+		 * An RGB LED on three PWM channels that follows Steam's LED colour (samples/rgb_led):
+		 *   rgb-pwms = <&pwm2 0 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
+		 *              <&pwm2 1 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
+		 *              <&pwm2 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
+		 */
+	};
+
+	/* ---- Optional trackpads and IMU ----------------------------------------------------------
+	 * A touch device of Zephyr's input subsystem as a trackpad (samples/touchpad), and a sensor
+	 * of Zephyr's sensor API as the IMU (samples/imu):
+	 *   chosen { opensc2,right-trackpad = &touch; opensc2,left-trackpad = &touch2; };
+	 *   aliases { imu0 = &mpu6050; };
+	 * with the trackpad's coordinate range in zephyr,user:
+	 *   right-trackpad-size = <1024 1024>;
+	 */
+};
+
+/* The analog inputs: gain 1/4 of VDD/4, so full scale is VDD, ratiometric with potentiometers
+ * powered from VCC. Channel numbers are arbitrary; the AIN number picks the pin:
+ *   AIN0 = P0.02, AIN5 = P0.29, AIN7 = P0.31 on the SuperMini's edge
+ *   (AIN1 = P0.03, AIN2 = P0.04, AIN3 = P0.05, AIN4 = P0.28, AIN6 = P0.30 on other boards). */
+&adc {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	status = "okay";
+
+	channel@0 {
+		reg = <0>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_VDD_1_4";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
+		zephyr,input-positive = <NRF_SAADC_AIN0>;   /* P0.02: left stick X */
+		zephyr,resolution = <12>;
+	};
+
+	channel@1 {
+		reg = <1>;
+		zephyr,gain = "ADC_GAIN_1_4";
+		zephyr,reference = "ADC_REF_VDD_1_4";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
+		zephyr,input-positive = <NRF_SAADC_AIN5>;   /* P0.29: left stick Y */
+		zephyr,resolution = <12>;
+	};
+
+	/* On a board with more analog pins, add channels and names above, e.g.:
+	 * channel@2 { reg = <2>; ... zephyr,input-positive = <NRF_SAADC_AIN7>; };  right-stick-x
+	 * channel@3 { reg = <3>; ... zephyr,input-positive = <NRF_SAADC_AIN4>; };  right-stick-y
+	 * channel@4 { reg = <4>; ... zephyr,input-positive = <NRF_SAADC_AIN6>; };  left-trigger
+	 * channel@5 { reg = <5>; ... zephyr,input-positive = <NRF_SAADC_AIN1>; };  right-trigger
+	 */
+};
+
+/* The board's other peripherals sit on pins the buttons use: switch them off. The log and the
+ * shell are on the USB serial port. */
+&uart0 { status = "disabled"; };
+&i2c0 { status = "disabled"; };
+&i2c1 { status = "disabled"; };
+&spi2 { status = "disabled"; };
+&pwm0 { status = "disabled"; };

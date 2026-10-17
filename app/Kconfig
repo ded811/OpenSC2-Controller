@@ -1,0 +1,44 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+
+menu "OpenSC2 blank canvas"
+
+config APP_OBEY_BOOTLOADER_REQUEST
+	bool "Reboot into the UF2 bootloader when Steam asks for a firmware update"
+	help
+	  Steam sends vendor command 0x90 to put a controller into its bootloader for an update.
+	  This board's UF2 bootloader does not speak Steam's update protocol, so by default the
+	  request is ignored. To flash a new .uf2, double-tap reset or use the shell command "uf2".
+
+config APP_PWM
+	bool
+	default y if DT_HAS_NORDIC_NRF_PWM_ENABLED
+	select PWM
+	help
+	  Set when the overlay enables a PWM instance (rumble motor, RGB LED).
+
+config APP_I2C
+	bool
+	default y if DT_HAS_NORDIC_NRF_TWI_ENABLED || DT_HAS_NORDIC_NRF_TWIM_ENABLED
+	select I2C
+	help
+	  Set when the overlay enables an I2C bus (touch module, IMU).
+
+config APP_IMU
+	bool
+	default y if $(dt_alias_enabled,imu0)
+	select SENSOR
+	select OPENSC2_FUSION
+	imply FPU
+	help
+	  Set when the overlay aliases a sensor as imu0.
+
+config APP_IMU_ALWAYS
+	bool "Stream the IMU even while Steam has it switched off"
+	depends on APP_IMU
+	help
+	  Like the real controller, the IMU only streams while controller setting 48 is not 0.
+
+endmenu
+
+source "Kconfig.zephyr"

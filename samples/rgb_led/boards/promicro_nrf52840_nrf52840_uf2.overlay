@@ -1,0 +1,53 @@
+/*
+ * SuperMini / Pro Micro nRF52840 with an RGB LED on three PWM outputs. For a common-anode LED
+ * (anode to VCC, each cathode through a resistor of a few hundred ohms to its pin) keep
+ * PWM_POLARITY_INVERTED; for a common-cathode LED use PWM_POLARITY_NORMAL.
+ *
+ *   P0.22 red    P0.24 green    P1.00 blue    P0.31 pairing button (to GND)
+ */
+#include <zephyr/dt-bindings/pwm/pwm.h>
+#include <dt-bindings/opensc2/inputs.h>
+
+/ {
+	buttons: buttons {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <5>;
+		pair {
+			gpios = <&gpio0 31 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <OPENSC2_KEY_PAIR>;
+		};
+	};
+
+	zephyr,user {
+		pwms = <&pwm1 0 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
+		       <&pwm1 1 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
+		       <&pwm1 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
+		pwm-names = "red", "green", "blue";
+	};
+};
+
+&pinctrl {
+	pwm1_rgb_default: pwm1_rgb_default {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 22)>, <NRF_PSEL(PWM_OUT1, 0, 24)>,
+				<NRF_PSEL(PWM_OUT2, 1, 0)>;
+		};
+	};
+	pwm1_rgb_sleep: pwm1_rgb_sleep {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 22)>, <NRF_PSEL(PWM_OUT1, 0, 24)>,
+				<NRF_PSEL(PWM_OUT2, 1, 0)>;
+			low-power-enable;
+		};
+	};
+};
+
+&pwm1 {
+	status = "okay";
+	pinctrl-0 = <&pwm1_rgb_default>;
+	pinctrl-1 = <&pwm1_rgb_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+/* The board's first I2C bus uses P1.00. */
+&i2c0 { status = "disabled"; };

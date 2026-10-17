@@ -1,0 +1,7 @@
+/* SuperMini / Pro Micro nRF52840: one button and a pairing button, each between the pin and GND. */
+/ {
+	zephyr,user {
+		a-gpios = <&gpio1 15 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;     /* A */
+		pair-gpios = <&gpio0 31 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;  /* pairing */
+	};
+};

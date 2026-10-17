@@ -1,0 +1,48 @@
+/*
+ * SuperMini / Pro Micro nRF52840 with a vibration motor (ERM) or an LRA driver board driven by a
+ * PWM output. Never drive a motor straight from the pin: use a logic-level MOSFET (gate on P0.22,
+ * motor between VCC or BAT+ and the drain, a flyback diode across the motor) or a driver board
+ * such as a DRV2605L in PWM-input mode.
+ *
+ *   P0.22 PWM to the MOSFET gate or driver input    P0.31 pairing button (to GND)
+ */
+#include <zephyr/dt-bindings/pwm/pwm.h>
+#include <dt-bindings/opensc2/inputs.h>
+
+/ {
+	buttons: buttons {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <5>;
+		pair {
+			gpios = <&gpio0 31 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <OPENSC2_KEY_PAIR>;
+		};
+	};
+
+	zephyr,user {
+		/* 5 kHz: above what a motor reacts to, low enough for any MOSFET. */
+		pwms = <&pwm1 0 PWM_USEC(200) PWM_POLARITY_NORMAL>;
+		pwm-names = "rumble";
+	};
+};
+
+&pinctrl {
+	pwm1_motor_default: pwm1_motor_default {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 22)>;
+		};
+	};
+	pwm1_motor_sleep: pwm1_motor_sleep {
+		group1 {
+			psels = <NRF_PSEL(PWM_OUT0, 0, 22)>;
+			low-power-enable;
+		};
+	};
+};
+
+&pwm1 {
+	status = "okay";
+	pinctrl-0 = <&pwm1_motor_default>;
+	pinctrl-1 = <&pwm1_motor_sleep>;
+	pinctrl-names = "default", "sleep";
+};
