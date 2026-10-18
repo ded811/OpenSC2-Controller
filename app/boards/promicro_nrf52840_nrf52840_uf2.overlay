@@ -167,3 +167,9 @@
 &i2c1 { status = "disabled"; };
 &spi2 { status = "disabled"; };
 &pwm0 { status = "disabled"; };
+
+/* Button edges through the GPIO sense mechanism instead of GPIOTE channels: the nRF52840 has only
+ * eight GPIOTE channels, fewer than the buttons above, and gpio-keys fails on the ninth (-ENOMEM).
+ * Sense detection has no such limit. */
+&gpio0 { sense-edge-mask = <0xffffffff>; };
+&gpio1 { sense-edge-mask = <0xffff>; };
