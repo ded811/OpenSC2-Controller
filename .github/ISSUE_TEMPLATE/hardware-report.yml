@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: MIT
+name: Hardware report
+description: You wired real parts to a board. Tell us what worked in Steam and what did not.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Reports like this one are how the "Works on hardware" list grows. Please say exactly what
+        you wired and what you saw, also when everything worked.
+
+        Mask serials before you post: `opensc2 bonds`, `opensc2 status` and `opensc2 id` show them.
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      placeholder: SuperMini nRF52840
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OpenSC2 version or commit
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: firmware
+    attributes:
+      label: Firmware
+      options:
+        - app/ (the blank canvas)
+        - samples/minimal
+        - samples/buttons_sticks
+        - samples/touchpad
+        - samples/imu
+        - samples/rumble
+        - samples/rgb_led
+        - template/
+        - My own project
+    validations:
+      required: true
+  - type: checkboxes
+    id: parts
+    attributes:
+      label: Parts wired
+      options:
+        - label: Buttons
+        - label: A stick (or two)
+        - label: Analog triggers
+        - label: A trackpad
+        - label: An IMU
+        - label: A rumble motor or LRA
+        - label: An RGB LED
+        - label: A battery
+  - type: textarea
+    id: details
+    attributes:
+      label: The parts, and the pins they are on
+      description: Part numbers or modules, and the pin of each.
+      placeholder: |
+        Thumbstick module (two 10k potentiometers): X on P0.02, Y on P0.29
+        MPU-6050 (GY-521) on I2C: SDA P0.17, SCL P0.20
+    validations:
+      required: true
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked in Steam
+    validations:
+      required: true
+  - type: textarea
+    id: failed
+    attributes:
+      label: What did not work
+  - type: input
+    id: setup
+    attributes:
+      label: Puck firmware, Steam version and PC
+      placeholder: October 2026 puck, Windows 11

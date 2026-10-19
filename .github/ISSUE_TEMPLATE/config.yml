@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+blank_issues_enabled: false
+contact_links:
+  - name: Protocol questions
+    url: https://github.com/ded811/steam-controller-2-reverse-engineered
+    about: How the Steam Controller 2 and its puck talk is documented in the research repository.

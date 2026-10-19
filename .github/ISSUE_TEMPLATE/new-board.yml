@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: MIT
+name: New board
+description: You ran OpenSC2 on another board, or want to. Tell us about the board.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        What a port needs: [porting.md](https://github.com/ded811/OpenSC2-Controller/blob/main/docs/porting.md).
+        Mask serials before you post: `opensc2 bonds`, `opensc2 status` and `opensc2 id` show them.
+  - type: input
+    id: board
+    attributes:
+      label: Board
+      description: Name, maker and a link if there is one.
+      placeholder: Seeed XIAO nRF52840
+    validations:
+      required: true
+  - type: input
+    id: chip
+    attributes:
+      label: Chip
+      placeholder: nRF52840
+    validations:
+      required: true
+  - type: input
+    id: bootloader
+    attributes:
+      label: Bootloader and its version
+      description: For a UF2 board, the first lines of INFO_UF2.TXT on its USB drive.
+  - type: input
+    id: analog
+    attributes:
+      label: Analog-capable pins brought out
+      placeholder: A0..A5 (P0.02, P0.03, P0.28, P0.29, P0.04, P0.05)
+  - type: textarea
+    id: ram
+    attributes:
+      label: RAM the bootloader uses at a reset, if known
+      description: Where the retained RAM region may go (porting.md, "Where the retained region may go").
+  - type: textarea
+    id: result
+    attributes:
+      label: What you tried and what happened
+      description: The board target and overlay you used, whether it builds, and what worked in Steam.
