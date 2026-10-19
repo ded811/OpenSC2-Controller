@@ -10,3 +10,15 @@ twister-out*/
 .idea/
 *.swp
 __pycache__/
+*.pyc
+.venv/
+venv/
+.cache/
+*.stackdump
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Hardware test suite results (never committed; may hold masked run data)
+tools/hwtest/results/

@@ -1,0 +1,25 @@
+# Your project as a west workspace with nRF Connect SDK v3.4.0 and OpenSC2.
+# From the folder that holds this project (here my-controller):
+#   west init -l my-controller
+#   west update -o=--depth=1 -n
+#   west build -b promicro_nrf52840/nrf52840/uf2 -d build/my-controller my-controller
+# Set self.path to your folder's name.
+manifest:
+  remotes:
+    - name: ncs
+      url-base: https://github.com/nrfconnect
+    - name: ded811
+      url-base: https://github.com/ded811
+  projects:
+    - name: nrf
+      repo-path: sdk-nrf
+      remote: ncs
+      revision: v3.4.0
+      import: true
+    - name: opensc2
+      repo-path: OpenSC2-Controller
+      remote: ded811
+      revision: v0.2.0   # a release tag; the repository's releases page lists the newest
+      path: modules/lib/opensc2
+  self:
+    path: my-controller

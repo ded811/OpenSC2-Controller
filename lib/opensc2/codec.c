@@ -385,6 +385,21 @@ bool opensc2_git_revision_valid(const char *s)
 	return i >= 1 && i <= OPENSC2_GIT_REVISION_MAX && s[i] == '\0';
 }
 
+bool opensc2_product_name_valid(const char *s)
+{
+	size_t i;
+
+	for (i = 0; i <= OPENSC2_PRODUCT_NAME_MAX && s[i] != '\0'; i++) {
+		if (s[i] < 0x20 || s[i] > 0x7E) {
+			return false;
+		}
+	}
+	if (i < 1 || i > OPENSC2_PRODUCT_NAME_MAX || s[i] != '\0') {
+		return false;
+	}
+	return s[0] != ' ' && s[i - 1] != ' ';
+}
+
 uint32_t opensc2_identity_check(const struct opensc2_identity *id)
 {
 	uint32_t bad = 0;
@@ -400,6 +415,9 @@ uint32_t opensc2_identity_check(const struct opensc2_identity *id)
 	}
 	if (id->product_id == 0) {
 		bad |= OPENSC2_ID_BAD_PRODUCT_ID;
+	}
+	if (!opensc2_product_name_valid(id->product_name)) {
+		bad |= OPENSC2_ID_BAD_PRODUCT_NAME;
 	}
 	return bad;
 }

@@ -3,14 +3,25 @@
  * SPDX-License-Identifier: MIT
  *
  * OpenSC2 blank canvas: a Steam Controller 2 for the official puck on a SuperMini / Pro Micro
- * nRF52840. Every input and every optional output is set up in the board overlay; this file joins
- * them to the library.
+ * nRF52840, wireless (through the puck) or wired (on its USB cable). Every input and every
+ * optional output is set up in the board overlay; this file joins them to the library.
+ *
+ * Modes, as on the real controller: a boot with USB power is wired; Steam pairs the board with
+ * its puck over the cable and reboots it into wireless mode, and it connects through the puck.
+ * The pairing button chooses too: held while powering up, this boot is wireless; while wired,
+ * pressed before a host configures the board, or held for 3 s (the LED goes dark), it reboots
+ * into wireless mode when it is released. Acting on the release keeps the button up at the next
+ * boot, so the warm-restart mark brings the board back, not a button still held. Only in the
+ * charger test build (test-charger.conf, a testing aid for a board without buttons, not the real
+ * controller's behaviour) does the library also ask for that reboot by itself, when no host has
+ * talked to the wired board within 5 s; on_power() below handles it like STEAM's.
  *
  * Identity: the library's development identity ("OSC"/"OSB" serials made from the chip's ID, not
  * a real controller's). Change it in prj.conf (CONFIG_OPENSC2_*) or on the board with the shell:
- * `opensc2 id set unit ABC0123456789`.
+ * `opensc2 id set unit OSC2MYBOARD01` (keep the OSC prefix: the hardware test suite needs it).
  */
 #include <zephyr/kernel.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/reboot.h>
 #include <hal/nrf_power.h>
@@ -21,13 +32,61 @@
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
 
+#define USER DT_PATH(zephyr_user)
+#define PAIR_HOLD_MS 3000   /* wired: hold the pairing button this long, then release, to go wireless */
+
 /* The Adafruit UF2 bootloader opens its USB drive when it finds this in GPREGRET. */
 #define UF2_BOOTLOADER_MAGIC 0x57
 
 static void reboot_to_uf2(void)
 {
 	nrf_power_gpregret_set(NRF_POWER, 0, UF2_BOOTLOADER_MAGIC);
-	sys_reboot(SYS_REBOOT_COLD);
+	opensc2_reboot(OPENSC2_REBOOT_PLAIN, "UF2 bootloader");
+}
+
+/* ---- the mode of this boot ------------------------------------------------------------------- */
+
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_pair))
+static const struct gpio_dt_spec pair_pin = GPIO_DT_SPEC_GET(DT_NODELABEL(opensc2_pair), gpios);
+#endif
+#if DT_NODE_HAS_PROP(USER, mode_wireless_gpios)
+static const struct gpio_dt_spec mode_pin = GPIO_DT_SPEC_GET(USER, mode_wireless_gpios);
+#endif
+
+/* The pairing button was held at power-up: ignore it until it is released, so the press that
+ * chose the mode does not also start pairing. */
+static bool pair_held_at_boot;
+
+static bool pin_active(const struct gpio_dt_spec *pin)
+{
+	/* Read twice, 5 ms apart: a bouncing contact counts as released. */
+	if (!gpio_is_ready_dt(pin) || gpio_pin_get_dt(pin) != 1) {
+		return false;
+	}
+	k_msleep(5);
+	return gpio_pin_get_dt(pin) == 1;
+}
+
+static enum opensc2_boot_mode boot_mode(void)
+{
+	enum opensc2_boot_mode mode = OPENSC2_BOOT_DEFAULT;
+
+#if DT_NODE_HAS_PROP(USER, mode_wireless_gpios)
+	if (gpio_is_ready_dt(&mode_pin) && gpio_pin_configure_dt(&mode_pin, GPIO_INPUT) == 0 &&
+	    pin_active(&mode_pin)) {
+		LOG_INF("Mode switch: wireless");
+		mode = OPENSC2_BOOT_WIRELESS;
+	}
+#endif
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_pair))
+	/* gpio-keys has already set the pin up as an input with its pull-up. */
+	if (pin_active(&pair_pin)) {
+		LOG_INF("Pairing button held at power-up: wireless this time");
+		pair_held_at_boot = true;
+		mode = OPENSC2_BOOT_WIRELESS;
+	}
+#endif
+	return mode;
 }
 
 /* ---- library callbacks ----------------------------------------------------------------------- */
@@ -44,6 +103,12 @@ static void on_link(const struct opensc2_link_info *info, void *user_data)
 	if (info->state == OPENSC2_LINK_OFF && info->reason == OPENSC2_REASON_PUCK_TURN_OFF) {
 		LOG_INF("Turned off by the puck (the PC sleeps). Press any button to come back.");
 	}
+}
+
+static void on_usb(const struct opensc2_usb_info *info, void *user_data)
+{
+	ARG_UNUSED(user_data);
+	status_usb(info->state);
 }
 
 static void on_rumble(const struct opensc2_rumble *rumble, void *user_data)
@@ -91,9 +156,22 @@ static void on_power(enum opensc2_power_request request, void *user_data)
 		opensc2_stop();
 		break;
 	case OPENSC2_POWER_REBOOT:
-	case OPENSC2_POWER_REBOOT_KEEP_LINK:
 	case OPENSC2_POWER_FACTORY_RESET:
-		sys_reboot(SYS_REBOOT_COLD);
+	case OPENSC2_POWER_USB_PLUGGED:
+		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
+		break;
+	case OPENSC2_POWER_REBOOT_KEEP_LINK:
+		/* Steam's "reboot into wireless mode", after it paired the board over the cable; STEAM
+		 * pressed while no host set the board up; in the charger test build only, no host
+		 * within 5 s. */
+		opensc2_reboot(OPENSC2_REBOOT_WIRELESS, NULL);
+		break;
+	case OPENSC2_POWER_USB_UNPLUGGED:
+		/* The cable was pulled while wired and the board still runs, on a battery or another
+		 * supply (the library waited 0.2 s for USB power to come back): come back wireless on
+		 * it. The real controller shuts down instead; this firmware has no power-off of its
+		 * own. A board on USB power alone has already gone dark. */
+		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
 		break;
 	case OPENSC2_POWER_BOOTLOADER:
 		/* Steam's firmware update. The UF2 bootloader does not speak Steam's update protocol,
@@ -127,27 +205,89 @@ static const struct opensc2_callbacks callbacks = {
 	.host_asleep = on_host_asleep,
 	.power_request = on_power,
 	.vendor_command = on_vendor,
+	.usb_changed = on_usb,
 };
 
-/* ---- buttons that control the link ----------------------------------------------------------- */
+/* ---- buttons that control the link and the mode ---------------------------------------------- */
 
-void app_pair_button(void)
+/* Wired: a press of the pairing button, acted on when it is released. */
+static bool pair_pressed;          /* a press was seen (a release alone does nothing) */
+static bool pair_no_host;          /* it began before a host configured the board */
+static int64_t pair_pressed_ms;
+
+/* Held 3 s: the LED goes dark, so the user knows the release now reboots. */
+static void hold_fn(struct k_work *work)
 {
-	LOG_INF("Pairing: Steam must have the puck's pairing window open");
-	opensc2_pair_start(0);
+	ARG_UNUSED(work);
+	status_hold_cue(true);
+}
+static K_WORK_DELAYABLE_DEFINE(hold_work, hold_fn);
+
+/* Back to wireless, from the system work queue (rebooting leaves the bus first). */
+static const char *to_wireless_why;
+
+static void to_wireless_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	opensc2_reboot(OPENSC2_REBOOT_WIRELESS, to_wireless_why);
+}
+static K_WORK_DEFINE(to_wireless_work, to_wireless_fn);
+
+static void wired_pair_button(bool pressed)
+{
+	if (pressed) {
+		pair_pressed = true;
+		pair_pressed_ms = k_uptime_get();
+		pair_no_host = opensc2_usb_state() != OPENSC2_USB_CONFIGURED;
+		if (!pair_no_host) {
+			k_work_reschedule(&hold_work, K_MSEC(PAIR_HOLD_MS));
+		}
+		return;
+	}
+	if (!pair_pressed) {
+		return;
+	}
+	pair_pressed = false;
+	(void)k_work_cancel_delayable(&hold_work);
+	if (pair_no_host) {
+		/* No host (a charger, a power bank): back to wireless, like STEAM. */
+		to_wireless_why = "pair button, no host";
+	} else if (k_uptime_get() - pair_pressed_ms >= PAIR_HOLD_MS) {
+		to_wireless_why = "pair button held 3 s";
+	} else {
+		status_hold_cue(false);   /* a short press while configured: nothing */
+		return;
+	}
+	k_work_submit(&to_wireless_work);
+}
+
+void app_pair_button(bool pressed)
+{
+	if (pair_held_at_boot) {
+		pair_held_at_boot = pressed;   /* released: from now on a normal button */
+		return;
+	}
+	if (opensc2_mode() == OPENSC2_MODE_WIRED) {
+		wired_pair_button(pressed);
+		return;
+	}
+	if (pressed) {
+		LOG_INF("Pairing: Steam must have the puck's pairing window open");
+		opensc2_pair_start(0);
+	}
 }
 
 void app_button_pressed(void)
 {
 	/* After a turn-off any button brings the controller back, as STEAM does on the real one. */
-	if (opensc2_link_state() == OPENSC2_LINK_OFF) {
+	if (opensc2_mode() == OPENSC2_MODE_WIRELESS && opensc2_link_state() == OPENSC2_LINK_OFF) {
 		opensc2_start();
 	}
 }
 
 int main(void)
 {
-	static const struct opensc2_config config = {
+	struct opensc2_config config = {
 		.callbacks = &callbacks,
 		.bond_slot = OPENSC2_SLOT_STORED,
 		.start = true,
@@ -160,11 +300,13 @@ int main(void)
 	trackpad_init();
 	imu_init();
 
+	config.boot_mode = boot_mode();
 	err = opensc2_init(&config);
 	if (err) {
 		LOG_ERR("opensc2_init failed (%d)", err);
 		return err;
 	}
+	status_mode(opensc2_mode());
 	return 0;
 }
 
@@ -173,9 +315,10 @@ static int cmd_uf2(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
+	/* The reboot does not wait for the message: with the terminal gone the print can block. */
+	nrf_power_gpregret_set(NRF_POWER, 0, UF2_BOOTLOADER_MAGIC);
+	opensc2_reboot_later(OPENSC2_REBOOT_PLAIN, "UF2 bootloader", 100);
 	shell_print(sh, "Rebooting into the UF2 bootloader");
-	k_msleep(100);
-	reboot_to_uf2();
 	return 0;
 }
 SHELL_CMD_REGISTER(uf2, NULL, "Reboot into the UF2 bootloader (to flash a new .uf2)", cmd_uf2);

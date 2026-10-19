@@ -1,4 +1,7 @@
 # Copyright (c) 2026 the OpenSC2-Controller authors
 # SPDX-License-Identifier: MIT
+#
+# The OpenSC2 module's Kconfig (zephyr/module.yml points here). The options are in
+# lib/opensc2/Kconfig; docs/api.md lists them.
 
 rsource "lib/opensc2/Kconfig"

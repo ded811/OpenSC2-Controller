@@ -1,0 +1,32 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# Editor settings for this repository (https://editorconfig.org). C, devicetree and Kconfig follow
+# the Zephyr style: tabs, 8 wide.
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{c,h,overlay,dts,dtsi}]
+indent_style = tab
+indent_size = 8
+tab_width = 8
+
+[Kconfig*]
+indent_style = tab
+indent_size = 8
+tab_width = 8
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

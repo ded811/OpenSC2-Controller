@@ -1,0 +1,2 @@
+# Build folders (west build -d build, or build.ps1 without -OutDir)
+build/

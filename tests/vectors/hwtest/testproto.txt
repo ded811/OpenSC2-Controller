@@ -1,0 +1,21 @@
+# testproto.txt: the test channel's requests (docs/api.md, "Hardware test hooks").
+#   REQ <request> ARMED <0|1> -> CLAIM <0|1> [OP <op> ARGS <argument length>]
+#   BATTERY <request> -> R43 <the next 0x43> RBE <the 0xBE answer>
+# The claiming rule of USB and the radio: n >= 7, the key 1E AB 57 7E, version 1, armed or ARM.
+REQ 1eab577e010501785634120f0000 ARMED 0 -> CLAIM 1 OP 01 ARGS 7
+REQ 1eab577e010603 ARMED 0 -> CLAIM 0
+REQ 1eab577e010603 ARMED 1 -> CLAIM 1 OP 03 ARGS 0
+REQ 1eab577f010603 ARMED 1 -> CLAIM 0
+REQ 1eab577e020603 ARMED 1 -> CLAIM 0
+REQ 1eab577e0106 ARMED 1 -> CLAIM 0
+REQ 1eab577e010924efbeadde ARMED 1 -> CLAIM 1 OP 24 ARGS 4
+BATTERY 1eab577e010b1202373c0fe40c881306fff4013412a501 -> R43 4302373c0fe40c881306fff4013412 RBE 34123c0fe40c881306fff40137a502
+# the key alone, or one byte short of the header: never claimed
+REQ 1eab577e ARMED 1 -> CLAIM 0
+REQ 1eab577e0101 ARMED 1 -> CLAIM 0
+# ARM is claimed unarmed whatever its arguments say (the op checks them)
+REQ 1eab577e01070100000000 ARMED 0 -> CLAIM 1 OP 01 ARGS 4
+# INJECT, request ID 7, A held, nonce 0xA5A50001 (the design's worked bytes)
+REQ 1eab577e010710 00 01000000 000000000000000000000000000000000000000000000000 0100a5a5 0000000000000000000000000000000000000000 ARMED 1 -> CLAIM 1 OP 10 ARGS 53
+# battery: done, 100 %, the library's defaults, no gauge flags, send now
+BATTERY 1eab577e010c12 04 64 0410 e40c 8813 0000 0000 0000 00 01 -> R43 430464 0410 e40c 8813 0000 0000 0000 RBE 0000 0410 e40c 8813 0000 0000 64 00 04

@@ -1,3 +1,10 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# This repository as a Zephyr module named opensc2. Zephyr reads this file when a build finds the
+# repository through ZEPHYR_EXTRA_MODULES, a west manifest or a project's own CMakeLists.txt
+# (docs/integration.md). dts_root puts include/ on the devicetree's include path, so overlays can
+# use <dt-bindings/opensc2/inputs.h>.
 name: opensc2
 build:
   cmake: .

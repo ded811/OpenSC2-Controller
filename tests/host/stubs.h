@@ -1,0 +1,40 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * Host tests only: what the stand-ins in stubs.c recorded.
+ */
+#ifndef OSC2_HOST_STUBS_H_
+#define OSC2_HOST_STUBS_H_
+
+#include "internal.h"
+
+struct stub_record {
+	int64_t now_ms;
+	bool link_active[OSC2_LINK_COUNT];
+	uint32_t radio_events;
+	uint32_t saved_bonds;           /* bit per slot */
+	int saved_slot, saved_chime;
+	int led_notified;
+	int power_requests;
+	enum opensc2_power_request power;
+	uint32_t power_delay_ms;
+	const char *power_why;
+	int defaults_restored;
+	int watchdog_armed, watchdog_cancelled;
+	char lizard[32];                /* E enter, L leave, U switches up, D switches down */
+	unsigned int lizard_calls;
+};
+
+extern struct stub_record stub;
+
+/* Back to boot: defaults, a test identity, empty bonds, every stored request reset (and, in the
+ * binary with the test hooks, the hooks unarmed and their record cleared). */
+void stub_reset(void);
+
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+/* hooks_stub.c */
+void hooks_reset(void);
+#endif
+
+#endif /* OSC2_HOST_STUBS_H_ */

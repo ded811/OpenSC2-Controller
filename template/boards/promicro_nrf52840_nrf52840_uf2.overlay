@@ -1,0 +1,119 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * Your controller's pins on the SuperMini nRF52840 (a Pro Micro-sized board with the nice!nano
+ * pinout and the Adafruit nRF52 UF2 bootloader). Zephyr reads this file when it builds for the
+ * board target promicro_nrf52840/nrf52840/uf2. For another board, copy it to
+ * boards/<board target with / turned into _>.overlay and change the pins (docs/porting.md).
+ *
+ * The buttons use the same pins as app/, so wiring carries over. Wire each button between its pin
+ * and GND: the internal pull-up keeps it released. Silkscreen labels: "006" is P0.06, "111" is
+ * P1.11, and so on. The on-board LED (led0, P0.15) is the status LED (src/main.c).
+ */
+#include <dt-bindings/opensc2/inputs.h>
+
+/ {
+	/* ---- Buttons ----------------------------------------------------------------------------
+	 * Read through Zephyr's input subsystem (gpio-keys). zephyr,code is the bit of the Steam
+	 * Controller 2's button word that the button sets (OPENSC2_KEY_* in
+	 * dt-bindings/opensc2/inputs.h); src/main.c turns each event into that bit. Add a child for
+	 * another button, delete one you do not wire.
+	 */
+	opensc2_buttons: opensc2_buttons {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <5>;
+
+		button_a {
+			gpios = <&gpio1 15 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;   /* P1.15 */
+			zephyr,code = <OPENSC2_KEY_A>;
+		};
+		button_b {
+			gpios = <&gpio1 13 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;   /* P1.13 */
+			zephyr,code = <OPENSC2_KEY_B>;
+		};
+		button_x {
+			gpios = <&gpio1 11 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;   /* P1.11 */
+			zephyr,code = <OPENSC2_KEY_X>;
+		};
+		button_y {
+			gpios = <&gpio0 10 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;   /* P0.10 */
+			zephyr,code = <OPENSC2_KEY_Y>;
+		};
+		button_steam {
+			gpios = <&gpio1 4 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;    /* P1.04 */
+			zephyr,code = <OPENSC2_KEY_STEAM>;
+		};
+
+		/* The pairing button. Held while plugging in: this boot is wireless. Pressed and
+		 * released while wired: the board reboots into wireless mode. Pressed while
+		 * wireless: it answers an open pairing window (untested with Steam).
+		 * OPENSC2_KEY_PAIR is not a bit of the button word; src/main.c handles it, and
+		 * finds the pin by its label. */
+		opensc2_pair: pair {
+			gpios = <&gpio0 31 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;   /* P0.31 */
+			zephyr,code = <OPENSC2_KEY_PAIR>;
+		};
+
+		/* A digital trigger: a button with OPENSC2_KEY_RIGHT_TRIGGER_CLICK (or _LEFT_)
+		 * reads as that trigger pulled all the way (src/main.c). For example, on the
+		 * bottom pad P1.01:
+		 * trigger_r {
+		 *	gpios = <&gpio1 1 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+		 *	zephyr,code = <OPENSC2_KEY_RIGHT_TRIGGER_CLICK>;
+		 * };
+		 * Sticks, analog triggers, trackpads, an IMU, rumble and an RGB LED: app/'s
+		 * overlay and the samples show each part. Buttons need no VCC; potentiometers
+		 * powered from the VCC pin do (app/'s overlay, vcc-enable-gpios).
+		 */
+	};
+
+	/* ---- Wired mode -------------------------------------------------------------------------
+	 * The USB HID function of the wired Steam Controller 2 (64-byte reports, every 1 ms), and
+	 * 16 KB of RAM that a soft reset keeps (the warm-restart mark of Steam's "reboot into
+	 * wireless mode", the USB session log), clear of the RAM the UF2 bootloader uses at every
+	 * reset (docs/porting.md). The address is the SuperMini's choice: on another board, keep
+	 * the region clear of its bootloader's RAM.
+	 */
+	chosen {
+		opensc2,usb-hid = &opensc2_hid;
+		opensc2,retained-ram = &opensc2_retained;
+	};
+
+	opensc2_hid: opensc2_hid {
+		compatible = "zephyr,hid-device";
+		in-report-size = <64>;
+		in-polling-period-us = <1000>;
+		out-report-size = <64>;
+		out-polling-period-us = <1000>;
+	};
+
+	opensc2_retained: memory@2002c000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2002c000 DT_SIZE_K(16)>;
+		zephyr,memory-region = "OPENSC2_RETAINED";
+	};
+};
+
+/* The application's RAM ends below the retained area (176 KB of the 256; the top 64 KB stay
+ * unused). */
+&sram0 {
+	reg = <0x20000000 DT_SIZE_K(176)>;
+};
+
+/* The board's files turn these on, on pins this overlay uses: uart0 on P0.09 and P0.10 (Y), i2c1
+ * on P1.04 (STEAM) and P1.06, pwm0 on the LED pin P0.15, and i2c0 (P1.00, P0.11) and spi2 (P1.01,
+ * P1.02, P1.07) on pins app/ gives to buttons. Switched off, every pin is free for buttons;
+ * re-enable what you use, on pins of your choice. The log and the shell are on the USB serial
+ * port (in wireless mode). */
+&uart0 { status = "disabled"; };
+&i2c0 { status = "disabled"; };
+&i2c1 { status = "disabled"; };
+&spi2 { status = "disabled"; };
+&pwm0 { status = "disabled"; };
+
+/* Button edges through the GPIO sense mechanism instead of GPIOTE channels: the nRF52840 has only
+ * eight GPIOTE channels, and gpio-keys fails on a ninth button (-ENOMEM). Sense detection has no
+ * such limit, so buttons can be added freely. */
+&gpio0 { sense-edge-mask = <0xffffffff>; };
+&gpio1 { sense-edge-mask = <0xffff>; };

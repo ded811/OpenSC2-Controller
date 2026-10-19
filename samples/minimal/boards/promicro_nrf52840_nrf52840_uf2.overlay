@@ -1,7 +1,42 @@
-/* SuperMini / Pro Micro nRF52840: one button and a pairing button, each between the pin and GND. */
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * SuperMini / Pro Micro nRF52840: one button (A) and a pairing button, each between its pin and
+ * GND. The internal pull-ups hold them released. Silkscreen labels: "111" is P1.11, and so on.
+ *
+ *   P1.15  A            P0.31  pairing button
+ */
 / {
 	zephyr,user {
 		a-gpios = <&gpio1 15 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;     /* A */
 		pair-gpios = <&gpio0 31 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;  /* pairing */
 	};
+
+	/* Wired mode: the USB HID function of the wired Steam Controller 2 (64-byte reports, 1 ms),
+	 * and 16 KB of RAM that a soft reset keeps (the warm-restart mark, the USB session log), clear
+	 * of the RAM the UF2 bootloader uses at every reset (docs/porting.md). */
+	chosen {
+		opensc2,usb-hid = &opensc2_hid;
+		opensc2,retained-ram = &opensc2_retained;
+	};
+
+	opensc2_hid: opensc2_hid {
+		compatible = "zephyr,hid-device";
+		in-report-size = <64>;
+		in-polling-period-us = <1000>;
+		out-report-size = <64>;
+		out-polling-period-us = <1000>;
+	};
+
+	opensc2_retained: memory@2002c000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2002c000 DT_SIZE_K(16)>;
+		zephyr,memory-region = "OPENSC2_RETAINED";
+	};
+};
+
+/* The application's RAM ends below the retained area (176 KB of the 256). */
+&sram0 {
+	reg = <0x20000000 DT_SIZE_K(176)>;
 };

@@ -2,15 +2,26 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * The codec test cases (tests/codec/src/cases.h) as a plain C program, for any PC compiler:
- *   gcc -std=c11 -Wall -Wextra -Werror -I../../include -I../../lib/opensc2 run_tests.c \
- *       ../../lib/opensc2/codec.c ../../lib/opensc2/lizard.c \
- *       ../../lib/opensc2/settings_defaults.c ../../lib/opensc2/fusion.c -lm -o run_tests
- * (run.sh and run.ps1 next to this file do exactly that).
+ * The library's test cases as a plain C program, for any PC compiler:
+ *   - tests/codec/src/cases.h and cases_usb.h: the pure parts (wire formats, USB descriptors and
+ *     framing, lizard mode, the mode rules, the retained area, settings, fusion), also a ztest
+ *     suite;
+ *   - commands_cases.h (here): the vendor command channel, commands.c built against the small
+ *     stand-ins in shim/ and stubs.c;
+ *   - vectors_cases.h: the hardware test suite's shared vectors through the library's own code;
+ *   - differential_cases.h: the unarmed command channel, request by request, into a transcript;
+ *   - hooks_cases.h, only in the binary built with CONFIG_OPENSC2_TEST_HOOKS: the hardware test
+ *     hooks themselves (test_core.c, test_notes.c and the stand-in glue of hooks_stub.c).
+ * run.sh and run.ps1 next to this file build it twice, without and with the hooks, run both, and
+ * compare the two transcripts.
+ *
+ *   run_tests [--vectors <folder of the shared vectors>] [--transcript <file to write>]
  */
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-#define MAX_TESTS 64
+#define MAX_TESTS 192
 
 typedef void (*test_fn)(void);
 static struct {
@@ -18,14 +29,19 @@ static struct {
 	test_fn fn;
 } tests[MAX_TESTS];
 static int test_count, checks, failures, current_failed;
+static const char *vectors_dir;       /* --vectors */
+static const char *transcript_path;   /* --transcript */
 
 static void register_test(const char *name, test_fn fn)
 {
-	if (test_count < MAX_TESTS) {
-		tests[test_count].name = name;
-		tests[test_count].fn = fn;
-		test_count++;
+	if (test_count >= MAX_TESTS) {
+		/* A case that does not fit would never run, and the suite would pass without it. */
+		fprintf(stderr, "Too many test cases: %s does not fit (MAX_TESTS %d)\n", name, MAX_TESTS);
+		exit(1);
 	}
+	tests[test_count].name = name;
+	tests[test_count].fn = fn;
+	test_count++;
 }
 
 #define OPENSC2_TEST(name)                                                              \
@@ -57,9 +73,31 @@ static void register_test(const char *name, test_fn fn)
 	} while (0)
 
 #include "../codec/src/cases.h"
+#include "../codec/src/cases_usb.h"
+#include "commands_cases.h"
+#include "vectors_cases.h"
+#include "differential_cases.h"
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+#include "hooks_cases.h"
+#endif
 
-int main(void)
+int main(int argc, char **argv)
 {
+	for (int i = 1; i + 1 < argc; i += 2) {
+		if (strcmp(argv[i], "--vectors") == 0) {
+			vectors_dir = argv[i + 1];
+		} else if (strcmp(argv[i], "--transcript") == 0) {
+			transcript_path = argv[i + 1];
+		} else {
+			fprintf(stderr, "usage: %s [--vectors <folder>] [--transcript <file>]\n", argv[0]);
+			return 2;
+		}
+	}
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+	printf("binary: hooks (CONFIG_OPENSC2_TEST_HOOKS)\n");
+#else
+	printf("binary: plain\n");
+#endif
 	for (int i = 0; i < test_count; i++) {
 		current_failed = 0;
 		tests[i].fn();

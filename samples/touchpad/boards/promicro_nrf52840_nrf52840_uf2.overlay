@@ -1,6 +1,9 @@
 /*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
  * SuperMini / Pro Micro nRF52840 with a Cirque Pinnacle trackpad module (for example the TM040040
- * or TM035035 on its I2C interface) as the controller's right trackpad. Zephyr's own
+ * or TM035035, on its I2C interface) as the controller's right trackpad. Zephyr's own
  * cirque,pinnacle driver reads it.
  *
  *   P0.17 SDA    P0.20 SCL    P0.22 the module's data-ready (HW_DR) output    VCC, GND
@@ -13,14 +16,18 @@
 #include <dt-bindings/opensc2/inputs.h>
 
 / {
-	buttons: buttons {
+	/* zephyr,code is the bit of the Steam Controller 2 button word (dt-bindings/opensc2/inputs.h);
+	 * OPENSC2_KEY_PAIR marks the pairing button. */
+	opensc2_buttons: opensc2_buttons {
 		compatible = "gpio-keys";
 		debounce-interval-ms = <5>;
 		pad_click {
 			gpios = <&gpio1 15 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 			zephyr,code = <OPENSC2_KEY_RIGHT_PAD_CLICK>;
 		};
-		pair {
+		/* Held while plugging in: this boot is wireless. Pressed and released while wired:
+		 * back to wireless mode. Pressed while wireless: answers an open pairing window. */
+		opensc2_pair: pair {
 			gpios = <&gpio0 31 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 			zephyr,code = <OPENSC2_KEY_PAIR>;
 		};
@@ -32,8 +39,36 @@
 		/* nice!nano-style boards switch VCC with P0.13 (low = on); check yours. */
 		vcc-enable-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
 	};
+
+	/* Wired mode: the USB HID function of the wired Steam Controller 2 (64-byte reports, 1 ms),
+	 * and 16 KB of RAM that a soft reset keeps (the warm-restart mark, the USB session log), clear
+	 * of the RAM the UF2 bootloader uses at every reset (docs/porting.md). */
+	chosen {
+		opensc2,usb-hid = &opensc2_hid;
+		opensc2,retained-ram = &opensc2_retained;
+	};
+
+	opensc2_hid: opensc2_hid {
+		compatible = "zephyr,hid-device";
+		in-report-size = <64>;
+		in-polling-period-us = <1000>;
+		out-report-size = <64>;
+		out-polling-period-us = <1000>;
+	};
+
+	opensc2_retained: memory@2002c000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2002c000 DT_SIZE_K(16)>;
+		zephyr,memory-region = "OPENSC2_RETAINED";
+	};
 };
 
+/* The application's RAM ends below the retained area (176 KB of the 256). */
+&sram0 {
+	reg = <0x20000000 DT_SIZE_K(176)>;
+};
+
+/* The board's first I2C bus, moved to P0.17 and P0.20. */
 &pinctrl {
 	i2c0_touch_default: i2c0_touch_default {
 		group1 {
@@ -58,6 +93,7 @@
 	touch: trackpad@2a {
 		compatible = "cirque,pinnacle";
 		reg = <0x2a>;
+		/* HW_DR goes high when a new sample is ready; the driver reads on that edge. */
 		data-ready-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
 		data-mode = "absolute";
 		/* One empty packet after the finger lifts, so the pad sees the release. */
@@ -69,6 +105,7 @@
 	};
 };
 
-/* Peripherals of the board on pins used above. */
+/* Not used here: the board's UART and its second I2C bus. The log and the shell are on the USB
+ * serial port. */
 &uart0 { status = "disabled"; };
 &i2c1 { status = "disabled"; };

@@ -1,24 +1,35 @@
 /*
- * SuperMini / Pro Micro nRF52840: five buttons, a pairing button, one analog stick and one analog
- * trigger. Buttons between pin and GND; potentiometers between VCC and GND, wiper to the pin.
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
  *
- *   P1.15 A    P1.13 B    P1.11 X    P0.10 Y    P1.04 STEAM    P0.09 pairing
+ * SuperMini / Pro Micro nRF52840: five buttons, a pairing button, one analog stick and one analog
+ * trigger. Buttons between pin and GND (the internal pull-ups hold them released); potentiometers
+ * between VCC and GND, wiper to the pin. Silkscreen labels: "009" is P0.09, "111" is P1.11.
+ *
+ *   P1.15 A    P1.13 B    P1.11 X    P0.10 Y    P1.04 STEAM    P0.09 pairing button
  *   P0.02 (AIN0) left stick X    P0.29 (AIN5) left stick Y    P0.31 (AIN7) right trigger
+ *
+ * The SuperMini has only three analog pins (P0.02, P0.29, P0.31), and the stick and the trigger
+ * take all three, so the pairing button moves from P0.31 (its pin in the other samples) to P0.09.
  */
 #include <dt-bindings/opensc2/inputs.h>
 
 #define BUTTON(port, pin) <&gpio##port pin (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>
 
 / {
-	buttons: buttons {
+	/* zephyr,code is the bit of the Steam Controller 2 button word (dt-bindings/opensc2/inputs.h);
+	 * OPENSC2_KEY_PAIR marks the pairing button. */
+	opensc2_buttons: opensc2_buttons {
 		compatible = "gpio-keys";
 		debounce-interval-ms = <5>;
-		a     { gpios = BUTTON(1, 15); zephyr,code = <OPENSC2_KEY_A>; };
-		b     { gpios = BUTTON(1, 13); zephyr,code = <OPENSC2_KEY_B>; };
-		x     { gpios = BUTTON(1, 11); zephyr,code = <OPENSC2_KEY_X>; };
-		y     { gpios = BUTTON(0, 10); zephyr,code = <OPENSC2_KEY_Y>; };
-		steam { gpios = BUTTON(1, 4);  zephyr,code = <OPENSC2_KEY_STEAM>; };
-		pair  { gpios = BUTTON(0, 9);  zephyr,code = <OPENSC2_KEY_PAIR>; };
+		button_a { gpios = BUTTON(1, 15); zephyr,code = <OPENSC2_KEY_A>; };
+		button_b { gpios = BUTTON(1, 13); zephyr,code = <OPENSC2_KEY_B>; };
+		button_x { gpios = BUTTON(1, 11); zephyr,code = <OPENSC2_KEY_X>; };
+		button_y { gpios = BUTTON(0, 10); zephyr,code = <OPENSC2_KEY_Y>; };
+		steam    { gpios = BUTTON(1, 4);  zephyr,code = <OPENSC2_KEY_STEAM>; };
+		/* Held while plugging in: this boot is wireless. Pressed and released while wired:
+		 * back to wireless mode. Pressed while wireless: answers an open pairing window. */
+		opensc2_pair: pair { gpios = BUTTON(0, 9); zephyr,code = <OPENSC2_KEY_PAIR>; };
 	};
 
 	zephyr,user {
@@ -27,8 +38,37 @@
 		/* nice!nano-style boards switch VCC with P0.13 (low = on); check yours. */
 		vcc-enable-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
 	};
+
+	/* Wired mode: the USB HID function of the wired Steam Controller 2 (64-byte reports, 1 ms),
+	 * and 16 KB of RAM that a soft reset keeps (the warm-restart mark, the USB session log), clear
+	 * of the RAM the UF2 bootloader uses at every reset (docs/porting.md). */
+	chosen {
+		opensc2,usb-hid = &opensc2_hid;
+		opensc2,retained-ram = &opensc2_retained;
+	};
+
+	opensc2_hid: opensc2_hid {
+		compatible = "zephyr,hid-device";
+		in-report-size = <64>;
+		in-polling-period-us = <1000>;
+		out-report-size = <64>;
+		out-polling-period-us = <1000>;
+	};
+
+	opensc2_retained: memory@2002c000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2002c000 DT_SIZE_K(16)>;
+		zephyr,memory-region = "OPENSC2_RETAINED";
+	};
 };
 
+/* The application's RAM ends below the retained area (176 KB of the 256). */
+&sram0 {
+	reg = <0x20000000 DT_SIZE_K(176)>;
+};
+
+/* The analog inputs: gain 1/4 of VDD/4, so full scale is VDD, ratiometric with potentiometers
+ * powered from VCC. The AIN number picks the pin: AIN0 = P0.02, AIN5 = P0.29, AIN7 = P0.31. */
 &adc {
 	#address-cells = <1>;
 	#size-cells = <0>;
@@ -39,7 +79,7 @@
 		zephyr,gain = "ADC_GAIN_1_4";
 		zephyr,reference = "ADC_REF_VDD_1_4";
 		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
-		zephyr,input-positive = <NRF_SAADC_AIN0>;
+		zephyr,input-positive = <NRF_SAADC_AIN0>;   /* P0.02: stick X */
 		zephyr,resolution = <12>;
 	};
 	channel@1 {
@@ -47,7 +87,7 @@
 		zephyr,gain = "ADC_GAIN_1_4";
 		zephyr,reference = "ADC_REF_VDD_1_4";
 		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
-		zephyr,input-positive = <NRF_SAADC_AIN5>;
+		zephyr,input-positive = <NRF_SAADC_AIN5>;   /* P0.29: stick Y */
 		zephyr,resolution = <12>;
 	};
 	channel@2 {
@@ -55,11 +95,19 @@
 		zephyr,gain = "ADC_GAIN_1_4";
 		zephyr,reference = "ADC_REF_VDD_1_4";
 		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
-		zephyr,input-positive = <NRF_SAADC_AIN7>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;   /* P0.31: trigger */
 		zephyr,resolution = <12>;
 	};
 };
 
-/* Peripherals of the board on pins used above. */
-&i2c1 { status = "disabled"; };
+/* The board's UART uses P0.09 and P0.10, its second I2C bus P1.04: both off. The log and the
+ * shell are on the USB serial port. */
 &uart0 { status = "disabled"; };
+&i2c1 { status = "disabled"; };
+
+/* Each button above takes one of the nRF52840's eight GPIOTE channels. With more than eight,
+ * gpio-keys fails on the ninth (-ENOMEM); then take edges from the GPIO sense mechanism
+ * instead, as app/ does:
+ *   &gpio0 { sense-edge-mask = <0xffffffff>; };
+ *   &gpio1 { sense-edge-mask = <0xffff>; };
+ */

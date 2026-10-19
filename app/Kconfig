@@ -8,7 +8,9 @@ config APP_OBEY_BOOTLOADER_REQUEST
 	help
 	  Steam sends vendor command 0x90 to put a controller into its bootloader for an update.
 	  This board's UF2 bootloader does not speak Steam's update protocol, so by default the
-	  request is ignored. To flash a new .uf2, double-tap reset or use the shell command "uf2".
+	  request is ignored and the firmware stays as it is. With this option the board opens its
+	  UF2 drive instead; Steam's update still cannot run. To flash a new .uf2, short RST to GND
+	  twice quickly, or use the shell command "uf2" (wireless mode).
 
 config APP_PWM
 	bool

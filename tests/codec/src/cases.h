@@ -2,18 +2,21 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * Test cases for the wire formats (codec.c), lizard mode, the settings defaults and the fusion
- * helper. Written once, run two ways: as a Zephyr ztest suite (tests/codec, for native_sim or
- * QEMU) and as a plain C program on a PC (tests/host). The including file defines
- * OPENSC2_TEST(name), CHECK(cond) and CHECK_EQ(a, b).
+ * Test cases for the wire formats (codec.c), the stored identity and the shell's identity values
+ * (id_rules.c), lizard mode, the settings defaults and the fusion helper. Written once, run two
+ * ways: as a Zephyr ztest suite (tests/codec, for native_sim or QEMU) and as a plain C program on
+ * a PC (tests/host). The including file defines OPENSC2_TEST(name), CHECK(cond) and
+ * CHECK_EQ(a, b).
  *
  * The expected byte offsets are the published layouts (docs/protocol.md), written out by hand.
  */
+#include <errno.h>
 #include <math.h>
 #include <string.h>
 #include <opensc2/codec.h>
 #include <opensc2/settings.h>
 #include <opensc2/fusion.h>
+#include "id_rules.h"
 #include "lizard.h"
 
 static struct opensc2_identity test_identity(void)
@@ -28,6 +31,7 @@ static struct opensc2_identity test_identity(void)
 	id.board_revision = 0x4B;
 	id.build_time = 0x6AD00000;
 	id.bootloader_build_time = 0x11223344;
+	memcpy(id.product_name, "Steam Controller", 16);
 	return id;
 }
 
@@ -192,6 +196,186 @@ OPENSC2_TEST(identity_checks)
 	id.unit_serial[3] = 'x';
 	id.product_id = 0;
 	CHECK_EQ(opensc2_identity_check(&id), OPENSC2_ID_BAD_UNIT_SERIAL | OPENSC2_ID_BAD_PRODUCT_ID);
+	id = test_identity();
+	id.product_name[0] = '\0';   /* a name is needed: it is the USB product string */
+	CHECK_EQ(opensc2_identity_check(&id), OPENSC2_ID_BAD_PRODUCT_NAME);
+}
+
+/* The USB product name: what a string descriptor of the stack may carry, and nothing a terminal
+ * would mangle. */
+OPENSC2_TEST(identity_product_name)
+{
+	CHECK(opensc2_product_name_valid("Steam Controller"));   /* the real controller's */
+	CHECK(opensc2_product_name_valid("x"));
+	CHECK(opensc2_product_name_valid("My \"Pad\" #2 (test) ~!"));
+	CHECK(opensc2_product_name_valid("A  B"));                /* spaces inside, also two */
+	CHECK(opensc2_product_name_valid("1234567890123456789012345678901"));   /* 31 */
+	CHECK(!opensc2_product_name_valid("12345678901234567890123456789012")); /* 32 */
+	CHECK(!opensc2_product_name_valid(""));
+	CHECK(!opensc2_product_name_valid(" "));
+	CHECK(!opensc2_product_name_valid(" Steam"));             /* a space at either end */
+	CHECK(!opensc2_product_name_valid("Steam "));
+	CHECK(!opensc2_product_name_valid("Tab\there"));          /* control characters */
+	CHECK(!opensc2_product_name_valid("line\nbreak"));
+	CHECK(!opensc2_product_name_valid("del\x7f"));
+	CHECK(!opensc2_product_name_valid("caf\xc3\xa9"));         /* not ASCII (UTF-8) */
+}
+
+/* What the board stores over its configured identity, field by field. */
+OPENSC2_TEST(identity_override)
+{
+	const struct opensc2_identity base = test_identity();
+	struct osc2_id_override stored;
+	struct opensc2_identity value, in_use;
+
+	/* opensc2_init() and opensc2_identity_store() take only the fields that are set. */
+	memset(&value, 0, sizeof(value));
+	CHECK_EQ(osc2_id_fields_set(&value), 0);
+	value.board_revision = 0x48;
+	CHECK_EQ(osc2_id_fields_set(&value), OSC2_ID_REV);
+	CHECK_EQ(osc2_id_fields_set(&base), OSC2_ID_ALL);
+
+	/* The test plan's run A, then run C: `id set blbuild 0x68D2F92E`, later `id set blbuild 0`.
+	 * The 0 is stored and used, not the old value. */
+	memset(&stored, 0, sizeof(stored));
+	memset(&value, 0, sizeof(value));
+	value.bootloader_build_time = 0x68D2F92E;
+	osc2_id_override_set(&stored, OSC2_ID_BL_BUILD, &value);
+	value.bootloader_build_time = 0;
+	osc2_id_override_set(&stored, OSC2_ID_BL_BUILD, &value);
+	CHECK_EQ(stored.mask, OSC2_ID_BL_BUILD);
+	in_use = base;
+	osc2_id_apply(&in_use, &stored);
+	CHECK_EQ(in_use.bootloader_build_time, 0);
+	CHECK_EQ(in_use.build_time, base.build_time);   /* fields not stored keep the base */
+	CHECK_EQ(in_use.board_revision, base.board_revision);
+	CHECK(strcmp(in_use.unit_serial, base.unit_serial) == 0);
+
+	/* Another field later: the first one stays stored. opensc2_identity_store()'s rule with
+	 * nothing set (all zero) changes nothing. */
+	value.board_revision = 0x4B;
+	osc2_id_override_set(&stored, OSC2_ID_REV, &value);
+	memset(&value, 0, sizeof(value));
+	osc2_id_override_set(&stored, osc2_id_fields_set(&value), &value);
+	CHECK_EQ(stored.mask, OSC2_ID_BL_BUILD | OSC2_ID_REV);
+	in_use = base;
+	osc2_id_apply(&in_use, &stored);
+	CHECK_EQ(in_use.board_revision, 0x4B);
+	CHECK_EQ(in_use.bootloader_build_time, 0);
+
+	/* Copying takes exactly the fields named, zero or empty included. */
+	in_use = base;
+	osc2_id_copy(&in_use, &value, OSC2_ID_GIT | OSC2_ID_BUILD);
+	CHECK_EQ(in_use.git_revision[0], 0);
+	CHECK_EQ(in_use.build_time, 0);
+	CHECK_EQ(in_use.product_id, 0x1302);
+	CHECK(strcmp(in_use.product_name, "Steam Controller") == 0);
+
+	/* A stored name replaces the configured one, like any field; the clear (an empty override)
+	 * brings the configured one back. The settings key opensc2/id has no room for it. */
+	memset(&value, 0, sizeof(value));
+	memcpy(value.product_name, "Bench Pad", 9);
+	CHECK_EQ(osc2_id_fields_set(&value), OSC2_ID_NAME);
+	osc2_id_override_set(&stored, OSC2_ID_NAME, &value);
+	in_use = base;
+	osc2_id_apply(&in_use, &stored);
+	CHECK(strcmp(in_use.product_name, "Bench Pad") == 0);
+	CHECK_EQ(in_use.bootloader_build_time, 0);   /* the 0 stored above stays */
+	memset(&stored, 0, sizeof(stored));
+	in_use = base;
+	osc2_id_apply(&in_use, &stored);
+	CHECK(strcmp(in_use.product_name, "Steam Controller") == 0);
+	CHECK_EQ(OSC2_ID_ALL & ~OSC2_ID_BLOB_FIELDS, OSC2_ID_NAME);
+}
+
+/* The shell's `opensc2 id set <field> <value>`: field names and values. */
+OPENSC2_TEST(identity_shell_values)
+{
+	struct opensc2_identity id;
+
+	CHECK_EQ(osc2_id_field("unit"), OSC2_ID_UNIT);
+	CHECK_EQ(osc2_id_field("board"), OSC2_ID_BOARD);
+	CHECK_EQ(osc2_id_field("git"), OSC2_ID_GIT);
+	CHECK_EQ(osc2_id_field("pid"), OSC2_ID_PID);
+	CHECK_EQ(osc2_id_field("rev"), OSC2_ID_REV);
+	CHECK_EQ(osc2_id_field("build"), OSC2_ID_BUILD);
+	CHECK_EQ(osc2_id_field("blbuild"), OSC2_ID_BL_BUILD);
+	CHECK_EQ(osc2_id_field("name"), OSC2_ID_NAME);
+	CHECK_EQ(osc2_id_field("serial"), 0);
+	CHECK_EQ(osc2_id_field("Build"), 0);
+	CHECK_EQ(osc2_id_field("product"), 0);
+
+	/* Numbers: 0x and one to eight hex digits (either case), or a lone 0. */
+	memset(&id, 0, sizeof(id));
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "0x6A628345", &id), 0);
+	CHECK_EQ(id.build_time, 0x6A628345u);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "0X6ac686b3", &id), 0);
+	CHECK_EQ(id.build_time, 0x6AC686B3u);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_REV, "0x48", &id), 0);
+	CHECK_EQ(id.board_revision, 0x48);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BL_BUILD, "0x68D2F92E", &id), 0);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BL_BUILD, "0", &id), 0);
+	CHECK_EQ(id.bootloader_build_time, 0);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "0xFFFFFFFF", &id), 0);
+	CHECK_EQ(id.build_time, 0xFFFFFFFFu);
+
+	/* Refused, the field unchanged: a value typed without its 0x (it would have read as decimal
+	 * 6), a stray character (it would have been cut to 0x06A62834), nine digits, nothing after
+	 * the 0x, signs, spaces, a decimal number, "00", nothing at all. */
+	id.build_time = 0x6A628345;
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "6A628345", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "0x6A62834G", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "0x16A628345", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "0x", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "-0x1", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, " 0x1", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "0x1 ", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "1790000000", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "00", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BUILD, "", &id), -EINVAL);
+	CHECK_EQ(id.build_time, 0x6A628345u);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_REV, "72", &id), -EINVAL);   /* not read as 0x72 */
+	CHECK_EQ(id.board_revision, 0x48);
+
+	/* The product ID has 16 bits. */
+	CHECK_EQ(osc2_id_parse(OSC2_ID_PID, "0x1302", &id), 0);
+	CHECK_EQ(id.product_id, 0x1302);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_PID, "0x10000", &id), -EINVAL);
+	CHECK_EQ(id.product_id, 0x1302);
+
+	/* Strings, checked whole; only the named field is written. */
+	CHECK_EQ(osc2_id_parse(OSC2_ID_UNIT, "ABC0123456789", &id), 0);
+	CHECK(strcmp(id.unit_serial, "ABC0123456789") == 0);
+	CHECK_EQ(id.board_serial[0], 0);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BOARD, "ABC012345678", &id), -EINVAL);    /* 12 */
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BOARD, "ABC01234567890", &id), -EINVAL);  /* 14 */
+	CHECK_EQ(osc2_id_parse(OSC2_ID_BOARD, "abc0123456789", &id), -EINVAL);
+	CHECK_EQ(id.board_serial[0], 0);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_GIT, "opensc2-0.2", &id), 0);
+	CHECK(strcmp(id.git_revision, "opensc2-0.2") == 0);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_GIT, "x", &id), 0);
+	CHECK(strcmp(id.git_revision, "x") == 0);                 /* nothing left of the longer one */
+	CHECK_EQ(osc2_id_parse(OSC2_ID_GIT, "1234567890123", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_GIT, "has space", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_GIT, "", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(0, "0x1", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_UNIT | OSC2_ID_REV, "0x1", &id), -EINVAL);
+
+	/* The product name as the shell hands it over: a quoted name is one argument, spaces and
+	 * all. A shorter name leaves nothing of the longer one; a refused one changes nothing. */
+	CHECK_EQ(osc2_id_parse(OSC2_ID_NAME, "My Steam Controller", &id), 0);
+	CHECK(strcmp(id.product_name, "My Steam Controller") == 0);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_NAME, "Pad", &id), 0);
+	CHECK(memcmp(id.product_name, "Pad\0\0\0\0", 7) == 0);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_NAME, "", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_NAME, " Pad", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_NAME, "Pad\x01", &id), -EINVAL);
+	CHECK_EQ(osc2_id_parse(OSC2_ID_NAME, "12345678901234567890123456789012", &id), -EINVAL);
+	CHECK(strcmp(id.product_name, "Pad") == 0);
+	CHECK_EQ(osc2_id_fields_set(&id) & OSC2_ID_NAME, OSC2_ID_NAME);
+
+	/* The forced-update floor the shell refuses without "force". */
+	CHECK_EQ(OSC2_BUILD_TIME_FLOOR, 0x6A18D057u);
 }
 
 OPENSC2_TEST(attributes)
@@ -479,7 +663,57 @@ OPENSC2_TEST(output_pcm)
 
 /* ---- lizard mode, settings, fusion ----------------------------------------------------------- */
 
-OPENSC2_TEST(lizard)
+#define LZ_STEP(lz, s, kb, mouse) opensc2_lizard_step(&(lz), &(s), 3, kb, mouse)
+
+OPENSC2_TEST(lizard_keyboard)
+{
+	static const uint8_t none[6];
+	struct opensc2_lizard lz;
+	struct opensc2_state s;
+	uint8_t kb[9], mouse[6];
+
+	opensc2_lizard_reset(&lz);
+	memset(&s, 0, sizeof(s));
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+
+	s.buttons = OPENSC2_BTN_A | OPENSC2_BTN_DPAD_LEFT;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[0], 0x41);
+	CHECK_EQ(kb[1], 0);      /* no modifiers */
+	CHECK_EQ(kb[3], 0x28);   /* Enter */
+	CHECK_EQ(kb[4], 0x50);   /* left arrow */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);   /* unchanged: nothing new */
+
+	/* Every held button takes a slot in bit order, 0 when it has no key: A + X = 28 00. */
+	s.buttons = OPENSC2_BTN_A | OPENSC2_BTN_X;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x28);
+	CHECK_EQ(kb[4], 0x00);
+	CHECK(memcmp(&kb[5], none, 4) == 0);
+	/* An unmapped button changing alone sends nothing. */
+	s.buttons |= OPENSC2_BTN_Y;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	/* B and VIEW are both Escape, twice. */
+	s.buttons = OPENSC2_BTN_B | OPENSC2_BTN_VIEW;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x29);
+	CHECK_EQ(kb[4], 0x29);
+	/* More than six held buttons of any kind: roll-over in every slot. */
+	s.buttons = OPENSC2_BTN_A | OPENSC2_BTN_B | OPENSC2_BTN_X | OPENSC2_BTN_Y |
+		    OPENSC2_BTN_QAM | OPENSC2_BTN_R3 | OPENSC2_BTN_MENU;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	for (int i = 3; i < 9; i++) {
+		CHECK_EQ(kb[i], 0x01);
+	}
+	/* D-pad and MENU. */
+	s.buttons = OPENSC2_BTN_DPAD_UP | OPENSC2_BTN_DPAD_DOWN | OPENSC2_BTN_MENU;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x51);   /* down is bit 10 */
+	CHECK_EQ(kb[4], 0x52);   /* up, bit 13 */
+	CHECK_EQ(kb[5], 0x2B);   /* MENU = Tab, bit 14 */
+}
+
+OPENSC2_TEST(lizard_mouse)
 {
 	struct opensc2_lizard lz;
 	struct opensc2_state s;
@@ -487,28 +721,107 @@ OPENSC2_TEST(lizard)
 
 	opensc2_lizard_reset(&lz);
 	memset(&s, 0, sizeof(s));
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, kb, mouse), 0);
+	s.pad[OPENSC2_RIGHT].touched = true;   /* touch-down: no motion yet */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
 
-	s.buttons = OPENSC2_BTN_A | OPENSC2_BTN_DPAD_LEFT;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
-	CHECK_EQ(kb[0], 0x41);
-	CHECK_EQ(kb[3], 0x28);   /* Enter */
-	CHECK_EQ(kb[4], 0x50);   /* left arrow */
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, kb, mouse), 0);   /* unchanged: nothing new */
-
-	s.buttons = OPENSC2_CLICK_RIGHT_TRIGGER;
-	s.pad[OPENSC2_RIGHT].touched = true;
-	s.pad[OPENSC2_RIGHT].x = 0;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, kb, mouse),
-		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
-	CHECK_EQ(kb[3], 0);
+	/* 128 pad units per pointer count; pad up (positive) moves the pointer up (negative Y). */
+	s.pad[OPENSC2_RIGHT].x = 1280;
+	s.pad[OPENSC2_RIGHT].y = 640;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);
 	CHECK_EQ(mouse[0], 0x40);
-	CHECK_EQ(mouse[1], 1);
-	s.pad[OPENSC2_RIGHT].x = 640;    /* 10 pointer steps to the right */
-	s.pad[OPENSC2_RIGHT].y = 640;    /* finger up: pointer up */
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, kb, mouse), OPENSC2_LIZARD_MOUSE);
 	CHECK_EQ((int8_t)mouse[2], 10);
-	CHECK_EQ((int8_t)mouse[3], -10);
+	CHECK_EQ((int8_t)mouse[3], -5);
+	/* No motion: one all-zero report, then quiet. */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ(mouse[1] | mouse[2] | mouse[3] | mouse[4] | mouse[5], 0);
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+
+	/* The remainder of the division is kept, also across a lift-off. */
+	s.pad[OPENSC2_RIGHT].x += 100;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	s.pad[OPENSC2_RIGHT].touched = false;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	s.pad[OPENSC2_RIGHT].touched = true;
+	s.pad[OPENSC2_RIGHT].x = -5000;   /* touch-down elsewhere: no jump */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	s.pad[OPENSC2_RIGHT].x += 28;     /* 100 kept + 28 = one count */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ((int8_t)mouse[2], 1);
+	(void)LZ_STEP(lz, s, kb, mouse);   /* the zero report */
+
+	/* The left pad scrolls, 1024 units per step: up gives a negative wheel, right a positive pan. */
+	s.pad[OPENSC2_LEFT].touched = true;
+	(void)LZ_STEP(lz, s, kb, mouse);
+	s.pad[OPENSC2_LEFT].y = 1024;
+	s.pad[OPENSC2_LEFT].x = 2048;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ((int8_t)mouse[4], -1);
+	CHECK_EQ((int8_t)mouse[5], 2);
+	(void)LZ_STEP(lz, s, kb, mouse);
+
+	/* A held button repeats every frame. */
+	s.buttons = OPENSC2_CLICK_RIGHT_TRIGGER | OPENSC2_CLICK_LEFT_TRIGGER;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ(mouse[1], 3);
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ(mouse[1], 3);
+	s.buttons = 0;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);   /* the release */
+	CHECK_EQ(mouse[1], 0);
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+
+	/* A thumb on the right stick (setting 82, bit 1) blanks the right pad. */
+	s.buttons = OPENSC2_TOUCH_RIGHT_STICK;
+	s.pad[OPENSC2_RIGHT].x += 6400;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+}
+
+OPENSC2_TEST(lizard_transitions)
+{
+	struct opensc2_lizard lz;
+	struct opensc2_state s;
+	uint8_t kb[9], mouse[6];
+
+	opensc2_lizard_reset(&lz);
+	memset(&s, 0, sizeof(s));
+	s.pad[OPENSC2_RIGHT].touched = true;
+	(void)LZ_STEP(lz, s, kb, mouse);
+	s.pad[OPENSC2_RIGHT].x = 100;   /* leaves a remainder */
+	(void)LZ_STEP(lz, s, kb, mouse);
+
+	/* Off: an empty keyboard report and an all-zero mouse report, then nothing. */
+	memset(kb, 0xEE, sizeof(kb));
+	memset(mouse, 0xEE, sizeof(mouse));
+	CHECK_EQ(opensc2_lizard_leave(&lz, kb, mouse),
+		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ(kb[0], 0x41);
+	CHECK_EQ(kb[1] | kb[2] | kb[3] | kb[4] | kb[5] | kb[6] | kb[7] | kb[8], 0);
+	CHECK_EQ(mouse[0], 0x40);
+	CHECK_EQ(mouse[1] | mouse[2] | mouse[3] | mouse[4] | mouse[5], 0);
+	s.buttons = OPENSC2_BTN_A | OPENSC2_CLICK_RIGHT_TRIGGER;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	CHECK_EQ(opensc2_lizard_leave(&lz, kb, mouse), 0);   /* already off */
+
+	/* On: the zero mouse and empty keyboard reports; held keys wait for the next change; the
+	 * remainder is gone. */
+	CHECK_EQ(opensc2_lizard_enter(&lz, kb, mouse),
+		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
+	s.buttons = OPENSC2_BTN_A;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	s.buttons = OPENSC2_BTN_A | OPENSC2_BTN_B;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x28);
+	CHECK_EQ(kb[4], 0x29);
+	s.pad[OPENSC2_RIGHT].x += 28;   /* would make a count with the old remainder */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse) & OPENSC2_LIZARD_MOUSE, 0);
+
+	/* The switches alone (0x81 lowers them, 0x85 raises them): no keyboard and no mouse
+	 * buttons while down; motion stays. */
+	opensc2_lizard_switches(&lz, false);
+	s.buttons = OPENSC2_BTN_B | OPENSC2_CLICK_RIGHT_TRIGGER;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	opensc2_lizard_switches(&lz, true);
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);   /* the button counts again */
 }
 
 OPENSC2_TEST(settings_defaults)

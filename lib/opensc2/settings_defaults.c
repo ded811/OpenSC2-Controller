@@ -2,8 +2,10 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * settings_defaults.c: defaults of the controller settings, from the published documentation of
- * the controller's settings table. Numbers it gives no default for start at 0.
+ * settings_defaults.c: defaults and ranges of the controller settings. The defaults and the ranges
+ * of 36 and 68 are the published documentation's (docs/protocol.md lists the pages); the other
+ * ranges come from the same authors' study of the controller's firmware (not yet on the published
+ * pages). Numbers with no known default start at 0; numbers with no known range are not clamped.
  */
 #include <opensc2/settings.h>
 
@@ -43,6 +45,24 @@ static const struct setting_default defaults[] = {
 	{ OPENSC2_SETTING_IMU_THRESHOLD, 100 },
 };
 
+/* The known ranges (36 and 68 from the published documentation, the others from the same authors'
+ * study of the controller's firmware, not yet on the published pages); vendor command 0x87 clamps
+ * to them. */
+static const struct {
+	uint8_t number;
+	int16_t min, max;
+} ranges[] = {
+	{ OPENSC2_SETTING_LIZARD_MODE, 0, 1 },
+	{ OPENSC2_SETTING_MOMENTUM_MIN_VEL, 0, 1000 },
+	{ OPENSC2_SETTING_MOMENTUM_DECAY, 1, 1000 },
+	{ OPENSC2_SETTING_HAPTIC_INCREMENT, 0, 32767 },
+	{ OPENSC2_SETTING_IR_LED_BRIGHTNESS, 0, 100 },
+	{ OPENSC2_SETTING_LED_BRIGHTNESS, 0, 100 },
+	{ OPENSC2_SETTING_TRIGGER_THRESHOLD, 40, 99 },
+	{ OPENSC2_SETTING_HAPTICS_ENABLED, 0, 2 },
+	{ OPENSC2_SETTING_STEAM_WATCHDOG, 0, 1 },
+};
+
 int16_t opensc2_setting_default(uint8_t number)
 {
 	for (unsigned int i = 0; i < sizeof(defaults) / sizeof(defaults[0]); i++) {
@@ -51,4 +71,15 @@ int16_t opensc2_setting_default(uint8_t number)
 		}
 	}
 	return 0;
+}
+
+int16_t opensc2_setting_clamp(uint8_t number, int16_t value)
+{
+	for (unsigned int i = 0; i < sizeof(ranges) / sizeof(ranges[0]); i++) {
+		if (ranges[i].number == number) {
+			return value < ranges[i].min ? ranges[i].min :
+			       value > ranges[i].max ? ranges[i].max : value;
+		}
+	}
+	return value;
 }

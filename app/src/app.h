@@ -15,8 +15,12 @@ int inputs_init(void);
 
 /* status.c: the status LED, and an RGB LED that follows Steam's colour if one is wired. */
 int status_init(void);
+void status_mode(enum opensc2_mode mode);
 void status_link(enum opensc2_link_state state);
+void status_usb(enum opensc2_usb_state state);
 void status_led(const struct opensc2_led *led);
+/* Wired, the pairing button held 3 s: the LED stays dark ("release now") while `on`. */
+void status_hold_cue(bool on);
 
 /* rumble.c: a vibration motor or LRA driver on a PWM channel, if one is wired. */
 int rumble_init(void);
@@ -30,7 +34,7 @@ int trackpad_init(void);
 int imu_init(void);
 
 /* main.c */
-void app_pair_button(void);
+void app_pair_button(bool pressed);
 void app_button_pressed(void);
 
 #endif /* APP_H_ */

@@ -2,7 +2,8 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * core.c: initialisation, the input state, identity, settings and the other public setters.
+ * core.c: initialisation, the input state, identity, settings, the Steam watchdog, power requests
+ * and the other public setters.
  */
 #include <errno.h>
 #include <stdio.h>
@@ -13,23 +14,52 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "test_hooks.h"
 
 LOG_MODULE_REGISTER(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 BUILD_ASSERT(CONFIG_ESB_MAX_PAYLOAD_LENGTH >= 128,
-	     "OpenSC2 needs CONFIG_ESB_MAX_PAYLOAD_LENGTH=128: the puck sends packets of up to 128 bytes");
+	     "OpenSC2 needs CONFIG_ESB_MAX_PAYLOAD_LENGTH of 128 or more: the puck sends packets "
+	     "of up to 128 bytes");
+
+/* The identity's Kconfig defaults, which opensc2_init() checks at boot (opensc2_identity_check())
+ * and refuses when one is invalid. CMakeLists.txt checks the strings by the same rules at build
+ * time, characters and lengths; the asserts here check the lengths and the product ID. */
+BUILD_ASSERT(CONFIG_OPENSC2_PRODUCT_ID != 0,
+	     "CONFIG_OPENSC2_PRODUCT_ID must not be 0 (the Steam Controller 2 is 0x1302)");
 BUILD_ASSERT(sizeof(CONFIG_OPENSC2_UNIT_SERIAL) == OPENSC2_SERIAL_LEN + 1,
 	     "CONFIG_OPENSC2_UNIT_SERIAL must be exactly 13 characters (0-9, A-Z)");
 BUILD_ASSERT(sizeof(CONFIG_OPENSC2_BOARD_SERIAL) == OPENSC2_SERIAL_LEN + 1,
 	     "CONFIG_OPENSC2_BOARD_SERIAL must be exactly 13 characters (0-9, A-Z)");
-BUILD_ASSERT(sizeof(CONFIG_OPENSC2_GIT_REVISION) <= OPENSC2_GIT_REVISION_MAX + 1,
-	     "CONFIG_OPENSC2_GIT_REVISION must be at most 12 characters");
+BUILD_ASSERT(sizeof(CONFIG_OPENSC2_GIT_REVISION) >= 2 &&
+	     sizeof(CONFIG_OPENSC2_GIT_REVISION) <= OPENSC2_GIT_REVISION_MAX + 1,
+	     "CONFIG_OPENSC2_GIT_REVISION must be 1 to 12 characters");
+
+/* The identity's product name: the wired device's USB product string. A build without USB never
+ * shows it, and keeps the real controller's. */
+#if defined(CONFIG_OPENSC2_USB_PRODUCT)
+#define DEFAULT_PRODUCT_NAME CONFIG_OPENSC2_USB_PRODUCT
+#else
+#define DEFAULT_PRODUCT_NAME "Steam Controller"
+#endif
+BUILD_ASSERT(sizeof(DEFAULT_PRODUCT_NAME) >= 2 &&
+	     sizeof(DEFAULT_PRODUCT_NAME) <= OPENSC2_PRODUCT_NAME_MAX + 1,
+	     "CONFIG_OPENSC2_USB_PRODUCT must be 1 to 31 characters");
 
 #if CONFIG_OPENSC2_BUILD_TIME != 0
 #define DEFAULT_BUILD_TIME ((uint32_t)CONFIG_OPENSC2_BUILD_TIME)
 #else
 #define DEFAULT_BUILD_TIME ((uint32_t)OPENSC2_CMAKE_BUILD_TIME)   /* when the build was configured */
 #endif
+
+/* A deliberate test below the floor stores its value at run time (`opensc2 id set build ...
+ * force`); a default there would make every board built with it a forced-update case. */
+BUILD_ASSERT(DEFAULT_BUILD_TIME > OSC2_BUILD_TIME_FLOOR,
+	     "The build time (CONFIG_OPENSC2_BUILD_TIME, or with 0 this machine's clock) is at or "
+	     "before 0x6A18D057: Steam would force an update into a bootloader this board does not "
+	     "have");
+
+#define WATCHDOG_MS 10000   /* Steam must repeat "lizard off" this often */
 
 struct osc2_ctx osc2;
 
@@ -52,6 +82,7 @@ static void kconfig_identity(struct opensc2_identity *id)
 	copy_string(id->unit_serial, sizeof(id->unit_serial), CONFIG_OPENSC2_UNIT_SERIAL);
 	copy_string(id->board_serial, sizeof(id->board_serial), CONFIG_OPENSC2_BOARD_SERIAL);
 	copy_string(id->git_revision, sizeof(id->git_revision), CONFIG_OPENSC2_GIT_REVISION);
+	copy_string(id->product_name, sizeof(id->product_name), DEFAULT_PRODUCT_NAME);
 	id->product_id = CONFIG_OPENSC2_PRODUCT_ID;
 	id->board_revision = CONFIG_OPENSC2_BOARD_REVISION;
 	id->build_time = DEFAULT_BUILD_TIME;
@@ -71,77 +102,20 @@ static void kconfig_identity(struct opensc2_identity *id)
 #endif
 }
 
-/* Fields of `over` that are set replace those of `id`; returns which ones were set. */
-static uint8_t overlay_identity(struct opensc2_identity *id, const struct opensc2_identity *over)
-{
-	uint8_t mask = 0;
-
-	if (over->unit_serial[0]) {
-		memcpy(id->unit_serial, over->unit_serial, sizeof(id->unit_serial));
-		mask |= OSC2_ID_UNIT;
-	}
-	if (over->board_serial[0]) {
-		memcpy(id->board_serial, over->board_serial, sizeof(id->board_serial));
-		mask |= OSC2_ID_BOARD;
-	}
-	if (over->git_revision[0]) {
-		memcpy(id->git_revision, over->git_revision, sizeof(id->git_revision));
-		mask |= OSC2_ID_GIT;
-	}
-	if (over->product_id) {
-		id->product_id = over->product_id;
-		mask |= OSC2_ID_PID;
-	}
-	if (over->board_revision) {
-		id->board_revision = over->board_revision;
-		mask |= OSC2_ID_REV;
-	}
-	if (over->build_time) {
-		id->build_time = over->build_time;
-		mask |= OSC2_ID_BUILD;
-	}
-	if (over->bootloader_build_time) {
-		id->bootloader_build_time = over->bootloader_build_time;
-		mask |= OSC2_ID_BL_BUILD;
-	}
-	return mask;
-}
-
-static void apply_masked(struct opensc2_identity *id, const struct osc2_id_override *o)
-{
-	if (o->mask & OSC2_ID_UNIT) {
-		memcpy(id->unit_serial, o->id.unit_serial, sizeof(id->unit_serial));
-	}
-	if (o->mask & OSC2_ID_BOARD) {
-		memcpy(id->board_serial, o->id.board_serial, sizeof(id->board_serial));
-	}
-	if (o->mask & OSC2_ID_GIT) {
-		memcpy(id->git_revision, o->id.git_revision, sizeof(id->git_revision));
-	}
-	if (o->mask & OSC2_ID_PID) {
-		id->product_id = o->id.product_id;
-	}
-	if (o->mask & OSC2_ID_REV) {
-		id->board_revision = o->id.board_revision;
-	}
-	if (o->mask & OSC2_ID_BUILD) {
-		id->build_time = o->id.build_time;
-	}
-	if (o->mask & OSC2_ID_BL_BUILD) {
-		id->bootloader_build_time = o->id.bootloader_build_time;
-	}
-}
-
 void osc2_identity_refresh(void)
 {
 	struct opensc2_identity id = osc2.base;
 	k_spinlock_key_t key;
 
-	apply_masked(&id, &osc2.stored);
+	osc2_id_apply(&id, &osc2.stored);
 	if (opensc2_identity_check(&id) != 0) {
 		LOG_ERR("The stored identity is not valid (0x%x): using the configured one",
 			opensc2_identity_check(&id));
 		id = osc2.base;
+	}
+	if (id.build_time <= OSC2_BUILD_TIME_FLOOR) {
+		LOG_WRN("Build time 0x%08x: Steam forces an update on controllers at or below 0x%08x",
+			id.build_time, OSC2_BUILD_TIME_FLOOR);
 	}
 	key = k_spin_lock(&osc2.lock);
 	osc2.identity = id;
@@ -156,21 +130,25 @@ void opensc2_identity_get(struct opensc2_identity *identity)
 	k_spin_unlock(&osc2.lock, key);
 }
 
-int opensc2_identity_store(const struct opensc2_identity *identity)
+int osc2_identity_store_fields(uint8_t fields, const struct opensc2_identity *value)
 {
 	struct osc2_id_override next = osc2.stored;
 	struct opensc2_identity check = osc2.base;
-	uint8_t mask;
 
-	mask = overlay_identity(&next.id, identity);
-	next.mask |= mask;
-	apply_masked(&check, &next);
+	osc2_id_override_set(&next, fields, value);
+	osc2_id_apply(&check, &next);
 	if (opensc2_identity_check(&check) != 0) {
 		return -EINVAL;
 	}
 	osc2.stored = next;
 	osc2_identity_refresh();
 	return osc2_storage_save_identity();
+}
+
+int opensc2_identity_store(const struct opensc2_identity *identity)
+{
+	/* Only the fields that are set: an empty or zero field keeps what is there. */
+	return osc2_identity_store_fields(osc2_id_fields_set(identity), identity);
 }
 
 int opensc2_identity_clear(void)
@@ -182,13 +160,28 @@ int opensc2_identity_clear(void)
 
 /* ---- settings, LED, chime -------------------------------------------------------------------- */
 
-void osc2_settings_restore_defaults(void)
+void osc2_settings_restore_defaults(bool keep_imu)
 {
+	static const uint8_t imu[] = { OPENSC2_SETTING_IMU_MODE, OPENSC2_SETTING_IMU_BIAS,
+				       OPENSC2_SETTING_IMU_THRESHOLD };
+	int16_t kept[ARRAY_SIZE(imu)];
+	k_spinlock_key_t key;
+
+	for (size_t i = 0; i < ARRAY_SIZE(imu); i++) {
+		kept[i] = osc2.settings[imu[i]];
+	}
 	for (int i = 0; i < OPENSC2_SETTINGS_COUNT; i++) {
 		osc2.settings[i] = opensc2_setting_default((uint8_t)i);
 	}
+	if (keep_imu) {
+		for (size_t i = 0; i < ARRAY_SIZE(imu); i++) {
+			osc2.settings[imu[i]] = kept[i];
+		}
+	}
+	key = k_spin_lock(&osc2.lock);
 	osc2.led.override = false;
 	osc2.led.brightness = (uint8_t)osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS];
+	k_spin_unlock(&osc2.lock, key);
 }
 
 int16_t opensc2_setting_get(uint8_t number)
@@ -199,11 +192,6 @@ int16_t opensc2_setting_get(uint8_t number)
 bool opensc2_lizard_mode(void)
 {
 	return osc2.settings[OPENSC2_SETTING_LIZARD_MODE] != 0;
-}
-
-void osc2_watchdog_kick(void)
-{
-	osc2.watchdog_kick_ms = k_uptime_get();
 }
 
 void opensc2_led_get(struct opensc2_led *led)
@@ -219,6 +207,7 @@ void osc2_notify_led(void)
 	struct opensc2_led led;
 
 	opensc2_led_get(&led);
+	osc2_test_note_led(&led);
 	if (osc2.cb && osc2.cb->led) {
 		osc2.cb->led(&led, osc2.user_data);
 	}
@@ -229,24 +218,119 @@ uint8_t opensc2_chime_level(void)
 	return osc2.chime;
 }
 
+/* ---- the Steam watchdog: a one-shot 10 s timer in the system work queue, whatever the link ---- */
+
+static void watchdog_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+#if defined(CONFIG_OPENSC2_STEAM_WATCHDOG)
+	if (osc2.settings[OPENSC2_SETTING_LIZARD_MODE] != 0) {
+		return;   /* lizard mode is on: nothing to bring back */
+	}
+	LOG_INF("Steam went quiet: lizard mode on, settings back to their defaults");
+	osc2_usblog("watchdog: lizard mode on, settings back to their defaults");
+	osc2_lizard_switches(true);
+	osc2_settings_restore_defaults(true);
+	osc2_lizard_set(true);
+	osc2_test_note_setting(OPENSC2_SETTINGS_ALL, 0);
+	if (osc2.cb && osc2.cb->setting_changed) {
+		osc2.cb->setting_changed(OPENSC2_SETTINGS_ALL, 0, osc2.user_data);
+	}
+	osc2_notify_led();
+#endif
+}
+static K_WORK_DELAYABLE_DEFINE(watchdog_work, watchdog_fn);
+
+void osc2_watchdog_arm(void)
+{
+	if (IS_ENABLED(CONFIG_OPENSC2_STEAM_WATCHDOG) &&
+	    osc2.settings[OPENSC2_SETTING_STEAM_WATCHDOG] != 0) {
+		k_work_reschedule(&watchdog_work, K_MSEC(WATCHDOG_MS));
+	}
+}
+
+void osc2_watchdog_cancel(void)
+{
+	(void)k_work_cancel_delayable(&watchdog_work);
+}
+
 /* ---- power requests: acted on a little later, from the system work queue --------------------- */
 
 static enum opensc2_power_request pending_power;
+static const char *pending_why;
+static const char *running_why;   /* the cause of the request being handled, else NULL */
+
+/* What the library does itself when the application has no power_request callback. */
+static void default_power(enum opensc2_power_request request)
+{
+	switch (request) {
+	case OPENSC2_POWER_REBOOT:
+	case OPENSC2_POWER_FACTORY_RESET:
+	case OPENSC2_POWER_USB_PLUGGED:
+	case OPENSC2_POWER_USB_UNPLUGGED:   /* without USB power the boot rule gives wireless */
+		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
+		break;
+	case OPENSC2_POWER_REBOOT_KEEP_LINK:
+		opensc2_reboot(OPENSC2_REBOOT_WIRELESS, NULL);
+		break;
+	default:
+		break;   /* turn-off and the bootloader: left to the application */
+	}
+}
+
+void osc2_power_now(enum opensc2_power_request request, const char *why)
+{
+	const char *text = why ? why : "";
+
+	LOG_INF("Power request %d (%s)", request, text);
+	osc2_usblog("power request %d: %s", request, text);
+	osc2_test_note_power((uint8_t)request, why);
+	running_why = why;
+	if (osc2.cb && osc2.cb->power_request) {
+		osc2.cb->power_request(request, osc2.user_data);
+	} else {
+		default_power(request);
+	}
+	running_why = NULL;
+}
 
 static void power_work_fn(struct k_work *work)
 {
 	ARG_UNUSED(work);
-	LOG_INF("Power request %d", pending_power);
-	if (osc2.cb && osc2.cb->power_request) {
-		osc2.cb->power_request(pending_power, osc2.user_data);
-	}
+	osc2_power_now(pending_power, pending_why);
 }
 static K_WORK_DELAYABLE_DEFINE(power_work, power_work_fn);
 
-void osc2_schedule_power(enum opensc2_power_request request, uint32_t delay_ms)
+void osc2_schedule_power(enum opensc2_power_request request, uint32_t delay_ms, const char *why)
 {
 	pending_power = request;
+	pending_why = why;
 	k_work_reschedule(&power_work, K_MSEC(delay_ms));
+}
+
+const char *osc2_power_reason(void)
+{
+	return running_why;
+}
+
+/* ---- links ----------------------------------------------------------------------------------- */
+
+bool osc2_link_active(enum osc2_link link)
+{
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+	if (link == OSC2_LINK_TEST) {
+		/* The test hooks' host emulation stands in for the host of the mode's real link. */
+		link = osc2_wired() ? OSC2_LINK_USB : OSC2_LINK_RADIO;
+	}
+#endif
+	if (link == OSC2_LINK_USB) {
+#if defined(CONFIG_OPENSC2_USB)
+		return osc2_wired() && osc2_usb_ready();
+#else
+		return false;
+#endif
+	}
+	return !osc2_wired() && osc2_radio_connected();
 }
 
 /* ---- input state ----------------------------------------------------------------------------- */
@@ -337,13 +421,16 @@ int opensc2_set_battery(const struct opensc2_battery *battery)
 
 int opensc2_send_report(const uint8_t *report, size_t len)
 {
+	int err;
+
 	if (len < 1 || len > 64) {
 		return -EINVAL;
 	}
-	if (!osc2_radio_connected()) {
-		return -ENOTCONN;
+	err = osc2_input_send(report, len, false);
+	if (err == 0) {
+		osc2_test_count(OSC2_TEST_CNT_APP_REPORTS_SENT);
 	}
-	return osc2_radio_queue_report(report, len);
+	return err;
 }
 
 int opensc2_send_haptic_status(uint8_t channel_id, uint32_t flags)
@@ -417,16 +504,21 @@ int opensc2_init(const struct opensc2_config *config)
 		return -EALREADY;
 	}
 	if (!config) {
+		LOG_ERR("opensc2_init() needs a configuration");
+		osc2_mode_init_failed();   /* the console, so the error can be read */
 		return -EINVAL;
 	}
 
 	kconfig_identity(&osc2.base);
 	if (config->identity) {
-		overlay_identity(&osc2.base, config->identity);
+		/* Empty and zero fields keep the Kconfig value. */
+		osc2_id_copy(&osc2.base, config->identity, osc2_id_fields_set(config->identity));
 	}
 	if (opensc2_identity_check(&osc2.base) != 0) {
 		LOG_ERR("Invalid identity (problems 0x%x): serials must be 13 characters 0-9/A-Z, "
-			"the git revision 1 to 12 characters", opensc2_identity_check(&osc2.base));
+			"the git revision 1 to 12 characters, the product name 1 to 31 printable "
+			"characters", opensc2_identity_check(&osc2.base));
+		osc2_mode_init_failed();
 		return -EINVAL;
 	}
 	if (osc2.base.product_id != OPENSC2_PRODUCT_ID) {
@@ -444,8 +536,9 @@ int opensc2_init(const struct opensc2_config *config)
 		.system_mv = 3300,
 		.input_mv = 5000,
 	};
-	osc2_settings_restore_defaults();
-	osc2_watchdog_kick();
+	osc2.policy = IS_ENABLED(CONFIG_OPENSC2_DEFAULT_POLICY_WIRELESS) ? OPENSC2_POLICY_WIRELESS :
+									   OPENSC2_POLICY_AUTO;
+	osc2_settings_restore_defaults(false);
 
 	err = osc2_storage_load();
 	if (err) {
@@ -455,21 +548,38 @@ int opensc2_init(const struct opensc2_config *config)
 		osc2.slot = config->bond_slot;
 	}
 	osc2_identity_refresh();
-	osc2_commands_reset();
+	for (int link = 0; link < OSC2_LINK_COUNT; link++) {
+		osc2_commands_reset((enum osc2_link)link);
+	}
 
-	LOG_INF("Controller %s (board %s, revision 0x%x, build 0x%08x), bond slot %u%s",
+	/* Wired or wireless: once, now, like the real controller at power-on. */
+	osc2_mode_boot(config->boot_mode);
+	osc2_report_init();
+	osc2_watchdog_arm();   /* armed at boot; lizard mode is on, so its first expiry does nothing */
+
+	LOG_INF("Controller %s (board %s, revision 0x%x, build 0x%08x), bond slot %u%s, %s",
 		osc2.identity.unit_serial, osc2.identity.board_serial, osc2.identity.board_revision,
 		osc2.identity.build_time, osc2.slot + 1,
-		opensc2_bond_valid(&osc2.bonds[osc2.slot]) ? "" : " (empty: pair first)");
+		opensc2_bond_valid(&osc2.bonds[osc2.slot]) ? "" : " (empty: pair first)",
+		osc2_wired() ? "wired" : "wireless");
 
 	osc2.initialised = true;
-	return osc2_radio_init(config->start);
+	err = osc2_radio_init(config->start && !osc2_wired());
+	if (err) {
+		LOG_ERR("The radio thread did not start (%d)", err);
+	}
+	/* USB comes up whatever happened to the radio: the wired device, or the console. */
+	osc2_mode_start(config->start);
+	return err;
 }
 
 int opensc2_start(void)
 {
 	if (!osc2.initialised) {
 		return -EACCES;
+	}
+	if (osc2_wired()) {
+		return -EBUSY;
 	}
 	osc2_radio_post(OSC2_EV_START);
 	return 0;
@@ -488,6 +598,9 @@ int opensc2_pair_start(uint16_t seconds)
 {
 	if (!osc2.initialised) {
 		return -EACCES;
+	}
+	if (osc2_wired()) {
+		return -EBUSY;
 	}
 	osc2_radio_set_pair_seconds(seconds ? seconds : CONFIG_OPENSC2_PAIRING_TIMEOUT_S);
 	osc2_radio_post(OSC2_EV_PAIR);

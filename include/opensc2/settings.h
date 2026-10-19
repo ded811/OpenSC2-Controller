@@ -66,8 +66,16 @@ extern "C" {
 #define OPENSC2_IMU_MODE_SEND_RAW_ACCEL    0x08
 #define OPENSC2_IMU_MODE_SEND_RAW_GYRO     0x10
 
-/* The default of a setting (0 for numbers the documentation gives no default for). */
+/* The default of a setting, as the published documentation gives it (docs/protocol.md lists the
+ * pages); 0 for numbers it gives no default for. */
 int16_t opensc2_setting_default(uint8_t number);
+
+/* `value` clamped to the setting's range, as vendor command 0x87 stores it. Only the settings
+ * whose range is known are clamped (9 and 71: 0..1; 11: 0..1000; 12: 1..1000; 14: 0..32767; 36 and
+ * 45: 0..100; 68: 40..99; 70: 0..2); the others keep any value. The ranges of 36 and 68 are in the
+ * published documentation, the others come from the same authors' study of the controller's
+ * firmware (not yet on the published pages). */
+int16_t opensc2_setting_clamp(uint8_t number, int16_t value);
 
 #ifdef __cplusplus
 }

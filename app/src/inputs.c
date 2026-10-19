@@ -91,9 +91,7 @@ static void on_button(struct input_event *evt, void *user_data)
 		app_button_pressed();
 	}
 	if (evt->code == OPENSC2_KEY_PAIR) {
-		if (evt->value) {
-			app_pair_button();
-		}
+		app_pair_button(evt->value != 0);
 		return;
 	}
 	/* A trigger button makes that trigger digital, unless it has an analog channel. */

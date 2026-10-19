@@ -2,8 +2,10 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * shell.c: "opensc2" shell commands: link status, pairing, bonds, the identity (stored on the
- * board, no rebuild needed) and the current input state.
+ * shell.c: "opensc2" shell commands: status, the mode and its policy, reboots, the USB session
+ * log, pairing, bonds, the identity (stored on the board, no rebuild needed; the USB product name
+ * among it, quoted when it has spaces) and the current input state. A wired board has no console
+ * (HID only): read the session log afterwards in wireless mode.
  */
 #include <errno.h>
 #include <stdlib.h>
@@ -11,9 +13,50 @@
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 #include "internal.h"
+#include "test_hooks.h"
 
 static const char *const state_names[] = { "off", "no bond", "pairing", "listening",
 					   "connected" };
+static const char *const usb_state_names[] = { "off", "attached", "no host", "configured" };
+
+static const char *mode_reason_text(enum opensc2_mode_reason reason)
+{
+	switch (reason) {
+	case OPENSC2_MODE_NO_USB_POWER:  return "no USB power";
+	case OPENSC2_MODE_USB_POWER:     return "USB power";
+	case OPENSC2_MODE_WARM_RESTART:  return "warm restart";
+	case OPENSC2_MODE_WIRED_RESTART: return "restart into wired";
+	case OPENSC2_MODE_POLICY:        return "policy wireless";
+	case OPENSC2_MODE_APP:           return "chosen at boot";
+	case OPENSC2_MODE_NO_USB:        return "no USB support";
+	case OPENSC2_MODE_USB_FAILED:    return "USB set-up failed";
+	default:                         return "?";
+	}
+}
+
+static const char *policy_text(enum opensc2_policy policy)
+{
+	return policy == OPENSC2_POLICY_WIRELESS ? "wireless" : "auto";
+}
+
+static void print_last_session(const struct shell *sh)
+{
+#if defined(CONFIG_OPENSC2_USB)
+	struct osc2_usblog_info log;
+
+	osc2_usblog_info(&log);
+	if (log.session_boot == 0) {
+		shell_print(sh, "last wired: none since the session log was set up");
+		return;
+	}
+	shell_print(sh, "last wired: boot %u, %u requests, %u stalls, %u outputs, %u reports, "
+		    "%u dropped; ended: %s", log.session_boot, log.requests, log.stalls,
+		    log.outputs, log.reports, log.dropped,
+		    log.end[0] ? log.end : "(no clean end: reset or power loss)");
+#else
+	ARG_UNUSED(sh);
+#endif
+}
 
 static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 {
@@ -27,22 +70,159 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 		return -EACCES;
 	}
 	opensc2_identity_get(&id);
-	shell_print(sh, "link:      %s (last reason %d), bond slot %u",
-		    state_names[info.state], info.reason, info.slot + 1);
-	if (info.state == OPENSC2_LINK_CONNECTED) {
-		shell_print(sh, "channels:  %u, alternates %u %u %u; protocol %u; %d dBm",
-			    info.channel, info.channels[1], info.channels[2], info.channels[3],
-			    info.protocol, info.rssi_dbm);
-		shell_print(sh, "traffic:   %u packets, %u reports, %u dropped, up %u s",
-			    info.packets, info.reports, info.dropped, info.connected_ms / 1000);
+	shell_print(sh, "mode:      %s (%s), policy %s",
+		    opensc2_mode() == OPENSC2_MODE_WIRED ? "wired" : "wireless",
+		    mode_reason_text(opensc2_mode_reason()), policy_text(opensc2_policy()));
+#if OSC2_NO_HOST_WIRELESS_MS > 0
+	shell_print(sh, "test aid:  charger test build: wired with no USB host for %u ms, it goes "
+		    "wireless (not the real controller's behaviour)",
+		    (unsigned int)OSC2_NO_HOST_WIRELESS_MS);
+#endif
+	if (opensc2_mode() == OPENSC2_MODE_WIRED) {
+		struct opensc2_usb_info usb;
+
+		opensc2_usb_info(&usb);
+		shell_print(sh, "usb:       %s%s, %u reports, %u dropped, %u requests, %u stalls",
+			    usb_state_names[usb.state], usb.suspended ? " (suspended)" : "",
+			    usb.reports, usb.dropped, usb.requests, usb.stalls);
+	} else {
+		shell_print(sh, "link:      %s (last reason %d), bond slot %u",
+			    state_names[info.state], info.reason, info.slot + 1);
+		if (info.state == OPENSC2_LINK_CONNECTED) {
+			shell_print(sh, "channels:  %u, alternates %u %u %u; protocol %u; %d dBm",
+				    info.channel, info.channels[1], info.channels[2],
+				    info.channels[3], info.protocol, info.rssi_dbm);
+			shell_print(sh, "traffic:   %u packets, %u reports, %u dropped, up %u s",
+				    info.packets, info.reports, info.dropped,
+				    info.connected_ms / 1000);
+		}
 	}
 	shell_print(sh, "lizard:    %s, IMU mode 0x%02x", opensc2_lizard_mode() ? "on" : "off",
 		    (unsigned int)opensc2_setting_get(OPENSC2_SETTING_IMU_MODE));
 	shell_print(sh, "identity:  %s / %s, pid 0x%04x, rev 0x%x, build 0x%08x, %s",
 		    id.unit_serial, id.board_serial, id.product_id, id.board_revision,
 		    id.build_time, id.git_revision);
+	print_last_session(sh);
 	return 0;
 }
+
+/* ---- mode, policy, reboot -------------------------------------------------------------------- */
+
+static int cmd_mode(const struct shell *sh, size_t argc, char **argv)
+{
+	enum opensc2_policy policy;
+	bool changed, next_wired;
+	int err;
+
+	if (argc < 2) {
+		shell_print(sh, "%s now (%s); policy %s",
+			    opensc2_mode() == OPENSC2_MODE_WIRED ? "wired" : "wireless",
+			    mode_reason_text(opensc2_mode_reason()), policy_text(opensc2_policy()));
+		return 0;
+	}
+	if (!strcmp(argv[1], "auto")) {
+		policy = OPENSC2_POLICY_AUTO;
+	} else if (!strcmp(argv[1], "wireless")) {
+		policy = OPENSC2_POLICY_WIRELESS;
+	} else {
+		shell_error(sh, "mode auto (wired at a boot with USB power) or mode wireless (never)");
+		return -EINVAL;
+	}
+	changed = policy != opensc2_policy();
+	err = opensc2_policy_set(policy);
+	if (err) {
+		shell_error(sh, "could not store it (%d)", err);
+		return err;
+	}
+	/* Reboot only for a new policy that changes the next boot's mode: confirming the policy in
+	 * use (say, wireless after a warm restart on USB power) leaves the board as it is. */
+	next_wired = IS_ENABLED(CONFIG_OPENSC2_USB) && policy == OPENSC2_POLICY_AUTO &&
+		     osc2_usb_power();
+	if (!changed || next_wired == (opensc2_mode() == OPENSC2_MODE_WIRED)) {
+		shell_print(sh, "policy %s stored", policy_text(policy));
+		return 0;
+	}
+	/* Scheduled before the message: if the terminal closes the port now, the shell waits in the
+	 * print until a terminal reads it again, and the reboot must not wait with it. */
+	opensc2_reboot_later(OPENSC2_REBOOT_PLAIN, "shell: mode", 200);
+	shell_print(sh, "policy %s stored; rebooting %s", policy_text(policy),
+		    next_wired ? "into wired mode (no console then: hold the pairing button while "
+				 "plugging in to come back wireless)" : "into wireless mode");
+	return 0;
+}
+
+static int cmd_reboot(const struct shell *sh, size_t argc, char **argv)
+{
+	enum opensc2_reboot how = OPENSC2_REBOOT_PLAIN;
+
+	if (argc > 1) {
+		if (!strcmp(argv[1], "wireless")) {
+			how = OPENSC2_REBOOT_WIRELESS;
+		} else if (!strcmp(argv[1], "wired")) {
+			how = OPENSC2_REBOOT_WIRED;
+		} else {
+			shell_error(sh, "reboot [wireless|wired]");
+			return -EINVAL;
+		}
+	}
+	/* Scheduled before the message, as for "mode" above. */
+	opensc2_reboot_later(how, "shell: reboot", 100);
+	shell_print(sh, "rebooting%s", how == OPENSC2_REBOOT_WIRELESS ? " into wireless mode" :
+				       how == OPENSC2_REBOOT_WIRED ? " into wired mode" : "");
+	return 0;
+}
+
+/* ---- the USB session log --------------------------------------------------------------------- */
+
+#if defined(CONFIG_OPENSC2_USB)
+static void print_line(const char *line, size_t len, void *ctx)
+{
+	shell_print((const struct shell *)ctx, "%.*s", (int)len, line);
+}
+
+static int cmd_usb(const struct shell *sh, size_t argc, char **argv)
+{
+	struct opensc2_usb_info usb;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	opensc2_usb_info(&usb);
+	if (opensc2_mode() == OPENSC2_MODE_WIRED) {
+		shell_print(sh, "%s%s; %u reports, %u dropped; %u requests, %u stalls, %u outputs",
+			    usb_state_names[usb.state], usb.suspended ? " (suspended)" : "",
+			    usb.reports, usb.dropped, usb.requests, usb.stalls, usb.outputs);
+	} else {
+		shell_print(sh, "not wired in this boot (USB power %s)",
+			    osc2_usb_power() ? "present" : "absent");
+	}
+	print_last_session(sh);
+	return 0;
+}
+
+static int cmd_usb_log(const struct shell *sh, size_t argc, char **argv)
+{
+	struct osc2_usblog_info log;
+
+	osc2_usblog_info(&log);
+	if (argc > 1) {
+		if (strcmp(argv[1], "clear")) {
+			shell_error(sh, "usb log [clear]");
+			return -EINVAL;
+		}
+		osc2_usblog_clear();
+		shell_print(sh, "session log cleared");
+		return 0;
+	}
+	shell_print(sh, "session log: %u of %u bytes; boot %u; the retained area %s at this boot",
+		    log.used, log.size, log.boots,
+		    log.kept ? "was kept" : "was empty (power loss, or first start)");
+	osc2_usblog_lines(print_line, (void *)sh);
+	print_last_session(sh);
+	return 0;
+}
+#endif
+
+/* ---- pairing and bonds ----------------------------------------------------------------------- */
 
 static int cmd_pair(const struct shell *sh, size_t argc, char **argv)
 {
@@ -127,6 +307,8 @@ static int cmd_forget(const struct shell *sh, size_t argc, char **argv)
 	return opensc2_bond_set((uint8_t)(slot - 1), &none);
 }
 
+/* ---- identity -------------------------------------------------------------------------------- */
+
 static int cmd_id_show(const struct shell *sh, size_t argc, char **argv)
 {
 	struct opensc2_identity id;
@@ -141,50 +323,75 @@ static int cmd_id_show(const struct shell *sh, size_t argc, char **argv)
 	shell_print(sh, "rev       0x%x", id.board_revision);
 	shell_print(sh, "build     0x%08x", id.build_time);
 	shell_print(sh, "blbuild   0x%08x", id.bootloader_build_time);
+	shell_print(sh, "name      %s", id.product_name);
 	return 0;
 }
 
+/* What a value of `field` must look like, when it does not. */
+static const char *id_value_hint(uint8_t field)
+{
+	switch (field) {
+	case OSC2_ID_UNIT:
+	case OSC2_ID_BOARD:
+		return "a serial is exactly 13 characters, 0-9 and A-Z";
+	case OSC2_ID_GIT:
+		return "1 to 12 printable characters, no spaces";
+	case OSC2_ID_PID:
+		return "the product ID in hex with 0x, at most 0xffff (0x1302: Steam Controller 2)";
+	case OSC2_ID_NAME:
+		return "1 to 31 printable ASCII characters, no space at either end; a name with spaces "
+		       "in quotes: id set name \"Steam Controller\"";
+	default:
+		return "a number in hex with 0x (0x48, 0x6a628345), or 0";
+	}
+}
+
+/* One field, stored as given (0 too): `id set <field> <value> [force]`. */
 static int cmd_id_set(const struct shell *sh, size_t argc, char **argv)
 {
 	struct opensc2_identity id = { 0 };
-	const char *field = argv[1];
-	const char *value = argv[2];
+	uint8_t field = osc2_id_field(argv[1]);
+	bool force = argc > 3 && !strcmp(argv[3], "force");
 	int err;
 
-	ARG_UNUSED(argc);
-	if (!strcmp(field, "unit") || !strcmp(field, "board")) {
-		char *dst = field[0] == 'u' ? id.unit_serial : id.board_serial;
-
-		if (strlen(value) != OPENSC2_SERIAL_LEN) {
-			shell_error(sh, "a serial is exactly 13 characters, 0-9 and A-Z");
-			return -EINVAL;
-		}
-		memcpy(dst, value, OPENSC2_SERIAL_LEN);
-	} else if (!strcmp(field, "git")) {
-		if (strlen(value) < 1 || strlen(value) > OPENSC2_GIT_REVISION_MAX) {
-			shell_error(sh, "1 to 12 characters");
-			return -EINVAL;
-		}
-		memcpy(id.git_revision, value, strlen(value));
-	} else if (!strcmp(field, "pid")) {
-		id.product_id = (uint16_t)strtoul(value, NULL, 0);
-	} else if (!strcmp(field, "rev")) {
-		id.board_revision = (uint32_t)strtoul(value, NULL, 0);
-	} else if (!strcmp(field, "build")) {
-		id.build_time = (uint32_t)strtoul(value, NULL, 0);
-	} else if (!strcmp(field, "blbuild")) {
-		id.bootloader_build_time = (uint32_t)strtoul(value, NULL, 0);
-	} else {
-		shell_error(sh, "fields: unit, board, git, pid, rev, build, blbuild");
+	if (field == 0) {
+		shell_error(sh, "fields: unit, board, git, pid, rev, build, blbuild, name");
 		return -EINVAL;
 	}
-	err = opensc2_identity_store(&id);
+	if (field == OSC2_ID_NAME && argc > 3) {
+		/* The shell splits at spaces outside quotes. */
+		shell_error(sh, "a name with spaces goes in quotes: "
+			    "id set name \"My Steam Controller\"");
+		return -EINVAL;
+	}
+	if (argc > 3 && !force) {
+		shell_error(sh, "id set <field> <value> [force]");
+		return -EINVAL;
+	}
+	if (osc2_id_parse(field, argv[2], &id) != 0) {
+		shell_error(sh, "%s", id_value_hint(field));
+		return -EINVAL;
+	}
+	if (field == OSC2_ID_BUILD && id.build_time <= OSC2_BUILD_TIME_FLOOR) {
+		if (!force) {
+			shell_error(sh, "Steam forces an update on controllers built at or before "
+				    "0x%08x, into a bootloader this board does not have: choose a "
+				    "later time, or add \"force\" to store it anyway",
+				    OSC2_BUILD_TIME_FLOOR);
+			return -EINVAL;
+		}
+		shell_warn(sh, "at or before 0x%08x: Steam will want to update this controller",
+			   OSC2_BUILD_TIME_FLOOR);
+	}
+	err = osc2_identity_store_fields(field, &id);
 	if (err == -EINVAL) {
 		shell_error(sh, "not a valid identity");
 	} else if (err) {
 		shell_error(sh, "could not store it (%d)", err);
+	} else if (field == OSC2_ID_NAME) {
+		shell_print(sh, "stored; the USB product string from the next wired boot");
 	} else {
-		shell_print(sh, "stored; new connections use it");
+		shell_print(sh, "stored; new connections use it (USB: from the next boot)");
 	}
 	return err;
 }
@@ -223,14 +430,31 @@ static int cmd_state(const struct shell *sh, size_t argc, char **argv)
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_id,
 	SHELL_CMD(show, NULL, "Show the identity in use", cmd_id_show),
 	SHELL_CMD_ARG(set, NULL,
-		      "Store one field on the board: set <unit|board|git|pid|rev|build|blbuild> "
-		      "<value>", cmd_id_set, 3, 0),
-	SHELL_CMD(clear, NULL, "Forget the stored identity", cmd_id_clear),
+		      "Store one field on the board, as given (0 too): set "
+		      "<unit|board|git|pid|rev|build|blbuild|name> <value> [force]; numbers in hex "
+		      "with 0x, or 0; a name with spaces in quotes; \"force\" for a build time Steam "
+		      "would force an update on",
+		      cmd_id_set, 3, 1),
+	SHELL_CMD(clear, NULL, "Forget the stored identity (the name too)", cmd_id_clear),
 	SHELL_SUBCMD_SET_END);
 
+#if defined(CONFIG_OPENSC2_USB)
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_usb,
+	SHELL_CMD_ARG(log, NULL, "The USB session log of the last wired sessions: log [clear]",
+		      cmd_usb_log, 1, 1),
+	SHELL_SUBCMD_SET_END);
+#endif
+
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_opensc2,
-	SHELL_CMD(status, NULL, "Link, identity and mode", cmd_status),
-	SHELL_CMD_ARG(pair, NULL, "Pair with a puck: pair [seconds]", cmd_pair, 1, 1),
+	SHELL_CMD(status, NULL, "Mode, link, identity and the last wired session", cmd_status),
+	SHELL_CMD_ARG(mode, NULL, "Show the mode, or store the policy: mode [auto|wireless]",
+		      cmd_mode, 1, 1),
+	SHELL_CMD_ARG(reboot, NULL, "Reboot: plain (back by the rule), wireless or wired once",
+		      cmd_reboot, 1, 1),
+#if defined(CONFIG_OPENSC2_USB)
+	SHELL_CMD(usb, &sub_usb, "USB state and the session log", cmd_usb),
+#endif
+	SHELL_CMD_ARG(pair, NULL, "Pair with a puck over the air: pair [seconds]", cmd_pair, 1, 1),
 	SHELL_CMD(cancel, NULL, "Cancel pairing", cmd_cancel),
 	SHELL_CMD(start, NULL, "Radio on", cmd_start),
 	SHELL_CMD(stop, NULL, "Radio off", cmd_stop),
@@ -239,6 +463,12 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_opensc2,
 	SHELL_CMD_ARG(forget, NULL, "Delete a bond: forget <1|2>", cmd_forget, 2, 0),
 	SHELL_CMD(id, &sub_id, "Identity", cmd_id_show),
 	SHELL_CMD(state, NULL, "Current input state", cmd_state),
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+	SHELL_CMD_ARG(test, NULL,
+		      "Hardware test hooks: test [<id>] sync | raw <hex> | status | arm <key> [<s>] | "
+		      "disarm | ring [<from>] | cnt | settings | inject off | battery off | seq stop",
+		      osc2_test_shell, 2, 6),
+#endif
 	SHELL_SUBCMD_SET_END);
 
 SHELL_CMD_REGISTER(opensc2, &sub_opensc2, "Steam Controller 2 emulation", NULL);

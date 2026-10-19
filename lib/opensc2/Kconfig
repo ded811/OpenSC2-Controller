@@ -1,18 +1,24 @@
 # Copyright (c) 2026 the OpenSC2-Controller authors
 # SPDX-License-Identifier: MIT
 
+DT_CHOSEN_OPENSC2_USB_HID := opensc2,usb-hid
+DT_CHOSEN_OPENSC2_RETAINED_RAM := opensc2,retained-ram
+
 menuconfig OPENSC2
-	bool "OpenSC2: act as a Steam Controller 2 towards the official puck"
+	bool "OpenSC2: act as a Steam Controller 2 towards Valve's puck"
 	depends on SOC_FAMILY_NORDIC_NRF
 	select ESB
 	select EVENTS
+	select REBOOT
 	imply ENTROPY_GENERATOR
 	help
 	  Make this board a Steam Controller 2 for an unmodified Steam Controller 2 puck, over the
-	  puck's 2.4 GHz Enhanced ShockBurst link. The library does the radio protocol, pairing and
-	  the vendor commands; the application fills in the inputs and handles the outputs. Needs
-	  CONFIG_ESB_MAX_PAYLOAD_LENGTH=128 (checked at build time). Written for and built on the
-	  nRF52840; other nRF52 chips with the same radio should work but are untested.
+	  puck's 2.4 GHz Enhanced ShockBurst link, and (OPENSC2_USB) a wired Steam Controller 2 on its
+	  USB cable. The library does the protocols, pairing and the vendor commands; the application
+	  fills in the inputs and handles the outputs. Needs the nRF Connect SDK v3.4.0 for its
+	  Enhanced ShockBurst library (CONFIG_ESB; plain Zephyr has none), and
+	  CONFIG_ESB_MAX_PAYLOAD_LENGTH=128 (128 or more, checked at build time). Written for and
+	  built on the nRF52840; other nRF52 chips with the same radio should work but are untested.
 
 if OPENSC2
 
@@ -79,31 +85,36 @@ config OPENSC2_RUMBLE_TIMEOUT_MS
 config OPENSC2_BATTERY_REPORT_INTERVAL_MS
 	int "Battery report (input report 0x43) interval, milliseconds (0 = never)"
 	default 3500
+	help
+	  From boot, on whatever link is up (the radio or USB); dropped while there is none.
 
 config OPENSC2_TRIGGER_CLICK_AUTO
 	bool "Set the triggers' digital bits from their values"
 	default y
 	help
-	  The trigger bits follow controller setting 68 (90 % by default) with 5 % hysteresis, as on
-	  the real controller. Turn off to set OPENSC2_CLICK_LEFT/RIGHT_TRIGGER yourself.
+	  The trigger bits follow controller setting 68 (90 % by default) as on the real controller:
+	  on above 5 points more, off below 5 points less. Turn off to set
+	  OPENSC2_CLICK_LEFT/RIGHT_TRIGGER yourself.
 
 config OPENSC2_LIZARD_MODE
-	bool "Lizard mode: a simple mouse and keyboard until Steam turns it off"
+	bool "Lizard mode: a mouse and keyboard until Steam turns it off"
 	default y
 	help
-	  Until Steam turns lizard mode off (controller setting 9), the right trackpad moves the
-	  mouse pointer, the left one scrolls, and A, B, the D-pad and the menu buttons type Enter,
-	  Escape, the arrows and Tab. Simplified: no pointer momentum.
+	  Until Steam turns lizard mode off (vendor command 0x81 or controller setting 9), the right
+	  trackpad moves the mouse pointer, the left one scrolls, and A, B, the D-pad and the menu
+	  buttons type Enter, Escape, the arrows and Tab, on every link. Not reproduced: the
+	  touch-down stabiliser, the motion average, pointer glide and haptic ticks.
 
 config OPENSC2_STEAM_WATCHDOG
 	bool "Turn lizard mode back on when Steam goes quiet for 10 s"
 	default y
 	help
-	  As on the real controller (controller setting 71): Steam repeats "lizard mode off" every
-	  few seconds; without it, lizard mode comes back and the settings return to their defaults.
+	  As on the real controller (controller setting 71): unless Steam repeats "lizard mode off"
+	  within 10 s, lizard mode comes back and the settings return to their defaults (the IMU
+	  mode excepted). Independent of the link: a wired board falls back too.
 
 config OPENSC2_STORAGE
-	bool "Keep bonds and the identity in Zephyr settings"
+	bool "Keep bonds, the identity and the mode policy in Zephyr settings"
 	default y
 	depends on SETTINGS
 	help
@@ -128,15 +139,262 @@ config OPENSC2_IDENTITY_VENDOR_WRITE
 	  can change the identity over the radio link. Off by default: anyone who can send feature
 	  reports to the puck could then change it.
 
+config OPENSC2_TEST_HOOKS
+	bool "Hardware test hooks: input injection, output capture, lizard guard"
+	help
+	  For OpenSC2's hardware test suite (tools/hwtest). Adds a test channel (vendor command 0x7E,
+	  guarded by a 32-bit key, on every command link) and the console command "opensc2 test".
+	  Inert until armed: an unarmed board behaves exactly as without this option, including the
+	  STALL of every unknown opcode. Arming lives in RAM, ends at every reboot and expires by
+	  itself when the PC goes quiet.
+
+	  While armed the PC can replace the application's inputs with a state of its choice (with
+	  lizard mode off, which the hooks enforce), and the board records what the library decoded
+	  or called back (rumble, haptics, LED, settings, lizard mode, power requests, vendor
+	  commands, link events) in a RAM ring. Mouse and keyboard reports never leave the board
+	  while armed: they go into the ring. The key is published with the code: it stops
+	  accidents, not an attacker. Anything that can send feature reports to the board or the
+	  puck can arm the hooks and inject controller input, which a local program or a radio
+	  impersonating the controller could do anyway. About 3 KB of RAM with the defaults.
+
+config OPENSC2_TEST_RING_SIZE
+	int "Output capture ring, bytes"
+	default 2048
+	range 512 16384
+	depends on OPENSC2_TEST_HOOKS
+
+config OPENSC2_TEST_SEQ_DEPTH
+	int "Steps of a frame-locked input sequence"
+	default 8
+	range 2 32
+	depends on OPENSC2_TEST_HOOKS
+
+# The test suite writes console lines of up to 145 characters ("opensc2 test <id> raw" and a
+# 61-byte request in hex). The shell's serial backend copies what arrives into a receive ring
+# (64 bytes by default) and drops what does not fit while the shell thread is busy: with the
+# hooks, a ring that holds a whole line. (A module's Kconfig is read before the shell's, so this
+# default comes first; an application can still set its own.)
+config SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE
+	default 256 if OPENSC2_TEST_HOOKS
+
+choice OPENSC2_DEFAULT_POLICY
+	prompt "Mode policy until one is stored"
+	default OPENSC2_DEFAULT_POLICY_AUTO
+	help
+	  What a boot with USB power does while no policy is stored on the board
+	  (opensc2_policy_set(), the shell's "opensc2 mode").
+
+config OPENSC2_DEFAULT_POLICY_AUTO
+	bool "auto: wired at a boot with USB power, as the real controller"
+
+config OPENSC2_DEFAULT_POLICY_WIRELESS
+	bool "wireless: never wired"
+
+endchoice
+
+menuconfig OPENSC2_USB
+	bool "Wired mode: a USB Steam Controller 2 (28DE:1302)"
+	default y
+	depends on $(dt_chosen_enabled,$(DT_CHOSEN_OPENSC2_USB_HID))
+	depends on USB_DEVICE_STACK_NEXT && USBD_HID_SUPPORT
+	help
+	  At a boot with USB power the board becomes a wired Steam Controller 2: one HID interface
+	  with the real controller's descriptors, the vendor commands on feature report 1 (Steam
+	  pairs the controller with its puck this way), output reports, and the state report every
+	  4.03 ms. Steam's "reboot into wireless mode" then brings it back on the radio link with
+	  the new pairing. Available when the devicetree chooses a "zephyr,hid-device" node as
+	  opensc2,usb-hid (in-report-size and out-report-size 64, polling 1000 us). The board's own
+	  CDC-ACM serial port must be off (CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT=n):
+	  OPENSC2_USB_CONSOLE replaces it in wireless mode.
+
+if OPENSC2_USB
+
+choice OPENSC2_USB_PROFILE
+	prompt "USB identity form"
+	default OPENSC2_USB_PROFILE_JULY
+	help
+	  The two forms of the real controller's USB device. They differ only in bcdUSB and the BOS
+	  descriptor, the device class, bcdDevice and the length of feature GET replies.
+
+config OPENSC2_USB_PROFILE_JULY
+	bool "July 2026 firmware: USB 2.00, class EF/02/01, release 3.07, 64-byte GET replies"
+	help
+	  The form Steam was seen pairing over the cable.
+
+config OPENSC2_USB_PROFILE_OCTOBER
+	bool "October 2026 firmware: USB 2.01 with a USB 2.0 extension, class 00/00/00, 4.04"
+	help
+	  The later form: a BOS descriptor, 63-byte GET replies. Not yet seen with Steam.
+
+endchoice
+
+config OPENSC2_USB_MANUFACTURER
+	string "USB manufacturer string"
+	default "Valve Software"
+	help
+	  The real controller's string, for hosts that look at it.
+
+config OPENSC2_USB_PRODUCT
+	string "USB product string (the default of the identity's product name)"
+	default "Steam Controller"
+	help
+	  The real controller's string. 1 to 31 printable ASCII characters, no space at either end
+	  (checked at build time and at boot). A name stored on the board ("opensc2 id set name",
+	  opensc2_identity_store()) replaces it from the next wired boot; Windows shows it. A name
+	  other than the real controller's makes the wired device differ from it.
+
+config OPENSC2_USB_THREAD_PRIORITY
+	int "USB report thread priority"
+	default 5
+
+config OPENSC2_USB_THREAD_STACK_SIZE
+	int "USB report thread stack size"
+	default 1536
+
+config OPENSC2_USB_REMOTE_WAKEUP
+	bool "STEAM wakes a suspended PC (July 2026 behaviour)"
+	help
+	  The October 2026 controller never wakes a PC over USB; the July one did when STEAM was
+	  pressed on a suspended bus (and the host allowed it).
+
+config OPENSC2_USB_PLUG_IN_REBOOT
+	bool "USB power while wireless with the link down or STEAM held: reboot to come back wired"
+	default y
+	help
+	  The real controller's rule for a cable plugged in on battery: with the link up it stays
+	  wireless and charges; with the link down, or with STEAM held while plugging in, it
+	  reboots and comes back wired. Only while the policy is auto (the policy at the moment
+	  USB power appears counts, so a change at run time applies at once), and not when the
+	  application chose the mode at boot.
+
+config OPENSC2_NO_HOST_WIRELESS_MS
+	int "TEST AID ONLY: no USB host this many ms after a wired boot -> wireless (0 = wait, as the real controller)"
+	default 0
+	range 0 60000
+	help
+	  A temporary testing aid for a board with no buttons wired, NOT the real controller's
+	  behaviour and not part of a default build: leave it 0 for anything that should behave like
+	  the real controller.
+
+	  The real controller, booted on USB power, waits until a host sets it up, or until STEAM
+	  is pressed, so on a USB charger a board without a STEAM button never connects to the puck.
+	  With a time here, a boot that is wired by the boot rule (USB power, no mark, policy auto)
+	  and that no host has sent a single control request to within that time asks for the
+	  reboot into wireless mode (OPENSC2_POWER_REBOOT_KEEP_LINK, as STEAM does), and connects
+	  through the puck while it charges. A PC sends its first request within a second of the
+	  attach, so a PC that is on never sees the difference; a PC that is asleep, or booting
+	  without touching USB, does not send one either, and gets a wireless board. Boots asked to
+	  be wired (the application, "opensc2 reboot wired") wait as before. 0, or 1000 to 60000
+	  (checked at build time). The blank canvas sets 5000 in its test build only
+	  (app/test-charger.conf).
+
+config OPENSC2_USB_CONSOLE
+	bool "In wireless mode, a CDC-ACM serial console on USB (debug IDs)"
+	default y
+	depends on DT_HAS_ZEPHYR_CDC_ACM_UART_ENABLED
+	help
+	  The log and the shell on a USB serial port with non-Valve IDs, in wireless mode only. Off:
+	  nothing appears on USB in wireless mode, like the real controller.
+
+if OPENSC2_USB_CONSOLE
+
+config OPENSC2_USB_CONSOLE_VID
+	hex "Console vendor ID"
+	default 0x2fe3
+
+config OPENSC2_USB_CONSOLE_PID
+	hex "Console product ID"
+	default 0x0004
+
+config OPENSC2_USB_CONSOLE_MANUFACTURER
+	string "Console manufacturer string"
+	default "OpenSC2"
+
+config OPENSC2_USB_CONSOLE_PRODUCT
+	string "Console product string"
+	default "OpenSC2 console"
+
+endif # OPENSC2_USB_CONSOLE
+
+config OPENSC2_USB_WIRED_CONSOLE
+	bool "Debug: add the CDC-ACM console to the wired device too"
+	depends on DT_HAS_ZEPHYR_CDC_ACM_UART_ENABLED
+	help
+	  Makes the wired device composite: HID stays interface 0, the console is interfaces 1 and
+	  2, the class becomes EF/02/01 and Windows paths gain MI_00. The real controller has no
+	  such interface: never use this to compare with it.
+
+config OPENSC2_USB_LOG
+	bool "USB session log in RAM that a soft reset keeps"
+	default y
+	help
+	  Every USB event and control request of a wired session (setup fields, opcodes, lengths,
+	  OK or STALL, hold times; never bond values or serials), readable in wireless mode with
+	  "opensc2 usb log". It survives soft, pin and watchdog resets, not a power loss. Put it
+	  in a devicetree region chosen as opensc2,retained-ram, outside the RAM the bootloader
+	  uses at a reset. The Adafruit nRF52840 UF2 bootloader (0.6.0 to 0.11.0) uses RAM from
+	  its start up to the end of its .bss (0x2000CE2C in 0.6.0, 0x2000DEC0 in 0.11.0: the
+	  SoftDevice of its OTA DFU mode below 0x20008000, its double-reset word at 0x20007F7C,
+	  then its data and bss) and its stack at 0x2003E000..0x20040000; the SuperMini overlays'
+	  region, 0x2002C000..0x20030000, is clear of both. Without a region the log is in the
+	  application's no-init RAM, which such a bootloader overwrites: the build warns.
+
+config OPENSC2_USB_LOG_SIZE
+	int "Session log size without a devicetree region, bytes"
+	default 8192
+	depends on OPENSC2_USB_LOG
+
+config OPENSC2_USB_LOG_ZEPHYR
+	bool "Copy the Zephyr log into the session log while wired"
+	default y
+	depends on OPENSC2_USB_LOG && LOG
+	help
+	  A log backend that the log thread runs: with deferred logging it needs
+	  CONFIG_LOG_PROCESS_THREAD_STACK_SIZE=1536 or more (checked at build time).
+
+config OPENSC2_USB_LOG_SETUP
+	bool "Log every control request's setup packet"
+	default y
+	depends on OPENSC2_USB_LOG
+	help
+	  Also the standard requests the USB stack answers itself (descriptors, address,
+	  configuration), by watching the USB driver's events.
+
+choice OPENSC2_WARM_MARK
+	prompt "Where the warm-restart mark is kept"
+	default OPENSC2_WARM_MARK_GPREGRET2 if SOC_SERIES_NRF52 \
+		&& !$(dt_chosen_enabled,$(DT_CHOSEN_OPENSC2_RETAINED_RAM))
+	default OPENSC2_WARM_MARK_RAM
+	help
+	  Steam's "reboot into wireless mode" works only if the mark survives the reboot. With a
+	  devicetree region chosen as opensc2,retained-ram the default is that region. Without one
+	  the retained area is in the application's no-init RAM, which a bootloader that runs at
+	  every reset (the Adafruit UF2 bootloader) overwrites, so on nRF52 the default is then
+	  GPREGRET2, which that bootloader leaves alone.
+
+config OPENSC2_WARM_MARK_RAM
+	bool "In the retained RAM area (a 32-bit value and its complement)"
+
+config OPENSC2_WARM_MARK_GPREGRET2
+	bool "In the nRF52's second retention register (GPREGRET2, one byte)"
+	depends on SOC_SERIES_NRF52
+	help
+	  For a bootloader that clears the RAM area at every reset, and the default on nRF52 when
+	  no retained RAM region is chosen.
+
+endchoice
+
+endif # OPENSC2_USB
+
 menu "Identity (defaults)"
 
 config OPENSC2_UNIT_SERIAL
 	string "Unit serial (13 characters, 0-9 and A-Z)"
 	default "OSC2DEV000001"
 	help
-	  The serial Steam shows for the controller. The default is a development serial that no
-	  real controller has. With OPENSC2_SERIAL_FROM_CHIP it is replaced by one made from the
-	  chip's unique ID.
+	  The serial Steam shows for the controller (also the USB serial string). The default is a
+	  development serial that no real controller has. With OPENSC2_SERIAL_FROM_CHIP it is
+	  replaced by one made from the chip's unique ID.
 
 config OPENSC2_BOARD_SERIAL
 	string "Board (PCBA) serial (13 characters, 0-9 and A-Z)"
@@ -151,8 +409,12 @@ config OPENSC2_SERIAL_FROM_CHIP
 	  boards never share a serial. These are development serials, not a real controller's.
 
 config OPENSC2_GIT_REVISION
-	string "Firmware revision string (1 to 12 characters)"
-	default "opensc2-0.1"
+	string "Firmware revision string (1 to 12 printable characters, no spaces)"
+	default "osc2-0.2.0"
+	help
+	  What Steam reads as the controller's firmware revision (vendor command 0xAE tag 3, and
+	  0xF2). The default names this release of the library ("osc2-X.Y.Z"); a project of your
+	  own may set its own, for example "my-ctrl-1.0". Checked at build time.
 
 config OPENSC2_PRODUCT_ID
 	hex "Product ID"
@@ -162,13 +424,29 @@ config OPENSC2_PRODUCT_ID
 
 config OPENSC2_BOARD_REVISION
 	hex "Board revision (hardware ID)"
-	default 0x4b
+	default 0x48
 	help
-	  Real controllers accept 0x45 and 0x48 to 0x4B.
+	  Attribute 9 of vendor command 0x83. Real controllers report 0x45 and 0x48 to 0x4B; 0x48
+	  (72) is the value a real controller reports and the one Steam has been seen working with
+	  ("Controller Info: HWID: 72"). The others stay selectable, here or on the board with
+	  "opensc2 id set rev".
 
 config OPENSC2_BUILD_TIME
 	hex "Firmware build time (Unix seconds); 0 = when the build was configured"
 	default 0x0
+	help
+	  Attribute 4 of vendor command 0x83. Steam offers its controller firmware update to a
+	  controller that reports an older build time than the controller firmware Steam ships
+	  (0x6AC686B3 for Steam's October 2026 controller firmware). The prompt goes away when the
+	  board reports a build time at least as new as Steam's current controller firmware
+	  (tested). With 0 the build time is the moment the build was configured (CMake honours
+	  SOURCE_DATE_EPOCH), so a fresh build is newer than any controller firmware Steam had
+	  shipped by then; a prebuilt image reports its own build time. Once Steam ships a newer
+	  controller firmware, tools/match_steam_version.py stores Steam's value on the board, no
+	  rebuild needed. Steam forces an update at or before 0x6A18D057, into a bootloader this
+	  board does not have: the build stops when this value (or, with 0, the build machine's
+	  clock) is at or before 0x6A18D057. A deliberate test of that rule stores such a value on
+	  the board instead ("opensc2 id set build <value> force").
 
 config OPENSC2_BOOTLOADER_BUILD_TIME
 	hex "Bootloader build time (Unix seconds); 0 = none"

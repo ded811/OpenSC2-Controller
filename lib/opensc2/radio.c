@@ -28,7 +28,7 @@
 #include <esb.h>
 #include <hal/nrf_radio.h>
 #include "internal.h"
-#include "lizard.h"
+#include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
@@ -36,7 +36,6 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 #define PRIMARY_WINDOW_MS     10     /* waiting on the current channel per turn */
 #define ALTERNATE_WINDOW_MS   13     /* each alternate channel during an outage */
 #define LINK_LOST_MS          500
-#define WATCHDOG_MS           10000  /* Steam must repeat "lizard off" this often */
 #define OFFER_LINGER_MS       30     /* pairing: stay on the private address after the offer */
 #define ANSWER_DEPTH          4
 
@@ -78,21 +77,16 @@ struct answer {
 	uint8_t data[63];
 };
 
-/* Per connection. */
+/* Per connection. The state report, lizard mode, the battery report, rumble and the Steam watchdog
+ * are shared with the USB link (report.c, core.c). */
 static struct {
 	uint8_t channels[4];
 	uint8_t slot;
 	uint8_t protocol;
-	uint8_t seq;
 	bool version_pending;
 	bool identity_pending;
 	bool disconnecting;
 	enum opensc2_reason disconnect_reason;
-	bool trigger_click[2];
-	bool rumble_active;
-	int64_t rumble_deadline;
-	int64_t next_battery;
-	struct opensc2_lizard lizard;
 	struct answer answers[ANSWER_DEPTH];
 	uint8_t answer_head, answer_count;
 } conn;
@@ -114,6 +108,7 @@ static void esb_handler(const struct esb_evt *evt)
 		memcpy(isr_item.data, isr_payload.data, isr_payload.length);
 		if (k_msgq_put(&osc2_rx_q, &isr_item, K_NO_WAIT) != 0) {
 			rx_overflow++;
+			osc2_test_count(OSC2_TEST_CNT_RADIO_RX_OVERFLOW);   /* atomic */
 		}
 	}
 	k_event_post(&radio_ev, OSC2_EV_RX);
@@ -292,7 +287,11 @@ int osc2_radio_queue_report(const uint8_t *report, size_t len)
 	struct extra_item item = { .len = (uint8_t)len };
 
 	memcpy(item.data, report, len);
-	return k_msgq_put(&osc2_extra_q, &item, K_NO_WAIT) ? -ENOMEM : 0;
+	if (k_msgq_put(&osc2_extra_q, &item, K_NO_WAIT) != 0) {
+		osc2_test_count(OSC2_TEST_CNT_RADIO_EXTRA_DROPPED);
+		return -ENOMEM;
+	}
+	return 0;
 }
 
 static const char *state_name(enum opensc2_link_state s)
@@ -325,6 +324,7 @@ static void enter(enum opensc2_link_state state)
 	if (!changed) {
 		return;
 	}
+	osc2_test_note_link((uint8_t)state, (uint8_t)reason, copy.slot, copy.channel, copy.protocol);
 	LOG_INF("Link %s (reason %d, slot %u, channel %u)", state_name(state), reason, copy.slot + 1,
 		copy.channel);
 	if (osc2.cb && osc2.cb->link_changed) {
@@ -618,6 +618,7 @@ static void push_answer(uint8_t type, const uint8_t *data, uint8_t len)
 	uint8_t at;
 
 	if (conn.answer_count == ANSWER_DEPTH) {
+		osc2_test_count(OSC2_TEST_CNT_RADIO_ANSWERS_DROPPED);
 		LOG_WRN("Too many feature reports at once: one answer dropped");
 		conn.answer_head = (conn.answer_head + 1) % ANSWER_DEPTH;
 		conn.answer_count--;
@@ -627,42 +628,6 @@ static void push_answer(uint8_t type, const uint8_t *data, uint8_t len)
 	conn.answers[at].len = len;
 	memcpy(conn.answers[at].data, data, len);
 	conn.answer_count++;
-}
-
-static void rumble_stop(void)
-{
-	if (conn.rumble_active && osc2.cb && osc2.cb->rumble) {
-		struct opensc2_rumble off = { .timeout = true };
-
-		osc2.cb->rumble(&off, osc2.user_data);
-	}
-	conn.rumble_active = false;
-}
-
-static void dispatch_output(const uint8_t *report, uint8_t len)
-{
-	struct opensc2_output out[2];
-	int n;
-
-	if (osc2.cb && osc2.cb->output_report) {
-		osc2.cb->output_report(report, len, osc2.user_data);
-	}
-	n = opensc2_decode_output(report, len, out);
-	if (n < 0) {
-		LOG_DBG("Output report 0x%02x too short (%u bytes)", report[0], len);
-		return;
-	}
-	for (int i = 0; i < n; i++) {
-		if (out[i].type == OPENSC2_OUTPUT_RUMBLE) {
-			conn.rumble_active = out[i].rumble.left_speed || out[i].rumble.right_speed;
-			conn.rumble_deadline = k_uptime_get() + CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS;
-			if (osc2.cb && osc2.cb->rumble) {
-				osc2.cb->rumble(&out[i].rumble, osc2.user_data);
-			}
-		} else if (out[i].type == OPENSC2_OUTPUT_HAPTIC && osc2.cb && osc2.cb->haptic) {
-			osc2.cb->haptic(&out[i].haptic, osc2.user_data);
-		}
-	}
 }
 
 static void handle_records(const struct rx_item *it)
@@ -676,21 +641,24 @@ static void handle_records(const struct rx_item *it)
 		case OPENSC2_REC_SET_FEATURE: {
 			uint8_t code[4];
 
-			opensc2_put_le32(code, (uint32_t)osc2_command_set(rec.data, rec.len));
+			opensc2_put_le32(code, (uint32_t)osc2_command_set(OSC2_LINK_RADIO, rec.data,
+									  rec.len));
 			push_answer(OPENSC2_REC_SET_RESULT, code, sizeof(code));
 			break;
 		}
-		case OPENSC2_REC_GET_FEATURE:
-			if (rec.len >= 1) {
-				uint8_t answer[63];
-				uint8_t n = osc2_command_get(rec.data[0], answer);
+		case OPENSC2_REC_GET_FEATURE: {
+			/* Answers the last SET, like a GET on USB. The record's byte is not the
+			 * opcode: Valve's puck leaves it unset, and drops an answer whose opcode is
+			 * not its SET's. */
+			uint8_t answer[63];
+			uint8_t n = osc2_command_get(OSC2_LINK_RADIO, answer);
 
-				push_answer(OPENSC2_REC_GET_ANSWER, answer, n);
-			}
+			push_answer(OPENSC2_REC_GET_ANSWER, answer, n);
 			break;
+		}
 		case OPENSC2_REC_OUTPUT:
 			if (rec.len >= 1) {
-				dispatch_output(rec.data, rec.len);
+				(void)osc2_output_dispatch(OSC2_LINK_RADIO, rec.data, rec.len);
 			}
 			break;
 		default:
@@ -702,53 +670,14 @@ static void handle_records(const struct rx_item *it)
 	}
 }
 
-/* Build the state report the next acknowledgement carries. */
+/* Build the state report the next acknowledgement carries; lizard reports ride behind it (they go
+ * into the queue of extra reports, which this link is connected for). */
 static void build_state_report(uint8_t report[OPENSC2_STATE_REPORT_LEN])
 {
 	struct opensc2_state s;
-	k_spinlock_key_t key;
 
-	if (osc2.cb && osc2.cb->sample) {
-		opensc2_get_state(&s);
-		osc2.cb->sample(&s, osc2.user_data);
-		(void)opensc2_set_state(&s);
-	}
-	key = k_spin_lock(&osc2.lock);
-	s = osc2.state;
-	k_spin_unlock(&osc2.lock, key);
-
-#if defined(CONFIG_OPENSC2_TRIGGER_CLICK_AUTO)
-	/* The triggers' digital bits: past setting 68 (percent), released 5 % below it. */
-	static const uint32_t bit[2] = { OPENSC2_CLICK_LEFT_TRIGGER, OPENSC2_CLICK_RIGHT_TRIGGER };
-	int32_t percent = CLAMP(osc2.settings[OPENSC2_SETTING_TRIGGER_THRESHOLD], 40, 99);
-
-	for (int side = 0; side < 2; side++) {
-		int32_t on = OPENSC2_TRIGGER_MAX * percent / 100;
-		int32_t off = OPENSC2_TRIGGER_MAX * (percent - 5) / 100;
-
-		if (s.trigger[side] >= on) {
-			conn.trigger_click[side] = true;
-		} else if (s.trigger[side] < off) {
-			conn.trigger_click[side] = false;
-		}
-		s.buttons = conn.trigger_click[side] ? (s.buttons | bit[side]) : (s.buttons & ~bit[side]);
-	}
-#endif
-
-#if defined(CONFIG_OPENSC2_LIZARD_MODE)
-	if (opensc2_lizard_mode()) {
-		uint8_t keyboard[9], mouse[6];
-		uint32_t made = opensc2_lizard_step(&conn.lizard, &s, keyboard, mouse);
-
-		if (made & OPENSC2_LIZARD_KEYBOARD) {
-			(void)osc2_radio_queue_report(keyboard, sizeof(keyboard));
-		}
-		if (made & OPENSC2_LIZARD_MOUSE) {
-			(void)osc2_radio_queue_report(mouse, sizeof(mouse));
-		}
-	}
-#endif
-	opensc2_encode_state(&s, conn.seq++, report);
+	osc2_report_state(report, &s);
+	osc2_report_lizard(&s);
 }
 
 /* Queue the reply the puck gets with its next packet. */
@@ -784,6 +713,7 @@ static void queue_reply(int64_t report_at_ticks)
 		(void)opensc2_payload_add_bytes(&p, record, sizeof(record));
 		if (write_payload(&p) == 0) {
 			conn.identity_pending = false;
+			osc2_test_note_identity(&id);   /* the numbers and the git revision, no serials */
 		}
 		return;
 	}
@@ -809,9 +739,11 @@ static void queue_reply(int64_t report_at_ticks)
 
 	if (write_payload(&p) != 0) {
 		info.dropped++;   /* two payloads are already waiting: this report is dropped */
+		osc2_test_count(OSC2_TEST_CNT_RADIO_DROPPED);
 		return;
 	}
 	info.reports++;
+	osc2_test_count(OSC2_TEST_CNT_RADIO_SENT);
 	if (with_answer) {
 		conn.answer_head = (conn.answer_head + 1) % ANSWER_DEPTH;
 		conn.answer_count--;
@@ -829,6 +761,7 @@ static void handle_packet(const struct rx_item *it)
 
 	info.packets++;
 	info.rssi_dbm = (int8_t)-it->rssi;
+	osc2_test_count(OSC2_TEST_CNT_RADIO_PACKETS);
 	if (it->len == 0) {
 		return;
 	}
@@ -837,12 +770,14 @@ static void handle_packet(const struct rx_item *it)
 	case OPENSC2_PKT_HELLO:
 		break;
 	case OPENSC2_PKT_KEEPALIVE:
+		osc2_test_count(OSC2_TEST_CNT_RADIO_KEEPALIVES);
 		handle_records(it);
 		report_at = it->ticks + k_us_to_ticks_ceil64(CONFIG_OPENSC2_REPORT_DELAY_US);
 		break;
 	case OPENSC2_PKT_CHANNEL_CHANGE:
 		n = opensc2_parse_channel_change(it->data, it->len, channels);
 		if (n > 0) {
+			osc2_test_note_channels(channels);
 			memcpy(conn.channels, channels, sizeof(conn.channels));
 			memcpy(info.channels, channels, sizeof(info.channels));
 			LOG_DBG("Channels %u %u %u %u", channels[0], channels[1], channels[2],
@@ -855,11 +790,12 @@ static void handle_packet(const struct rx_item *it)
 			LOG_INF("The puck asks us to turn off");
 			conn.disconnecting = true;
 			conn.disconnect_reason = OPENSC2_REASON_PUCK_TURN_OFF;
-			osc2_schedule_power(OPENSC2_POWER_TURN_OFF_PUCK, 0);
+			osc2_schedule_power(OPENSC2_POWER_TURN_OFF_PUCK, 0, "puck: turn off");
 		}
 		break;
 	case OPENSC2_PKT_HOST_ASLEEP:
 		LOG_INF("The puck says the PC is asleep");
+		osc2_test_note_host_asleep();
 		if (osc2.cb && osc2.cb->host_asleep) {
 			osc2.cb->host_asleep(osc2.user_data);
 		}
@@ -878,6 +814,7 @@ static void handle_packet(const struct rx_item *it)
 			conn.protocol = (uint8_t)v;
 			conn.version_pending = true;
 			info.protocol = (uint8_t)v;
+			osc2_test_note_version((uint8_t)v);
 		}
 		break;
 	}
@@ -886,38 +823,6 @@ static void handle_packet(const struct rx_item *it)
 		break;
 	}
 	queue_reply(report_at);
-}
-
-static void housekeeping(void)
-{
-	int64_t now = k_uptime_get();
-
-	if (conn.rumble_active && now >= conn.rumble_deadline) {
-		rumble_stop();
-	}
-	if (CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS && now >= conn.next_battery) {
-		uint8_t report[OPENSC2_BATTERY_REPORT_LEN];
-		struct opensc2_battery b;
-		k_spinlock_key_t key = k_spin_lock(&osc2.lock);
-
-		b = osc2.battery;
-		k_spin_unlock(&osc2.lock, key);
-		opensc2_encode_battery(&b, report);
-		(void)osc2_radio_queue_report(report, sizeof(report));
-		conn.next_battery = now + CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS;
-	}
-#if defined(CONFIG_OPENSC2_STEAM_WATCHDOG)
-	if (osc2.settings[OPENSC2_SETTING_STEAM_WATCHDOG] && !opensc2_lizard_mode() &&
-	    now - osc2.watchdog_kick_ms > WATCHDOG_MS) {
-		LOG_INF("Steam went quiet: lizard mode on, settings back to their defaults");
-		osc2_settings_restore_defaults();
-		osc2_watchdog_kick();
-		if (osc2.cb && osc2.cb->setting_changed) {
-			osc2.cb->setting_changed(OPENSC2_SETTINGS_ALL, 0, osc2.user_data);
-		}
-		osc2_notify_led();
-	}
-#endif
 }
 
 static enum opensc2_link_state do_connected(uint32_t *ctrl)
@@ -937,20 +842,29 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 	conn.disconnecting = false;
 	conn.disconnect_reason = OPENSC2_REASON_NONE;
 	conn.answer_head = conn.answer_count = 0;
-	conn.rumble_active = false;
-	conn.next_battery = k_uptime_get() + 500;
-	opensc2_lizard_reset(&conn.lizard);
 	k_msgq_purge(&osc2_extra_q);
-	osc2_commands_reset();
-	osc2_watchdog_kick();   /* give Steam its 10 s from now */
+	osc2_commands_reset(OSC2_LINK_RADIO);
 
 	/* The puck sends its hello on the private pipe 1 ms after the request: be there. */
 	listen_on(request.channel, request.address, request.prefix);
 	enter(OPENSC2_LINK_CONNECTED);
 	last_rx = k_uptime_get();
+	(void)osc2_test_take_deaf();   /* one asked for on a link that has gone since */
 
 	for (;;) {
-		int64_t now = k_uptime_get();
+		uint16_t deaf_ms = osc2_test_take_deaf();
+		int64_t now;
+
+		if (deaf_ms) {
+			/* The hardware test hooks' RADIO_DEAF: hear nothing for a while, so the link
+			 * times out through its normal path. What arrived before is not news after. */
+			(void)esb_stop_rx();
+			k_sleep(K_MSEC(deaf_ms));
+			(void)esb_flush_rx();
+			k_msgq_purge(&osc2_rx_q);
+			(void)esb_start_rx();
+		}
+		now = k_uptime_get();
 		int64_t window = now + (index == 0 ? PRIMARY_WINDOW_MS : ALTERNATE_WINDOW_MS);
 		int64_t lost_at = last_rx + LINK_LOST_MS;
 		int got = next_packet(&it, MIN(window, lost_at), ctrl);
@@ -992,10 +906,9 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 			}
 			move_channel(conn.channels[index]);
 		}
-		housekeeping();
 	}
 
-	rumble_stop();
+	osc2_output_link_down();
 	osc2.last_disconnect_reason = (uint8_t)reason;
 	if (entry_reason == OPENSC2_REASON_NONE) {
 		entry_reason = reason;

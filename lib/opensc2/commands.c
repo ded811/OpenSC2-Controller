@@ -2,12 +2,17 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * commands.c: the vendor command channel ("feature report 1") as it reaches the controller over
- * the puck's radio link: a SET runs a command, a GET answers the command the last SET named
- * (with no SET before it, a GET answers 0x83, the attributes). The commands and their formats
- * are in docs/api.md; anything not handled here goes to the application's vendor_command callback.
+ * commands.c: the vendor command channel ("feature report 1"), the same on every link:
+ *   - through the puck's radio a SET record runs a command, and a GET record names the command to
+ *     answer;
+ *   - on USB a 64-byte SET_REPORT(Feature 1) runs a command, and GET_REPORT(Feature 1) answers the
+ *     request the last successful SET stored.
+ * Each link keeps its own stored request (0x83, the attributes, until a SET). A refused command is
+ * a result code on the radio and a STALL on USB. The commands and their formats are in
+ * docs/api.md; anything not handled here goes to the application's vendor_command callback.
  */
 #include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
@@ -15,33 +20,37 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 #define KEY_FACTORY_RESET      0xEFC1A917u   /* 0x86 */
 #define KEY_BOOTLOADER         0xECAABAC0u   /* 0x95 */
-#define KEY_REBOOT_KEEP_LINK   0xA427AF52u   /* 0x95 */
+#define KEY_REBOOT_KEEP_LINK   0xA427AF52u   /* 0x95: come back in wireless mode */
 #define KEY_TURN_OFF           0xABDF9710u   /* 0x95 */
 #define POWER_DELAY_MS         20            /* so the answer can still go out */
 
-/* The request the last SET stored, which selects what the next GET answers. */
-static struct {
+/* The request the last successful SET stored on a link, which selects what its next GET answers. */
+struct stored_request {
 	uint8_t opcode;
 	uint8_t len;
 	uint8_t payload[OPENSC2_ANSWER_MAX];
-} last;
+};
 
-void osc2_commands_reset(void)
+static struct stored_request stored[OSC2_LINK_COUNT];
+
+void osc2_commands_reset(enum osc2_link link)
 {
-	memset(&last, 0, sizeof(last));
-	last.opcode = 0x83;
+	memset(&stored[link], 0, sizeof(stored[link]));
+	stored[link].opcode = 0x83;
 }
 
-static uint32_t get_u32(const uint8_t *payload, uint8_t len)
+/* A little-endian u32 from the first bytes of `p` (`avail` of them exist), zero padded. */
+static uint32_t get_u32(const uint8_t *p, size_t avail)
 {
 	uint8_t b[4] = { 0 };
 
-	memcpy(b, payload, MIN(len, 4));
+	memcpy(b, p, MIN(avail, sizeof(b)));
 	return opensc2_get_le32(b);
 }
 
@@ -52,7 +61,7 @@ enum named_key {
 	KEY_NONE = -1,
 	KEY_BOND_1,           /* esb/bond */
 	KEY_BOND_2,           /* esb/bond_2 */
-	KEY_TRANSPORT,        /* user/wireless_transport: 2 = bond 1, 3 = bond 2 */
+	KEY_TRANSPORT,        /* user/wireless_transport: 2 = API slot 0, 3 = API slot 1 */
 	KEY_CHIME,            /* user/haptic_boot_level */
 #if defined(CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE)
 	KEY_ID_UNIT,          /* opensc2/unit_serial */
@@ -62,63 +71,71 @@ enum named_key {
 #endif
 };
 
+static const char *const key_names[] = {
+	"esb/bond", "esb/bond_2", "user/wireless_transport", "user/haptic_boot_level",
+#if defined(CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE)
+	"opensc2/unit_serial", "opensc2/board_serial", "opensc2/git_revision",
+	"opensc2/board_revision",
+#endif
+};
+
 static enum named_key find_key(const uint8_t *payload, uint8_t len, uint8_t *name_len)
 {
-	static const char *const names[] = {
-		"esb/bond", "esb/bond_2", "user/wireless_transport", "user/haptic_boot_level",
-#if defined(CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE)
-		"opensc2/unit_serial", "opensc2/board_serial", "opensc2/git_revision",
-		"opensc2/board_revision",
-#endif
-	};
 	const uint8_t *nul = memchr(payload, 0, len);
 
 	if (!nul) {
 		return KEY_NONE;
 	}
 	*name_len = (uint8_t)(nul - payload) + 1;
-	for (size_t i = 0; i < ARRAY_SIZE(names); i++) {
-		if (strcmp((const char *)payload, names[i]) == 0) {
+	for (size_t i = 0; i < ARRAY_SIZE(key_names); i++) {
+		if (strcmp((const char *)payload, key_names[i]) == 0) {
 			return (enum named_key)i;
 		}
 	}
 	return KEY_NONE;
 }
 
-/* Set a key in RAM (0xEE). Bonds wake the radio at once, as on the real controller. */
+static uint8_t bond_slot_of(enum named_key key)
+{
+	return key == KEY_BOND_1 ? 0 : 1;
+}
+
+/* 0xEE: set a key in RAM. Refused for an empty value; a bond must be exactly 24 bytes. Either way
+ * the radio hears that the bond changed, as on the real controller (it ignores that while off). */
 static int key_set(enum named_key key, const uint8_t *value, uint8_t len)
 {
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2: {
 		struct opensc2_bond bond = { 0 };
-		uint8_t slot = key == KEY_BOND_1 ? 0 : 1;
 		k_spinlock_key_t lk;
 
-		if (len != 0 && len != OPENSC2_BOND_LEN) {
+		if (len != OPENSC2_BOND_LEN) {
 			osc2_radio_post(OSC2_EV_BOND);
 			return -EINVAL;
 		}
-		if (len) {
-			opensc2_bond_unpack(value, &bond);
-		}
+		opensc2_bond_unpack(value, &bond);
 		lk = k_spin_lock(&osc2.lock);
-		osc2.bonds[slot] = opensc2_bond_valid(&bond) ? bond : (struct opensc2_bond){ 0 };
+		osc2.bonds[bond_slot_of(key)] = opensc2_bond_valid(&bond) ? bond :
+						 (struct opensc2_bond){ 0 };
 		k_spin_unlock(&osc2.lock, lk);
 		osc2_radio_post(OSC2_EV_BOND);
 		return 0;
 	}
 	case KEY_TRANSPORT:
-		if (len == 1 && (value[0] == 2 || value[0] == 3)) {
+		if (len != 1) {
+			return -EINVAL;
+		}
+		if (value[0] == 2 || value[0] == 3) {
 			osc2.slot = value[0] - 2;
 			osc2_radio_post(OSC2_EV_BOND);
 		}
 		return 0;   /* 0 and 1 select Bluetooth, which this library does not have */
 	case KEY_CHIME:
-		if (len > 1) {
+		if (len != 1) {
 			return -EINVAL;
 		}
-		osc2.chime = len ? value[0] : 2;   /* deleting the key brings back the default */
+		osc2.chime = value[0];
 		return 0;
 #if defined(CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE)
 	case KEY_ID_UNIT:
@@ -127,18 +144,27 @@ static int key_set(enum named_key key, const uint8_t *value, uint8_t len)
 	case KEY_ID_REV: {
 		struct opensc2_identity id = { 0 };
 		char text[OPENSC2_SERIAL_LEN + 1] = { 0 };
+		uint8_t field;
 
+		if (len == 0) {
+			return -EINVAL;
+		}
 		memcpy(text, value, MIN(len, OPENSC2_SERIAL_LEN));
 		if (key == KEY_ID_UNIT) {
 			memcpy(id.unit_serial, text, sizeof(id.unit_serial));
+			field = OSC2_ID_UNIT;
 		} else if (key == KEY_ID_BOARD) {
 			memcpy(id.board_serial, text, sizeof(id.board_serial));
+			field = OSC2_ID_BOARD;
 		} else if (key == KEY_ID_GIT) {
 			memcpy(id.git_revision, text, sizeof(id.git_revision) - 1);
+			field = OSC2_ID_GIT;
 		} else {
 			id.board_revision = get_u32(value, len);
+			field = OSC2_ID_REV;
 		}
-		return opensc2_identity_store(&id);
+		/* Exactly the key named, as sent: a revision of 0 is stored, an empty string refused. */
+		return osc2_identity_store_fields(field, &id);
 	}
 #endif
 	default:
@@ -146,34 +172,69 @@ static int key_set(enum named_key key, const uint8_t *value, uint8_t len)
 	}
 }
 
+/* 0xEF: write the RAM value to flash; refused when there is no valid value (an empty bond). */
 static int key_save(enum named_key key)
 {
 	switch (key) {
 	case KEY_BOND_1:
-		return osc2_storage_save_bond(0);
-	case KEY_BOND_2:
-		return osc2_storage_save_bond(1);
+	case KEY_BOND_2: {
+		k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
+		bool valid = opensc2_bond_valid(&osc2.bonds[bond_slot_of(key)]);
+
+		k_spin_unlock(&osc2.lock, lk);
+		return valid ? osc2_storage_save_bond(bond_slot_of(key)) : -ENOENT;
+	}
 	case KEY_TRANSPORT:
 		return osc2_storage_save_slot();
 	case KEY_CHIME:
 		return osc2_storage_save_chime();
-	case KEY_NONE:
-		return -ENOENT;
 	default:
 		return 0;   /* identity keys are stored when they are set */
 	}
 }
 
+/* 0xF0: delete from flash and clear the RAM value (back to the default). */
+static int key_delete(enum named_key key)
+{
+	switch (key) {
+	case KEY_BOND_1:
+	case KEY_BOND_2: {
+		k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
+
+		memset(&osc2.bonds[bond_slot_of(key)], 0, sizeof(osc2.bonds[0]));
+		k_spin_unlock(&osc2.lock, lk);
+		osc2_radio_post(OSC2_EV_BOND);
+		return osc2_storage_save_bond(bond_slot_of(key));   /* an empty bond is deleted */
+	}
+	case KEY_TRANSPORT:
+		osc2.slot = 0;
+		osc2_radio_post(OSC2_EV_BOND);
+		return osc2_storage_save_slot();
+	case KEY_CHIME:
+		osc2.chime = 2;
+		return osc2_storage_save_chime();
+	default:
+		return 0;
+	}
+}
+
+/* 0xED: the key's RAM value; an empty or invalid one reads back with length 0. */
 static int key_read(enum named_key key, uint8_t *out, uint8_t *out_len)
 {
 	k_spinlock_key_t lk;
+	struct opensc2_bond bond;
 
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2:
 		lk = k_spin_lock(&osc2.lock);
-		opensc2_bond_pack(&osc2.bonds[key == KEY_BOND_1 ? 0 : 1], out);
+		bond = osc2.bonds[bond_slot_of(key)];
 		k_spin_unlock(&osc2.lock, lk);
+		if (!opensc2_bond_valid(&bond)) {
+			*out_len = 0;
+			return 0;
+		}
+		opensc2_bond_pack(&bond, out);
 		*out_len = OPENSC2_BOND_LEN;
 		return 0;
 	case KEY_TRANSPORT:
@@ -202,16 +263,67 @@ static int app_command(uint8_t opcode, const uint8_t *payload, uint8_t len, bool
 	};
 	int rc;
 
+	*answer_len = 0;
 	if (!osc2.cb || !osc2.cb->vendor_command) {
 		return -ENOTSUP;
 	}
-	*answer_len = 0;
 	rc = osc2.cb->vendor_command(&cmd, answer, answer_len, osc2.user_data);
 	*answer_len = MIN(*answer_len, OPENSC2_ANSWER_MAX);
 	return rc;
 }
 
-/* ---- SET ------------------------------------------------------------------------------------- */
+/* ---- controller settings --------------------------------------------------------------------- */
+
+/* One setting written by 0x87: clamped to its range; setting 9 (lizard mode) and 71 (the Steam
+ * watchdog) act as on the real controller. Callbacks run only when the value changes. */
+static void write_setting(uint8_t number, int16_t value, bool *led)
+{
+	int16_t old = osc2.settings[number];
+	int16_t v = opensc2_setting_clamp(number, value);
+
+	osc2.settings[number] = v;
+	switch (number) {
+	case OPENSC2_SETTING_LIZARD_MODE:
+		if (v == 0) {
+			osc2_watchdog_arm();   /* every write of 0 shows Steam is still there */
+			if (old != 0) {
+				osc2_lizard_set(false);
+			}
+		} else if (old == 0) {
+			osc2_lizard_set(true);
+		}
+		break;
+	case OPENSC2_SETTING_STEAM_WATCHDOG:
+		if (old != v) {
+			if (v) {
+				osc2_watchdog_arm();
+			} else {
+				osc2_watchdog_cancel();
+			}
+		}
+		break;
+	case OPENSC2_SETTING_LED_OVERRIDE:
+	case OPENSC2_SETTING_LED_BRIGHTNESS: {
+		k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
+
+		osc2.led.override = osc2.settings[OPENSC2_SETTING_LED_OVERRIDE] != 0;
+		osc2.led.brightness =
+			(uint8_t)CLAMP(osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS], 0, 100);
+		k_spin_unlock(&osc2.lock, lk);
+		*led = true;
+		break;
+	}
+	default:
+		break;
+	}
+	if (old != v) {
+		/* After any lizard mode reports the write caused. */
+		osc2_test_note_setting(number, v);
+		if (osc2.cb && osc2.cb->setting_changed) {
+			osc2.cb->setting_changed(number, v, osc2.user_data);
+		}
+	}
+}
 
 static int set_settings(const uint8_t *payload, uint8_t len)
 {
@@ -222,28 +334,12 @@ static int set_settings(const uint8_t *payload, uint8_t len)
 	}
 	for (uint8_t i = 0; i < len; i += 3) {
 		uint8_t number = payload[i];
-		int16_t value = (int16_t)opensc2_get_le16(&payload[i + 1]);
 
 		if (number >= OPENSC2_SETTINGS_COUNT) {
 			LOG_DBG("Setting %u does not exist", number);
 			continue;
 		}
-		osc2.settings[number] = value;
-		if (number == OPENSC2_SETTING_LIZARD_MODE) {
-			osc2_watchdog_kick();   /* Steam repeats "lizard off" to show it is there */
-		}
-		if (number == OPENSC2_SETTING_LED_OVERRIDE || number == OPENSC2_SETTING_LED_BRIGHTNESS) {
-			k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
-
-			osc2.led.override = osc2.settings[OPENSC2_SETTING_LED_OVERRIDE] != 0;
-			osc2.led.brightness =
-				(uint8_t)CLAMP(osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS], 0, 100);
-			k_spin_unlock(&osc2.lock, lk);
-			led = true;
-		}
-		if (osc2.cb && osc2.cb->setting_changed) {
-			osc2.cb->setting_changed(number, value, osc2.user_data);
-		}
+		write_setting(number, (int16_t)opensc2_get_le16(&payload[i + 1]), &led);
 	}
 	if (led) {
 		osc2_notify_led();
@@ -251,7 +347,80 @@ static int set_settings(const uint8_t *payload, uint8_t len)
 	return 0;
 }
 
-static int run_set(uint8_t opcode, const uint8_t *payload, uint8_t len)
+/* 0x8E: every setting back to its default; lizard mode comes back if it was off. */
+static void load_defaults(void)
+{
+	int16_t old_lizard = osc2.settings[OPENSC2_SETTING_LIZARD_MODE];
+	int16_t old_watchdog = osc2.settings[OPENSC2_SETTING_STEAM_WATCHDOG];
+
+	osc2_settings_restore_defaults(true);
+	if (old_watchdog == 0 && osc2.settings[OPENSC2_SETTING_STEAM_WATCHDOG] != 0) {
+		osc2_watchdog_arm();
+	}
+	if (old_lizard == 0 && osc2.settings[OPENSC2_SETTING_LIZARD_MODE] != 0) {
+		osc2_lizard_set(true);
+	}
+	osc2_test_note_setting(OPENSC2_SETTINGS_ALL, 0);
+	if (osc2.cb && osc2.cb->setting_changed) {
+		osc2.cb->setting_changed(OPENSC2_SETTINGS_ALL, 0, osc2.user_data);
+	}
+	osc2_notify_led();
+}
+
+/* 0x81: lizard mode off (keyboard first, then the mouse), and the watchdog re-armed. */
+static int lizard_off(enum osc2_link link)
+{
+	int16_t old = osc2.settings[OPENSC2_SETTING_LIZARD_MODE];
+
+	if (!osc2_link_active(link)) {
+		return -EINVAL;
+	}
+	osc2.settings[OPENSC2_SETTING_LIZARD_MODE] = 0;
+	if (old != 0) {
+		osc2_lizard_set(false);   /* releases whatever lizard mode held */
+	} else {
+		osc2_lizard_switches(false);
+	}
+	osc2_watchdog_arm();
+	if (old != 0) {
+		osc2_test_note_setting(OPENSC2_SETTING_LIZARD_MODE, 0);
+		if (osc2.cb && osc2.cb->setting_changed) {
+			osc2.cb->setting_changed(OPENSC2_SETTING_LIZARD_MODE, 0, osc2.user_data);
+		}
+	}
+	return 0;
+}
+
+void osc2_settings_write(uint8_t number, int16_t value)
+{
+	bool led = false;
+
+	if (number >= OPENSC2_SETTINGS_COUNT) {
+		return;
+	}
+	write_setting(number, value, &led);
+	if (led) {
+		osc2_notify_led();
+	}
+}
+
+void osc2_led_color_write(const uint8_t rgbw[4])
+{
+	k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
+
+	osc2.led.red = MIN(rgbw[0], 100);
+	osc2.led.green = MIN(rgbw[1], 100);
+	osc2.led.blue = MIN(rgbw[2], 100);
+	osc2.led.white = MIN(rgbw[3], 100);
+	k_spin_unlock(&osc2.lock, lk);
+	osc2_notify_led();
+}
+
+/* ---- SET ------------------------------------------------------------------------------------- */
+
+/* `avail` bytes follow the opcode and length (at least `len`). */
+static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, uint8_t len,
+		   size_t avail)
 {
 	switch (opcode) {
 	/* Commands that only answer: the SET just selects them for the GET. */
@@ -262,35 +431,22 @@ static int run_set(uint8_t opcode, const uint8_t *payload, uint8_t len)
 	case 0x87:   /* ID_SET_SETTINGS_VALUES */
 		return set_settings(payload, len);
 	case 0x8E:   /* ID_LOAD_DEFAULT_SETTINGS_VALUES */
-		osc2_settings_restore_defaults();
-		if (osc2.cb && osc2.cb->setting_changed) {
-			osc2.cb->setting_changed(OPENSC2_SETTINGS_ALL, 0, osc2.user_data);
-		}
-		osc2_notify_led();
+		load_defaults();
 		return 0;
 	case 0x81:   /* ID_CLEAR_DIGITAL_MAPPINGS: lizard mode off */
-	case 0x85:   /* ID_SET_DEFAULT_DIGITAL_MAPPINGS: lizard mode on */
-		osc2.settings[OPENSC2_SETTING_LIZARD_MODE] = opcode == 0x85;
-		osc2_watchdog_kick();
-		if (osc2.cb && osc2.cb->setting_changed) {
-			osc2.cb->setting_changed(OPENSC2_SETTING_LIZARD_MODE,
-						 osc2.settings[OPENSC2_SETTING_LIZARD_MODE],
-						 osc2.user_data);
+		return lizard_off(link);
+	case 0x85:   /* ID_SET_DEFAULT_DIGITAL_MAPPINGS: lizard mode's keyboard and buttons back */
+		if (!osc2_link_active(link)) {
+			return -EINVAL;
 		}
+		osc2_lizard_switches(true);
 		return 0;
 
 	case 0xC5: { /* ID_SET_LED_COLOR: four percentages R, G, B, W */
 		uint8_t c[4] = { 0 };
-		k_spinlock_key_t lk;
 
 		memcpy(c, payload, MIN(len, 4));
-		lk = k_spin_lock(&osc2.lock);
-		osc2.led.red = MIN(c[0], 100);
-		osc2.led.green = MIN(c[1], 100);
-		osc2.led.blue = MIN(c[2], 100);
-		osc2.led.white = MIN(c[3], 100);
-		k_spin_unlock(&osc2.lock, lk);
-		osc2_notify_led();
+		osc2_led_color_write(c);
 		return 0;
 	}
 	case 0xDC:   /* ID_SET_USER_STORE: type 1 is the chime level */
@@ -299,6 +455,19 @@ static int run_set(uint8_t opcode, const uint8_t *payload, uint8_t len)
 			return osc2_storage_save_chime();
 		}
 		return -EINVAL;
+	case 0xE2: { /* persist the calibration of side 0 or 1 */
+		uint8_t answer[OPENSC2_ANSWER_MAX];
+		uint8_t answer_len;
+		int rc;
+
+		if (len && payload[0] > 1) {
+			return -EINVAL;
+		}
+		/* The application may keep a calibration of its own; with nothing to persist the
+		 * real controller acknowledges, and Steam sends it in every session. */
+		rc = app_command(opcode, payload, len, false, answer, &answer_len);
+		return rc == -ENOTSUP ? 0 : rc;
+	}
 
 	case 0xEE:   /* set a setting by name, in RAM */
 	case 0xEF:   /* save it */
@@ -316,15 +485,12 @@ static int run_set(uint8_t opcode, const uint8_t *payload, uint8_t len)
 		if (opcode == 0xEE) {
 			return key_set(key, payload + name_len, len - name_len);
 		}
-		if (opcode == 0xF0) {
-			rc = key_set(key, NULL, 0);
-			if (rc) {
-				return rc;
-			}
+		if (name_len != len) {
+			return -EINVAL;   /* the NUL must be the last payload byte */
 		}
-		return key_save(key);
+		return opcode == 0xEF ? key_save(key) : key_delete(key);
 	}
-	case 0xA2: { /* write the bond of the main puck (slot 1) */
+	case 0xA2: { /* write the main puck's bond: the first slot (API slot 0, shell slot 1) */
 		struct opensc2_bond bond = { 0 };
 
 		if (len != OPENSC2_BOND_LEN) {
@@ -335,7 +501,7 @@ static int run_set(uint8_t opcode, const uint8_t *payload, uint8_t len)
 	}
 
 	case 0x86:   /* factory reset */
-		if (get_u32(payload, len) != KEY_FACTORY_RESET) {
+		if (get_u32(payload, MIN(avail, (size_t)4)) != KEY_FACTORY_RESET) {
 			LOG_INF("Ignoring a factory reset without its key");
 			return 0;
 		}
@@ -345,36 +511,65 @@ static int run_set(uint8_t opcode, const uint8_t *payload, uint8_t len)
 		osc2.chime = 2;
 		(void)osc2_storage_factory_reset();
 		osc2_radio_post(OSC2_EV_BOND);
-		osc2_schedule_power(OPENSC2_POWER_FACTORY_RESET, 100);
+		osc2_schedule_power(OPENSC2_POWER_FACTORY_RESET, 100, "host: factory reset");
 		return 0;
 	case 0x90:   /* ID_REBOOT_INTO_ISP */
-		osc2_schedule_power(OPENSC2_POWER_BOOTLOADER, POWER_DELAY_MS);
+		osc2_schedule_power(OPENSC2_POWER_BOOTLOADER, POWER_DELAY_MS, "host: bootloader");
 		return 0;
-	case 0x95: { /* ID_FIRMWARE_UPDATE_REBOOT */
-		uint32_t k = get_u32(payload, len);
+	case 0x95: { /* ID_FIRMWARE_UPDATE_REBOOT: the key is the first four payload bytes */
+		uint32_t k = get_u32(payload, MIN(avail, (size_t)4));
 
-		osc2_schedule_power(k == KEY_BOOTLOADER ? OPENSC2_POWER_BOOTLOADER :
-				    k == KEY_REBOOT_KEEP_LINK ? OPENSC2_POWER_REBOOT_KEEP_LINK :
-				    k == KEY_TURN_OFF ? OPENSC2_POWER_TURN_OFF :
-				    OPENSC2_POWER_REBOOT, POWER_DELAY_MS);
+		if (k == KEY_BOOTLOADER) {
+			osc2_schedule_power(OPENSC2_POWER_BOOTLOADER, POWER_DELAY_MS,
+					    "host: bootloader");
+		} else if (k == KEY_REBOOT_KEEP_LINK) {
+			osc2_schedule_power(OPENSC2_POWER_REBOOT_KEEP_LINK, POWER_DELAY_MS,
+					    "host: reboot into wireless");
+		} else if (k == KEY_TURN_OFF) {
+			if (!osc2_wired()) {   /* a wired controller ignores turn-off */
+				osc2_schedule_power(OPENSC2_POWER_TURN_OFF, POWER_DELAY_MS,
+						    "host: turn off");
+			}
+		} else {
+			osc2_schedule_power(OPENSC2_POWER_REBOOT, POWER_DELAY_MS, "host: reboot");
+		}
 		return 0;
 	}
 	case 0x9F:   /* ID_TURN_OFF */
-		osc2_schedule_power(OPENSC2_POWER_TURN_OFF, POWER_DELAY_MS);
+		if (!osc2_wired()) {
+			osc2_schedule_power(OPENSC2_POWER_TURN_OFF, POWER_DELAY_MS, "host: turn off");
+		}
 		return 0;
 
 	default: {
 		uint8_t answer[OPENSC2_ANSWER_MAX];
 		uint8_t answer_len;
 
+		/* The hardware test channel (CONFIG_OPENSC2_TEST_HOOKS) claims a keyed 0x7E. */
+		if (osc2_test_claim(link, opcode, payload, len)) {
+			return 0;
+		}
 		return app_command(opcode, payload, len, false, answer, &answer_len);
 	}
 	}
 }
 
-int32_t osc2_command_set(const uint8_t *rec, uint8_t rec_len)
+/* The test hooks' record of a SET (never of the test channel itself, which would flood it). */
+static void note_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_len, int rc)
 {
-	uint8_t opcode, len;
+	uint8_t len = rec[1];
+
+	if (rec[0] == OSC2_TEST_OPCODE) {
+		return;
+	}
+	osc2_test_count(rc == 0 ? OSC2_TEST_CNT_VENDOR_SET_OK : OSC2_TEST_CNT_VENDOR_SET_ERR);
+	osc2_test_note_vendor(link, false, rec[0], len, rc, &rec[2], len, (size_t)rec_len - 2);
+}
+
+int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_len)
+{
+	struct stored_request *r = &stored[link];
+	uint8_t opcode, len, ctx;
 	int rc;
 
 	if (rec_len < 2) {
@@ -383,32 +578,49 @@ int32_t osc2_command_set(const uint8_t *rec, uint8_t rec_len)
 	opcode = rec[0];
 	len = rec[1];
 	if (len > rec_len - 2 || len > OPENSC2_ANSWER_MAX) {
+		note_set(link, rec, rec_len, -EINVAL);
 		return -EINVAL;
 	}
-	rc = run_set(opcode, &rec[2], len);
+	ctx = osc2_test_ctx_enter(link);
+	rc = run_set(link, opcode, &rec[2], len, (size_t)rec_len - 2);
 	LOG_DBG("SET 0x%02x (%u bytes): %d", opcode, len, rc);
 	if (rc == 0) {
-		last.opcode = opcode;
-		last.len = len;
-		memcpy(last.payload, &rec[2], len);
+		r->opcode = opcode;
+		r->len = len;
+		memset(r->payload, 0, sizeof(r->payload));
+		memcpy(r->payload, &rec[2], len);
+		osc2_test_stored(link);
 	}
+	note_set(link, rec, rec_len, rc);
+	osc2_test_ctx_leave(ctx);
 	return rc;
+}
+
+uint8_t osc2_command_stored(enum osc2_link link, uint8_t rec[2 + OPENSC2_ANSWER_MAX])
+{
+	const struct stored_request *r = &stored[link];
+
+	rec[0] = r->opcode;
+	rec[1] = r->len;
+	memcpy(&rec[2], r->payload, r->len);
+	return (uint8_t)(2 + r->len);
 }
 
 /* ---- GET ------------------------------------------------------------------------------------- */
 
-static int run_get(uint8_t opcode, const uint8_t *payload, uint8_t len, uint8_t *out,
-		   uint8_t *out_len)
+static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, uint8_t len,
+		   uint8_t *out, uint8_t *out_len)
 {
 	struct opensc2_identity id;
 	uint8_t sel = len ? payload[0] : 0;
 
+	*out_len = 0;
 	opensc2_identity_get(&id);
 	switch (opcode) {
 	case 0x83:   /* ID_GET_ATTRIBUTES_VALUES */
 		*out_len = (uint8_t)opensc2_encode_attributes(&id, OSC2_REPORT_INTERVAL_US, out);
 		return 0;
-	case 0xAE:   /* ID_GET_STRING_ATTRIBUTE */
+	case 0xAE:   /* ID_GET_STRING_ATTRIBUTE: only the tag byte counts, whatever the length */
 		*out_len = (uint8_t)opensc2_encode_string_attribute(&id, sel, out);
 		return 0;
 	case 0xF2:   /* device info */
@@ -424,16 +636,14 @@ static int run_get(uint8_t opcode, const uint8_t *payload, uint8_t len, uint8_t 
 		} else if (sel == 1) {
 			*out_len = 34;   /* no crash record */
 		} else if (sel == 2) {
+			/* uptime in ms, the last radio disconnect reason (u32) */
 			opensc2_put_le32(&out[1], (uint32_t)k_uptime_get());
-			out[5] = osc2.last_disconnect_reason;
-			*out_len = 6;
-		} else {
-			*out_len = 0;
+			opensc2_put_le32(&out[5], osc2.last_disconnect_reason);
+			*out_len = 9;
 		}
 		return 0;
 	case 0xA1:   /* device info: reset cause and chip ID */
 		memset(out, 0, OPENSC2_ANSWER_MAX);
-		*out_len = 0;
 		if (sel == 1) {
 			uint32_t cause = 0;
 
@@ -452,6 +662,7 @@ static int run_get(uint8_t opcode, const uint8_t *payload, uint8_t len, uint8_t 
 
 		b = osc2.battery;
 		k_spin_unlock(&osc2.lock, lk);
+		osc2_test_battery(&b);
 		*out_len = (uint8_t)opensc2_encode_battery_data(&b, out);
 		return 0;
 	}
@@ -479,42 +690,169 @@ static int run_get(uint8_t opcode, const uint8_t *payload, uint8_t len, uint8_t 
 		opensc2_put_le16(&out[1], (uint16_t)osc2.settings[sel]);
 		*out_len = 3;
 		return 0;
-	case 0xED: { /* read a setting by name */
+	case 0xED: { /* read a setting by name: length 0 for a key without a value */
 		uint8_t name_len;
 		enum named_key key = find_key(payload, len, &name_len);
 
-		*out_len = 0;
 		if (key != KEY_NONE && key_read(key, out, out_len) == 0) {
 			return 0;
 		}
 		if (app_command(opcode, payload, len, true, out, out_len) != 0) {
-			*out_len = 0;   /* unknown key: an empty answer */
+			*out_len = 0;
 		}
 		return 0;
 	}
+	/* Commands that only act: nothing to answer. */
+	case 0x81: case 0x85: case 0x86: case 0x87: case 0x8E: case 0x90: case 0x95: case 0x9F:
+	case 0xA2: case 0xC5: case 0xDC: case 0xE2: case 0xEE: case 0xEF: case 0xF0:
+		return -ENOTSUP;
 	default:
+		/* The answer the hardware test channel holds for this link's claimed 0x7E. */
+		if (opcode == OSC2_TEST_OPCODE && osc2_test_answer(link, out, out_len)) {
+			return 0;
+		}
 		return app_command(opcode, payload, len, true, out, out_len);
 	}
 }
 
-uint8_t osc2_command_get(uint8_t opcode, uint8_t out[63])
+/* The test hooks' record of a GET (not of the test channel's). */
+static void note_get(enum osc2_link link, const struct stored_request *r, int rc, uint8_t n)
 {
-	const uint8_t *payload = NULL;
-	uint8_t len = 0, data_len = 0;
+	if (r->opcode == OSC2_TEST_OPCODE) {
+		return;
+	}
+	osc2_test_count(rc == 0 ? OSC2_TEST_CNT_VENDOR_GET_OK : OSC2_TEST_CNT_VENDOR_GET_ERR);
+	osc2_test_note_vendor(link, true, r->opcode, n, rc, r->payload, r->len, r->len);
+}
+
+uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
+{
+	const struct stored_request *r = &stored[link];
+	uint8_t data_len = 0;
+	uint8_t ctx = osc2_test_ctx_enter(link);
 	int rc;
 
-	if (opcode == last.opcode) {
-		payload = last.payload;
-		len = last.len;
-	}
 	memset(out, 0, 63);
-	out[0] = opcode;
-	rc = run_get(opcode, payload ? payload : last.payload, len, &out[2], &data_len);
+	out[0] = r->opcode;
+	rc = run_get(link, r->opcode, r->payload, r->len, &out[2], &data_len);
+	note_get(link, r, rc, rc ? 0 : data_len);
+	osc2_test_ctx_leave(ctx);
 	if (rc) {
-		LOG_DBG("GET 0x%02x failed (%d)", opcode, rc);
+		LOG_DBG("GET 0x%02x failed (%d)", r->opcode, rc);
 		out[1] = 0;
 		return 2;
 	}
 	out[1] = data_len;
 	return 2 + data_len;
+}
+
+/* ---- USB: feature report 1 ------------------------------------------------------------------- */
+
+int osc2_usb_feature_set(const uint8_t *data, uint16_t len)
+{
+	const uint8_t *rec = NULL;
+
+	switch (opensc2_usb_feature_check(data, len, &rec)) {
+	case OPENSC2_USB_SET_OK:
+		break;
+	case OPENSC2_USB_SET_LENGTH:
+		osc2_test_count(OSC2_TEST_CNT_USB_FRAME_ERR);
+		return -EMSGSIZE;
+	case OPENSC2_USB_SET_ID:
+		osc2_test_count(OSC2_TEST_CNT_USB_FRAME_ERR);
+		return -EBADMSG;
+	default:
+		osc2_test_count(OSC2_TEST_CNT_USB_FRAME_ERR);
+		return -E2BIG;
+	}
+	return osc2_command_set(OSC2_LINK_USB, rec, OPENSC2_USB_FEATURE_LEN - 1);
+}
+
+int osc2_usb_feature_get(uint8_t *out, uint16_t wlength, uint8_t reply_len, uint8_t *opcode,
+			 uint8_t *n)
+{
+	const struct stored_request *r = &stored[OSC2_LINK_USB];
+	uint8_t answer[OPENSC2_ANSWER_MAX] = { 0 };
+	uint8_t answer_len = 0;
+	uint8_t ctx = osc2_test_ctx_enter(OSC2_LINK_USB);
+	int rc = run_get(OSC2_LINK_USB, r->opcode, r->payload, r->len, answer, &answer_len);
+
+	note_get(OSC2_LINK_USB, r, rc, rc ? 0 : answer_len);
+	osc2_test_ctx_leave(ctx);
+	*opcode = r->opcode;
+	*n = answer_len;
+	if (rc) {
+		return rc < 0 ? rc : -EIO;
+	}
+	return (int)opensc2_usb_feature_reply(r->opcode, answer, answer_len, reply_len, wlength,
+					      out);
+}
+
+/* ---- descriptions for the session log -------------------------------------------------------- */
+
+void osc2_command_describe(const uint8_t *rec, uint8_t rec_len, char *buf, size_t size)
+{
+	uint8_t opcode, len;
+	const uint8_t *p;
+	size_t at = 0;
+
+	if (size == 0) {
+		return;
+	}
+	buf[0] = '\0';
+	if (rec_len < 2) {
+		return;
+	}
+	opcode = rec[0];
+	len = MIN(rec[1], (uint8_t)(rec_len - 2));
+	p = &rec[2];
+
+	switch (opcode) {
+	case 0x87:
+		for (uint8_t i = 0; i + 2 < len && at + 16 < size; i += 3) {
+			at += (size_t)snprintf(&buf[at], size - at, "{%u,%d}", p[i],
+					       (int16_t)opensc2_get_le16(&p[i + 1]));
+		}
+		break;
+	case 0x89: case 0xAE: case 0xF2: case 0xA1:
+		if (len) {
+			snprintf(buf, size, "%s %u", opcode == 0xAE ? "tag" : "sel", p[0]);
+		}
+		break;
+	case 0xED: case 0xEE: case 0xEF: case 0xF0: {
+		const uint8_t *nul = memchr(p, 0, len);
+		size_t name = nul ? (size_t)(nul - p) : len;
+
+		/* Key names only, never the values (bonds identify a pairing). */
+		for (size_t i = 0; i < name && at + 2 < size && i < 32; i++) {
+			buf[at++] = (p[i] >= 0x20 && p[i] < 0x7F) ? (char)p[i] : '?';
+		}
+		buf[at] = '\0';
+		if (opcode == 0xEE && nul) {
+			snprintf(&buf[at], size - at, " +%u bytes", (unsigned int)(len - name - 1));
+		}
+		break;
+	}
+	case 0x95: case 0x86:
+		snprintf(buf, size, "key %08X",
+			 (unsigned int)get_u32(p, MIN((size_t)rec_len - 2, (size_t)4)));
+		break;
+	case 0xDC:
+		if (len >= 2) {
+			snprintf(buf, size, "type %u value %u", p[0], p[1]);
+		}
+		break;
+	case 0xE2:
+		if (len >= 2) {
+			snprintf(buf, size, "side %u mask 0x%02X", p[0], p[1]);
+		}
+		break;
+	case 0xC5:
+		if (len >= 4) {
+			snprintf(buf, size, "rgbw %u %u %u %u", p[0], p[1], p[2], p[3]);
+		}
+		break;
+	default:
+		break;
+	}
 }

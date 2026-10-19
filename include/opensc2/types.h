@@ -241,6 +241,7 @@ struct opensc2_led {
 #define OPENSC2_SERIAL_LEN        13   /* exactly 13 characters, 0-9 and A-Z */
 #define OPENSC2_GIT_REVISION_MAX  12   /* the identity record has 13 bytes, NUL included */
 #define OPENSC2_PRODUCT_ID        0x1302
+#define OPENSC2_PRODUCT_NAME_MAX  31   /* the USB product string: a 64-byte string descriptor */
 
 struct opensc2_identity {
 	char unit_serial[OPENSC2_SERIAL_LEN + 1];    /* the serial Steam shows */
@@ -250,6 +251,9 @@ struct opensc2_identity {
 	uint32_t board_revision;       /* hardware ID; real controllers: 0x45, 0x48..0x4B */
 	uint32_t build_time;           /* firmware build time, Unix seconds */
 	uint32_t bootloader_build_time;  /* 0 when there is no bootloader to report */
+	/* The wired USB device's product string ("Steam Controller" on the real controller); 1 to 31
+	 * printable ASCII characters, no space at either end. Never sent over the radio. */
+	char product_name[OPENSC2_PRODUCT_NAME_MAX + 1];
 };
 
 /* The 57-byte identity record (radio packet 0xF5). */

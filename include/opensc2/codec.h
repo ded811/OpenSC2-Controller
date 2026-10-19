@@ -2,9 +2,13 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * The wire formats of the Steam Controller 2's 2.4 GHz link to the puck, as pure functions: no
- * kernel, no radio, no allocation. The library uses them; tools and tests can too. The formats
- * come from the published protocol documentation (see docs/protocol.md).
+ * The wire formats of the Steam Controller 2's 2.4 GHz link to the puck and of its USB device, as
+ * pure functions: no kernel, no radio, no allocation. The library uses them; tools and tests can
+ * too. The formats come from the published documentation (docs/protocol.md lists the pages). Three
+ * details of the report descriptor come from the same authors' study of the controller's firmware
+ * (not yet on the published pages): the sizes of its mouse and keyboard collections, the form of
+ * its vendor items and the order of its reports (lib/opensc2/usb_desc.c and docs/protocol.md,
+ * gap 13, name the source of each detail).
  *
  * All multi-byte values on the wire are little endian.
  */
@@ -105,11 +109,16 @@ uint8_t opensc2_target_channels(uint8_t report_id, uint8_t target);
 #define OPENSC2_ID_BAD_BOARD_SERIAL   OPENSC2_BIT(1)
 #define OPENSC2_ID_BAD_GIT_REVISION   OPENSC2_BIT(2)
 #define OPENSC2_ID_BAD_PRODUCT_ID     OPENSC2_BIT(3)
+#define OPENSC2_ID_BAD_PRODUCT_NAME   OPENSC2_BIT(4)
 
 /* A serial must be exactly 13 characters of 0-9 and A-Z, as the real controller requires. */
 bool opensc2_serial_valid(const char *s);
 /* Git revision: 1 to 12 printable ASCII characters. */
 bool opensc2_git_revision_valid(const char *s);
+/* The USB product name: 1 to OPENSC2_PRODUCT_NAME_MAX (31) printable ASCII characters (0x20 to
+ * 0x7E, the only ones a USB string descriptor of the stack may carry), spaces allowed inside but
+ * not at either end. */
+bool opensc2_product_name_valid(const char *s);
 uint32_t opensc2_identity_check(const struct opensc2_identity *id);
 
 /* The 57-byte identity record: product ID, build time, bootloader build time, board revision
@@ -182,6 +191,74 @@ int opensc2_payload_add_record(struct opensc2_payload *p, uint8_t type, const ui
 			       uint8_t len);
 /* Append raw bytes (for 0xF3 and 0xF5). */
 int opensc2_payload_add_bytes(struct opensc2_payload *p, const uint8_t *data, size_t len);
+
+/* ---- USB: the wired Steam Controller 2 -------------------------------------------------------
+ * Over its cable the controller is one full-speed device 28DE:1302 with one HID interface: a mouse
+ * collection (report 0x40), a keyboard collection (0x41) and the vendor collection with every other
+ * report, in that order, so the vendor one is Windows' third collection ("Col03"). Feature report
+ * 1 carries the same vendor commands as the radio link.
+ */
+
+#define OPENSC2_USB_VID              0x28DE
+#define OPENSC2_USB_PID              0x1302
+
+/* The report descriptor: 67 bytes of mouse, 41 of keyboard, 264 of vendor collection. */
+#define OPENSC2_HID_REPORT_DESC_LEN  372
+extern const uint8_t opensc2_hid_report_desc[OPENSC2_HID_REPORT_DESC_LEN];
+
+/* Feature report 1: 64 bytes with the ID, `01 <opcode> <n> <payload>`. */
+#define OPENSC2_USB_FEATURE_ID       1
+#define OPENSC2_USB_FEATURE_LEN      64
+
+/* The two forms of the real controller's USB device (its July and October 2026 firmware), as the
+ * published documentation gives them (docs/protocol.md lists the pages). They differ only in these
+ * fields; everything else (descriptors, reports, commands) is the same. */
+struct opensc2_usb_profile {
+	uint16_t bcd_usb;
+	uint8_t device_class;
+	uint8_t device_subclass;
+	uint8_t device_protocol;
+	uint16_t bcd_device;
+	bool bos_usb20_ext;      /* a BOS descriptor with a USB 2.0 extension (no LPM) */
+	uint8_t get_reply_len;   /* bytes of a GET_REPORT(Feature 1) reply, ID included */
+};
+
+/* The July 2026 controller firmware, the form Steam was seen pairing over the cable: USB 2.00, no
+ * BOS, class EF/02/01, release 3.07, 64-byte GET replies. */
+extern const struct opensc2_usb_profile opensc2_usb_profile_july;
+/* The October 2026 firmware: USB 2.01 with a USB 2.0 extension, class 00/00/00, release 4.04,
+ * 63-byte GET replies. */
+extern const struct opensc2_usb_profile opensc2_usb_profile_october;
+
+/* The descriptors a host should read: the 18-byte device descriptor of a profile (strings 1, 2
+ * and 3, one configuration), the 41-byte configuration descriptor (configuration, interface 0, HID,
+ * interrupt IN 0x81 and OUT 0x01 of 64 bytes every 1 ms, bus powered with remote wakeup, 500 mA)
+ * and the 9-byte HID descriptor. Each returns its length. */
+size_t opensc2_usb_device_descriptor(const struct opensc2_usb_profile *p, uint8_t out[18]);
+size_t opensc2_usb_config_descriptor(uint8_t out[41]);
+size_t opensc2_usb_hid_descriptor(uint8_t out[9]);
+
+/* Why a SET_REPORT(Feature) data stage is refused (opensc2_usb_feature_check()). */
+enum opensc2_usb_set_error {
+	OPENSC2_USB_SET_OK = 0,
+	OPENSC2_USB_SET_LENGTH = 1,   /* not exactly 64 bytes */
+	OPENSC2_USB_SET_ID = 2,       /* byte 0 is neither 1 nor 2 */
+	OPENSC2_USB_SET_N = 3,        /* the payload length byte is above 61 */
+};
+
+/* Check the data stage of SET_REPORT(Feature 1). On success *rec points at {opcode, n, payload}
+ * (63 bytes) and OPENSC2_USB_SET_OK is returned. */
+enum opensc2_usb_set_error opensc2_usb_feature_check(const uint8_t *data, size_t len,
+						      const uint8_t **rec);
+
+/* Build a GET_REPORT(Feature 1) reply: `01 <opcode> <n> <answer>`, zeros after the answer,
+ * `reply_len` bytes (64 or 63) but never more than the host's wLength. Returns the bytes written. */
+size_t opensc2_usb_feature_reply(uint8_t opcode, const uint8_t *answer, uint8_t n,
+				 size_t reply_len, size_t wlength, uint8_t *out);
+
+/* A short description of a control request for logs, for example
+ * "80 06 0303 0409 0202 GET_DESCRIPTOR string 3". */
+void opensc2_usb_setup_text(const uint8_t setup[8], char *buf, size_t size);
 
 /* ---- Little-endian helpers ------------------------------------------------------------------- */
 

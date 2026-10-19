@@ -30,7 +30,9 @@
  *   P1.04  STEAM
  *   P1.06  QAM (quick access, "...")
  *
- *   On-board LED (P0.15): pairing status.
+ *   On-board LED (P0.15): link and USB status.
+ *
+ * Wired mode (bottom of the root node): the USB HID function and the retained RAM area.
  */
 #include <zephyr/dt-bindings/input/input-event-codes.h>
 #include <dt-bindings/opensc2/inputs.h>
@@ -58,7 +60,10 @@
 		steam      { gpios = BUTTON(1, 4);  zephyr,code = <OPENSC2_KEY_STEAM>; };
 		qam        { gpios = BUTTON(1, 6);  zephyr,code = <OPENSC2_KEY_QAM>; };
 
-		pair       { gpios = BUTTON(0, 31); zephyr,code = <OPENSC2_KEY_PAIR>; };
+		/* Held while powering up: this boot is wireless even on USB power. While wired:
+		 * pressed before a host configures the board, or held 3 s (the LED goes dark), back
+		 * to wireless when released. */
+		opensc2_pair: pair { gpios = BUTTON(0, 31); zephyr,code = <OPENSC2_KEY_PAIR>; };
 		button_a   { gpios = BUTTON(1, 15); zephyr,code = <OPENSC2_KEY_A>; };
 		button_b   { gpios = BUTTON(1, 13); zephyr,code = <OPENSC2_KEY_B>; };
 		button_x   { gpios = BUTTON(1, 11); zephyr,code = <OPENSC2_KEY_X>; };
@@ -105,24 +110,61 @@
 		 * delete this line if your VCC is always on or switched differently. */
 		vcc-enable-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
 
-		/* ---- Optional outputs (pins needed: take them from buttons above) --------------------
-		 * A vibration motor or LRA driver on a PWM channel (see samples/rumble):
-		 *   rumble-pwms = <&pwm1 0 PWM_USEC(200) PWM_POLARITY_NORMAL>;
-		 * An RGB LED on three PWM channels that follows Steam's LED colour (samples/rgb_led):
-		 *   rgb-pwms = <&pwm2 0 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-		 *              <&pwm2 1 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-		 *              <&pwm2 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
-		 */
+		/* ---- Optional outputs (take their pins from buttons above) ----------------------
+		 * A vibration motor ("rumble", samples/rumble) and an RGB LED that follows
+		 * Steam's colour ("red", "green", "blue", samples/rgb_led) are PWM channels in a
+		 * single pwms list, found by pwm-names. All channels of one nRF PWM instance share
+		 * one period, so the motor (200 us) and the LED (1000 us) take two instances:
+		 *   pwms = <&pwm1 0 PWM_USEC(200) PWM_POLARITY_NORMAL>,
+		 *          <&pwm2 0 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
+		 *          <&pwm2 1 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
+		 *          <&pwm2 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
+		 *   pwm-names = "rumble", "red", "green", "blue";
+		 * and enable &pwm1 and &pwm2 with a pinctrl group each (samples/rumble, rgb_led).
+		 * A mode switch to GND, closed at power-up: wireless, as if pairing were held:
+		 *   mode-wireless-gpios = <&gpio0 x (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; */
 	};
 
-	/* ---- Optional trackpads and IMU ----------------------------------------------------------
-	 * A touch device of Zephyr's input subsystem as a trackpad (samples/touchpad), and a sensor
-	 * of Zephyr's sensor API as the IMU (samples/imu):
+	/* ---- Optional trackpads and IMU (samples/touchpad, samples/imu) -----------------------
 	 *   chosen { opensc2,right-trackpad = &touch; opensc2,left-trackpad = &touch2; };
-	 *   aliases { imu0 = &mpu6050; };
-	 * with the trackpad's coordinate range in zephyr,user:
-	 *   right-trackpad-size = <1024 1024>;
-	 */
+	 *   aliases { imu0 = &imu; };   (the label of samples/imu's node, imu: mpu6050@68)
+	 * and in zephyr,user each pad's coordinate range (1024 x 1024 when not set). Touch devices
+	 * count Y from the top, the controller up from the bottom: Y is flipped, unless keep-y:
+	 *   right-trackpad-size = <1024 1024>;   right-trackpad-keep-y;
+	 *   left-trackpad-size = <1024 1024>;    left-trackpad-keep-y;
+	 * A pad click is a button above with OPENSC2_KEY_RIGHT_PAD_CLICK or _LEFT_PAD_CLICK. */
+
+	/* ---- Wired mode: the USB HID function of the wired Steam Controller 2: interrupt IN and
+	 * OUT of 64 bytes, polled every 1 ms, no boot protocol, as on the real controller. */
+	chosen {
+		opensc2,usb-hid = &opensc2_hid;
+		opensc2,retained-ram = &opensc2_retained;
+	};
+
+	opensc2_hid: opensc2_hid {
+		compatible = "zephyr,hid-device";
+		in-report-size = <64>;
+		in-polling-period-us = <1000>;
+		out-report-size = <64>;
+		out-polling-period-us = <1000>;
+	};
+
+	/* 16 KB of RAM that start-up does not clear, for the USB session log and the warm-restart
+	 * mark (Steam's "reboot into wireless mode"). They survive a soft reset. The UF2 bootloader
+	 * runs at every reset and uses RAM from 0x20000000 to the end of its .bss (0x2000CE2C in
+	 * 0.6.0, 0x2000DEC0 in 0.11.0) and its stack at 0x2003E000..0x20040000 (docs/porting.md):
+	 * this region is clear of both. Keep it so if you move it. */
+	opensc2_retained: memory@2002c000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2002c000 DT_SIZE_K(16)>;
+		zephyr,memory-region = "OPENSC2_RETAINED";
+	};
+};
+
+/* The application's RAM ends below the retained area (176 KB of the 256; the top 64 KB stay
+ * unused). */
+&sram0 {
+	reg = <0x20000000 DT_SIZE_K(176)>;
 };
 
 /* The analog inputs: gain 1/4 of VDD/4, so full scale is VDD, ratiometric with potentiometers
@@ -161,7 +203,7 @@
 };
 
 /* The board's other peripherals sit on pins the buttons use: switch them off. The log and the
- * shell are on the USB serial port. */
+ * shell are on the USB serial port (in wireless mode). */
 &uart0 { status = "disabled"; };
 &i2c0 { status = "disabled"; };
 &i2c1 { status = "disabled"; };

@@ -7,6 +7,8 @@
  *   opensc2/slot                   the selected bond slot, 1 byte
  *   opensc2/chime                  the power-on chime level (vendor command 0xDC), 1 byte
  *   opensc2/id                     an identity override (opensc2_identity_store, the shell)
+ *   opensc2/name                   the stored USB product name, its characters (no NUL)
+ *   opensc2/mode                   the mode policy (opensc2_policy_set), 1 byte
  * Without CONFIG_OPENSC2_STORAGE everything lives in RAM only.
  */
 #include <errno.h>
@@ -20,14 +22,15 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 #if defined(CONFIG_OPENSC2_STORAGE)
 #include <zephyr/settings/settings.h>
 
-/* opensc2/id: a version byte, the field mask, then the fields. */
+/* opensc2/id: a version byte, the field mask, then the fields. The product name has a key of its
+ * own (opensc2/name), so this layout stays as it was and firmware without names still reads it. */
 #define ID_BLOB_VERSION 1
 #define ID_BLOB_LEN     (2 + 14 + 14 + 13 + 2 + 4 + 4 + 4)
 
 static void id_pack(const struct osc2_id_override *o, uint8_t out[ID_BLOB_LEN])
 {
 	out[0] = ID_BLOB_VERSION;
-	out[1] = o->mask;
+	out[1] = o->mask & OSC2_ID_BLOB_FIELDS;
 	memcpy(&out[2], o->id.unit_serial, 14);
 	memcpy(&out[16], o->id.board_serial, 14);
 	memcpy(&out[30], o->id.git_revision, 13);
@@ -37,20 +40,26 @@ static void id_pack(const struct osc2_id_override *o, uint8_t out[ID_BLOB_LEN])
 	opensc2_put_le32(&out[53], o->id.bootloader_build_time);
 }
 
+/* The fields of opensc2/id into `o`; the name, which opensc2/name may have loaded before (the keys
+ * come in any order), is kept. */
 static int id_unpack(const uint8_t in[ID_BLOB_LEN], struct osc2_id_override *o)
 {
+	struct osc2_id_override blob;
+
 	if (in[0] != ID_BLOB_VERSION) {
 		return -EINVAL;
 	}
-	memset(o, 0, sizeof(*o));
-	o->mask = in[1] & OSC2_ID_ALL;
-	memcpy(o->id.unit_serial, &in[2], 13);
-	memcpy(o->id.board_serial, &in[16], 13);
-	memcpy(o->id.git_revision, &in[30], 12);
-	o->id.product_id = opensc2_get_le16(&in[43]);
-	o->id.board_revision = opensc2_get_le32(&in[45]);
-	o->id.build_time = opensc2_get_le32(&in[49]);
-	o->id.bootloader_build_time = opensc2_get_le32(&in[53]);
+	memset(&blob, 0, sizeof(blob));
+	blob.mask = in[1] & OSC2_ID_BLOB_FIELDS;
+	memcpy(blob.id.unit_serial, &in[2], 13);
+	memcpy(blob.id.board_serial, &in[16], 13);
+	memcpy(blob.id.git_revision, &in[30], 12);
+	blob.id.product_id = opensc2_get_le16(&in[43]);
+	blob.id.board_revision = opensc2_get_le32(&in[45]);
+	blob.id.build_time = opensc2_get_le32(&in[49]);
+	blob.id.bootloader_build_time = opensc2_get_le32(&in[53]);
+	osc2_id_copy(&o->id, &blob.id, OSC2_ID_BLOB_FIELDS);
+	o->mask = (uint8_t)((o->mask & ~OSC2_ID_BLOB_FIELDS) | blob.mask);
 	return 0;
 }
 
@@ -97,6 +106,20 @@ static int on_set(const char *key, size_t len, settings_read_cb read_cb, void *c
 		}
 		return 0;
 	}
+	if (settings_name_steq(key, "name", &next) && !next) {
+		if (n >= 1 && n <= OPENSC2_PRODUCT_NAME_MAX) {
+			memset(osc2.stored.id.product_name, 0, sizeof(osc2.stored.id.product_name));
+			memcpy(osc2.stored.id.product_name, buf, (size_t)n);
+			osc2.stored.mask |= OSC2_ID_NAME;   /* checked with the rest at refresh */
+		}
+		return 0;
+	}
+	if (settings_name_steq(key, "mode", &next) && !next) {
+		if (n == 1 && buf[0] <= OPENSC2_POLICY_WIRELESS) {
+			osc2.policy = (enum opensc2_policy)buf[0];
+		}
+		return 0;
+	}
 	return -ENOENT;
 }
 
@@ -138,18 +161,36 @@ int osc2_storage_save_chime(void)
 int osc2_storage_save_identity(void)
 {
 	uint8_t buf[ID_BLOB_LEN];
+	int err;
 
-	if (osc2.stored.mask == 0) {
-		return settings_delete("opensc2/id");
+	if ((osc2.stored.mask & OSC2_ID_BLOB_FIELDS) == 0) {
+		err = settings_delete("opensc2/id");
+	} else {
+		id_pack(&osc2.stored, buf);
+		err = settings_save_one("opensc2/id", buf, sizeof(buf));
 	}
-	id_pack(&osc2.stored, buf);
-	return settings_save_one("opensc2/id", buf, sizeof(buf));
+	if (err) {
+		return err;
+	}
+	if (!(osc2.stored.mask & OSC2_ID_NAME)) {
+		return settings_delete("opensc2/name");   /* nothing written when there is none */
+	}
+	return settings_save_one("opensc2/name", osc2.stored.id.product_name,
+				 strlen(osc2.stored.id.product_name));
+}
+
+int osc2_storage_save_policy(void)
+{
+	uint8_t policy = (uint8_t)osc2.policy;
+
+	return settings_save_one("opensc2/mode", &policy, 1);
 }
 
 int osc2_storage_factory_reset(void)
 {
 	/* What a factory reset forgets: pairings, the slot choice, the chime level. The identity
-	 * override is kept, as the real controller keeps its calibration and serials. */
+	 * override and the mode policy are kept, as the real controller keeps its calibration and
+	 * serials. */
 	int err = 0;
 
 	err |= settings_delete("opensc2/bond0");
@@ -174,6 +215,7 @@ int osc2_storage_save_bond(uint8_t slot)
 int osc2_storage_save_slot(void) { return 0; }
 int osc2_storage_save_chime(void) { return 0; }
 int osc2_storage_save_identity(void) { return 0; }
+int osc2_storage_save_policy(void) { return 0; }
 int osc2_storage_factory_reset(void) { return 0; }
 
 #endif /* CONFIG_OPENSC2_STORAGE */
