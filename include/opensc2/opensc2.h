@@ -253,12 +253,18 @@ struct opensc2_cue_event {
 };
 
 struct opensc2_callbacks {
-	/* The radio link changed state. */
+	/* The wireless link changed state: the puck's radio link, or Bluetooth's in a build with
+	 * CONFIG_OPENSC2_BLE (whichever transport runs; info->transport says which). From the radio
+	 * thread, or the Bluetooth thread (opensc2_ble). */
 	void (*link_changed)(const struct opensc2_link_info *info, void *user_data);
 
 	/* Called right before each state report is built (about every 3 ms through the puck, every
-	 * 4 ms on USB), so inputs can be sampled at the last moment. Change `state` in place; it is
-	 * kept. */
+	 * 4 ms on USB, at every connection event over Bluetooth), so inputs can be sampled at the
+	 * last moment. Change `state` in place; it is kept. From the thread that builds the report:
+	 * the radio thread, the USB report thread, the Bluetooth report thread (opensc2_blerpt,
+	 * priority 4, above the radio thread), or, while the dock is the only link, the dock thread
+	 * (or the test hooks' thread that runs a dock op). These threads can run one after another,
+	 * so state shared with other callbacks needs a lock (docs/api.md, Threads and timing). */
 	void (*sample)(struct opensc2_state *state, void *user_data);
 
 	/* Output report 0x80, decoded. The library sends speeds of 0 with `timeout` set when the host
@@ -268,7 +274,10 @@ struct opensc2_callbacks {
 
 	/* Output reports 0x81..0x89, decoded (pulse, command, tone, sweep, script, PCM), and lizard
 	 * mode's own pad ticks and clicks (report_id 0), which come from the thread that builds the
-	 * state reports: wired, the USB report thread, not the USB stack's. */
+	 * state reports (see `sample`: wired, the USB report thread, not the USB stack's; over
+	 * Bluetooth the Bluetooth report thread). The output reports come from the thread that
+	 * received them: the radio thread, the USB stack's thread, the Bluetooth host's receive
+	 * thread. */
 	void (*haptic)(const struct opensc2_haptic *haptic, void *user_data);
 
 	/* Any output report, raw, before decoding (ID first). */
@@ -292,7 +301,9 @@ struct opensc2_callbacks {
 	 * or a negative errno. For a GET, write up to OPENSC2_ANSWER_MAX (61) bytes to `answer`, set
 	 * `*answer_len` and return 0. Return -ENOTSUP for commands you do not know. While wired it
 	 * runs in the USB stack's thread, inside the host's control request: only the return value
-	 * counts (the library clears errno before it answers). */
+	 * counts (the library clears errno before it answers). Otherwise in the thread of the link
+	 * the command came on: the radio thread, the Bluetooth host's receive thread, the dock
+	 * thread; one command at a time across all links. */
 	int (*vendor_command)(const struct opensc2_vendor_cmd *cmd, uint8_t *answer,
 			      uint8_t *answer_len, void *user_data);
 
@@ -325,30 +336,40 @@ struct opensc2_config {
 	void *user_data;
 	/* Bond slot to use, 0 or 1; OPENSC2_SLOT_STORED: the one stored last (default 0). */
 	uint8_t bond_slot;
-	/* Start the radio at once in wireless mode (otherwise call opensc2_start()). */
+	/* Let the library start the wireless link (otherwise call opensc2_start()): at once in
+	 * wireless mode; with the system state machine (CONFIG_OPENSC2_SYSTEM, on by default) when
+	 * its power-on rules say so (at once on USB power, after its 1 s wait on a battery), and on
+	 * the stored transport, the puck or Bluetooth. */
 	bool start;
 	/* This boot's mode, if the application wants to choose it (enum opensc2_boot_mode). */
 	enum opensc2_boot_mode boot_mode;
 };
 
 /* Initialise the library: load bonds, the stored identity and the mode policy from Zephyr
- * settings, decide the mode of this boot, then start the USB device (wired) or the radio thread
- * (wireless). A wired boot whose USB device cannot be set up goes on wireless
+ * settings, decide the mode of this boot, then start the USB device (wired) or the wireless link
+ * (with config.start: the radio thread, or Bluetooth; with the system state machine the machine
+ * starts it, when its power-on rules say so). A wired boot whose USB device cannot be set up goes
+ * on wireless
  * (OPENSC2_MODE_USB_FAILED). Call once. Returns 0 or a negative errno (-EINVAL for an invalid
  * identity); after an error the debug console (CONFIG_OPENSC2_USB_CONSOLE) still starts, so the
  * log can be read. */
 int opensc2_init(const struct opensc2_config *config);
 
-/* Radio on: listen for the bonded puck (OPENSC2_LINK_LISTENING), or wait in OPENSC2_LINK_NO_BOND
- * when the selected slot is empty. -EBUSY in wired mode. */
+/* The wireless transport on. The puck's radio: listen for the bonded puck
+ * (OPENSC2_LINK_LISTENING), or wait in OPENSC2_LINK_NO_BOND when the selected slot is empty.
+ * Bluetooth: advertise (also after "wireless off"). -EBUSY in wired mode. */
 int opensc2_start(void);
 
-/* Radio off. Like the real controller, nothing is sent: the puck notices the silence. */
+/* The wireless transport off. The puck's radio: like the real controller, nothing is sent; the
+ * puck notices the silence. Bluetooth: an all-zero 0x45 (when past the link's gate), 100 ms, a
+ * disconnect (0x13), no advertising. */
 int opensc2_stop(void);
 
-/* Pair with a puck whose pairing window is open over the air. The new bond replaces the one in the
- * selected slot once pairing succeeds. `seconds` 0: CONFIG_OPENSC2_PAIRING_TIMEOUT_S. Starts the
- * radio if it was off. -EBUSY in wired mode (Steam pairs a wired controller itself). */
+/* Pairing. The puck's radio: pair with a puck whose pairing window is open over the air; the new
+ * bond replaces the one in the selected slot once pairing succeeds, `seconds` 0:
+ * CONFIG_OPENSC2_PAIRING_TIMEOUT_S, and the radio starts if it was off. Bluetooth: pairing mode
+ * on the slot (its other identity reset, open to a new host; `seconds` unused). -EBUSY in wired
+ * mode (Steam pairs a wired controller itself). */
 int opensc2_pair_start(uint16_t seconds);
 int opensc2_pair_cancel(void);
 

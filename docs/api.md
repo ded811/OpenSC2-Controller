@@ -633,16 +633,22 @@ touch levels (72, 73) belong to the trackpad's own processing: [sensor helpers](
 
 ## Outputs
 
-All callbacks are in `struct opensc2_callbacks`; any may be `NULL`. Wireless, they run in the
+All callbacks are in `struct opensc2_callbacks`; any may be `NULL`. Through the puck they run in the
 library's radio thread; wired, in its USB report thread (`sample`, and `haptic` for lizard mode's
 own events) or the USB stack's thread (output reports, vendor commands), so on the cable `haptic`
-can come from either of those two threads; `power_request`, `usb_changed`, `led_status`, `cue` and
-a rumble timeout run in the system work queue. Return quickly: the radio link only lives while
+can come from either of those two threads. Over Bluetooth (`CONFIG_OPENSC2_BLE`) `sample` and lizard
+mode's `haptic` events run in the Bluetooth report thread (`opensc2_blerpt`, priority 4, above the
+radio thread), output reports, vendor commands, `setting_changed` and `led` in the Bluetooth host's
+receive thread, and `link_changed` in the Bluetooth thread (`opensc2_ble`). With the dock link, the
+dock's vendor commands, and `sample` while the dock is the only link, run in the dock thread (or in
+the thread of a test op that hands the dock a frame). `power_request`, `usb_changed`, `led_status`,
+`cue` and a rumble timeout run in the system work queue. So a callback can come from more than one
+thread: guard state that two of them share. Return quickly: the radio link only lives while
 acknowledgements keep up with the puck.
 
 | Callback | Called for | Gets |
 | --- | --- | --- |
-| `link_changed(info)` | every radio state change | `struct opensc2_link_info` |
+| `link_changed(info)` | every state change of the wireless link, the puck's radio or Bluetooth | `struct opensc2_link_info` (`transport` says which) |
 | `sample(state)` | before each state report | the state, to update in place (it is kept) |
 | `rumble(r)` | output report `0x80` | `left_speed`, `right_speed` 0..65535 (0 stops), `intensity`, `left/right_gain_db`, `type`; `timeout` set when the library stops a rumble the host did not repeat (`CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS`, 500) or the link dropped |
 | `haptic(h)` | output reports `0x81`..`0x89`; lizard mode's ticks and pad clicks | `kind`, `channels`, raw `target`, and the decoded fields below; `report_id` is the output report's ID, or 0 for an event of the library's own |
