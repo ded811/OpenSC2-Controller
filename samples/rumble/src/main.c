@@ -8,8 +8,9 @@
  *       report while it wants rumble; the library sends speed 0 when it stops (or the link drops).
  *   clicks, pulses, tones, sweeps and scripts (0x81..0x85): a short buzz; "stop all" stops it.
  *   PCM streams (0x86..0x89): ignored, a motor cannot play samples.
- * The callbacks run in the library's radio thread (wireless) or in the USB stack's thread (wired),
- * so they only set the PWM and schedule work.
+ * The callbacks run in the library's radio thread (wireless) or in the USB stack's thread (wired;
+ * lizard mode's own haptic events, its pad ticks and clicks, in the USB report thread), so they
+ * only set the PWM and schedule work.
  * There is no power_request callback: the library does the reboots Steam asks for itself, and it
  * ignores Steam's request to enter a bootloader for a firmware update.
  */

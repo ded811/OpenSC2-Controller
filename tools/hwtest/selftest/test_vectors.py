@@ -48,43 +48,75 @@ class Files(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(VDIR, name)), name)
 
 
+def settings_of(text, settings):
+    """SET n=v,n=v,... onto a {number: value} dict."""
+    for part in text.split(","):
+        n, _, v = part.partition("=")
+        settings[int(n)] = int(v)
+
+
 class StateVectors(unittest.TestCase):
     def test_state_txt(self):
-        count = 0
+        count = rules_lines = 0
         for tok, line in records("state.txt"):
-            t68 = int(tok[tok.index("T68") + 1]) if "T68" in tok else 90
+            settings = {68: int(tok[tok.index("T68") + 1]) if "T68" in tok else 90}
             prev = tok[tok.index("PREV") + 1] if "PREV" in tok else "00"
+            if "SET" in tok:
+                settings_of(tok[tok.index("SET") + 1], settings)
+            rules = int(tok[tok.index("RULES") + 1], 16) if "RULES" in tok else M.RULES_V0_2
+            rules_lines += "RULES" in tok
+            r = M.StateRules(rules)
+            r.trigger_bit = [prev[0] == "1", prev[1] == "1"]
+            if "CLICK" in tok:
+                click = tok[tok.index("CLICK") + 1]
+                r.set_clicks(click[0] == "1", click[1] == "1", settings)
             state_in = hex_field(tok, "IN")
             want = hex_field(tok, "OUT")
             self.assertEqual(len(state_in), C.STATE52_LEN, line)
             self.assertEqual(len(want), C.STATE52_LEN, line)
-            got, _l, _r = M.expected_report(state_in, prev[0] == "1", prev[1] == "1",
-                                            setting68=t68)
-            self.assertEqual(got.hex(), want.hex(), line)
+            self.assertEqual(r.apply(state_in, settings).hex(), want.hex(), line)
+            if "RULES" not in tok:
+                # the 0.2.0 wrapper the older callers use agrees
+                got, _l, _r = M.expected_report(state_in, prev[0] == "1", prev[1] == "1",
+                                                setting68=settings[68])
+                self.assertEqual(got.hex(), want.hex(), line)
             count += 1
         self.assertGreaterEqual(count, 28)
+        self.assertGreaterEqual(rules_lines, 20)
 
 
 class LizardVectors(unittest.TestCase):
     def test_lizard_txt(self):
         lz = M.LizardModel()
-        count = 0
+        settings = {}
+        count = events = 0
         for tok, line in records("lizard.txt"):
             if tok[0] == "START":
-                lz.reset()
+                lz = M.LizardModel()
+                settings = {}
+                continue
+            if tok[0] == "RULES":
+                lz.rules = int(tok[1], 16)
+                continue
+            if tok[0] == "SET":
+                settings_of(tok[1], settings)
                 continue
             arrow = tok.index("->")
             if tok[arrow + 1] == "-":
-                want = b""
+                want, after = b"", arrow + 2
             else:
-                want, _ = hex_after(tok, arrow + 1)
-            made = self._run(lz, tok[:arrow])
+                want, after = hex_after(tok, arrow + 1)
+            made = self._run(lz, tok[:arrow], settings)
             self.assertEqual(b"".join(made).hex(), want.hex(), line)
+            words = lz.haptic_words() if tok[0] == "FRAME" else []
+            self.assertEqual(words, tok[after:], line)
+            events += len(words)
             count += 1
         self.assertGreater(count, 60)
+        self.assertGreater(events, 4)
 
     @staticmethod
-    def _run(lz, action):
+    def _run(lz, action, settings=None):
         verb = action[0]
         if verb == "ENTER":
             return [r for _k, r in lz.enter()]
@@ -96,7 +128,7 @@ class LizardVectors(unittest.TestCase):
             return [r for _k, r in lz.resync()]
         if verb != "FRAME":
             raise AssertionError("unknown lizard action %r" % verb)
-        kw = {"buttons": 0, "lpad": (0, 0), "rpad": (0, 0), "s82": 3}
+        kw = {"buttons": 0, "lpad": (0, 0), "rpad": (0, 0), "settings": dict(settings or {})}
         for part in action[1:]:
             k, _, v = part.partition("=")
             if k == "buttons":
@@ -105,10 +137,35 @@ class LizardVectors(unittest.TestCase):
                 x, y = v.split(",")
                 kw[k] = (int(x), int(y))
             elif k == "s82":
-                kw["s82"] = int(v, 0)
+                kw["s82"] = int(v, 0)   # this frame only
             else:
                 raise AssertionError("unknown FRAME field %r" % k)
         return [r for _k, r in lz.step(**kw)]
+
+
+class LizardHapticEntries(unittest.TestCase):
+    """Lizard mode's haptic events as the lizard group reads them back from the ring (HAPTIC
+    entries with report ID 0): exactly the model's fields give (kind, side); another kind,
+    command, target, channel or level comes back so that the comparison with the model fails."""
+
+    @staticmethod
+    def entry(**fields):
+        e = {"time_us": 0, "kind": C.RING_HAPTIC, "link": 1}
+        e.update(fields)
+        return T.decode_entry(T.encode_entry(e))
+
+    def test_events(self):
+        for kind, side in (("tick", 0), ("tick", 1), ("click", 0), ("click", 1)):
+            got = M.lizard_haptic_of_entry(self.entry(**M.lizard_haptic_fields(kind, side)))
+            self.assertEqual(got, (kind, side))
+        tick = M.lizard_haptic_fields("tick", 1)
+        for change in ({"gain": 14}, {"channels": M.CH_LPAD}, {"command": 0}, {"target": 2},
+                       {"haptic_kind": 4, "id": 1}):
+            got = M.lizard_haptic_of_entry(self.entry(**dict(tick, **change)))
+            self.assertIsNotNone(got, change)
+            self.assertNotEqual(got, ("tick", 1), change)
+        # an output report's entry (IDs from 0x80) is not one of the library's events
+        self.assertIsNone(M.lizard_haptic_of_entry(self.entry(**dict(tick, report_id=0x82))))
 
 
 class RingVectors(unittest.TestCase):

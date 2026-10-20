@@ -6,9 +6,10 @@
 # docs/test-protocol.md state them: one stored request per link, a STALL on USB for a refused SET
 # or a GET without an answer, the test channel's claiming rule and held answers, the lease and the
 # end of arming, the ring as bytes (2048 of them, oldest entries evicted), the counters, the
-# settings and their side effects, input injection and sequences, the trigger rule, the battery
-# report, output reports, the rumble timeout and the Steam watchdog; with Bluetooth as the
-# transport (a --bluetooth dry run) the Bluetooth link of simble.py. The firmware emulator
+# settings and their side effects, input injection and sequences, the input rules (with the rule
+# word of RULES and RULES_SET), lizard mode with its haptic events, the battery report, output
+# reports, the rumble timeout and the Steam watchdog; with Bluetooth as the transport (a
+# --bluetooth dry run) the Bluetooth link of simble.py. The firmware emulator
 # (fwemu.py) runs the real C code for the same purpose; the self-tests run the groups against
 # both.
 import struct
@@ -32,6 +33,7 @@ OPS = {   # op: (min args, max args, runs unarmed)
     C.OP_INJECT: (53, 53, False), C.OP_INJECT_OFF: (0, 0, False),
     C.OP_BATTERY: (16, 16, False), C.OP_BATTERY_OFF: (0, 0, False),
     C.OP_SEQ_LOAD: (54, 54, False), C.OP_SEQ_RUN: (2, 2, False), C.OP_SEQ_STOP: (0, 0, False),
+    C.OP_RULES: (0, 0, False), C.OP_RULES_SET: (4, 4, False),
     C.OP_RING_READ: (5, 5, False), C.OP_RING_CLEAR: (0, 0, False),
     C.OP_CNT_READ: (2, 2, False), C.OP_CNT_RESET: (0, 0, False), C.OP_MARK: (4, 4, False),
     C.OP_SETTINGS_READ: (2, 2, False), C.OP_HOST_OUT: (1, 54, False),
@@ -75,8 +77,10 @@ class SimBoard:
         self.battery = dict(R.BATTERY_DEFAULT_FIELDS)
         self.stored = {k: (0x83, b"") for k in LINKS}
         self.sequence = 0
-        self.trig = [False, False]
-        self.lizard = M.LizardModel()          # on at boot (setting 9 = 1)
+        self.rules = M.RULES_DEFAULT          # the blank canvas's rule word
+        self.state_rules = M.StateRules(self.rules)
+        self.lizard = M.LizardModel(self.rules)   # on at boot (setting 9 = 1)
+        self.set_rules(self.rules)
         self.slot = world.slot
         if not hasattr(world, "kept_saved"):
             world.kept_saved = {}              # keys.c's stored values (C.KEPT_KEYS)
@@ -672,15 +676,35 @@ class SimBoard:
         if self.rumble_active:
             self.rumble_off()
 
+    def set_rules(self, rules):
+        self.rules = rules
+        self.state_rules.rules = rules
+        self.lizard.rules = rules
+        if self.fault == "glide_ignored":
+            self.lizard.rules &= ~M.RULE_LIZARD_GLIDE   # lizard mode never glides
+        if self.fault == "ticks_ignored":
+            self.lizard.rules &= ~M.RULE_LIZARD_TICKS   # no ticks and no pad clicks
+
+    def app_state(self):
+        """The blank canvas on a bare board: all zero, but for the left stick's raw output
+        (setting 46), which reads its biased pins at half of full scale."""
+        mode = self.settings[46]
+        if mode in (1, 2):
+            v = 2048 if mode == 2 else 1650
+            return R.make_state52(lstick_x=v, lstick_y=v)
+        return R.make_state52()
+
     # ---- the frame path (report.c) ----
     def frame(self):
         """One state report built (and the lizard frame after it)."""
-        s = R.make_state52()
+        s = self.app_state()
         injected, lizard_test = self.hooks.input(self.lizard_on())
         if injected is not None:
             s = injected
-        exp, self.trig[0], self.trig[1] = M.expected_report(s, self.trig[0], self.trig[1],
-                                                            setting68=self.settings[68])
+        # the pad_blank_ignored fault: setting 82 does not blank an injected pad in 0x42
+        blank_off = self.fault == "pad_blank_ignored" and injected is not None
+        self.state_rules.rules = self.rules & ~M.RULE_PAD_BLANK if blank_off else self.rules
+        exp = self.state_rules.apply(s, self.settings)
         if self.fault == "trigger_bit" and injected is not None:
             exp = _trigger_off_by_one(s, exp, self.settings[68])
         report = bytes([C.RPT_STATE, self.sequence]) + exp
@@ -700,12 +724,15 @@ class SimBoard:
             self.hooks.count("radio_sent")
         # lizard mode: never on a frame injected without the lizard test
         if self.lizard_on() and not (injected is not None and not lizard_test):
-            f = R.decode_state52(exp)
-            made = self.lizard.step(buttons=f["buttons"], lpad=(f["lpad_x"], f["lpad_y"]),
-                                    rpad=(f["rpad_x"], f["rpad_y"]), s82=self.settings[82])
+            made = self.lizard.step_state52(exp, self.settings)
             for _kind, rep in made:
                 self.hooks.count("lizard_made")
                 self.input_send(rep)
+            for kind, side in self.lizard.haptics:
+                f = M.lizard_haptic_fields(kind, side)
+                self.hooks.note(C.RING_HAPTIC, self.hooks._mode_link(),
+                                bytes([f["haptic_kind"], 0, side, f["channels"], f["command"],
+                                       f["gain"] & 0xFF]))
         return report
 
 
@@ -740,6 +767,7 @@ class Hooks:
         self.counters = {n: 0 for n in C.COUNTER_NAMES}
         self.deaf_ms = 0
         self.ctx = None               # the link of the command being run (a name), or None
+        self.rules_changed = False    # RULES_SET: the build's rule word comes back at the end
         self.skip_lizard = False
         self.frame_seq = None
         self.gen = 0
@@ -864,6 +892,9 @@ class Hooks:
         self.counters = {n: 0 for n in C.COUNTER_NAMES}
         self.completing = True
         self.b.timers.pop("lease", None)
+        if self.rules_changed:
+            self.rules_changed = False
+            self.b.set_rules(M.RULES_DEFAULT)
         if snap:
             settings, led = snap
             for n in range(86):
@@ -1001,6 +1032,9 @@ class Hooks:
         if want:
             self.snapshot = (list(self.b.settings),
                              [self.b.led[k] for k in ("red", "green", "blue", "white")])
+        if self.rules_changed:
+            self.rules_changed = False
+            self.b.set_rules(M.RULES_DEFAULT)
         self.completing = False
         self.b.timers.pop("completion", None)
         self._ring_reset(0)
@@ -1025,7 +1059,8 @@ class Hooks:
                             (1 << C.CAP_STEAM_WATCHDOG) | (1 << C.CAP_USB) |
                             (1 << C.CAP_USB_CONSOLE) | (1 << C.CAP_STORAGE) |
                             (1 << C.CAP_USB_LOG) | (1 << C.CAP_USB_PLUG_IN_REBOOT) |
-                            (1 << C.CAP_SHELL) | (1 << C.CAP_HAPTIC_STOP_STATUS) |
+                            (1 << C.CAP_SHELL) | (1 << C.CAP_RULES) |
+                            (1 << C.CAP_HAPTIC_STOP_STATUS) |
                             self.b.world.extra_build_flags) & ~self.b.world.cleared_build_flags,
             "battery_interval_ms": C.BATTERY_INTERVAL_MS, "rumble_timeout_ms": C.RUMBLE_TIMEOUT_MS,
             "ring_size": self.ring_size, "sequence_depth": 8, "counter_count": C.COUNTER_COUNT,
@@ -1184,6 +1219,19 @@ class Hooks:
         if rc == 0:
             self.counters["app_reports_sent"] += 1
         return C.ST_OK, struct.pack("<i", rc)
+
+    def _op_17(self, link, a):            # RULES
+        return C.ST_OK, struct.pack("<III", self.b.rules, M.RULES_DEFAULT, M.RULES_KNOWN)
+
+    def _op_18(self, link, a):            # RULES_SET
+        rules = struct.unpack_from("<I", a, 0)[0]
+        if rules & ~M.RULES_KNOWN:
+            return C.ST_BAD_ARG, b""
+        self.rules_changed = True
+        self.b.set_rules(rules)
+        self.b.lizard.resync()
+        self.note_lizard(C.LIZARD_RESYNC, link)
+        return C.ST_OK, struct.pack("<I", self.b.rules)
 
     def _op_60(self, link, a):            # BLE_STATUS
         return self._ble_op(C.OP_BLE_STATUS, a)

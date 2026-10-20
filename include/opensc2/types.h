@@ -174,6 +174,8 @@ enum opensc2_pcm_encoding {
 
 struct opensc2_haptic {
 	enum opensc2_haptic_kind kind;
+	/* The output report's ID; 0 for an event the library makes itself (lizard mode's ticks and
+	 * pad clicks: a COMMAND for one pad, gain_db the level the click plays at). */
 	uint8_t report_id;
 	uint8_t target;     /* the target byte as sent */
 	uint8_t channels;   /* OPENSC2_HAPTIC_* mask decoded from the target (0: none) */

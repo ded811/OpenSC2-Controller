@@ -147,8 +147,12 @@ void osc2_radio_info(struct opensc2_link_info *info);
 bool osc2_radio_connected(void);
 /* The radio is off and ESB released (so another stack may take it). */
 bool osc2_radio_idle(void);
-/* Extra input reports waiting for the next state reports. */
-int osc2_radio_queue_report(const uint8_t *report, size_t len);
+/* Extra input reports for the next state reports. `droppable` (the battery report): dropped when
+ * the queue holds CONFIG_OPENSC2_REPORT_QUEUE_DEPTH; the others wait for room behind them, up to
+ * CONFIG_OPENSC2_REPORT_WAIT_DEPTH more. 0, or -ENOMEM when dropped. */
+int osc2_radio_queue_report(const uint8_t *report, size_t len, bool droppable);
+/* Reports wait for room in that queue: lizard mode waits with its next frame. */
+bool osc2_radio_backlog(void);
 
 /* commands.c: the vendor command channel, one stored request per link. */
 void osc2_commands_reset(enum osc2_link link);
@@ -184,14 +188,21 @@ void osc2_led_color_write(const uint8_t rgbw[4]);
 /* report.c: the state report, lizard mode, the battery report and output reports, shared by the
  * links. */
 void osc2_report_init(void);
-/* Build the next state report: sampled (the `sample` callback), the triggers' digital bits, the
- * shared sequence number. `s` gets the input state it was built from, for osc2_report_lizard(). */
+/* Build the next state report: sampled (the `sample` callback), the input rules (input_rules.h),
+ * the shared sequence number. `s` gets the input state it was built from, for
+ * osc2_report_lizard(). */
 void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_state *s);
-/* One lizard-mode frame on `s`, its reports sent on the link in use (after the state report).
- * Lizard mode cannot turn on or off in between: osc2_lizard_set() waits, so the reports of a frame
- * never follow the release reports of a later "off" (on USB the commands run in another thread
- * than the frames). */
+/* One lizard-mode frame on `s`, its reports sent on the link in use (after the state report), its
+ * haptic events to the haptic callback. Lizard mode cannot turn on or off in between:
+ * osc2_lizard_set() waits, so the reports of a frame never follow the release reports of a later
+ * "off" (on USB the commands run in another thread than the frames). Through the puck the frame
+ * waits (does not run) while reports wait for room in the radio's queue. */
 void osc2_report_lizard(const struct opensc2_state *s);
+/* The rule word in effect (input_rules.h): the build's (Kconfig) unless the hardware test hooks
+ * set another while they are armed. */
+uint32_t osc2_rules(void);
+uint32_t osc2_rules_build(void);
+void osc2_rules_set(uint32_t rules);
 /* Lizard mode turns on or off (with the reports the real controller sends then), or only its two
  * switches change. */
 void osc2_lizard_set(bool on);

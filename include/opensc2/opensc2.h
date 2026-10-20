@@ -201,7 +201,9 @@ struct opensc2_callbacks {
 	 * system work queue). */
 	void (*rumble)(const struct opensc2_rumble *rumble, void *user_data);
 
-	/* Output reports 0x81..0x89, decoded (pulse, command, tone, sweep, script, PCM). */
+	/* Output reports 0x81..0x89, decoded (pulse, command, tone, sweep, script, PCM), and lizard
+	 * mode's own pad ticks and clicks (report_id 0), which come from the thread that builds the
+	 * state reports: wired, the USB report thread, not the USB stack's. */
 	void (*haptic)(const struct opensc2_haptic *haptic, void *user_data);
 
 	/* Any output report, raw, before decoding (ID first). */

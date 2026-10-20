@@ -202,7 +202,10 @@ usable without Steam. OpenSC2 does the same, on every link:
 - **The Steam watchdog**: unless setting 71 is 0, the host has to repeat one of those within 10 s,
   or lizard mode comes back and the settings return to their defaults. How Steam keeps it off
   through the puck: [the cable](#overview-the-cable).
-- Not reproduced: the real controller's smoothing, its glide after a flick and its haptic ticks
+- **The motion** as the real controller's: a new touch is held still until the thumb really
+  moves, the motion is averaged over 8 frames, a flick keeps gliding (settings 11 and 12), and
+  moving across a pad makes haptic ticks (setting 14), which the library hands to the application
+  as haptic events. A few details are choices of this library
   ([gap 11](#where-this-library-had-to-fill-gaps)). Every rule, with its scales:
   [api.md](api.md#lizard-mode).
 
@@ -212,7 +215,11 @@ usable without Steam. OpenSC2 does the same, on every link:
   number, the button word, both triggers, both sticks, both trackpads with their pressure, and the
   IMU's timestamp, acceleration, angular rate and orientation; [api.md](api.md#inputs) has every
   offset and button bit); `0x43`, the battery, every 3.5 s; `0x44`, the haptic stream status;
-  `0x40` and `0x41` in lizard mode.
+  `0x40` and `0x41` in lizard mode. The library applies the real controller's rules to every `0x42`
+  ([api.md](api.md#the-rules-on-every-report)): a stick deflected beyond 12000 counts as touched, a
+  pad is blank while the thumb rests on its stick (setting 82), no trigger bit with raw trigger
+  output (setting 62), the trigger bits from setting 68, and optionally the pads' clicks from their
+  pressure (settings 52 and 53).
 - **Output reports**: `0x80` rumble (a level and a speed for each side; it lasts 500 ms, so the
   host repeats it), `0x81` a pulse train, `0x82` a stop or one of two clicks, `0x83` a tone, `0x84`
   a frequency sweep, `0x85` one of the built-in haptic scripts, `0x86` to `0x89` PCM streamed to
@@ -315,12 +322,34 @@ open, the library does what should work with Steam and the puck, and says so her
     ("Controller Info: HWID: 72"); `0x45` and `0x49`..`0x4B`, the other values real controllers
     accept, stay selectable.
 11. **Lizard mode** follows the documented key map and mouse mapping, the release reports when it
-    turns off, and the 10 s Steam watchdog. The key-slot rule, the scales (128 pad units per pointer
-    count, 1024 per scroll step, pad up scrolls with a negative wheel value) and the rule that a
-    mouse report goes out every frame while anything is non-zero come from the same authors' study
-    of the controller's firmware (not in that documentation yet). Not reproduced: the touch-down
-    stabiliser, the motion average, the glide after a flick (settings 11 and 12) and the haptic
-    ticks (setting 14). The keyboard is evaluated once per report frame.
+    turns off, the 10 s Steam watchdog, and the documented motion: the touch stabilisers, the
+    8-frame average, the glide after a flick (settings 11 and 12) and the haptic ticks and clicks
+    (14, 52, 53, 70)
+    ([Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode),
+    [the touch stabiliser](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#the-touch-stabiliser),
+    [haptics in lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md#haptics-in-lizard-mode)).
+    Where it leaves a detail open, the library chose:
+
+    | Detail | The library |
+    | --- | --- |
+    | The travel a glide needs (more than 700): which length each movement adds | the controller's distance approximation, as for the stabiliser and the ticks |
+    | The flick speed and the glide's factor: whole numbers or not | whole numbers: the speed is its mean rounded toward zero, each frame's motion speed × (setting 12 − frames gone) / setting 12, rounded toward zero |
+    | Setting 12 changed during a glide | read when the glide starts |
+    | "If the thumb moved at all" in the stabiliser | on either axis; then both axes close their gap |
+    | When ticks and clicks are worked out | once per report frame, on the pad as the report carries it; the real controller does it per trackpad sample |
+    | A pad's click turning off because setting 82 blanks the pad | a release like any other: click B plays |
+    | Setting 80 = 2 | the stabiliser of the reported position (the pad processing, not implemented here), so lizard mode's right pad runs without one; the left pad keeps its own |
+    | The haptic events' sound | the application's: the library hands over click A or B and the documented level; [api.md](api.md#outputs) |
+    | The keyboard | evaluated once per report frame; the real controller sends a key report as soon as its button driver sees the change, so on the cable a key can come up to one frame (4 ms) later here; through the puck both ride the same acknowledgement |
+    | A dropped link | the trackers are not started over (as documented): a pad held across a reconnect moves the pointer by the distance it moved meanwhile |
+
+    The key-slot rule, the scales (128 pad units per pointer count, 1024 per scroll step, pad up
+    scrolls with a negative wheel value) and the rule that a mouse report goes out every frame
+    while anything is non-zero first came from the same authors' study of the controller's
+    firmware; the documentation has them now too (the ranges of the settings: gap 6). All of this
+    is built and tested on the host (the library against the runner's model, and in the firmware
+    emulator); it is not yet tested on hardware, and its feel needs a trackpad, which no test has
+    had.
 12. **A bond written with `0xA2`** takes effect at once here; the documented controller only reads
     it at the next boot.
 13. **The report descriptor's bytes.** Each detail has one source:
@@ -459,6 +488,30 @@ open, the library does what should work with Steam and the puck, and says so her
     attached), but is off by default (`CONFIG_OPENSC2_WATCHDOG`): the real controller's own
     bootloader is not there, and how the UF2 bootloader copes with a watchdog left running has
     not been checked ([api.md](api.md#the-hardware-watchdog)).
+30. **The rules on every state report** are the documented ones
+    ([pad processing](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#pad-processing),
+    [raw output](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#raw-output-settings-46-and-62)),
+    applied to the values the application reports, which the real controller would have worked
+    out itself from its sensors:
+
+    | Rule | The library |
+    | --- | --- |
+    | Stick-touch fallback | on the application's stick values, with the documented approximation and radius; not with raw sticks (46). The real controller reads its calibrated values, which are 0 in raw mode: the same result |
+    | Setting 82 | the documented blanking; raw pressure (60 = 1) passes, though the library has no raw pressure of its own |
+    | Raw triggers (62) | both bits 0. The raw values themselves are the application's to give; the blank canvas has no analog triggers |
+    | Click by pressure (52, 53) | opt-in (`CONFIG_OPENSC2_PAD_CLICK_AUTO`), so boards with a click switch keep it. The application's pressure 0..32767 is taken as the documented normalised press (calibrated, gain 1): at -1 (100 %) a press would have to pass 108 %, which a value capped at 32767 never does, where the real controller's uncapped value can on a very firm press; below 9 the click can only end with a new threshold, as with the documented formula |
+    | Raw sticks (46) | the blank canvas gives counts and millivolts the documented way (the library cannot: it has no ADC) |
+
+    The pressure of an untouched pad is sent as the application reports it, where the real
+    controller sends 0; the trigger bits' on point is setting 68 plus 5 points, and a fully pulled
+    trigger always counts, where the real one never sets the bit from 68 = 95 on.
+31. **Reports waiting through the puck.** The real controller's input records wait for a free
+    buffer. The library queues up to 6 extra reports behind each state report as before, and lets
+    lizard mode's and the application's reports wait in up to 8 more
+    (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`) instead of dropping them, while lizard mode waits with its
+    next frame (its motion is a difference of positions, so the next frame takes it up; a button
+    pressed and let go within the frames it waits is not seen, where the real controller's
+    keyboard would still send it). The battery report is still dropped when the queue is full.
 
 ## What this library adds for development boards
 

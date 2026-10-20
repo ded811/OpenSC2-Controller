@@ -1,11 +1,12 @@
 # Copyright (c) 2026 the OpenSC2-Controller authors
 # SPDX-License-Identifier: MIT
 #
-# model.py: the expected-report model, the lizard model, the target-channel table and
-# the settings defaults and ranges. The firmware's own code (codec.c, report.c, lizard.c,
-# settings_defaults.c) is the reference; these mirror it so the runner can predict every report and
-# the FW's host tests can check the same against the library. Integer division truncates toward
-# zero, as C does (Python's // is wrong for negatives), so a c_div() helper is used throughout.
+# model.py: the expected-report model (the input rules), the lizard model, the target-channel
+# table and the settings defaults and ranges. The firmware's own code (codec.c, input_rules.c,
+# report.c, lizard.c, settings_defaults.c) is the reference; these mirror it so the runner can
+# predict every report and the FW's host tests can check the same against the library. Integer
+# division truncates toward zero, as C does (Python's // is wrong for negatives), so a c_div()
+# helper is used throughout.
 from . import reports as R
 from .. import config as C
 
@@ -43,46 +44,168 @@ def trigger_click(value, setting68, previous):
     return previous
 
 
+# ---- the input rules (input_rules.c), applied to every state report after injection -----------
+
+RULE_TRIGGER_BITS = 0x001        # bits 23 and 27 from setting 68
+RULE_RAW_TRIGGERS = 0x002        # no trigger bit while setting 62 is not 0
+RULE_STICK_FALLBACK = 0x004      # a stick beyond 12000 counts as touched
+RULE_PAD_BLANK = 0x008           # setting 82 blanks a pad in 0x42
+RULE_PAD_CLICK = 0x010           # pad clicks from pressure (52, 53)
+RULE_LIZARD_STABILISER = 0x100
+RULE_LIZARD_SMOOTHING = 0x200
+RULE_LIZARD_GLIDE = 0x400
+RULE_LIZARD_TICKS = 0x800
+RULES_KNOWN = 0xF1F
+RULES_LIZARD = 0xF00
+# every option's default (the blank canvas), and OpenSC2 0.2.0's rules (a board without RULES)
+RULES_DEFAULT = (RULE_TRIGGER_BITS | RULE_RAW_TRIGGERS | RULE_STICK_FALLBACK | RULE_PAD_BLANK |
+                 RULES_LIZARD)
+RULES_V0_2 = RULE_TRIGGER_BITS
+RULE_NAMES = {RULE_TRIGGER_BITS: "trigger_bits", RULE_RAW_TRIGGERS: "raw_triggers",
+              RULE_STICK_FALLBACK: "stick_fallback", RULE_PAD_BLANK: "pad_blank",
+              RULE_PAD_CLICK: "pad_click", RULE_LIZARD_STABILISER: "stabiliser",
+              RULE_LIZARD_SMOOTHING: "smoothing", RULE_LIZARD_GLIDE: "glide",
+              RULE_LIZARD_TICKS: "ticks"}
+
+STICK_TOUCH_RADIUS = 12000
+STABILISER_FINE = 4369
+STABILISER_COARSE = 8738
+
+_STICK_TOUCH = (1 << R.BIT["LSTICK_TOUCH"], 1 << R.BIT["RSTICK_TOUCH"])
+_PAD_TOUCH = (1 << R.LPAD_TOUCH_BIT, 1 << R.RPAD_TOUCH_BIT)
+_PAD_CLICK = (1 << R.BIT["LPAD_CLICK"], 1 << R.BIT["RPAD_CLICK"])
+_TRIG_BIT = (1 << R.BIT["LTRIGGER_DIGITAL"], 1 << R.BIT["RTRIGGER_DIGITAL"])
+
+
+def rule_names(rules):
+    return [name for bit, name in sorted(RULE_NAMES.items()) if rules & bit]
+
+
+def approx_len(dx, dy):
+    """The controller's quick distance: with M the larger and m the smaller of |dx| and |dy|,
+    (1007 M + 441 m, less 40 M when M < 16 m) / 1024, rounded to the nearest whole number."""
+    a, b = abs(dx), abs(dy)
+    big, small = max(a, b), min(a, b)
+    s = 1007 * big + 441 * small
+    if big < 16 * small:
+        s -= 40 * big
+    return (s + 512) // 1024
+
+
+def pad_click(pressure, setting, previous):
+    """A pad's click by pressure: on above (s + 8) %, off below (s - 8) % of 32767, where s is
+    setting 52 or 53 clamped to -1..100 and -1 counts as 100."""
+    s = -1 if setting < -1 else 100 if setting > 100 else setting
+    if s == -1:
+        s = 100
+    p = min(pressure, TRIGGER_MAX)
+    if p * 100 > (s + 8) * TRIGGER_MAX:
+        return True
+    if p * 100 < (s - 8) * TRIGGER_MAX:
+        return False
+    return previous
+
+
+def settings_list(settings=None):
+    """86 settings: the defaults, a full list, or the defaults with a {number: value} dict."""
+    if settings is None:
+        return default_settings()
+    if isinstance(settings, dict):
+        out = default_settings()
+        for n, v in settings.items():
+            out[n] = v
+        return out
+    out = list(settings)
+    if len(out) != SETTINGS_COUNT:
+        raise ValueError("86 settings expected")
+    return out
+
+
+class StateRules:
+    """The rules' memory from one report to the next (struct osc2_input_rules) and apply() for
+    each report: the expected 52 bytes after the sequence byte for an injected state52."""
+
+    def __init__(self, rules=RULES_V0_2):
+        self.rules = rules
+        self.trigger_bit = [False, False]
+        self.pad_click = [False, False]
+        self.click_setting = [None, None]
+
+    def set_clicks(self, left, right, settings=None):
+        """The pads' clicks by pressure as worked out with the current thresholds."""
+        s = settings_list(settings)
+        self.pad_click = [bool(left), bool(right)]
+        self.click_setting = [s[52], s[53]]
+
+    def apply(self, state52, settings=None):
+        s = settings_list(settings)
+        rules = self.rules
+        f = R.decode_state52(state52)
+        b = f["buttons"]
+        sticks = ((f["lstick_x"], f["lstick_y"]), (f["rstick_x"], f["rstick_y"]))
+        pads = [[f["lpad_x"], f["lpad_y"], f["lpad_pressure"]],
+                [f["rpad_x"], f["rpad_y"], f["rpad_pressure"]]]
+        for side in (0, 1):
+            if rules & RULE_STICK_FALLBACK and s[46] == 0 and \
+                    approx_len(*sticks[side]) > STICK_TOUCH_RADIUS:
+                b |= _STICK_TOUCH[side]
+            if rules & RULE_PAD_CLICK:
+                setting = s[53 if side else 52]
+                if setting != self.click_setting[side]:
+                    self.pad_click[side] = False
+                    self.click_setting[side] = setting
+                self.pad_click[side] = pad_click(pads[side][2], setting, self.pad_click[side])
+                clicked = self.pad_click[side] and bool(b & _PAD_TOUCH[side])
+                b = (b | _PAD_CLICK[side]) if clicked else (b & ~_PAD_CLICK[side])
+            else:
+                self.pad_click[side] = False
+                self.click_setting[side] = None
+            if rules & RULE_PAD_BLANK and s[82] & (2 if side else 1) and b & _STICK_TOUCH[side]:
+                pads[side][0] = pads[side][1] = 0
+                if s[60] != 1:
+                    pads[side][2] = 0
+                b &= ~(_PAD_TOUCH[side] | _PAD_CLICK[side])
+        if rules & RULE_RAW_TRIGGERS and s[62] != 0:
+            self.trigger_bit = [False, False]
+            b &= ~(_TRIG_BIT[0] | _TRIG_BIT[1])
+        elif rules & RULE_TRIGGER_BITS:
+            for side, name in ((0, "left_trigger"), (1, "right_trigger")):
+                self.trigger_bit[side] = trigger_click(f[name], s[68], self.trigger_bit[side])
+                b = (b | _TRIG_BIT[side]) if self.trigger_bit[side] else (b & ~_TRIG_BIT[side])
+        lt, rt = bool(b & _PAD_TOUCH[0]), bool(b & _PAD_TOUCH[1])
+        out = {
+            "buttons": b & 0xFFFFFFFF,
+            "left_trigger": clamp_trigger(f["left_trigger"]),
+            "right_trigger": clamp_trigger(f["right_trigger"]),
+            "lstick_x": clamp_axis(f["lstick_x"]), "lstick_y": clamp_axis(f["lstick_y"]),
+            "rstick_x": clamp_axis(f["rstick_x"]), "rstick_y": clamp_axis(f["rstick_y"]),
+            "lpad_x": clamp_axis(pads[0][0]) if lt else 0,
+            "lpad_y": clamp_axis(pads[0][1]) if lt else 0,
+            "lpad_pressure": clamp_trigger(pads[0][2]),
+            "rpad_x": clamp_axis(pads[1][0]) if rt else 0,
+            "rpad_y": clamp_axis(pads[1][1]) if rt else 0,
+            "rpad_pressure": clamp_trigger(pads[1][2]),
+            "imu_timestamp": f["imu_timestamp"],
+            "accel_x": f["accel_x"], "accel_y": f["accel_y"], "accel_z": f["accel_z"],
+            "gyro_x": f["gyro_x"], "gyro_y": f["gyro_y"], "gyro_z": f["gyro_z"],
+            "quat_w": f["quat_w"], "quat_x": f["quat_x"], "quat_y": f["quat_y"],
+            "quat_z": f["quat_z"],
+        }
+        return R.make_state52(**out)
+
+
 def expected_report(state52, prev_left_bit, prev_right_bit, setting68=90, trigger_click_auto=True):
-    """The expected 0x42 payload (bytes 2..53, 52 bytes) for an injected `state52`, given the
-    previous frame's trigger bits. Returns (expected_bytes, new_left_bit, new_right_bit). The
-    sequence byte is not predicted (checked for continuity only, 3.7)."""
-    f = R.decode_state52(state52)
-    buttons = f["buttons"]
-    lt = clamp_trigger(f["left_trigger"])
-    rt = clamp_trigger(f["right_trigger"])
-
+    """The expected 0x42 payload (bytes 2..53, 52 bytes) for an injected `state52` under the rules
+    of OpenSC2 0.2.0 (the trigger bits only), given the previous frame's trigger bits. Returns
+    (expected_bytes, new_left_bit, new_right_bit). The sequence byte is not predicted (checked for
+    continuity only, 3.7). StateRules has every rule."""
+    r = StateRules(RULES_V0_2 if trigger_click_auto else 0)
+    r.trigger_bit = [prev_left_bit, prev_right_bit]
+    out = r.apply(state52, {68: setting68})
     if trigger_click_auto:
-        left_bit = trigger_click(lt, setting68, prev_left_bit)
-        right_bit = trigger_click(rt, setting68, prev_right_bit)
-        buttons = (buttons | (1 << R.BIT["LTRIGGER_DIGITAL"])) if left_bit else \
-                  (buttons & ~(1 << R.BIT["LTRIGGER_DIGITAL"]))
-        buttons = (buttons | (1 << R.BIT["RTRIGGER_DIGITAL"])) if right_bit else \
-                  (buttons & ~(1 << R.BIT["RTRIGGER_DIGITAL"]))
-    else:
-        left_bit = bool(buttons & (1 << R.BIT["LTRIGGER_DIGITAL"]))
-        right_bit = bool(buttons & (1 << R.BIT["RTRIGGER_DIGITAL"]))
-
-    lpad_touched = bool(buttons & (1 << R.LPAD_TOUCH_BIT))
-    rpad_touched = bool(buttons & (1 << R.RPAD_TOUCH_BIT))
-
-    out = {
-        "buttons": buttons & 0xFFFFFFFF,
-        "left_trigger": lt, "right_trigger": rt,
-        "lstick_x": clamp_axis(f["lstick_x"]), "lstick_y": clamp_axis(f["lstick_y"]),
-        "rstick_x": clamp_axis(f["rstick_x"]), "rstick_y": clamp_axis(f["rstick_y"]),
-        "lpad_x": clamp_axis(f["lpad_x"]) if lpad_touched else 0,
-        "lpad_y": clamp_axis(f["lpad_y"]) if lpad_touched else 0,
-        "lpad_pressure": clamp_trigger(f["lpad_pressure"]),
-        "rpad_x": clamp_axis(f["rpad_x"]) if rpad_touched else 0,
-        "rpad_y": clamp_axis(f["rpad_y"]) if rpad_touched else 0,
-        "rpad_pressure": clamp_trigger(f["rpad_pressure"]),
-        "imu_timestamp": f["imu_timestamp"],
-        "accel_x": f["accel_x"], "accel_y": f["accel_y"], "accel_z": f["accel_z"],
-        "gyro_x": f["gyro_x"], "gyro_y": f["gyro_y"], "gyro_z": f["gyro_z"],
-        "quat_w": f["quat_w"], "quat_x": f["quat_x"], "quat_y": f["quat_y"], "quat_z": f["quat_z"],
-    }
-    return R.make_state52(**out), left_bit, right_bit
+        return out, r.trigger_bit[0], r.trigger_bit[1]
+    b = R.decode_state52(out)["buttons"]
+    return out, bool(b & _TRIG_BIT[0]), bool(b & _TRIG_BIT[1])
 
 
 # ---- the lizard model (1.3, 4.2 lizard.txt) -------------------------------------------------
@@ -92,6 +215,13 @@ KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP = 0x4F, 0x50, 0x51, 0x52
 KEY_ROLLOVER = 0x01
 POINTER_DIVISOR = 128
 SCROLL_DIVISOR = 1024
+HISTORY = 20             # movements kept per pad
+AVERAGE = 8              # the motion: the mean of the newest 8
+FLICK_MOVES = 15         # the flick speed: the mean of the oldest 15 of the last 20
+FLICK_TRAVEL = 700       # a glide needs more travel than this since the touch-down
+TICK_STEP = 1500         # pad units per step; a tick once the steps add up to more than 14
+TICK_GAIN_DB = 8         # click A
+CLICK_GAIN_DB = 6        # click B
 
 _KEY_MAP = {
     R.BIT["A"]: KEY_ENTER, R.BIT["B"]: KEY_ESCAPE, R.BIT["VIEW"]: KEY_ESCAPE,
@@ -107,8 +237,7 @@ LIZ_MOUSE = 2
 _CLICK_RPAD = 1 << R.BIT["RPAD_CLICK"]
 _CLICK_RTRIG = 1 << R.BIT["RTRIGGER_DIGITAL"]
 _CLICK_LTRIG = 1 << R.BIT["LTRIGGER_DIGITAL"]
-_TOUCH = (1 << R.LPAD_TOUCH_BIT, 1 << R.RPAD_TOUCH_BIT)   # left, right
-_STICK_TOUCH = (1 << R.BIT["LSTICK_TOUCH"], 1 << R.BIT["RSTICK_TOUCH"])
+_TOUCH = _PAD_TOUCH
 
 
 def _keyboard_report(keys):
@@ -119,11 +248,90 @@ def _mouse_report(buttons, x, y, wheel, pan):
     return bytes([C.RPT_MOUSE, buttons & 0xFF, x & 0xFF, y & 0xFF, wheel & 0xFF, pan & 0xFF])
 
 
-class LizardModel:
-    """One instance of lizard mode's logic (lizard.c). step()/enter()/leave()/switches()/resync()
-    each return a list of (kind, report-bytes) in the exact send order of the firmware."""
+def _isqrt(v):
+    """The integer square root, rounded down."""
+    if v <= 0:
+        return 0
+    r = int(v ** 0.5)
+    while r * r > v:
+        r -= 1
+    while (r + 1) * (r + 1) <= v:
+        r += 1
+    return r
+
+
+def _close(gap):
+    """An eighth of the gap, rounded down, plus one unit toward the thumb (the stabiliser)."""
+    if gap > 0:
+        return gap // 8 + 1
+    if gap < 0:
+        return gap // 8 - 1
+    return 0
+
+
+class Stabiliser:
+    """The touch stabiliser (input_rules.c, osc2_stabiliser_step)."""
 
     def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.on = False
+        self.holding = False
+        self.ax = self.ay = self.ox = self.oy = self.px = self.py = 0
+
+    def step(self, radius, touched, x, y):
+        if not touched:
+            self.reset()
+            return x, y
+        if not self.on:
+            self.on = self.holding = True
+            self.ax = self.ox = self.px = x
+            self.ay = self.oy = self.py = y
+            return x, y
+        if self.holding:
+            if approx_len(x - self.ax, y - self.ay) <= radius:
+                self.px, self.py = x, y
+                return self.ox, self.oy
+            self.holding = False
+        dx, dy = x - self.px, y - self.py
+        self.ox += dx
+        self.oy += dy
+        if dx or dy:
+            self.ox += _close(x - self.ox)
+            self.oy += _close(y - self.oy)
+        self.px, self.py = x, y
+        return self.ox, self.oy
+
+
+class _Pad:
+    """One pad's tracker (struct opensc2_lizard_pad)."""
+
+    def __init__(self):
+        self.touched = False
+        self.x = self.y = 0
+        self.stab = Stabiliser()
+        self.hist = []               # the last 20 movements, oldest first
+        self.moves = 0
+        self.travel = 0
+        self.gliding = False
+        self.vx = self.vy = 0
+        self.glide_frame = self.glide_frames = 0
+        self.ticking = False
+        self.step_x = self.step_y = 0
+        self.steps = 0
+        self.click = False
+
+
+class LizardModel:
+    """One instance of lizard mode's logic (lizard.c). step()/enter()/leave()/switches()/resync()
+    each return a list of (kind, report-bytes) in the exact send order of the firmware; after a
+    step, `haptics` lists its haptic events in order, as ("tick" or "click", side 0 left / 1
+    right). `rules` is the rule word: its lizard bits switch the stabilisers, the average, the
+    glide and the ticks (0: lizard mode as in OpenSC2 0.2.0)."""
+
+    def __init__(self, rules=0):
+        self.rules = rules
         self.reset()
 
     def reset(self):
@@ -132,18 +340,17 @@ class LizardModel:
         self.buttons_on = True
         self.keyboard_sync = True
         self.mapped = 0
-        self.pad_touched = [False, False]
-        self.pad_x = [0, 0]
-        self.pad_y = [0, 0]
-        self.rem_x = self.rem_y = self.rem_pan = self.rem_wheel = 0
-        self.mouse_owed = False
+        self.haptics = []
+        self._clear_tracker()
 
     def _clear_tracker(self):
-        self.pad_touched = [False, False]
-        self.pad_x = [0, 0]
-        self.pad_y = [0, 0]
+        self.pad = [_Pad(), _Pad()]
         self.rem_x = self.rem_y = self.rem_pan = self.rem_wheel = 0
         self.mouse_owed = False
+        self.click_sync = True
+
+    def gliding(self):
+        return any(p.gliding for p in self.pad)
 
     def enter(self):
         self._clear_tracker()
@@ -158,6 +365,9 @@ class LizardModel:
         self.active = False
         self.keyboard_on = self.buttons_on = False
         self.mouse_owed = False
+        for p in self.pad:
+            p.gliding = False
+            p.ticking = False
         if not was_active:
             return []
         # osc2_lizard_set(off): keyboard first, then mouse
@@ -174,8 +384,92 @@ class LizardModel:
         self.keyboard_sync = True
         return []
 
-    def step(self, buttons=0, lpad=(0, 0), rpad=(0, 0), s82=3,
-             lpad_touched=None, rpad_touched=None, rpad_clicked=False):
+    def release(self):
+        """opensc2_lizard_release(): the release pair when something is held, else nothing."""
+        if not self.active or (self.mapped == 0 and not self.mouse_owed):
+            return []
+        self.mapped = 0
+        self.mouse_owed = False
+        return [("keyboard", _keyboard_report([])), ("mouse", _mouse_report(0, 0, 0, 0, 0))]
+
+    def haptic_words(self):
+        """The step's haptic events as lizard.txt writes them (TICK_L, CLICK_R, ...)."""
+        return [("TICK_" if kind == "tick" else "CLICK_") + ("R" if side else "L")
+                for kind, side in self.haptics]
+
+    def _pad_haptics(self, side, touched, clicked, x, y, s):
+        p = self.pad[side]
+        on = bool(self.rules & RULE_LIZARD_TICKS) and s[70] == 1
+        if touched and not p.touched:
+            p.ticking = on
+            p.step_x, p.step_y = x, y
+            p.steps = 0
+        elif touched and p.ticking and on and approx_len(x - p.step_x, y - p.step_y) > TICK_STEP:
+            p.step_x, p.step_y = x, y
+            p.steps += 1
+            if p.steps * TICK_STEP > min(max(s[14], 0), 32767):
+                p.steps = 0
+                self.haptics.append(("tick", side))
+        if not on:
+            p.ticking = False
+        if self.click_sync:
+            p.click = clicked
+        elif clicked != p.click:
+            p.click = clicked
+            if on and s[53 if side else 52] > -1:
+                self.haptics.append(("click", side))
+
+    def _pad_motion(self, p, touched, x, y, s):
+        rules = self.rules
+        if touched:
+            if not p.touched:
+                # touch-down: no motion; the history, the travel and any glide start over
+                p.hist = []
+                p.moves = 0
+                p.travel = 0
+                p.gliding = False
+                m = (0, 0)
+            else:
+                dx, dy = x - p.x, y - p.y
+                p.hist = (p.hist + [(dx, dy)])[-HISTORY:]
+                p.moves += 1
+                p.travel = min(p.travel + approx_len(dx, dy), 0x7FFFFFFF)
+                if rules & RULE_LIZARD_SMOOTHING:
+                    newest = p.hist[-min(p.moves, AVERAGE):]
+                    n = len(newest)
+                    m = (c_div(sum(a for a, _b in newest), n), c_div(sum(b for _a, b in newest), n))
+                else:
+                    m = (dx, dy)
+            p.touched = True
+            p.x, p.y = x, y
+            return m
+        if p.touched:
+            p.touched = False
+            if rules & RULE_LIZARD_GLIDE and p.moves >= HISTORY and p.travel > FLICK_TRAVEL:
+                oldest = p.hist[:FLICK_MOVES]
+                p.vx = c_div(sum(a for a, _b in oldest), FLICK_MOVES)
+                p.vy = c_div(sum(b for _a, b in oldest), FLICK_MOVES)
+                if _isqrt(p.vx * p.vx + p.vy * p.vy) > min(max(s[11], 0), 1000):
+                    p.gliding = True
+                    p.glide_frame = 0
+                    p.glide_frames = min(max(s[12], 1), 1000)
+        if p.gliding and not rules & RULE_LIZARD_GLIDE:
+            p.gliding = False
+        if p.gliding:
+            left = p.glide_frames - p.glide_frame
+            m = (c_div(p.vx * left, p.glide_frames), c_div(p.vy * left, p.glide_frames))
+            p.glide_frame += 1
+            if p.glide_frame >= p.glide_frames:
+                p.gliding = False
+            return m
+        return (0, 0)
+
+    def step(self, buttons=0, lpad=(0, 0), rpad=(0, 0), s82=None, lpad_touched=None,
+             rpad_touched=None, rpad_clicked=False, lpad_clicked=False, settings=None):
+        s = settings_list(settings)
+        if s82 is not None:
+            s[82] = s82
+        self.haptics = []
         if not self.active:
             return []
         made = []
@@ -184,6 +478,7 @@ class LizardModel:
             lpad_touched if lpad_touched is not None else bool(buttons & _TOUCH[0]),
             rpad_touched if rpad_touched is not None else bool(buttons & _TOUCH[1]),
         ]
+        clicked_in = [lpad_clicked, rpad_clicked]
 
         # keyboard: only when a mapped button changed
         if self.keyboard_on:
@@ -205,24 +500,30 @@ class LizardModel:
                     keys = [KEY_ROLLOVER] * 6
                 made.append(("keyboard", _keyboard_report(keys)))
 
-        # mouse: motion of each pad since the last frame
-        dx = [0, 0]
-        dy = [0, 0]
+        # mouse: each pad's stabiliser, tracker and haptics
+        motion = [(0, 0), (0, 0)]
         blanked = [False, False]
         for side in range(2):
-            blanked[side] = bool(s82 & (1 if side == 0 else 2)) and bool(buttons & _STICK_TOUCH[side])
+            p = self.pad[side]
+            blanked[side] = bool(s[82] & (2 if side else 1)) and bool(buttons & _STICK_TOUCH[side])
             touched = (not blanked[side]) and (touched_in[side] or bool(buttons & _TOUCH[side]))
-            if touched and self.pad_touched[side]:
-                dx[side] = pads[side][0] - self.pad_x[side]
-                dy[side] = pads[side][1] - self.pad_y[side]
-            self.pad_touched[side] = touched
-            self.pad_x[side] = pads[side][0] if touched else 0
-            self.pad_y[side] = pads[side][1] if touched else 0
+            clicked = (not blanked[side]) and (clicked_in[side] or bool(buttons & _PAD_CLICK[side]))
+            x, y = pads[side] if touched else (0, 0)
+            self._pad_haptics(side, touched, clicked, x, y, s)
+            if self.rules & RULE_LIZARD_STABILISER and (side == 0 or s[80] == 1):
+                x, y = p.stab.step(STABILISER_COARSE if side == 0 else STABILISER_FINE, touched,
+                                   x, y)
+            else:
+                p.stab.reset()
+            motion[side] = self._pad_motion(p, touched, x, y, s)
+            if blanked[side]:
+                motion[side] = (0, 0)   # held back; a glide's factor keeps running down
+        self.click_sync = False
 
-        x = self._divide("rem_x", dx[1], POINTER_DIVISOR)
-        y = -self._divide("rem_y", dy[1], POINTER_DIVISOR)
-        pan = self._divide("rem_pan", dx[0], SCROLL_DIVISOR)
-        wheel = -self._divide("rem_wheel", dy[0], SCROLL_DIVISOR)
+        x = self._divide("rem_x", motion[1][0], POINTER_DIVISOR)
+        y = -self._divide("rem_y", motion[1][1], POINTER_DIVISOR)
+        pan = self._divide("rem_pan", motion[0][0], SCROLL_DIVISOR)
+        wheel = -self._divide("rem_wheel", motion[0][1], SCROLL_DIVISOR)
 
         mbuttons = 0
         if self.buttons_on:
@@ -240,11 +541,44 @@ class LizardModel:
             self.mouse_owed = False
         return made
 
+    def step_state52(self, state52, settings=None):
+        """One step on a report's 52 bytes (after the input rules), as report.c hands it over."""
+        f = R.decode_state52(state52)
+        return self.step(buttons=f["buttons"], lpad=(f["lpad_x"], f["lpad_y"]),
+                         rpad=(f["rpad_x"], f["rpad_y"]), settings=settings)
+
     def _divide(self, rem_name, delta, divisor):
         total = getattr(self, rem_name) + delta
         q = c_div(total, divisor)
         setattr(self, rem_name, total - q * divisor)
         return q
+
+
+def lizard_haptic_fields(kind, side):
+    """A lizard haptic event as the ring's HAPTIC entry decodes it (proto/testproto.py): kind
+    COMMAND (1), report ID 0 (made by the library), the pad as target and channel, click A (+8 dB)
+    for a tick, click B (+6 dB) for the pad click."""
+    tick = kind == "tick"
+    return {"haptic_kind": 1, "report_id": 0, "target": side,
+            "channels": CH_RPAD if side else CH_LPAD, "command": 1 if tick else 2,
+            "gain": TICK_GAIN_DB if tick else CLICK_GAIN_DB}
+
+
+def lizard_haptic_of_entry(e):
+    """("tick" or "click", side) for a decoded HAPTIC entry the library made (report ID 0; output
+    reports have IDs from 0x80), else None. An entry of the library's that is not exactly what
+    lizard_haptic_fields() gives (another kind, command, target, channel or level) comes back as a
+    longer tuple carrying those fields, so that a comparison with the model shows it."""
+    if e.get("kind") != C.RING_HAPTIC or e.get("report_id") != 0:
+        return None
+    kind = "tick" if e.get("command") == 1 else "click" if e.get("command") == 2 else None
+    side = e.get("target")
+    if e.get("haptic_kind") != 1 or kind is None or side not in (0, 1):
+        return ("unexpected", e.get("haptic_kind"), e.get("command"), side)
+    want = lizard_haptic_fields(kind, side)
+    if (e.get("channels"), e.get("gain")) != (want["channels"], want["gain"]):
+        return (kind, side, e.get("channels"), e.get("gain"))
+    return kind, side
 
 
 # ---- target channels ------------------------------------------------------------------------

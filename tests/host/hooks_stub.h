@@ -52,6 +52,9 @@ struct hooks_record {
 	uint8_t (*ble_hook)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
 			    uint8_t *rlen);
 	int ble_op_calls;
+	/* report.c's rule word (input_rules.h): the build's is OSC2_RULES_DEFAULT */
+	uint32_t rules;
+	int rules_set_calls;
 };
 
 extern struct hooks_record hk;

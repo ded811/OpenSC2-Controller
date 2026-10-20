@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include "input_rules.h" /* OSC2_RULES_KNOWN */
 #include "key_rules.h"  /* the key IDs of VENDOR entries */
 #include "retained.h"   /* osc2_crc32() */
 #include "test_core.h"
@@ -575,6 +576,12 @@ static void end_arming(struct osc2_test_core *c, const struct osc2_test_env *env
 	env->unlock();
 	env->cnt_reset();
 
+	/* The build's rules again (RULES_SET), with the guard still on. */
+	if (c->rules_changed) {
+		c->rules_changed = false;
+		env->rules_set(env->rules_build());
+	}
+
 	/* Only requests use the snapshot, one at a time (req_lock): read in place, no copy on the
 	 * stack of whichever thread ends arming. */
 	if (restore) {
@@ -652,6 +659,12 @@ static uint8_t op_arm(struct op_req *r)
 			c->snap[n] = env->setting_get((uint8_t)n);
 		}
 		env->led_get(c->snap_led);
+	}
+
+	/* A fresh start: the build's rules (RULES_SET of an arming that is being replaced). */
+	if (c->rules_changed) {
+		c->rules_changed = false;
+		env->rules_set(env->rules_build());
 	}
 
 	env->lock();
@@ -825,6 +838,33 @@ static uint8_t op_seq_stop(struct op_req *r)
 		seq_end_locked(r->c, r->env, OSC2_TEST_SEQ_END_STOP);
 	}
 	r->env->unlock();
+	return OSC2_TEST_OK;
+}
+
+/* RULES: the rule word in effect, the build's, and the bits this firmware knows (u32 each). */
+static uint8_t op_rules(struct op_req *r)
+{
+	opensc2_put_le32(&r->result[0], r->env->rules_get());
+	opensc2_put_le32(&r->result[4], r->env->rules_build());
+	opensc2_put_le32(&r->result[8], OSC2_RULES_KNOWN);
+	r->rlen = 12;
+	return OSC2_TEST_OK;
+}
+
+/* RULES_SET: another rule word until the end of arming (or the next ARM); lizard mode starts
+ * over from the next frame, so no tracker carries a state of the old rules. */
+static uint8_t op_rules_set(struct op_req *r)
+{
+	uint32_t rules = opensc2_get_le32(&r->args[0]);
+
+	if (rules & ~OSC2_RULES_KNOWN) {
+		return OSC2_TEST_BAD_ARG;
+	}
+	r->c->rules_changed = true;
+	r->env->rules_set(rules);
+	r->env->lizard_resync();
+	opensc2_put_le32(&r->result[0], r->env->rules_get());
+	r->rlen = 4;
 	return OSC2_TEST_OK;
 }
 
@@ -1053,6 +1093,8 @@ static const struct {
 	  op_seq_load },
 	{ OSC2_TEST_OP_SEQ_RUN, 2, 2, false, op_seq_run },
 	{ OSC2_TEST_OP_SEQ_STOP, 0, 0, false, op_seq_stop },
+	{ OSC2_TEST_OP_RULES, 0, 0, false, op_rules },
+	{ OSC2_TEST_OP_RULES_SET, 4, 4, false, op_rules_set },
 	{ OSC2_TEST_OP_RING_READ, 5, 5, false, op_ring_read },
 	{ OSC2_TEST_OP_RING_CLEAR, 0, 0, false, op_ring_clear },
 	{ OSC2_TEST_OP_CNT_READ, 2, 2, false, op_cnt_read },

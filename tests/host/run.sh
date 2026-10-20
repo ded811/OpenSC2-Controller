@@ -24,7 +24,7 @@ compile() {
 		"$lib/settings_defaults.c" "$lib/fusion.c" "$lib/usb_desc.c" "$lib/usb_rules.c" \
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
 		"$lib/report_rules.c" "$lib/test_core.c" "$lib/proto_rules.c" "$lib/key_rules.c" \
-		"$lib/crash_rules.c" \
+		"$lib/crash_rules.c" "$lib/input_rules.c" "$lib/report_queue.c" \
 		"$lib/transport_rules.c" "$lib/ble_rules.c" \
 		"$@" -lm
 }

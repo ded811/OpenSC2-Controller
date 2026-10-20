@@ -62,6 +62,8 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x14` | SEQ_LOAD | step u8 (below the depth), hold u8 (1..255 frames), state52 | | BUSY while a sequence runs |
 | `0x15` | SEQ_RUN | count u8 (1..depth; steps 0..count-1 loaded since ARM), flags u8 (bit 0 loop, bit 1 keep the last step as the static state, bit 2 the lizard test) | frames u32 | starts with the next frame built; BAD_ARG for a step not loaded, BUSY while one runs, DENIED while lizard mode is on without bit 2 |
 | `0x16` | SEQ_STOP | | | `SEQ_END` how 2 |
+| `0x17` | RULES | | the rule word in effect u32, the build's u32, the bits this firmware knows u32 | the rule word: bit 0 the trigger bits (setting 68), 1 no trigger bit with raw triggers (62), 2 the stick-touch fallback, 3 setting 82 in `0x42`, 4 the pads' clicks by pressure (52, 53); 8 lizard mode's stabilisers, 9 its 8-frame average, 10 its glide, 11 its ticks and clicks ([api.md](api.md#the-rules-on-every-report)) |
+| `0x18` | RULES_SET | the rule word u32 | the word in effect u32 | until the end of arming or the next `ARM`, which put the build's back; lizard mode resyncs (a `LIZARD` entry, what 4); BAD_ARG for a bit RULES does not list as known |
 | `0x20` | RING_READ | from u32, max entries u8 (0: as many as fit) | first u32, next u32, count u8, then that many whole entries from max(from, first), at most 48 bytes | BAD_ARG when from > next |
 | `0x21` | RING_CLEAR | | next u32 | sequence numbers go on |
 | `0x22` | CNT_READ | first u8, count u8 (1..13) | first u8, count u8, u32 × count | clipped at the end of the table |
@@ -88,19 +90,22 @@ gate).
 frame at the moment of the request, f: the change shows from frame f or f + 1 (frame f may be half
 built). The injected state replaces the application's after the `sample` callback, never as the
 application's own state: `opensc2_get_state()`, the shell's `opensc2 state` and the rules that read
-STEAM never see it. The library then applies the trigger rule and encodes the report as always.
+STEAM never see it. The library then applies its rules (the rule word's: the stick-touch fallback,
+the click by pressure, setting 82, the trigger bits) and encodes the report as always.
 
 Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 build flags u32
 (bit 0 `TRIGGER_CLICK_AUTO`, 1 `LIZARD_MODE`, 2 `STEAM_WATCHDOG`, 3 `USB`, 4 `USB_PROFILE_OCTOBER`,
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
-`NO_HOST_WIRELESS_MS` not 0, the charger test build; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to
-stops; 17 `BLE`, the Bluetooth build; the bits between are left for other options); 6 battery report
-interval ms u16; 8 rumble timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14
-radio report delay µs u16; 16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1
-wireless); 19 zero; 20 the git revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's
-product name u32 (the name itself does not fit; the suite checks the USB product string against
-it). Firmware before the product name sent the first 32 bytes only.
+`NO_HOST_WIRELESS_MS` not 0, the charger test build; 15 the rule word, ops `RULES` and `RULES_SET`:
+without it the firmware has OpenSC2 0.2.0's rules, the trigger bits only and none of lizard mode's
+processing; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to stops; 17 `BLE`, the Bluetooth build;
+the bits between are left for other options); 6 battery report interval ms u16; 8 rumble timeout ms
+u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16; 16 the
+lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
+revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
+does not fit; the suite checks the USB product string against it). Firmware before the product name
+sent the first 32 bytes only.
 
 Status (the STATUS result): 0 flags (bit 0 armed, 1 guard, 2 static injection, 3 battery injected, 4
 sequence running, 5 lizard mode on, 6 the end of a disarm in progress, 7 a settings snapshot held); 1
@@ -141,7 +146,7 @@ the dock; for `ARMED` and `MARK` the transport of the request), data length u8 (
 | `0x05` | INJECT_STOP | reason u8 (1 lizard mode came on), frame u32 (built from the application's state again), what u8 (bit 0 the static state, bit 1 a sequence) |
 | `0x10` | OUTPUT | report ID u8, length u8 (ID included), decode result s8, up to 16 bytes after the ID |
 | `0x11` | RUMBLE | left u16, right u16, intensity u16, gains s8 s8, type u8, timeout u8 |
-| `0x12` | HAPTIC | kind u8 (`enum opensc2_haptic_kind`), report ID u8, target u8, channels u8, then by kind: pulse on, off, count u16; command u8, gain s8; tone gain s8, Hz u16, ms u16, LFO Hz u16, depth u8; sweep gain s8, ms u16, start u16, end u16, antiphase u8; script id u8, gain s8; PCM control operation, format, encoding u8, rate u16; PCM data length u8, CRC-32 u32 of the samples |
+| `0x12` | HAPTIC | kind u8 (`enum opensc2_haptic_kind`), report ID u8 (0: an event of the library's own, lizard mode's ticks and pad clicks, with the link lizard mode runs on), target u8, channels u8, then by kind: pulse on, off, count u16; command u8, gain s8; tone gain s8, Hz u16, ms u16, LFO Hz u16, depth u8; sweep gain s8, ms u16, start u16, end u16, antiphase u8; script id u8, gain s8; PCM control operation, format, encoding u8, rate u16; PCM data length u8, CRC-32 u32 of the samples |
 | `0x13` | LED | red, green, blue, white, override, brightness (u8 each) |
 | `0x14` | SETTING | number u8 (`0xFF`: all back to defaults), value s16 (only when a value changes) |
 | `0x15` | LIZARD | 0 leave, 1 enter, 2 switches down, 3 switches up, 4 resync |

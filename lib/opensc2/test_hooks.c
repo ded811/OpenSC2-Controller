@@ -181,6 +181,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= IS_ENABLED(CONFIG_OPENSC2_SHELL) ? OSC2_TEST_FLAG_SHELL : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_FUSION) ? OSC2_TEST_FLAG_FUSION : 0;
 	flags |= OSC2_NO_HOST_WIRELESS_MS > 0 ? OSC2_TEST_FLAG_NO_HOST_WIRELESS : 0;
+	flags |= OSC2_TEST_FLAG_RULES;   /* ops RULES and RULES_SET */
 	flags |= IS_ENABLED(CONFIG_OPENSC2_HAPTIC_STOP_STATUS) ? OSC2_TEST_FLAG_HAPTIC_STOP_STATUS : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_BLE) ? OSC2_TEST_FLAG_BLE : 0;
 
@@ -287,6 +288,21 @@ static void env_lizard_resync(void)
 	osc2_lizard_resync();
 }
 
+static uint32_t env_rules_get(void)
+{
+	return osc2_rules();
+}
+
+static uint32_t env_rules_build(void)
+{
+	return osc2_rules_build();
+}
+
+static void env_rules_set(uint32_t rules)
+{
+	osc2_rules_set(rules);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -318,6 +334,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 #if defined(CONFIG_OPENSC2_BLE)
 	.ble_op = osc2_ble_test_op,
 #endif
+	.rules_get = env_rules_get,
+	.rules_build = env_rules_build,
+	.rules_set = env_rules_set,
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

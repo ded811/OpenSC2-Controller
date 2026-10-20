@@ -12,7 +12,8 @@
  * their framing and STALLs) and on the radio (SET/GET records), the test channel (key, claiming
  * rule, every op, held answers, the lease and the end of arming), the console's "opensc2 test"
  * lines, the ring and the counters, the settings and the LED, input injection, the state report's
- * rules and encoding, lizard mode (lizard.c), the battery report, output report decoding. Done
+ * rules (input_rules.c) and encoding, lizard mode (lizard.c) with its haptic events, the battery
+ * report, output report decoding. Done
  * here the way report.c, core.c and radio.c do it, in a few lines each: the order of lizard mode's
  * reports, the frame and battery cadence, the Steam watchdog's expiry, the rumble timeout, the
  * haptic stream status replies to a stop (the rule is proto_rules.c's), the radio link
@@ -42,9 +43,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "internal.h"
+#include "input_rules.h"
 #include "lizard.h"
 #include "proto_rules.h"
-#include "report_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
 
@@ -61,7 +62,7 @@ static uint64_t now_us;
 static uint64_t boot_us;             /* the uptime counts from the last boot */
 static uint64_t next_battery_us;
 static uint8_t sequence;
-static bool trigger_bit[2];
+static struct osc2_input_rules input_rules;
 static bool wireless;
 static int last_power_requests;
 static uint64_t power_due_us;
@@ -168,15 +169,15 @@ static void lizard_resync(void)
 
 static void lizard_frame(const struct opensc2_state *s)
 {
+	struct opensc2_haptic haptics[4];
 	uint8_t keyboard[9], mouse[6];
+	uint8_t n;
 	uint32_t made;
 
 	if (osc2_test_skip_lizard() || osc2.settings[OPENSC2_SETTING_LIZARD_MODE] == 0) {
 		return;
 	}
-	made = opensc2_lizard_step(&lizard, s,
-				   (uint8_t)osc2.settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK],
-				   keyboard, mouse);
+	made = opensc2_lizard_step(&lizard, s, osc2.settings, hk.rules, keyboard, mouse);
 	if (made & OPENSC2_LIZARD_KEYBOARD) {
 		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
 		(void)input_send(keyboard, sizeof(keyboard));
@@ -184,6 +185,12 @@ static void lizard_frame(const struct opensc2_state *s)
 	if (made & OPENSC2_LIZARD_MOUSE) {
 		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
 		(void)input_send(mouse, sizeof(mouse));
+	}
+	/* report.c's lizard_haptics(): noted with the link lizard mode runs on */
+	n = opensc2_lizard_haptics(made, haptics);
+	for (uint8_t i = 0; i < n; i++) {
+		osc2_test_note_haptic(wireless ? OSC2_TEST_LINK_RADIO : OSC2_TEST_LINK_USB,
+				      &haptics[i]);
 	}
 }
 
@@ -395,8 +402,8 @@ static void boot(bool to_wireless)
 	hk.output_hook = output_hook;
 	boot_us = now_us;
 	opensc2_lizard_reset(&lizard);
+	osc2_input_rules_reset(&input_rules);
 	sequence = 0;
-	trigger_bit[0] = trigger_bit[1] = false;
 	queued = 0;
 	power_pending = false;
 	rumble_active = false;
@@ -412,23 +419,31 @@ static void boot(bool to_wireless)
 
 /* ---- the frame path: report.c's osc2_report_state() and osc2_report_lizard() ------------------ */
 
+/* The blank canvas (app/src/inputs.c) on a bare board: the left stick's two analog pins are held
+ * at mid-scale by the chip's bias, so its raw output (setting 46) reads half of full scale: 2048
+ * of 4095 counts, or 1650 mV. The calibrated output, and the absent right stick, read 0. */
+static void app_raw_sticks(struct opensc2_state *s)
+{
+	int16_t mode = osc2.settings[OPENSC2_SETTING_RAW_STICKS];
+
+	if (mode == 1 || mode == 2) {
+		s->stick[OPENSC2_LEFT].x = mode == 2 ? 2048 : 1650;
+		s->stick[OPENSC2_LEFT].y = mode == 2 ? 2048 : 1650;
+	}
+}
+
 static void frame(void)
 {
 	uint8_t report[OPENSC2_STATE_REPORT_LEN];
 	struct opensc2_state s;
-	static const uint32_t bit[2] = { OPENSC2_CLICK_LEFT_TRIGGER, OPENSC2_CLICK_RIGHT_TRIGGER };
 
 	if (wireless && !hk.radio_connected) {
 		return;   /* no keep-alives from the puck, no reports */
 	}
-	memset(&s, 0, sizeof(s));   /* nothing wired: the application's state is all zero */
+	memset(&s, 0, sizeof(s));   /* nothing wired: the application's state is all zero ... */
+	app_raw_sticks(&s);         /* ... but for the left stick's raw output */
 	osc2_test_input(&s);
-	for (int side = 0; side < 2; side++) {
-		trigger_bit[side] = osc2_trigger_click(s.trigger[side],
-						       osc2.settings[OPENSC2_SETTING_TRIGGER_THRESHOLD],
-						       trigger_bit[side]);
-		s.buttons = trigger_bit[side] ? (s.buttons | bit[side]) : (s.buttons & ~bit[side]);
-	}
+	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, &s);
 	opensc2_encode_state(&s, sequence++, report);
 	osc2_test_frame(report);
 	enqueue(report, sizeof(report));

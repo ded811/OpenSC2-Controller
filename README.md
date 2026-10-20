@@ -75,8 +75,10 @@ Steam on a Windows PC.
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
 | Bluetooth LE (an opt-in build, `app/ble.conf`): the board as a HID-over-GATT Steam Controller 2 (`28DE:1303`) that a PC or phone pairs without the puck, with the real controller's name, its three forms of advertising and the 60 s window, two identities per slot and its bond rules, "wireless off" when the host leaves, the report map, the vendor commands on feature report 1, output reports, Valve's vendor GATT service (for SDL on Android and Apple platforms), the battery service, lizard mode, a state report per connection event, and switching between the puck and Bluetooth. The hardware test suite has a Bluetooth path (`--bluetooth`), run so far only against its simulator. | Built; not yet tested on hardware |
 | Since 0.2.0, not in a release yet: the real controller's answers to `0x89`, `0xA1`, `0xBE` and `0xE9`, its `0x44` replies to stops, every settings key of `0xED`..`0xF0`, crash records behind `0xF2`, the settings partition's recovery, and its hardware watchdog (an opt-in test build, `app/watchdog.conf`). | Built and host-tested; not yet tested on hardware |
+| Lizard mode's processing as the real controller's: the touch stabilisers, the 8-frame average, the glide after a flick, the haptic ticks and pad clicks (haptic events for the application; the blank canvas buzzes its motor for them, if one is wired); its reports waiting for room through the puck instead of being dropped. | Built; tested on the host and in the emulator, not yet on hardware |
+| The rules on every state report: a stick deflected beyond 12000 counts as touched, a pad is blank while its stick is touched (setting 82), no trigger bit with raw triggers (setting 62), optionally the pads' clicks from their pressure (settings 52, 53). The blank canvas's raw stick output (setting 46). | Built; tested on the host and in the emulator, not yet on hardware |
 | The dock (pogo pads). | Not implemented |
-| Lizard mode's smoothing, glide and haptic ticks. PCM haptics playback in the samples. | Not implemented |
+| PCM haptics playback in the samples. | Not implemented |
 
 Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
 
@@ -300,10 +302,11 @@ In more detail, it was written from:
   connecting, channel choice, suspend and what it shows Steam ([docs/protocol.md](docs/protocol.md)
   sums up each one and links its page);
 - a few facts that come directly from the same authors' study of the controller's firmware, not
-  from that documentation: the ranges of seven settings, details of the report descriptor (the
-  sizes of its mouse and keyboard collections, the form of its items, the order of its reports),
-  and lizard mode's key-slot rule, its scales and when its mouse reports go out
-  ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps) lists each);
+  from that documentation: the ranges of seven settings and details of the report descriptor (the
+  sizes of its mouse and keyboard collections, the form of its items, the order of its reports)
+  ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps) lists each); lizard
+  mode's key-slot rule, its scales and when its mouse reports go out came from that study too,
+  and the documentation has them now;
 - the documentation and black-box tests of [Counterpuck](https://github.com/ded811/Counterpuck),
   the same authors' open firmware for the puck side of the link;
 - the public names, and a few enum values and layouts, declared in SDL's open-source Steam

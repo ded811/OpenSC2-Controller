@@ -342,6 +342,20 @@ into its own frame (it uses report X, Z, -Y).
 An untouched trackpad is sent as position 0, 0. The pad's `touched` and `clicked` flags set its
 touch and click bits; you can also set those bits directly in the button word.
 
+### The rules on every report
+
+Before a state report goes out, the library applies the real controller's rules to it, in this
+order (the hardware test hooks' injected state goes through them too). They change the report only;
+`opensc2_get_state()` keeps what the application set.
+
+| Rule | Kconfig (default) | What it does |
+| --- | --- | --- |
+| Stick-touch fallback | `CONFIG_OPENSC2_STICK_TOUCH_FALLBACK` (y) | a stick further than 12000 from its centre counts as touched: its stick-touch bit (20 right, 24 left) is set. The distance is the real controller's quick approximation of √(x² + y²) (about 12200 along an axis, 12340 on a diagonal); no hysteresis; never while setting 46 asks for raw sticks |
+| Click by pressure | `CONFIG_OPENSC2_PAD_CLICK_AUTO` (n) | the pads' click bits (22 right, 26 left) come from their pressure, as on the real controller, whose pads have no switch: on above setting 53 (right) or 52 (left) plus 8 points, off below it minus 8 (percent of 32767; default 40, so on above 48 % and off below 32 %; -1 counts as 100); a new threshold clears the click; the click follows the pressure while the pad is not touched, but only a touched pad reports it. It replaces the application's own click bits. Off by default: a board with a physical click keeps it, and a pressure that is not a real press would click on every touch |
+| Setting 82 | `CONFIG_OPENSC2_PAD_BLANK_ON_STICK` (y) | while a stick is touched (its sensor or the fallback), the pad on its side reports no touch, no click, position 0, 0 and pressure 0 (setting 60 = 1 keeps the pressure); bit 0 of setting 82 is the left side, bit 1 the right, default 3. The stick-touch and grip bits stay |
+| Trigger bits | `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO` (y) | below |
+| Raw triggers | always | while setting 62 is not 0 (raw trigger output), both trigger bits are 0, also ones the application set |
+
 ### The button word
 
 Bit names follow SDL's `TRITON_*` flags; the bit numbers are also in
@@ -371,7 +385,8 @@ MENU. The names here are SDL's. SDL maps MENU to its Back button and VIEW to Sta
 With `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO` (default on) the trigger bits follow the trigger values as on
 the real controller: on above controller setting 68 plus 5 points (95 % by default), off below it
 minus 5 (85 %); a fully pulled trigger always counts. A digital trigger button can therefore just
-call `opensc2_set_trigger(side, pressed ? 32767 : 0)`.
+call `opensc2_set_trigger(side, pressed ? 32767 : 0)`. While setting 62 asks for raw trigger output
+both bits are 0 ([the rules](#the-rules-on-every-report)).
 
 ### Battery
 
@@ -437,26 +452,48 @@ keyboard reports from the input state:
   up), the left one scrolls (1024 per step; moving up gives a negative wheel value, right a positive
   pan); the right trigger or a right-pad click is button 1, the left trigger button 2. A pad is
   ignored while its stick is touched (setting 82). A report goes out every frame while anything is
-  non-zero (a held button repeats), then one zero report.
+  non-zero (a held button repeats, a glide keeps moving), then one zero report.
 - **Keyboard** `0x41`: A is Enter, B and VIEW are Escape, the D-pad the arrows, MENU is Tab. When one
   of those changes, every held button in bit order takes the next key slot (its key, or 0), and more
   than six held buttons give the roll-over code in every slot.
-- Not reproduced yet: the touch-down stabiliser, the 8-frame motion average, the glide after a flick
-  and the haptic ticks.
+- **The motion**, as the real controller works it out, once per frame (each state report), each part
+  an option (all on by default):
+  - the touch stabilisers (`CONFIG_OPENSC2_LIZARD_STABILISER`): a new touch does not move until the
+    thumb has left a hold radius around the touch-down point, then the motion follows the thumb and
+    closes the gap gradually; the right pad's radius is 4369 pad units while setting 80 is 1 (the
+    default), the left pad's 8738 always;
+  - the 8-frame average (`CONFIG_OPENSC2_LIZARD_SMOOTHING`): each frame's motion is the mean of the
+    newest 8 movements of the touch (or of as many as there are), about 32 ms on the cable;
+  - the glide after a flick (`CONFIG_OPENSC2_LIZARD_GLIDE`): when a touch of more than 20 frames and
+    700 pad units of travel ends faster than setting 11 (default 200 pad units per frame, the mean
+    of the 15 oldest of its last 20 movements), the motion goes on, slowing down to nothing over
+    setting 12 frames (default 100, about 0.4 s on the cable); a new touch on that pad or lizard
+    mode turning off stops it, setting 82 holds it back; the left pad glides too;
+  - the haptic ticks and clicks (`CONFIG_OPENSC2_LIZARD_TICKS`), while setting 70 is 1: a step each
+    time the thumb has moved more than 1500 pad units from the last one, and a tick once the steps
+    times 1500 exceed setting 14 (5500: every fourth step); click B when a pad's click turns on or
+    off, unless its threshold (52, 53) is -1. Each is a [haptic event](#outputs) from the library.
+- **Through the puck**, lizard mode's reports wait for room in the radio's queue instead of being
+  dropped (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`, 8 beyond the queue's 6), and lizard mode waits with
+  its next frame while they do; the next frame takes up the motion. A dropped link does not start
+  the trackers over, as on the real controller: no frames run meanwhile, and the first frame after
+  the gap compares the pads with the frame before it.
 
 ## Outputs
 
 All callbacks are in `struct opensc2_callbacks`; any may be `NULL`. Wireless, they run in the
-library's radio thread; wired, in its USB report thread (`sample`) or the USB stack's thread (output
-reports, vendor commands); `power_request`, `usb_changed` and a rumble timeout run in the system work
-queue. Return quickly: the radio link only lives while acknowledgements keep up with the puck.
+library's radio thread; wired, in its USB report thread (`sample`, and `haptic` for lizard mode's
+own events) or the USB stack's thread (output reports, vendor commands), so on the cable `haptic`
+can come from either of those two threads; `power_request`, `usb_changed` and a rumble timeout run
+in the system work queue. Return quickly: the radio link only lives while acknowledgements keep up
+with the puck.
 
 | Callback | Called for | Gets |
 | --- | --- | --- |
 | `link_changed(info)` | every radio state change | `struct opensc2_link_info` |
 | `sample(state)` | before each state report | the state, to update in place (it is kept) |
 | `rumble(r)` | output report `0x80` | `left_speed`, `right_speed` 0..65535 (0 stops), `intensity`, `left/right_gain_db`, `type`; `timeout` set when the library stops a rumble the host did not repeat (`CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS`, 500) or the link dropped |
-| `haptic(h)` | output reports `0x81`..`0x89` | `kind`, `channels`, raw `target`, and the decoded fields below |
+| `haptic(h)` | output reports `0x81`..`0x89`; lizard mode's ticks and pad clicks | `kind`, `channels`, raw `target`, and the decoded fields below; `report_id` is the output report's ID, or 0 for an event of the library's own |
 | `output_report(report, len)` | any output report, raw | ID first |
 | `led(led)` | vendor command `0xC5`, settings 37 and 45 | `red`, `green`, `blue`, `white` percent; `override` (setting 37: show this instead of the status pattern); `brightness` (setting 45, 0..100, default 50) |
 | `setting_changed(number, value)` | a setting changed value (vendor command `0x87`, `0x81` for setting 9), or all of them went back to their defaults (`0x8E`, the Steam watchdog: `OPENSC2_SETTINGS_ALL`) | |
@@ -481,6 +518,14 @@ targets differently again (in `0x87`, target 1 selects nothing and 4 the right g
 | `OPENSC2_HAPTIC_PCM_DATA` | `0x87`, `0x88` (twice: left grip, right grip), `0x89` | `pcm.data`, `pcm.len` (valid during the callback only) |
 
 Report `0x8A` does nothing, as on the real controller.
+
+**The library's own events** (`report_id` 0): lizard mode's pad feedback
+([Lizard mode](#lizard-mode)), as `OPENSC2_HAPTIC_COMMAND` for one pad (`target` 0 left, 1 right, as
+`0x82` numbers them, and the matching channel): a tick is `OPENSC2_HAPTIC_CMD_CLICK_A` with
+`gain_db` 8, a pad click (on or off) `OPENSC2_HAPTIC_CMD_CLICK_B` with `gain_db` 6. Their gain is
+the level the sound plays at, without the extra 6 dB click A gets in `0x82`. They come from the
+thread that builds the state reports, after the frame's reports, and never once Steam has turned
+lizard mode off.
 
 ### Power requests
 
@@ -850,16 +895,21 @@ most likely to act on:
 | # | Constant | Default | Meaning |
 | --- | --- | --- | --- |
 | 9 | `OPENSC2_SETTING_LIZARD_MODE` | 1 | lizard mode; Steam sends `0x81`, SDL writes 0 |
+| 11, 12 | `OPENSC2_SETTING_MOMENTUM_MIN_VEL`, `_DECAY` | 200, 100 | lizard mode's glide: the flick speed it needs (pad units per frame), its length in frames (used by the library) |
+| 14 | `OPENSC2_SETTING_HAPTIC_INCREMENT` | 5500 | lizard mode's tick spacing (used by the library) |
 | 27 | `OPENSC2_SETTING_RUMBLE_GAIN_DB` | -10 | rumble gain offset, dB |
 | 37 | `OPENSC2_SETTING_LED_OVERRIDE` | 0 | show `0xC5`'s colour |
 | 45 | `OPENSC2_SETTING_LED_BRIGHTNESS` | 50 | status LED brightness, percent |
+| 46 | `OPENSC2_SETTING_RAW_STICKS` | 0 | raw stick output: 1 millivolts, 2 ADC counts (the application's to give; the blank canvas does; the library's stick-touch fallback is off meanwhile) |
 | 48 | `OPENSC2_SETTING_IMU_MODE` | 0 | IMU stream: `OPENSC2_IMU_MODE_SEND_RAW_ACCEL` \| `_SEND_RAW_GYRO` from SDL when sensors are on |
 | 50 | `OPENSC2_SETTING_SLEEP_TIMEOUT_S` | 900 | idle power-off on battery |
-| 52, 53 | `OPENSC2_SETTING_LEFT/RIGHT_CLICK_PRESSURE` | 40 | pad click threshold, percent (-1: 100 %) |
+| 52, 53 | `OPENSC2_SETTING_LEFT/RIGHT_CLICK_PRESSURE` | 40 | pad click threshold, percent (-1: 100 %), with `CONFIG_OPENSC2_PAD_CLICK_AUTO`; -1 also silences lizard mode's click sound (used by the library) |
+| 60, 62 | `OPENSC2_SETTING_RAW_PRESSURE`, `_RAW_TRIGGERS` | 0 | raw pad pressure; raw triggers (1 millivolts, 2 counts): both the application's to give, and no trigger bit while 62 is not 0 (used by the library) |
 | 68 | `OPENSC2_SETTING_TRIGGER_THRESHOLD` | 90 | trigger digital threshold, percent (used by the library) |
-| 70, 76 | `OPENSC2_SETTING_HAPTICS_ENABLED`, `_HAPTIC_GAIN_DB` | 1, -3 | haptics on, master gain |
+| 70, 76 | `OPENSC2_SETTING_HAPTICS_ENABLED`, `_HAPTIC_GAIN_DB` | 1, -3 | 70: lizard mode's ticks and clicks only while it is exactly 1 (used by the library); 76: the master gain |
 | 71 | `OPENSC2_SETTING_STEAM_WATCHDOG` | 1 | the 10 s lizard watchdog (used by the library) |
-| 82 | `OPENSC2_SETTING_PAD_IGNORE_ON_STICK` | 3 | ignore a pad while its stick is touched (used by lizard mode) |
+| 80 | `OPENSC2_SETTING_PAD_STABILIZER` | 1 | 1: lizard mode's right pad has the touch stabiliser (used by the library); 2 belongs to the pad processing of the reported position, not implemented |
+| 82 | `OPENSC2_SETTING_PAD_IGNORE_ON_STICK` | 3 | ignore a pad while its stick is touched, in report `0x42` and lizard mode (used by the library) |
 
 `0x87` clamps a value to its range where the range is known (9 and 71: 0..1; 11: 0..1000; 12:
 1..1000; 14: 0..32767; 36 and 45: 0..100; 68: 40..99; 70: 0..2; `opensc2_setting_clamp()`); other
@@ -902,6 +952,8 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS` | 3500 | 0: never |
 | `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO` | y | |
 | `CONFIG_OPENSC2_LIZARD_MODE`, `_STEAM_WATCHDOG` | y, y | |
+| `CONFIG_OPENSC2_LIZARD_STABILISER`, `_SMOOTHING`, `_GLIDE`, `_TICKS` | y, y, y, y | lizard mode's processing ([Lizard mode](#lizard-mode)) |
+| `CONFIG_OPENSC2_STICK_TOUCH_FALLBACK`, `CONFIG_OPENSC2_PAD_BLANK_ON_STICK`, `CONFIG_OPENSC2_PAD_CLICK_AUTO` | y, y, n | [the rules on every report](#the-rules-on-every-report) |
 | `CONFIG_OPENSC2_STORAGE` | y with `CONFIG_SETTINGS` | bonds, identity and policy in Zephyr settings |
 | `CONFIG_OPENSC2_SHELL` | y with `CONFIG_SHELL` | |
 | `CONFIG_OPENSC2_FUSION` | n | the IMU fusion helper |
@@ -910,7 +962,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_CRASH_RECORD` | y (n with `CONFIG_RESET_ON_FATAL_ERROR`) | the fatal-error handler: a crash record, then a reset ([Crash records](#crash-records)) |
 | `CONFIG_OPENSC2_WATCHDOG` | n (not yet tried with the UF2 bootloader) | the real controller's hardware watchdog with its warning crash ([The hardware watchdog](#the-hardware-watchdog)) |
 | `CONFIG_OPENSC2_STORAGE_RECOVERY` | y with NVS settings | erase a settings partition with every sector occupied ([The settings partition](#the-settings-partition)) |
-| `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH` | 8, 6 | |
+| `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH`, `_REPORT_WAIT_DEPTH` | 8, 6, 8 | the radio's queues; lizard and application reports wait for room in the last 8 instead of being dropped |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
 | `CONFIG_OPENSC2_USB` | y with the `opensc2,usb-hid` node | wired mode |
 | `CONFIG_OPENSC2_USB_PROFILE_JULY` / `_OCTOBER` | July | the USB device's form |
@@ -950,6 +1002,8 @@ The functions for the settings and the other state Steam sets:
 - Link loss: 10 ms on the current channel, then 13 ms on each alternate, 500 ms in all.
 - The Steam watchdog, the battery report and the rumble timeout run in the system work queue,
   whatever the link.
+- Lizard mode runs one frame after each state report, in the thread that built it; through the puck
+  a frame waits while reports wait for room in the radio's queue.
 - A flash write (storing a bond) stalls the CPU for a few milliseconds; the radio link tolerates
   500 ms without a packet, so it should ride that out (not measured); on USB state reports pause.
 - The library needs the 32 MHz crystal while the radio is on and requests it itself; the USB driver
@@ -1070,6 +1124,9 @@ board with nothing wired to it. While the PC has the hooks **armed**:
 - **the lizard guard**: lizard mode's mouse and keyboard reports (`0x40`, `0x41`) never leave the
   board; they go into the ring instead;
 - **counters** of everything that flows (frames, reports sent and dropped, packets, commands);
+- **the rule word**: which of [the rules on every report](#the-rules-on-every-report) and of lizard
+  mode's processing run can be read, and changed until the end of arming (ops `RULES`,
+  `RULES_SET`), so the suite can test a rule the build has off, such as the click by pressure.
 - **Bluetooth** (a build with `CONFIG_OPENSC2_BLE`): the link's state (`BLE_STATUS`), a link ended
   as if by the host with a given reason (`BLE_DROP`), a shorter advertising window once
   (`BLE_WINDOW`), and ring entries for advertising, its end, identities, bonds, disconnects and
@@ -1094,7 +1151,8 @@ Safety rules the firmware enforces itself:
   a report later), and only then the guard comes off.
 - **The settings come back.** `ARM` with flag bit 0 snapshots the 86 settings and the LED colour; the
   end of arming (also the lease running out, so also when the PC side died) writes back whatever
-  differs, settings 9 and 71 last.
+  differs, settings 9 and 71 last. A rule word changed with `RULES_SET` goes back to the build's
+  at the end of arming and at the next `ARM`.
 - **The host emulation is an allowlist.** `HOST_SET` runs only commands that write no flash and reach
   no bootloader ([the list](test-protocol.md#the-test-channel-vendor-command-0x7e)); everything else
   answers DENIED without running.

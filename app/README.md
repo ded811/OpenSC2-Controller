@@ -145,6 +145,12 @@ and grows the first time a stick goes further, so after one full circle each sti
 output at its own extremes. A 6 % centre dead zone (`stick-deadzone-percent` in the overlay) hides
 potentiometer noise. Flip an axis with `invert-left-stick-y;` and friends.
 
+A host can ask for the sticks raw, as from the real controller (controller setting 46): 2 gives
+each axis's ADC counts on 12 bits (0..4095), 1 gives millivolts converted the real controller's way
+(counts × 3300 / 4096, as if VCC were 3.3 V). Both skip the calibration and the axis inversion; an
+axis that is not wired reads 0. On a bare board the left stick's two pins sit at about half of full
+scale (about 2048 counts, 1650 mV), held there by the bias. Built; not yet tested on hardware.
+
 ## Wired and wireless modes
 
 Each boot is wired or wireless, decided at power-up from the nRF52840's own USB power detection,

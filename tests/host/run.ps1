@@ -32,7 +32,8 @@ $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\codec.c", "$lib\lizard.c", "$lib\settings_defaults.c", "$lib\fusion.c",
     "$lib\usb_desc.c", "$lib\usb_rules.c", "$lib\mode_rules.c", "$lib\retained.c",
     "$lib\id_rules.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c",
-    "$lib\proto_rules.c", "$lib\key_rules.c", "$lib\crash_rules.c")
+    "$lib\proto_rules.c", "$lib\key_rules.c", "$lib\crash_rules.c", "$lib\input_rules.c",
+    "$lib\report_queue.c")
 # the wireless transports and Bluetooth LE
 $libSources += @("$lib\transport_rules.c", "$lib\ble_rules.c")
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources

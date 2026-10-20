@@ -17,8 +17,8 @@
 #include <string.h>
 #include <opensc2/codec.h>
 #include <opensc2/settings.h>
+#include "input_rules.h"
 #include "lizard.h"
-#include "report_rules.h"
 #include "retained.h"
 #include "test_core.h"
 
@@ -96,6 +96,38 @@ static int vec_find(char *tok[], int n, const char *word)
 	return -1;
 }
 
+/* Every setting at its default. */
+static void vec_default_settings(int16_t settings[OPENSC2_SETTINGS_COUNT])
+{
+	for (int i = 0; i < OPENSC2_SETTINGS_COUNT; i++) {
+		settings[i] = opensc2_setting_default((uint8_t)i);
+	}
+}
+
+/* "n=v,n=v,..." onto `settings`; false for a malformed list. */
+static bool vec_settings(const char *text, int16_t settings[OPENSC2_SETTINGS_COUNT])
+{
+	const char *p = text;
+
+	while (*p) {
+		char *end;
+		long number = strtol(p, &end, 10), value;
+
+		if (*end != '=' || number < 0 || number >= OPENSC2_SETTINGS_COUNT) {
+			return false;
+		}
+		value = strtol(end + 1, &end, 10);
+		settings[number] = (int16_t)value;
+		if (*end == ',') {
+			end++;
+		} else if (*end != '\0') {
+			return false;
+		}
+		p = end;
+	}
+	return true;
+}
+
 typedef void (*vec_line_fn)(char *tok[], int n, void *ctx);
 
 static void vec_run_line(const char *text, vec_line_fn fn, void *ctx)
@@ -148,7 +180,8 @@ static int vec_run_file(const char *name, vec_line_fn fn, void *ctx)
 	return lines;
 }
 
-/* ---- state.txt: T68 <setting 68> PREV <left><right> IN <state52> OUT <report bytes 2..53> ---- */
+/* ---- state.txt: T68 <setting 68> PREV <left><right> [RULES <hex>] [SET <n>=<v>,...]
+ *      [CLICK <left><right>] IN <state52> OUT <report bytes 2..53> ---- */
 
 static const char *const builtin_state[] = {
 	"# A held, nonce",
@@ -189,30 +222,50 @@ static const char *const builtin_state[] = {
 	"T68 120 PREV 00 IN 00000000FE7F00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 OUT 00000000FE7F00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
 };
 
-/* The library's path: decode (pads' touch and click from the button bits), the trigger rule with
- * the previous bits, encode. */
+/* The library's path: decode (pads' touch and click from the button bits), the input rules
+ * (input_rules.c) with the previous trigger bits and pad clicks, encode. RULES is the rule word in
+ * hex (without it: the trigger bits only, the rules of OpenSC2 0.2.0); SET changes settings from
+ * their defaults (T68 is setting 68); CLICK gives the pads' clicks by pressure before this report
+ * (worked out with the same thresholds). */
 static void state_line(char *tok[], int n, void *ctx)
 {
 	uint8_t in[OSC2_TEST_STATE52_LEN], want[OSC2_TEST_STATE52_LEN];
 	uint8_t buf[OPENSC2_STATE_REPORT_LEN] = { OPENSC2_RPT_STATE, 0 };
 	uint8_t out[OPENSC2_STATE_REPORT_LEN];
 	struct opensc2_state s;
+	struct osc2_input_rules r;
+	int16_t settings[OPENSC2_SETTINGS_COUNT];
 	int t68 = vec_find(tok, n, "T68"), prev = vec_find(tok, n, "PREV");
+	int rules_at = vec_find(tok, n, "RULES"), set_at = vec_find(tok, n, "SET");
+	int click_at = vec_find(tok, n, "CLICK");
 	int at_in = vec_find(tok, n, "IN"), at_out = vec_find(tok, n, "OUT");
-	int16_t setting = 90;
-	bool lprev = false, rprev = false, left, right;
+	uint32_t rules = OSC2_RULES_V0_2;
 
 	(void)ctx;
 	CHECK(at_in >= 0 && at_out > at_in);
 	if (at_in < 0 || at_out <= at_in) {
 		return;
 	}
+	vec_default_settings(settings);
 	if (t68 >= 0 && t68 + 1 < n) {
-		setting = (int16_t)atoi(tok[t68 + 1]);
+		settings[OPENSC2_SETTING_TRIGGER_THRESHOLD] = (int16_t)atoi(tok[t68 + 1]);
 	}
+	if (set_at >= 0 && set_at + 1 < n) {
+		CHECK(vec_settings(tok[set_at + 1], settings));
+	}
+	if (rules_at >= 0 && rules_at + 1 < n) {
+		rules = (uint32_t)strtoul(tok[rules_at + 1], NULL, 16);
+	}
+	osc2_input_rules_reset(&r);
 	if (prev >= 0 && prev + 1 < n && strlen(tok[prev + 1]) == 2) {
-		lprev = tok[prev + 1][0] == '1';
-		rprev = tok[prev + 1][1] == '1';
+		r.trigger_bit[OPENSC2_LEFT] = tok[prev + 1][0] == '1';
+		r.trigger_bit[OPENSC2_RIGHT] = tok[prev + 1][1] == '1';
+	}
+	if (click_at >= 0 && click_at + 1 < n && strlen(tok[click_at + 1]) == 2) {
+		r.pad_click[OPENSC2_LEFT] = tok[click_at + 1][0] == '1';
+		r.pad_click[OPENSC2_RIGHT] = tok[click_at + 1][1] == '1';
+		r.click_setting[OPENSC2_LEFT] = settings[OPENSC2_SETTING_LEFT_CLICK_PRESSURE];
+		r.click_setting[OPENSC2_RIGHT] = settings[OPENSC2_SETTING_RIGHT_CLICK_PRESSURE];
 	}
 	at_in++;
 	at_out++;
@@ -220,12 +273,7 @@ static void state_line(char *tok[], int n, void *ctx)
 	CHECK_EQ(vec_hex(tok, n, &at_out, want, sizeof(want)), OSC2_TEST_STATE52_LEN);
 	memcpy(&buf[2], in, sizeof(in));
 	opensc2_decode_state(buf, &s, NULL);
-	left = osc2_trigger_click(s.trigger[OPENSC2_LEFT], setting, lprev);
-	right = osc2_trigger_click(s.trigger[OPENSC2_RIGHT], setting, rprev);
-	s.buttons = left ? (s.buttons | OPENSC2_CLICK_LEFT_TRIGGER) :
-			   (s.buttons & ~OPENSC2_CLICK_LEFT_TRIGGER);
-	s.buttons = right ? (s.buttons | OPENSC2_CLICK_RIGHT_TRIGGER) :
-			    (s.buttons & ~OPENSC2_CLICK_RIGHT_TRIGGER);
+	osc2_input_rules_apply(&r, rules, settings, &s);
 	opensc2_encode_state(&s, 0, out);
 	CHECK(memcmp(&out[2], want, sizeof(want)) == 0);
 }
@@ -316,7 +364,35 @@ static const char *const builtin_lizard[] = {
 
 struct lizard_run {
 	struct opensc2_lizard lz;
+	uint32_t rules;
+	int16_t settings[OPENSC2_SETTINGS_COUNT];
 };
+
+static void lizard_start(struct lizard_run *run)
+{
+	opensc2_lizard_reset(&run->lz);
+	run->rules = 0;
+	vec_default_settings(run->settings);
+}
+
+/* The words of a step's haptic events, in opensc2_lizard_haptics()'s order. */
+static int lizard_event_words(uint32_t made, const char *words[4])
+{
+	struct opensc2_haptic h[4];
+	uint8_t count = opensc2_lizard_haptics(made, h);
+
+	for (uint8_t i = 0; i < count; i++) {
+		bool tick = h[i].command.command == OPENSC2_HAPTIC_CMD_CLICK_A;
+
+		CHECK_EQ(h[i].report_id, 0);
+		CHECK_EQ(h[i].kind, OPENSC2_HAPTIC_COMMAND);
+		CHECK_EQ(h[i].command.gain_db, tick ? 8 : 6);
+		CHECK_EQ(h[i].channels, h[i].target ? OPENSC2_HAPTIC_RIGHT_PAD : OPENSC2_HAPTIC_LEFT_PAD);
+		words[i] = tick ? (h[i].target ? "TICK_R" : "TICK_L") :
+				  (h[i].target ? "CLICK_R" : "CLICK_L");
+	}
+	return count;
+}
 
 static bool parse_xy(const char *text, int16_t *x, int16_t *y)
 {
@@ -336,11 +412,20 @@ static void lizard_line(char *tok[], int n, void *ctx)
 {
 	struct lizard_run *run = ctx;
 	uint8_t want[64], got[64], keyboard[9], mouse[6];
-	int arrow = vec_find(tok, n, "->"), want_len = 0, got_len = 0;
-	uint32_t made;
+	int arrow = vec_find(tok, n, "->"), want_len = 0, got_len = 0, events_at = n;
+	uint32_t made = 0;
 
 	if (strcmp(tok[0], "START") == 0) {
-		opensc2_lizard_reset(&run->lz);
+		lizard_start(run);
+		return;
+	}
+	if (strcmp(tok[0], "RULES") == 0) {
+		CHECK(n == 2);
+		run->rules = n == 2 ? (uint32_t)strtoul(tok[1], NULL, 16) : 0;
+		return;
+	}
+	if (strcmp(tok[0], "SET") == 0) {
+		CHECK(n == 2 && vec_settings(tok[1], run->settings));
 		return;
 	}
 	CHECK(arrow > 0);
@@ -352,10 +437,15 @@ static void lizard_line(char *tok[], int n, void *ctx)
 
 		want_len = vec_hex(tok, n, &i, want, sizeof(want));
 		CHECK(want_len > 0);
+		events_at = i;
+	} else {
+		events_at = arrow + 2;
 	}
 	if (strcmp(tok[0], "FRAME") == 0) {
 		struct opensc2_state s;
-		uint8_t s82 = 3;
+		int16_t s82 = run->settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK];
+		const char *words[4];
+		int count;
 
 		memset(&s, 0, sizeof(s));
 		for (int i = 1; i < arrow; i++) {
@@ -367,7 +457,7 @@ static void lizard_line(char *tok[], int n, void *ctx)
 				CHECK(parse_xy(&tok[i][5], &s.pad[OPENSC2_RIGHT].x,
 					       &s.pad[OPENSC2_RIGHT].y));
 			} else if (strncmp(tok[i], "s82=", 4) == 0) {
-				s82 = (uint8_t)strtoul(&tok[i][4], NULL, 0);
+				s82 = (int16_t)strtol(&tok[i][4], NULL, 0);
 			} else {
 				CHECK(false);   /* an unknown FRAME field */
 			}
@@ -376,7 +466,21 @@ static void lizard_line(char *tok[], int n, void *ctx)
 		s.pad[OPENSC2_LEFT].clicked = (s.buttons & OPENSC2_CLICK_LEFT_PAD) != 0;
 		s.pad[OPENSC2_RIGHT].touched = (s.buttons & OPENSC2_TOUCH_RIGHT_PAD) != 0;
 		s.pad[OPENSC2_RIGHT].clicked = (s.buttons & OPENSC2_CLICK_RIGHT_PAD) != 0;
-		made = opensc2_lizard_step(&run->lz, &s, s82, keyboard, mouse);
+		{
+			/* s82= changes setting 82 for this frame only */
+			int16_t keep = run->settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK];
+
+			run->settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK] = s82;
+			made = opensc2_lizard_step(&run->lz, &s, run->settings, run->rules, keyboard,
+						   mouse);
+			run->settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK] = keep;
+		}
+		/* The haptic events after the reports, in order. */
+		count = lizard_event_words(made, words);
+		CHECK_EQ(n - events_at, count);
+		for (int i = 0; i < count && events_at + i < n; i++) {
+			CHECK(strcmp(tok[events_at + i], words[i]) == 0);
+		}
 		/* osc2_report_lizard() sends the keyboard report first. */
 		if (made & OPENSC2_LIZARD_KEYBOARD) {
 			memcpy(&got[got_len], keyboard, sizeof(keyboard));
@@ -410,6 +514,9 @@ static void lizard_line(char *tok[], int n, void *ctx)
 	} else {
 		CHECK(false);   /* an unknown lizard action */
 	}
+	if (strcmp(tok[0], "FRAME") != 0) {
+		CHECK_EQ(n, events_at);   /* only a frame has haptic events */
+	}
 	CHECK_EQ(got_len, want_len);
 	if (got_len == want_len && want_len > 0) {
 		CHECK(memcmp(got, want, (size_t)want_len) == 0);
@@ -420,10 +527,10 @@ OPENSC2_TEST(lizard_vectors)
 {
 	struct lizard_run run;
 
-	opensc2_lizard_reset(&run.lz);
+	lizard_start(&run);
 	vec_run_builtin(builtin_lizard, sizeof(builtin_lizard) / sizeof(builtin_lizard[0]),
 			lizard_line, &run);
-	opensc2_lizard_reset(&run.lz);
+	lizard_start(&run);
 	(void)vec_run_file("lizard.txt", lizard_line, &run);
 }
 
@@ -434,13 +541,16 @@ OPENSC2_TEST(lizard_resync)
 	struct opensc2_state s;
 	uint8_t keyboard[9], mouse[6];
 	static const uint8_t empty_kb[9] = { 0x41 }, zero_mouse[6] = { 0x40 };
+	int16_t defaults[OPENSC2_SETTINGS_COUNT];
+
+	vec_default_settings(defaults);
 
 	/* A held key: the release sends both empty reports, then has nothing left to release. */
 	opensc2_lizard_reset(&lz);
 	memset(&s, 0, sizeof(s));
-	(void)opensc2_lizard_step(&lz, &s, 3, keyboard, mouse);
+	(void)opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse);
 	s.buttons = OPENSC2_BTN_A;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, 3, keyboard, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), OPENSC2_LIZARD_KEYBOARD);
 	CHECK_EQ(opensc2_lizard_release(&lz, keyboard, mouse),
 		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
 	CHECK(memcmp(keyboard, empty_kb, sizeof(keyboard)) == 0);
@@ -452,12 +562,12 @@ OPENSC2_TEST(lizard_resync)
 	memset(&s, 0, sizeof(s));
 	s.buttons = OPENSC2_TOUCH_RIGHT_PAD;
 	s.pad[OPENSC2_RIGHT].touched = true;
-	(void)opensc2_lizard_step(&lz, &s, 3, keyboard, mouse);   /* keyboard sync, touch-down */
+	(void)opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse);   /* keyboard sync, touch-down */
 	s.pad[OPENSC2_RIGHT].x = 640;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, 3, keyboard, mouse), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), OPENSC2_LIZARD_MOUSE);
 	CHECK_EQ(opensc2_lizard_release(&lz, keyboard, mouse),
 		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, 3, keyboard, mouse), 0);   /* nothing owed now */
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), 0);   /* nothing owed now */
 
 	/* Nothing held, or lizard mode off: nothing to release. */
 	opensc2_lizard_reset(&lz);
@@ -476,9 +586,9 @@ OPENSC2_TEST(lizard_resync)
 	opensc2_lizard_switches(&lz, true);
 	memset(&s, 0, sizeof(s));
 	s.buttons = OPENSC2_BTN_A;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, 3, keyboard, mouse), 0);   /* adopted */
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), 0);   /* adopted */
 	s.buttons = 0;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, 3, keyboard, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), OPENSC2_LIZARD_KEYBOARD);
 }
 
 /* ---- testproto.txt ---------------------------------------------------------------------------- */

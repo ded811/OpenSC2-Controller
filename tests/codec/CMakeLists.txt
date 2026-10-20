@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MIT
 #
 # The pure parts of the library (wire formats, USB descriptors and framing, when the wired link
-# sends reports, lizard mode, the mode rules, the retained area, settings, fusion) under ztest. They
-# need no radio, so this suite runs on native_sim or any QEMU target:
+# sends reports, lizard mode, the input rules, the radio's report queue, the mode rules, the
+# retained area, settings, fusion) under ztest. They need no radio, so this suite runs on
+# native_sim or any QEMU target:
 #   west twister -T tests -p native_sim
 # (The command-channel tests need stand-ins for the rest of the library: they run on a PC only,
 # tests/host.)
@@ -16,7 +17,10 @@ target_include_directories(app PRIVATE ${OPENSC2_ROOT}/include ${OPENSC2_ROOT}/l
 target_sources(app PRIVATE
 	src/main.c
 	${OPENSC2_ROOT}/lib/opensc2/codec.c
+	${OPENSC2_ROOT}/lib/opensc2/input_rules.c
 	${OPENSC2_ROOT}/lib/opensc2/lizard.c
+	${OPENSC2_ROOT}/lib/opensc2/report_queue.c
+	${OPENSC2_ROOT}/lib/opensc2/report_rules.c
 	${OPENSC2_ROOT}/lib/opensc2/settings_defaults.c
 	${OPENSC2_ROOT}/lib/opensc2/fusion.c
 	${OPENSC2_ROOT}/lib/opensc2/usb_desc.c

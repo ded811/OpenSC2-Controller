@@ -102,8 +102,8 @@ config OPENSC2_LIZARD_MODE
 	help
 	  Until Steam turns lizard mode off (vendor command 0x81 or controller setting 9), the right
 	  trackpad moves the mouse pointer, the left one scrolls, and A, B, the D-pad and the menu
-	  buttons type Enter, Escape, the arrows and Tab, on every link. Not reproduced: the
-	  touch-down stabiliser, the motion average, pointer glide and haptic ticks.
+	  buttons type Enter, Escape, the arrows and Tab, on every link, with the real controller's
+	  touch stabilisers, motion average, glide and haptic ticks (each an option of its own).
 
 config OPENSC2_STEAM_WATCHDOG
 	bool "Turn lizard mode back on when Steam goes quiet for 10 s"
@@ -112,6 +112,8 @@ config OPENSC2_STEAM_WATCHDOG
 	  As on the real controller (controller setting 71): unless Steam repeats "lizard mode off"
 	  within 10 s, lizard mode comes back and the settings return to their defaults (the IMU
 	  mode excepted). Independent of the link: a wired board falls back too.
+
+rsource "Kconfig.liz"
 
 config OPENSC2_STORAGE
 	bool "Keep bonds, the identity and the mode policy in Zephyr settings"

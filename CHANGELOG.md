@@ -7,6 +7,9 @@ still change between minor versions.
 
 ## [Unreleased]
 
+Built and tested on the host, in the firmware emulator and in the simulator; not yet tested on
+hardware.
+
 ### Added
 
 - Bluetooth LE, an opt-in build (`CONFIG_OPENSC2_BLE`; for the SuperMini the fragment
@@ -77,6 +80,23 @@ still change between minor versions.
   `0x44` reply to each stop; the counts go into `report.json`. The test hooks' caps build flags
   have bit 16, `HAPTIC_STOP_STATUS`, and `outputs.stop_status` expects no replies without it.
   The new and changed tests have run only against the firmware emulator so far.
+- Lizard mode's processing as the real controller's, each part a Kconfig option, all on by
+  default: the touch stabilisers (the right pad's while setting 80 is 1, the left pad's always),
+  the 8-frame motion average, the glide after a flick (settings 11 and 12; a new touch, lizard mode
+  turning off or the test hooks' resync end it), and the haptic ticks and pad clicks (settings 14,
+  52, 53 and 70), which reach the application as haptic events with report ID 0.
+- The real controller's rules on every state report, after the test hooks' injection point: a
+  stick deflected beyond 12000 counts as touched (`CONFIG_OPENSC2_STICK_TOUCH_FALLBACK`), setting
+  82 blanks a pad in report `0x42` too (`CONFIG_OPENSC2_PAD_BLANK_ON_STICK`), no trigger bit while
+  setting 62 asks for raw triggers, and, opt-in, the pads' clicks from their pressure with
+  settings 52 and 53 (`CONFIG_OPENSC2_PAD_CLICK_AUTO`).
+- The blank canvas: setting 46's raw stick output (ADC counts, or millivolts the real controller's
+  way).
+- Test hooks: the rule word (caps bit 15; ops `RULES` 0x17 and `RULES_SET` 0x18, which lasts until
+  the end of arming). The hardware test suite: `inputs.stick_touch`, `inputs.pad_blank`,
+  `inputs.raw_trigger_bits`, `inputs.pad_click`, `inputs.raw_sticks`, `lizard.stabiliser`,
+  `lizard.smoothing`, `lizard.glide`, `lizard.glide_stops`, `lizard.ticks`, `lizard.default`; the
+  simulator faults `pad_blank_ignored`, `glide_ignored` and `ticks_ignored`.
 
 ### Changed
 
@@ -99,6 +119,14 @@ still change between minor versions.
 - None of these changed answers has been tested on hardware yet (built and host-tested).
 - The test hooks' `HOST_SET` no longer takes `0xF2` with selector 1 (its GET can write flash now);
   `retained.c` is always built.
+- Through the puck, lizard mode's and the application's reports wait for room in the radio's
+  queue (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`, 8) instead of being dropped, and lizard mode waits
+  with its next frame meanwhile; the battery report is still dropped when the queue is full.
+- The hardware test suite's lizard group runs its mapping tests with lizard mode's processing
+  switched off, and follows every sequence until lizard mode goes quiet (a glide keeps the reports
+  going); its model and the shared vectors cover the input rules and the processing.
+- The host tests are now 62 (5,221 checks), and 90 (7,700 checks) with the hardware test hooks;
+  the runner has 213 self-tests.
 
 ## [0.2.0] - 2026-10-19
 

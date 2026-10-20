@@ -5,9 +5,11 @@
 # over Bluetooth, where 0x42 goes out as 0x45 without the quaternion: the model's quaternion is
 # cut too) or its slot on the puck (R) (docs/testing.md, group "inputs"). Each injected state
 # carries a fresh nonce in the IMU timestamp, so the runner knows which reports carry which state;
-# each report is compared with the expected-report model (proto/model.py), which the shared vectors
-# hold to the library's own rules. Lizard mode is off (0x81 first); the firmware refuses an
-# injection while it is on, which inputs.lizard_lock checks.
+# each report is compared with the expected-report model (proto/model.py, the input rules of the
+# board's rule word), which the shared vectors hold to the library's own rules. Lizard mode is off
+# (0x81 first); the firmware refuses an injection while it is on, which inputs.lizard_lock checks.
+# inputs.raw_sticks is the one test of the application's own state: the blank canvas's left stick
+# on its biased pins.
 import random
 import struct
 
@@ -20,14 +22,20 @@ GROUP = "inputs"
 TESTS = [("inputs.buttons", "WRB", []), ("inputs.sticks", "WRB", []),
          ("inputs.triggers", "WRB", []), ("inputs.trigger_bits", "WRB", []),
          ("inputs.pads", "WRB", []), ("inputs.imu", "WRB", []), ("inputs.full", "WRB", []),
-         ("inputs.latency", "WRB", []), ("inputs.lizard_lock", "WRB", []),
-         ("inputs.decoupled", "WRB", [])]
+         ("inputs.stick_touch", "WRB", []), ("inputs.pad_blank", "WRB", []),
+         ("inputs.raw_trigger_bits", "WRB", []), ("inputs.pad_click", "WRB", []),
+         ("inputs.raw_sticks", "WRB", []), ("inputs.latency", "WRB", []),
+         ("inputs.lizard_lock", "WRB", []), ("inputs.decoupled", "WRB", [])]
 
 # inputs.latency: frames and ms between the INJECT answer and the first report with its nonce
 LATENCY = {"W": (3, 20.0), "R": (10, 60.0), "B": (10, 100.0)}
 
 LT_BIT = 1 << R.BIT["LTRIGGER_DIGITAL"]
 RT_BIT = 1 << R.BIT["RTRIGGER_DIGITAL"]
+LST, RST = 1 << R.BIT["LSTICK_TOUCH"], 1 << R.BIT["RSTICK_TOUCH"]
+LPT, RPT = 1 << R.BIT["LPAD_TOUCH"], 1 << R.BIT["RPAD_TOUCH"]
+LPC, RPC = 1 << R.BIT["LPAD_CLICK"], 1 << R.BIT["RPAD_CLICK"]
+LGRIP, RGRIP = 1 << R.BIT["LGRIP"], 1 << R.BIT["RGRIP"]
 AXES = ("lstick_x", "lstick_y", "rstick_x", "rstick_y")
 IMU = ("accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z", "quat_w", "quat_x",
        "quat_y", "quat_z")
@@ -64,33 +72,57 @@ def _is_app_state(rig, report):
 
 
 class Tracker:
-    """Injects states and compares each report that carries the state's nonce with the model.
-    The triggers' digital bits depend on the previous report's: the tracker keeps them."""
+    """Injects states and compares each report that carries the state's nonce with the model: the
+    input rules of the board's rule word (rig.rules()) on the board's settings as they are now
+    (`setting68` and `settings` change them in the model only: write them to the board first).
+    The triggers' digital bits and the pads' clicks by pressure depend on the reports before: the
+    tracker keeps them, the trigger bits read from the last report, the clicks starting off (the
+    firmware clears them when a threshold changes; prime() makes sure)."""
 
-    def __init__(self, rig, setting68=90, auto=True):
+    def __init__(self, rig, setting68=None, auto=True, rules=None, settings=None):
         self.rig = rig
-        self.s68 = setting68
-        self.auto = auto
-        self.prev = [False, False]
+        self.settings = rig.settings_read() if settings is None else dict(settings)
+        if setting68 is not None:
+            self.settings[68] = setting68
+        if rules is None:
+            rules = rig.rules()[0]
+        if not auto:
+            rules &= ~M.RULE_TRIGGER_BITS
+        self.model = M.StateRules(rules)
         self.reports = 0
+        # with the click by pressure on, the clicks the board keeps cannot be read from a report
+        # (an untouched pad shows none): the first check primes them
+        self.primed = not rules & M.RULE_PAD_CLICK
         last = [r for _t, r in rig.read_stream(count=2) if r[0] == C.RPT_STATE]
         if last:
             b = R.decode_state52(R.state52_of_report(last[-1]))["buttons"]
-            self.prev = [bool(b & LT_BIT), bool(b & RT_BIT)]
+            self.model.trigger_bit = [bool(b & LT_BIT), bool(b & RT_BIT)]
+
+    def prime(self, c):
+        """Both pads touched at pressure 0: both clicks by pressure are off (thresholds of 9 and
+        up), in the board and in the model."""
+        self.primed = True
+        self.check(c, "both pads touched at pressure 0", R.make_state52(buttons=LPT | RPT))
+        self.model.pad_click = [False, False]
 
     def check(self, c, what, state52, keep_timestamp=False):
+        if not self.primed:
+            self.prime(c)
         rep, n = self.rig.inject_and_read(state52, keep_timestamp=keep_timestamp)
         if rep is None:
             c.fail("%s: no report carried the nonce" % what)
             return None
         injected = bytes(state52) if keep_timestamp else R.set_field(state52, "imu_timestamp", n)
-        want, _l, _r = M.expected_report(injected, self.prev[0], self.prev[1],
-                                         setting68=self.s68, trigger_click_auto=self.auto)
+        want = self.model.apply(injected, self.settings)
         if self.rig.path == "B":
             want = R.ble_cut(want)     # 0x45: the quaternion does not go over Bluetooth
         got = R.state52_of_report(rep)
         b = R.decode_state52(got)["buttons"]
-        self.prev = [bool(b & LT_BIT), bool(b & RT_BIT)]
+        # what the board did is the start of the next comparison: no failure repeats itself
+        self.model.trigger_bit = [bool(b & LT_BIT), bool(b & RT_BIT)]
+        for side, touch, click in ((0, LPT, LPC), (1, RPT, RPC)):
+            if b & touch:
+                self.model.pad_click[side] = bool(b & click)
         self.reports += 1
         if got != want:
             c.fail("%s: %s" % (what, diff(got, want)))
@@ -102,6 +134,165 @@ class Tracker:
 def _start(rig):
     rig.arm() if not rig.ctx.armed else None
     rig.lizard_off()
+
+
+def _setting_back(rig, number, value):
+    if rig.settings_read()[number] != value:
+        rig.write_settings([(number, value)])
+
+
+def _stick_touch(rig, c):
+    """inputs.stick_touch: a stick further than 12000 from its centre (the controller's distance
+    approximation) counts as touched; never with raw stick output (setting 46)."""
+    if not rig.rules()[0] & M.RULE_STICK_FALLBACK:
+        c.skip("this build has no stick-touch fallback")
+    start46 = rig.settings_read()[46]
+    try:
+        _setting_back(rig, 46, 0)
+        t = Tracker(rig)
+        for name, v in (("lstick_x", 12203), ("lstick_x", 12204), ("lstick_y", -12204),
+                        ("rstick_x", 12204), ("rstick_y", -12203), ("rstick_y", -32768)):
+            t.check(c, "%s %d" % (name, v), R.make_state52(**{name: v}))
+        for x, y in ((8727, 8727), (8728, -8728), (-8728, 8728)):
+            t.check(c, "both sticks at %d,%d" % (x, y),
+                    R.make_state52(lstick_x=x, lstick_y=y, rstick_x=x, rstick_y=y))
+        t.check(c, "the sensor's bits with centred sticks", R.make_state52(buttons=LST | RST))
+        t.check(c, "the fallback blanks its side's pad (setting 82)",
+                R.make_state52(buttons=LPT | RPT, lstick_x=-20000, lpad_x=3000, lpad_y=3000,
+                               rpad_x=-3000, rpad_y=-3000, lpad_pressure=5000))
+        rig.write_settings([(46, 2)])
+        t = Tracker(rig)
+        t.check(c, "raw sticks (46 = 2): 12204 is no touch", R.make_state52(lstick_x=12204))
+        t.check(c, "raw sticks (46 = 2): 32767, 32767 is no touch",
+                R.make_state52(rstick_x=32767, rstick_y=32767))
+    finally:
+        _setting_back(rig, 46, start46)
+
+
+def _pad_blank(rig, c):
+    """inputs.pad_blank: setting 82 blanks a pad in 0x42 while the stick on its side is touched."""
+    if not rig.rules()[0] & M.RULE_PAD_BLANK:
+        c.skip("this build does not blank the pads in report 0x42")
+    start = rig.settings_read()
+    pads = dict(lpad_x=-3000, lpad_y=2500, lpad_pressure=9000, rpad_x=1000, rpad_y=-1000,
+                rpad_pressure=20000)
+    try:
+        for s82 in (3, 1, 2, 0):
+            rig.write_settings([(82, s82)])
+            t = Tracker(rig)
+            for sticks in (0, LST, RST, LST | RST):
+                t.check(c, "82=%d sticks 0x%08x" % (s82, sticks),
+                        R.make_state52(buttons=sticks | LPT | LPC | RPT | RPC | LGRIP | RGRIP,
+                                       **pads))
+        rig.write_settings([(82, 3), (60, 1)])
+        t = Tracker(rig)
+        t.check(c, "raw pressure (60 = 1) passes a blanked pad",
+                R.make_state52(buttons=RST | RPT, **pads))
+    finally:
+        for n in (82, 60):
+            _setting_back(rig, n, start[n])
+
+
+def _raw_trigger_bits(rig, c):
+    """inputs.raw_trigger_bits: no trigger bit while setting 62 asks for raw triggers."""
+    if not rig.rules()[0] & M.RULE_RAW_TRIGGERS:
+        c.skip("this build has no rule for raw trigger output")
+    start62 = rig.settings_read()[62]
+    try:
+        for v62 in (1, 2):
+            rig.write_settings([(62, v62)])
+            t = Tracker(rig)
+            t.check(c, "62=%d both triggers full" % v62,
+                    R.make_state52(left_trigger=32767, right_trigger=32767))
+            t.check(c, "62=%d the bits injected" % v62,
+                    R.make_state52(buttons=LT_BIT | RT_BIT, left_trigger=32767))
+        rig.write_settings([(62, 0)])
+        t = Tracker(rig)
+        t.check(c, "62=0 both triggers full", R.make_state52(left_trigger=32767,
+                                                            right_trigger=32767))
+        t.check(c, "62=0 released", R.make_state52())
+    finally:
+        _setting_back(rig, 62, start62)
+
+
+def _pad_click(rig, c):
+    """inputs.pad_click: the pads' clicks from their pressure (settings 52, 53, 8 points of
+    hysteresis), with the click by pressure switched on for the test where the build has it off
+    (RULES_SET; the end of arming puts the build's rule word back)."""
+    now, _build = rig.rules()
+    switched = False
+    if not now & M.RULE_PAD_CLICK:
+        if rig.rules_set(now | M.RULE_PAD_CLICK) is None:
+            c.skip("this firmware cannot switch the click by pressure on (no RULES_SET)")
+        switched = True
+        c.note("the click by pressure switched on for the test (off in this build)")
+    start = rig.settings_read()
+    try:
+        rig.write_settings([(52, 40), (53, 40)])
+        t = Tracker(rig)
+        t.prime(c)
+        for side, touch, field in (("right", RPT, "rpad_pressure"), ("left", LPT, "lpad_pressure")):
+            for v in (15728, 15729, 20000, 10486, 10485, 0):
+                t.check(c, "%s pad %d" % (side, v), R.make_state52(buttons=touch, **{field: v}))
+        t.check(c, "untouched, pressed: no click reported",
+                R.make_state52(rpad_pressure=20000))
+        t.check(c, "touched again: the click it kept", R.make_state52(buttons=RPT,
+                                                                       rpad_pressure=20000))
+        t.check(c, "the application's click bit is replaced",
+                R.make_state52(buttons=LPT | LPC | RPT | RPC))
+        t.check(c, "a blanked pad does not click (82 = 3)",
+                R.make_state52(buttons=RST | RPT, rpad_pressure=32767))
+        rig.write_settings([(52, 0), (53, -1)])
+        t = Tracker(rig)
+        for v in (2621, 2622, 32767):
+            t.check(c, "52=0 left %d" % v, R.make_state52(buttons=LPT, lpad_pressure=v))
+            t.check(c, "53=-1 right %d" % v, R.make_state52(buttons=RPT, rpad_pressure=v))
+    finally:
+        for n in (52, 53):
+            _setting_back(rig, n, start[n])
+        if switched:
+            rig.rules_set(now)
+
+
+def _raw_sticks(rig, c):
+    """inputs.raw_sticks: setting 46 makes the application report its sticks raw: 2 the ADC
+    counts, 1 millivolts. The blank canvas's left stick sits on two analog pins the chip's bias
+    holds at half of full scale: about 2048 counts, 1650 mV (VDD/2 at 3.3 V). Nothing injected:
+    this is the application's own state."""
+    if rig.inject_active:
+        rig.inject_off()
+    start46 = rig.settings_read()[46]
+
+    def left_stick():
+        rig.sleep(0.05)       # the application samples every 4 ms
+        reps = [r for _t, r in rig.read_stream(count=6) if r[0] == C.RPT_STATE]
+        if not reps:
+            return None
+        f = R.decode_state52(R.state52_of_report(reps[-1]))
+        return f["lstick_x"], f["lstick_y"]
+
+    try:
+        got = {}
+        for v46 in (2, 1, 0):
+            rig.write_settings([(46, v46)])
+            got[v46] = left_stick()
+        if got[2] is None or got[0] is None:
+            c.fail("no state report")
+            return
+        if got[2] == (0, 0):
+            c.skip("no analog left stick in this build (46 = 2 reads 0, 0)")
+        if all(abs(r - k) <= 500 for r, k in zip(got[2], got[0])):
+            c.skip("this application gives no raw stick output (46 = 2 reads as 46 = 0: %s)"
+                   % (got[2],))
+        c.observe(counts=list(got[2]), millivolts=list(got[1] or ()), calibrated=list(got[0] or ()))
+        c.true("46 = 2: the left stick's counts near half of 4095 (%s)" % (got[2],),
+               all(1650 <= v <= 2450 for v in got[2]))
+        c.true("46 = 1: its millivolts near 1650 (%s)" % (got[1],),
+               got[1] is not None and all(1320 <= v <= 1980 for v in got[1]))
+        c.true("46 = 0: calibrated again, near the centre (%s)" % (got[0],),
+               got[0] is not None and all(abs(v) <= 6000 for v in got[0]))
+    finally:
+        _setting_back(rig, 46, start46)
 
 
 def _lizard_lock(ctx, rig, c):
@@ -262,6 +453,29 @@ def run(ctx):
                     fields[name] = rng.getrandbits(32 if kind == "u32" else 16)
                 t.check(c, "random state %d" % i, R.make_state52(**fields))
             c.note("20 random full states (seed %d) as the model" % seed)
+
+    if ctx.want("inputs.stick_touch"):
+        with ctx.check(GROUP, "inputs.stick_touch") as c:
+            _stick_touch(rig, c)
+
+    if ctx.want("inputs.pad_blank"):
+        with ctx.check(GROUP, "inputs.pad_blank") as c:
+            _pad_blank(rig, c)
+
+    if ctx.want("inputs.raw_trigger_bits"):
+        with ctx.check(GROUP, "inputs.raw_trigger_bits") as c:
+            _raw_trigger_bits(rig, c)
+
+    if ctx.want("inputs.pad_click"):
+        with ctx.check(GROUP, "inputs.pad_click") as c:
+            _pad_click(rig, c)
+
+    if ctx.want("inputs.raw_sticks"):
+        with ctx.check(GROUP, "inputs.raw_sticks") as c:
+            if not rig.models("app_raw_sticks"):
+                c.skip("the application's raw sticks not modelled by the %s backend"
+                       % rig.backend.kind)
+            _raw_sticks(rig, c)
 
     if ctx.want("inputs.latency"):
         with ctx.check(GROUP, "inputs.latency") as c:

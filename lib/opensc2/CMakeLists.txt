@@ -22,6 +22,7 @@ zephyr_library_sources(
 	crash_rules.c
 	hwdt.c
 	id_rules.c
+	input_rules.c
 	key_rules.c
 	keys.c
 	lizard.c
@@ -30,6 +31,7 @@ zephyr_library_sources(
 	proto_rules.c
 	radio.c
 	report.c
+	report_queue.c
 	report_rules.c
 	# the retained area's pure logic, and the CRC-32 the crash records and the test hooks use
 	retained.c
