@@ -179,15 +179,19 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 184 host tests (13,185 checks); 230 (16,396 checks)
+the suite against that emulator. Today that is 185 host tests (13,196 checks); 231 (16,407 checks)
 with the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for
 byte alike (after every test, each mutex the library took must have been let go again); a compile
 of the library files whose calibration calls become stand-ins without `CONFIG_OPENSC2_CAL`; the
-runner's 276 self-tests (a dry run of the Bluetooth path among them); its dry run against the
-library's own code in a firmware emulator, `--dock` included, which has the haptics synthesiser
-built in (as `app/haptics.conf`), so the `haptics` group runs there too; 6 self-tests of
-`tools/fake_puck.py`; 9 self-tests of
-`tools/match_steam_version.py`. To run the emulator by hand after `run.ps1` built it:
+runner's 280 self-tests (a dry run of the Bluetooth path among them); its dry run against the
+library's own code in a firmware emulator (`--lizard --dock`: 233 tests pass, 26 are skipped),
+which has the system state machine, the calibration, the dock link and the haptics synthesiser
+built in (as `app/haptics.conf`), so the `system`, `cal`, `dock` and `haptics` groups run there
+too; 6 self-tests of `tools/fake_puck.py`; 9 self-tests of `tools/match_steam_version.py`. With
+every opt-in that runs offline, the emulator passes 241 tests (`--lizard --flash --dock`, 18
+skipped), the simulator 182 (`--lizard --flash`, 60 skipped: it models no calibration, system
+state machine, synthesiser or dock) and the simulator's Bluetooth path 100 (`--bluetooth --lizard
+--flash`, the soak skipped). To run the emulator by hand after `run.ps1` built it:
 
 ```powershell
 python -I tools\hwtest\run.py --dry-run --fw-emu $env:TEMP\opensc2_fwemu.exe --lizard --dock
@@ -230,11 +234,11 @@ python -I tools\hwtest\run.py --with-steam --steam-control
 | --- | --- |
 | `--group G[,G...]`, `--test ID[,ID...]` | only these (the start snapshot, the switches they need and the whole restore always run) |
 | `--wired-only`, `--wireless-only` | one path; the board is switched there first if needed, and back at the end |
-| `--bluetooth` | the Bluetooth path alone (B): a board of the Bluetooth build, wireless on its Bluetooth transport and paired with Windows ([Bluetooth](#bluetooth)); not with `--wired-only`, `--wireless-only`, `--through-puck` or `--with-steam` |
+| `--bluetooth` | the Bluetooth path alone (B): a board of the Bluetooth build, wireless on its Bluetooth transport and paired with Windows ([Bluetooth](#bluetooth)); not with `--wired-only`, `--wireless-only`, `--through-puck`, `--with-steam` or `--dock` |
 | `--through-puck` | allow writes through the puck to the board's slot ([below](#the---through-puck-opt-in)) |
 | `--flash` | allow the value-preserving flash rewrites of group `flash` ([what they write](#what---flash-writes)) |
 | `--lizard` | run group `lizard`: lizard mode on injected inputs, only the guard holding its reports back (needs the canary, the leak detector watching that path, and `inputs.lizard_lock` passed on it in the same run, for example `--group hooks,inputs,lizard`) |
-| `--dock` | run group `dock`: the board's dock link through the test hooks, nothing wired ([The dock](#the-dock)); on the wireless path it stops and restarts the radio once |
+| `--dock` | run group `dock`: the board's dock link through the test hooks, nothing wired ([The dock](#the-dock)); on the wireless path it stops and restarts the radio once; not with `--bluetooth` |
 | `--with-steam`, `--steam-control` | the passive `steam` group at the end; with `--steam-control` the runner starts and closes Steam itself, without it you start Steam when asked |
 | `--soak S` | `stream.soak` for S seconds |
 | `--board N` | the board to use when more than one is connected (the runner lists them) |
@@ -280,9 +284,10 @@ trackpads, IMU, rumble motor, RGB LED and battery hardware, which no test has ru
 tagged ([releasing.md](releasing.md)). The Bluetooth path (`--bluetooth`) has run only against the
 simulator so far ([Bluetooth](#bluetooth)).
 
-The tests added since v0.2.0 (`outputs.stop_status`, `settings.imu_answers`, `flash.kept_keys`,
-`steam.session`'s traffic counts, and the new checks in `cmd`, `battery` and `settings`) have run
-only against the simulator and the firmware emulator so far, not on a board.
+The groups and tests added since v0.2.0 (the groups `cal`, `system`, `haptics`, `ble` and `dock`;
+`outputs.stop_status`, `settings.imu_answers`, `flash.kept_keys`, `steam.session`'s traffic counts,
+the input rules' and lizard mode's processing tests, and the new checks in `cmd`, `battery` and
+`settings`) have run only against the simulator and the firmware emulator so far, not on a board.
 
 ### What `--flash` writes
 
@@ -476,13 +481,15 @@ python -I tools\fake_puck.py --test-op --polls 20
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 276 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 280 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking (Bluetooth addresses too), every
   safety rule (including the source scan of the puck reader, that every function that sends checks
   the exact bytes, and which Bluetooth node is the board's), the link lock against a racing
   keep-alive, the leak detector's filter and watch list, the Windows backend's slot handling on
-  synthetic device lists (nothing opened), the writers, the dock's frames, rules and safety, and
-  the whole runner against the simulator, the Bluetooth path included.
+  synthetic device lists (nothing opened), the writers, the dock's frames, rules and safety, one
+  numbering of the test channel's ops, ring kinds, caps bits and links (the firmware's headers, the
+  runner and [test-protocol.md](test-protocol.md) against each other), and the whole runner against
+  the simulator, the Bluetooth path included.
 - **The dry run** (`--dry-run`): every group against a simulator with a virtual clock (seconds,
   not minutes), which models the board in both modes, the puck, the console with log noise, Steam
   and the reboots; with `--bluetooth`, the board's Bluetooth link and a Windows host bonded to it. `--sim-fault NAME` makes it misbehave in exactly one way, and each fault must

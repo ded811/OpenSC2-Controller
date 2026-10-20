@@ -77,9 +77,10 @@ public.
    git clone C:\src\OpenSC2-Controller C:\src\osc2-check
    cd C:\src\osc2-check
    $projects = 'app', 'app\test-charger.conf', 'app\sensors.conf', 'app\imu-stream.conf',
-       'app\expander.conf', 'app\haptics.conf', 'samples\minimal', 'samples\buttons_sticks',
-       'samples\touchpad', 'samples\imu', 'samples\rumble', 'samples\rgb_led', 'samples\haptics',
-       'samples\haptics\drv2605.conf', 'template'
+       'app\expander.conf', 'app\haptics.conf', 'app\ble.conf', 'app\dock.conf',
+       'app\battery.conf', 'app\watchdog.conf', 'app\all.conf', 'samples\minimal',
+       'samples\buttons_sticks', 'samples\touchpad', 'samples\imu', 'samples\rumble',
+       'samples\rgb_led', 'samples\haptics', 'samples\haptics\drv2605.conf', 'template'
    foreach ($p in $projects) {
        $out = 'C:\b\chk-' + (($p -replace '\.conf$', '') -replace '[\\/]', '-')
        powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project $p -OutDir $out -Pristine 2>&1 |

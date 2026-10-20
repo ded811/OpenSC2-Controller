@@ -128,9 +128,9 @@ without it the firmware has OpenSC2 0.2.0's rules, the trigger bits only and non
 processing; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to stops; 17 `BLE`, the Bluetooth build; 18
 `SYSTEM`, the system state machine and its ops; 19 `HAPTICS_SYNTH`, the haptics synthesiser; 20
 `DOCK_LINK`, the dock link and its ops; 21 `CAL`, the library's calibration and raw inputs with
-`RAW_INJECT`; the bits between are left for
-other options); 6 battery report interval ms u16; 8 rumble timeout ms
-u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16; 16 the
+`RAW_INJECT`; bits 22 to 31 are left for other options); 6 battery report interval ms u16; 8
+rumble timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report
+delay µs u16; 16 the
 lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
 revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
 does not fit; the suite checks the USB product string against it). Firmware before the product name
@@ -267,8 +267,8 @@ request), data length u8 (at most 41), data:
 | `0x72` | DOCK_PILOT | three readings mV s16 (−1 a failed conversion; a reading the hooks fed above 32767 shows as 32767), inside u8 (a bit per reading), present u8 (a passing check, or one the hooks fed) |
 | `0x73` | DOCK_STATE | what u8 (0 a supply event, 1 an entry into the dock states, 2 another event), event u8 (the event, or the entry), chord u8, from u8, to u8 (0 away, 1 radio off, 2 lifted off, 3 a chord, 4 link up), handled u8, actions u32 (bits in `dock_rules.h`'s order: stop link, start link, pairing, select, cue, power-off chime, 4 s timer, 5 s timer, timer stop, pause, reboot, shutdown, update window, to battery, to a battery chord, LED charging, LED transport, LED colour, LED off, keylock cleared) |
 
-The system entries (`0x50` to `0x56`; `0x57` is kept) have link 3, none. The dock's (`0x70` to `0x73`) have link
-5, the dock.
+The system entries (`0x50` to `0x56`; `0x57` is kept) have link 3, none; the dock's (`0x70` to
+`0x73`) have link 5, the dock.
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).
 

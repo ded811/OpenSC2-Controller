@@ -425,7 +425,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | When ticks and clicks are worked out | once per report frame, on the pad as the report carries it; the real controller does it per trackpad sample |
     | A pad's click turning off because setting 82 blanks the pad | a release like any other: click B plays |
     | Setting 80 = 2 | the stabiliser of the reported position (the pad rules, gap 32), so lizard mode's right pad has none of its own and moves with the held position; the left pad keeps its own too |
-    | The haptic events' sound | the library hands over click A or B and the documented level ([api.md](api.md#outputs)); with the haptics synthesiser it plays them itself, while lizard mode is on, setting 70 is exactly 1 and the board is not on the dock (gap 35) |
+    | The haptic events' sound | the library hands over click A or B and the documented level ([api.md](api.md#outputs)); with the haptics synthesiser it plays them itself, while lizard mode is on, setting 70 is exactly 1 and the current link is not the dock (gap 35) |
     | The keyboard | evaluated once per report frame; the real controller sends a key report as soon as its button driver sees the change, so on the cable a key can come up to one frame (4 ms) later here; through the puck both ride the same acknowledgement |
     | A dropped link | the trackers are not started over (as documented): a pad held across a reconnect moves the pointer by the distance it moved meanwhile |
 
@@ -525,8 +525,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | The bond rule | a host that pairs on an identity that had no bond at the start deletes the bond on the slot's other identity, once the link reaches security level 2 | the same, once the host has bonded: a host that pairs without bonding leaves the slot's host alone |
     | A pairing request while a host is connected on the slot | not documented (a chord asks for it while wireless is off) | the link ends (the zero report, `0x13`), then the slot's other identity advertises in pairing mode |
     | The subscription flags | a quirk can send state reports to the vendor characteristic whatever the host subscribed to (after an odd puck disconnect reason in the same boot; inferred, not observed) | not copied: a report goes where the host enabled notifications, the vendor characteristic first |
-    | Haptic cues | "pairing" at each start of pairing mode, "paired" when a new host has bonded | none (the library has no haptic output of its own; an application can play them from `link_changed`) |
-    | LED patterns | blue: the pairing double flash, the searching fade, connected steady or fading on external power | the blank canvas shows them in blue on an RGB LED; a one-colour LED shows connected steady |
+    | LED patterns | blue: the pairing double flash, the searching fade, connected steady or fading on external power | the system state machine selects them; the blank canvas shows them in blue on an RGB LED, as brightness alone on its one-colour LED |
     | The ATT MTU | the last value is remembered across connections | per connection, as the specification has it (hosts raise it at every connection) |
     | Reading feature report 1 | 64 bytes, the answer then left-overs; a read blob gets the start again | the 63 bytes the report map declares; a read blob gets the rest of the same answer |
     | Feature report 1's stored request | kept from one connection to the next: a new connection's first read answers what the last SET of an earlier one selected (`0x83` until the first SET after boot) | starts again at `0x83` at every connection, as the radio's does; a host that sends a SET before its GET, as Steam and SDL do, sees no difference |
@@ -728,11 +727,13 @@ open, the library does what should work with Steam and the puck, and says so her
     thread, with no lock between links. OpenSC2 runs one command at a time across links, so a command
     from the dock waits for one from USB or the radio and the other way round; a flash write on one
     link can delay another link's command by its length. A host sees no other difference.
-40. **Dock power and the docked states** exist as rules ([api.md](api.md#the-docks-rules)), tested on
-    injected values only; the library does not act on them yet. On the real controller the dock's
-    `+` reaches the chip's USB supply input; on OpenSC2 it must not (a board would boot wired on the
-    dock), so the rule takes `+` on an input of its own, and the dock and USB at once count as the
-    dock, as on the real controller. A cold boot on the dock still starts the radio when the
+40. **Dock power and the docked states.** On the real controller the dock's `+` reaches the chip's
+    USB supply input; on OpenSC2 it must not (a board would boot wired on the dock), so the supply
+    rule takes `+` on a sense input of its own (in the UART build), and the dock and USB at once
+    count as the dock, as on the real controller. The rule gives the system state machine its power
+    source, and the docked states are the machine's ([api.md](api.md#the-docks-rules)). The
+    SuperMini dock build has no `+` input, so it never counts as powered by the dock. Without the
+    machine (`CONFIG_OPENSC2_SYSTEM=n`) a cold boot on the dock starts the radio when the
     application asks, where the real controller charges with the radio off.
 41. **The dock's wire is untried.** The pilot's window is at the controller's pin with no divider;
     how the pilot and the serial link share the `P` pad, the pad's idle level and its load are not

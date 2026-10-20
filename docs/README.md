@@ -100,7 +100,8 @@ battery turn straight off, and every one after it, until the board powers up on 
 or the chord is tapped.
 
 **Cue.** A short chime the real controller plays on its haptics (power on, power off, a transport,
-pairing). The library raises cue events; the sounds are the application's.
+pairing). The library raises cue events; the haptics synthesiser, when it is built in, plays
+OpenSC2's own sound for each, otherwise the application does.
 
 **The dock.** The puck's other job: a controller resting on it charges through three pogo pads,
 `+`, `−` and `P`, and the puck talks to it over a slow serial link on the same contacts, in 73-byte

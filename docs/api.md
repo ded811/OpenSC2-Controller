@@ -740,10 +740,10 @@ every power request goes to the application, `opensc2_led_status()` selects no m
 
 | `enum opensc2_power_source` | Means |
 | --- | --- |
-| `OPENSC2_POWER_SOURCE_AUTO` | the default: the library's own view. USB power while the chip's VBUS detection sees it; otherwise a battery with `CONFIG_OPENSC2_BATTERY`, or else an external supply (USB power, for the rules) |
+| `OPENSC2_POWER_SOURCE_AUTO` | the default: the library's own view. The dock while [the dock's supply rule](#the-docks-rules) says so (only the UART build with a `+` sense input can); USB power while the chip's VBUS detection sees it; otherwise a battery with `CONFIG_OPENSC2_BATTERY`, or else an external supply (USB power, for the rules) |
 | `OPENSC2_POWER_SOURCE_BATTERY` | no input power: running on the battery |
 | `OPENSC2_POWER_SOURCE_USB` | USB power, or another supply that is not the dock |
-| `OPENSC2_POWER_SOURCE_DOCK` | the puck's dock contacts (OpenSC2 does not implement the dock; an application that senses its power can name it) |
+| `OPENSC2_POWER_SOURCE_DOCK` | the puck's dock contacts: an application that senses their power can name it; with `AUTO` the dock's supply rule decides |
 
 `opensc2_set_power_source(s)` sets it (`-EINVAL` for another value), for example from a charger's
 input type; `opensc2_power_source()` returns the source in effect. The library looks at it every
@@ -769,10 +769,10 @@ Once `opensc2_init()` has decided the mode ([Modes](#modes)), in this order:
 | on battery, STEAM alone or a transport chord held | `chord` | its transport, its cue, its colour steady, 4 s ([Chords](#chords)), then `battery` |
 | on battery otherwise | `battery-wait` | the stored transport's cue, then 1 s for USB power (a reboot, which comes back wired) or the dock (`dock-off`); then its link starts: `battery` |
 
-The stored transport is the selected bond slot (`user/wireless_transport` 2, the main puck, cue 3;
-3, the second puck, cue 4). Starting a link selects that slot when it differs and starts the
-radio, and only if `config.start` is set. The Bluetooth transports (0 and 1, cues 1 and 2) need a
-build with Bluetooth; without one the main puck stands in.
+The stored transport is `user/wireless_transport` as this boot runs it: 2 the main puck (cue 3),
+3 the second puck (cue 4), 0 and 1 Bluetooth slots 1 and 2 (cues 1 and 2). Starting a link selects
+that transport when it differs and starts it, and only if `config.start` is set: the radio for a
+puck, Bluetooth on that slot in a build with Bluetooth (without one the main puck stands in).
 
 ### The states while it runs
 
@@ -1164,7 +1164,7 @@ in OpenSC2. The synthesiser has sounds of its own instead:
 - **Lizard mode's pad feedback**: the real controller plays click A at +8 dB per tick and click B at
   +6 dB per pad press and release. The synthesiser plays lizard mode's events
   ([Lizard mode](#lizard-mode)) itself, as the real controller does: while lizard mode is on and
-  setting 70 is exactly 1, never on the dock (the power source `OPENSC2_POWER_SOURCE_DOCK`);
+  setting 70 is exactly 1 and the current link is USB, the puck or Bluetooth, never the dock;
   `opensc2_haptics_click()` plays a click of the application's.
 
 ### Functions
@@ -1439,10 +1439,13 @@ summary and the gaps):
   the internal RC oscillator with calibration (500 ppm); in the Bluetooth build MPSL calibrates it
   every 4 s, whichever transport runs.
 
-Not in the library: the real controller's haptic cues when pairing mode starts and when a host
-has paired (an application can play its own from `link_changed`), and the transport chords (an
-application's, with `opensc2_select_transport()` and `opensc2_select_transport_pairing()`). The
-shell's `opensc2 ble status` shows the link, and the hardware test suite's `--bluetooth` path checks
+With the [system state machine](#power-and-the-system-state-machine) (on by default) Bluetooth is
+one of its transports: B + right bumper and B + left bumper choose slot 1 and 2, held 4 s they ask
+for pairing mode ([Chords](#chords)); pairing mode's start and a new host raise cues 6 and 7, and
+advertising that runs out or a host that leaves end in "wireless off" as on the puck. Without the
+machine the chords are an application's (`opensc2_select_transport()`,
+`opensc2_select_transport_pairing()`) and the cues its own, from `link_changed`. The shell's
+`opensc2 ble status` shows the link, and the hardware test suite's `--bluetooth` path checks
 it on a board paired with Windows ([testing.md](testing.md#bluetooth)); nothing of it has run on
 hardware yet.
 
@@ -1569,7 +1572,7 @@ most likely to act on:
 | 70, 76 | `OPENSC2_SETTING_HAPTICS_ENABLED`, `_HAPTIC_GAIN_DB` | 1, -3 | 70: lizard mode's ticks and clicks only while it is exactly 1 (used by the library); 76: the master gain |
 | 71 | `OPENSC2_SETTING_STEAM_WATCHDOG` | 1 | the 10 s lizard watchdog (used by the library) |
 | 77 | `OPENSC2_SETTING_REBOOT_ON_OFF` | 0 | not 0: the ordinary shutdown reboots instead of turning off ([Shutdown and power-off](#shutdown-and-power-off)) |
-| 80 | `OPENSC2_SETTING_PAD_STABILIZER` | 1 | 1: lizard mode's right pad has the touch stabiliser (used by the library); 2 belongs to the pad processing of the reported position, not implemented |
+| 80 | `OPENSC2_SETTING_PAD_STABILIZER` | 1 | 1: lizard mode's right pad has the touch stabiliser; 2: both pads' reported positions have it, with `CONFIG_OPENSC2_PAD_RULES` ([Calibration and raw inputs](#calibration-and-raw-inputs)), and lizard mode's right pad none of its own (used by the library) |
 | 82 | `OPENSC2_SETTING_PAD_IGNORE_ON_STICK` | 3 | ignore a pad while its stick is touched, in report `0x42` and lizard mode (used by the library) |
 
 With `CONFIG_OPENSC2_CAL` the library also acts on 30, 31, 34, 35, 46, 52, 53, 60 and 62 for raw
@@ -1931,10 +1934,10 @@ or the radio.
   acknowledged and do nothing there, as on the real controller; everything else, `0x87` included,
   acts as on the other links. Attribute 11 of `0x83` is 64000 µs while the dock is the only link,
   otherwise the other link's interval.
-- **Input.** With another link up (USB configured while wired, the radio connected while wireless)
-  GET input answers the copy of that link's latest state report, so the dock takes no sequence
-  number from its stream. With the dock alone, each GET input builds one new report (the
-  application's `sample` callback runs, from the thread that serves the dock).
+- **Input.** With another link up (USB configured while wired, the radio or Bluetooth connected
+  while wireless) GET input answers the copy of that link's latest state report, so the dock takes
+  no sequence number from its stream. With the dock alone, each GET input builds one new report
+  (the application's `sample` callback runs, from the thread that serves the dock).
 - **Nothing else goes to the dock**: no lizard mode reports, no battery report `0x43`, no `0x44`.
   `0xBE` answers over the dock as on any link.
 - **Timing.** An answer is built at once (well under a millisecond) unless the command writes flash;
@@ -1952,15 +1955,21 @@ Pure functions (`lib/opensc2/dock_rules.c`), from the protocol documentation (no
 - **Dock or USB power**: the first reading and every change of "a supply is present" posts an event;
   the supply is the dock when the dock's `+` is there and the pilot passes as it appears, USB
   otherwise. On OpenSC2 the `+` rail must stay off the chip's VBUS pin (a board would otherwise boot
-  wired on the dock), so the rule takes it on an input of its own.
+  wired on the dock), so the rule takes it on an input of its own: `plus-gpios` of the dock's
+  devicetree node, in the UART build. There the rule runs on USB power, that input and the pilot
+  (checked once before the application starts, then between sessions), and while the application
+  leaves the power source on `AUTO` the [system state machine](#what-powers-the-board) takes "the
+  dock's power" as `OPENSC2_POWER_SOURCE_DOCK`. Without a `+` input (`app/dock.overlay` has none)
+  the board never counts as powered by the dock.
 - **The docked states**: on the dock with the radio off (charging), a transport chord held (up to
   4 s), on the dock with the link up, and lifted off with the radio off (5 s, then a silent
   power-off), with what each does on each event (turn-off on the dock means back to radio-off with
   the power-off chime, never a power-off).
 
-The library does not act on the last two yet: there is no dock-power input, and the power state
-machine they belong to (chords, chimes, LED patterns) is still to come. The test hooks run them on
-the PC's values and record each step in the ring.
+The docked states are also the system state machine's own (`dock-off`, `lifted`, `chord`,
+`dock-on`: [The states while it runs](#the-states-while-it-runs)), which acts on them; these pure
+rules act on nothing. The test hooks run them, and the supply rule, on the PC's values and record
+each step in the ring.
 
 ### The UART build (untested)
 
@@ -1974,6 +1983,7 @@ both named by the devicetree node aliased `opensc2-dock` ([dts/bindings/opensc2,
         compatible = "opensc2,dock";
         uart = <&uart1>;            /* 115200 baud, 8N1, no flow control, async API */
         io-channels = <&adc 2>;     /* gain 1/6, internal reference, 12 bits, no divider */
+        /* optional: plus-gpios = <&gpio0 N GPIO_ACTIVE_HIGH>;  the dock's + sensed (a divider) */
     };
 };
 ```

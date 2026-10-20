@@ -30,7 +30,7 @@ change a pin there, or delete an input you do not wire.
 | [The serial console](#the-serial-console-wireless-mode), [Identity](#identity), [Steam's firmware update](#steams-firmware-update) | looking inside and changing what Steam sees |
 | [Optional parts](#optional-parts), [Build options](#build-options), [A battery build](#a-battery-build) | more hardware, other settings |
 | [The hardware test hooks](#the-hardware-test-hooks), [Test build: the charger fallback](#test-build-the-charger-fallback), [The dock build](#the-dock-build-untested) | testing |
-| [Test build: Bluetooth LE](#test-build-bluetooth-le) | the opt-in Bluetooth build (not yet tested on hardware) |
+| [Haptics build](#haptics-build-the-synthesiser), [Test build: Bluetooth LE](#test-build-bluetooth-le), [Test build: everything without parts](#test-build-everything-without-parts) | the opt-in builds (built, not yet tested on hardware) |
 
 ## Build and flash
 
@@ -442,6 +442,13 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_BATTERY=y` | **not here**: in the [battery build](#a-battery-build) (`battery.conf`) |
 | `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
 | `CONFIG_OPENSC2_HAPTICS_SYNTH=y` | the [haptics build](#haptics-build-the-synthesiser) (`haptics.conf`): the library renders the haptic reports itself |
+| `CONFIG_OPENSC2_BLE=y` | **not here**: in the [Bluetooth build](#test-build-bluetooth-le) (`ble.conf`), which needs the Bluetooth stack's lines too |
+| `CONFIG_OPENSC2_WATCHDOG=y` | **not here**: in the watchdog test build (`watchdog.conf`; read its notes first: the watchdog has not been tried with the UF2 bootloader) |
+| `CONFIG_OPENSC2_DOCK=y` | **not here**: in the [dock build](#the-dock-build-untested) (`dock.conf`), which moves four pins |
+
+Every fragment of this folder is a build of its own on top of `prj.conf`
+(`-Project app\<name>.conf`), with the overlay of the same name when there is one;
+[all.conf](#test-build-everything-without-parts) builds on three others.
 
 The USB session log and the warm-restart mark live in a 16 KB RAM area that the overlay takes out
 of the application's RAM, clear of the RAM the UF2 bootloader uses at every reset
@@ -507,7 +514,8 @@ sounds) and sends the PCM streams' flow control (`0x44`). Wire-wise it differs f
 build only in those `0x44` reports, which the real controller sends too. With nothing wired the
 blocks go nowhere, and the hardware test suite's `haptics` group checks them through the test hooks
 ([docs/testing.md](../docs/testing.md)); with a vibration motor on the `rumble` PWM channel, the
-motor follows the rendered blocks' loudness instead of the decoded reports.
+motor follows the rendered blocks' loudness instead of the decoded reports. The library also plays
+lizard mode's ticks and pad clicks and the system state machine's cues on it.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\haptics.conf -OutDir C:\b\osc2-hap -Pristine
@@ -597,8 +605,8 @@ has connected once. Build it with the fragment on top of `prj.conf`, in a build 
 powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\ble.conf -OutDir C:\b\osc2-ble -Pristine
 ```
 
-The image is `C:\b\osc2-ble\app\zephyr\zephyr.uf2` (about 320 KB of flash and 79 KB of RAM, against
-about 175 KB and 49 KB without Bluetooth). With west: `west build -p always -d build-ble -b
+The image is `C:\b\osc2-ble\app\zephyr\zephyr.uf2` (about 360 KB of flash and 82 KB of RAM, against
+about 212 KB and 52 KB without Bluetooth). With west: `west build -p always -d build-ble -b
 promicro_nrf52840/nrf52840/uf2 app -- -DEXTRA_CONF_FILE=ble.conf`.
 
 On the console (wireless mode):
@@ -650,7 +658,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\dock.
 USB-UART adapter that plays the puck ([tools/fake_puck.py](../tools/fake_puck.py)), never against
 the puck itself. With nothing on P0.31 the pin floats and may now and then read inside the pilot's
 window, which starts dock sessions nobody asked for: on a board with nothing attached, tie it to
-ground through a resistor (100 kΩ, say) before running the `dock` group on this build. What the
-library does on the dock: [docs/api.md](../docs/api.md#the-dock).
+ground through a resistor (100 kΩ, say) before running the `dock` group on this build. The overlay
+has no input for the dock's `+` pad (`plus-gpios`), so this build never counts as powered by the
+dock and the system state machine never enters its dock states. What the library does on the dock:
+[docs/api.md](../docs/api.md#the-dock).
+
+## Test build: everything without parts
+
+> [!NOTE]
+> `app/all.conf` is a test build: built, **not yet tested on hardware**, not part of any release.
+
+Bluetooth LE, the haptics synthesiser, the dock link and the hardware watchdog in one image, for a
+board with nothing wired. It builds on [ble.conf](ble.conf), [haptics.conf](haptics.conf) and
+[watchdog.conf](watchdog.conf): its `# OPENSC2_FRAGMENTS:` line names them, and `app/CMakeLists.txt`
+adds them before it. Read the [Bluetooth build](#test-build-bluetooth-le)'s notes and
+`watchdog.conf`'s (how to flash the board again while the watchdog runs) first.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\all.conf -OutDir C:\b\osc2-all -Pristine
+```
+
+With west: `west build -p always -d build-all -b promicro_nrf52840/nrf52840/uf2 app --
+-DEXTRA_CONF_FILE=all.conf`. The four fit together (about 380 KB of flash and 93 KB of RAM). Left
+out, as they need parts: `sensors.conf`, `imu-stream.conf` and `expander.conf`, `battery.conf` (a
+battery: without one a shutdown that powers off could not be woken) and `dock.conf` (its pins).
 
 Back to the [documentation map](../docs/README.md)
