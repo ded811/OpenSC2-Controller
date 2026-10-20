@@ -687,6 +687,17 @@ open, the library does what should work with Steam and the puck, and says so her
     - **Host requests**: the states that do not act on a host's reboot, bootloader or warm-reboot
       request ignore it, as documented; the library's own reboots (STEAM before a host, the shell,
       the pairing button) are never held back.
+    - **The warm-restart mark** is set only by the reboot that carries it (`opensc2_reboot()`, mark
+      last), and the boot rule takes it whatever is held. The real controller differs twice: its
+      warm key sets the flag the moment `0x95` with `0xA427AF52` arrives, before the state machine
+      has seen the request, so the flag is set even where the state then ignores it and waits for
+      the next firmware restart (a later reboot, such as USB plugged in after a lift-off, then comes
+      back warm); and a transport chord or STEAM held when the button driver first reads the buttons
+      at a warm start uses the flag up, so such a reboot goes on like a cold one (wired on USB, the
+      radio off on the dock). OpenSC2 leaves no mark for an ignored request, and comes back wireless
+      on USB power after Steam's reboot into wireless mode even with STEAM or a chord held. In
+      today's builds an ignored warm request can only reach a state that ignores it through the dock
+      in its chord state, and no board in the matrix counts as docked.
     - **The Bluetooth chords** exist only in a build with Bluetooth; without one, B with a bumper
       is no chord, and a stored Bluetooth transport starts the main puck.
     - **Cues 6 and 7** (pairing, paired) are raised by the over-the-air pairing (gap 1); the real

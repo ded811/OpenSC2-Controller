@@ -187,9 +187,13 @@ at power-up. In order:
 | otherwise (USB power, policy auto) | wired | `OPENSC2_MODE_USB_POWER` |
 | any wired boot above whose USB device cannot be set up | wireless instead | `OPENSC2_MODE_USB_FAILED` |
 
-The marks live in RAM that start-up does not clear (or, with `CONFIG_OPENSC2_WARM_MARK_GPREGRET2`, in
-the nRF52's second retention register); a mark is set only right before the reboot and read and
-cleared first thing at the next boot, so it never outlives one reboot. A power loss clears it.
+The marks live in RAM that start-up does not clear (or, with `CONFIG_OPENSC2_WARM_MARK_GPREGRET2`,
+in the nRF52's second retention register); a mark is set only right before the reboot and read and
+cleared first thing at the next boot, so it never outlives one reboot. A power loss clears it. Two
+differences from the real controller
+([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 34): a warm-reboot request that
+the system state machine ignores leaves no mark here, and a transport chord or STEAM held at a warm
+boot does not cancel the mark.
 
 | Function | Does |
 | --- | --- |
