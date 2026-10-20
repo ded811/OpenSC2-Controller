@@ -177,7 +177,7 @@ void opensc2_gyro_bias_update(struct opensc2_gyro_bias *b, const float gyro[3], 
 /* ---- ADC bursts ------------------------------------------------------------------------------- */
 
 /* The average of `scans` scans of `channels` channels (samples[scan * channels + channel]), each
- * sum divided by the number of scans toward zero and limited to 0..4095: the real controller
+ * sum divided by the number of scans toward zero, below 0 counted as 0: the real controller
  * converts each channel four times in a row. */
 void opensc2_adc_average(const int16_t *samples, uint8_t channels, uint8_t scans, uint16_t *out);
 

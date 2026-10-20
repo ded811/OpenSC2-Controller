@@ -91,6 +91,16 @@ static enum opensc2_boot_mode boot_mode(void)
 
 /* ---- library callbacks ----------------------------------------------------------------------- */
 
+#if defined(CONFIG_APP_ANALOG_SAMPLE)
+/* Right before each state report: the sticks and triggers, read now, as the real controller samples
+ * them for the report that carries them. */
+static void on_sample(struct opensc2_state *state, void *user_data)
+{
+	ARG_UNUSED(user_data);
+	inputs_sample(state);
+}
+#endif
+
 static void on_link(const struct opensc2_link_info *info, void *user_data)
 {
 	ARG_UNUSED(user_data);
@@ -198,6 +208,9 @@ static int on_vendor(const struct opensc2_vendor_cmd *cmd, uint8_t *answer, uint
 
 static const struct opensc2_callbacks callbacks = {
 	.link_changed = on_link,
+#if defined(CONFIG_APP_ANALOG_SAMPLE)
+	.sample = on_sample,
+#endif
 	.rumble = on_rumble,
 	.haptic = on_haptic,
 	.led = on_led,
@@ -299,6 +312,7 @@ int main(void)
 	rumble_init();
 	trackpad_init();
 	imu_init();
+	battery_init();
 
 	config.boot_mode = boot_mode();
 	err = opensc2_init(&config);

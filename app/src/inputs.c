@@ -14,6 +14,15 @@
  * not saved), and a small centre dead zone hides potentiometer noise. Analog inputs are biased by
  * the SAADC's own resistors, sticks to mid-scale and triggers to their released end, so a pin that
  * is listed but not wired reads neutral instead of drifting.
+ *
+ * Two options (app/Kconfig, both off by default) follow the real controller more closely:
+ *  - CONFIG_APP_ANALOG_SAMPLE: no thread of its own; the axes are read in the library's `sample`
+ *    callback, right before each state report, four conversions each averaged, with an optional
+ *    sensor supply (zephyr,user sensor-supply-gpios) on only while they are read;
+ *  - CONFIG_APP_ANALOG_RAW (with it): a stick or trigger that has a stored calibration goes to the
+ *    library as raw counts (the real controller's processing, settings 46 and 62, the recordings
+ *    of vendor commands 0xD8 and 0xC0, `opensc2 cal`); one without keeps the processing above, so a
+ *    new board works before it is calibrated.
  */
 #include <stdlib.h>
 #include <zephyr/kernel.h>
@@ -26,6 +35,8 @@
 #if defined(CONFIG_ADC_NRFX_SAADC)
 #include <hal/nrf_saadc.h>
 #endif
+#include <opensc2/cal.h>
+#include <opensc2/sensor_helpers.h>
 #include "app.h"
 
 LOG_MODULE_REGISTER(inputs, LOG_LEVEL_INF);
@@ -224,12 +235,8 @@ static void calibrate(int i)
 		cal[i].full);
 }
 
-static void analog_thread(void *p1, void *p2, void *p3)
+static void setup_axes(void)
 {
-	ARG_UNUSED(p1);
-	ARG_UNUSED(p2);
-	ARG_UNUSED(p3);
-
 	for (int i = 0; i < AXES; i++) {
 		if (!axes[i].present) {
 			continue;
@@ -246,6 +253,201 @@ static void analog_thread(void *p1, void *p2, void *p3)
 			calibrate(i);
 		}
 	}
+}
+
+#if defined(CONFIG_APP_ANALOG_SAMPLE)
+
+/* ---- sampled right before each state report (CONFIG_APP_ANALOG_SAMPLE) ------------------------ */
+
+#define BURST 4   /* conversions per axis, averaged: the real controller's four scans */
+
+#if DT_NODE_HAS_PROP(USER, sensor_supply_gpios)
+static const struct gpio_dt_spec supply = GPIO_DT_SPEC_GET(USER, sensor_supply_gpios);
+#endif
+
+/* The sensors' supply on, the settle time (200 us on the real controller), or off. */
+static void sensor_supply(bool on)
+{
+#if DT_NODE_HAS_PROP(USER, sensor_supply_gpios)
+	(void)gpio_pin_set_dt(&supply, on ? 1 : 0);
+	if (on) {
+		k_busy_wait(DT_PROP_OR(USER, sensor_supply_settle_us, 200));
+	}
+#else
+	ARG_UNUSED(on);
+#endif
+}
+
+/* BURST conversions of each axis, averaged toward zero. The axes on the first axis's ADC go in one
+ * sequence, all their channels scanned BURST times in a row as the real controller does; an axis
+ * on another ADC is read BURST times on its own. */
+static void burst_read(int32_t raw[AXES], bool ok[AXES])
+{
+	const struct device *dev = NULL;
+	int16_t samples[BURST * AXES];
+	uint16_t avg[AXES];
+	uint32_t mask = 0;
+	int rank[AXES] = { 0 }, n = 0;
+
+	for (int i = 0; i < AXES; i++) {
+		ok[i] = false;
+		if (axes[i].present && (dev == NULL || axes[i].adc.dev == dev)) {
+			dev = axes[i].adc.dev;
+			mask |= BIT(axes[i].adc.channel_id);
+		}
+	}
+	/* the samples of one scan come in the order of the channel numbers */
+	for (int ch = 0; ch < 32; ch++) {
+		for (int i = 0; i < AXES; i++) {
+			if ((mask & BIT(ch)) && axes[i].present && axes[i].adc.dev == dev &&
+			    axes[i].adc.channel_id == ch) {
+				rank[i] = n++;
+			}
+		}
+	}
+	if (dev != NULL && n > 0) {
+		struct adc_sequence_options opt = { .extra_samplings = BURST - 1 };
+		struct adc_sequence seq = {
+			.options = &opt,
+			.channels = mask,
+			.buffer = samples,
+			.buffer_size = sizeof(samples),
+			.resolution = axes[0].present ? axes[0].adc.resolution : 12,
+		};
+
+		for (int i = 0; i < AXES; i++) {
+			if (axes[i].present && axes[i].adc.dev == dev) {
+				seq.resolution = axes[i].adc.resolution;
+				break;
+			}
+		}
+		if (adc_read(dev, &seq) == 0) {
+			opensc2_adc_average(samples, (uint8_t)n, BURST, avg);
+			for (int i = 0; i < AXES; i++) {
+				if (axes[i].present && axes[i].adc.dev == dev) {
+					raw[i] = avg[rank[i]];
+					ok[i] = true;
+				}
+			}
+		}
+	}
+	for (int i = 0; i < AXES; i++) {
+		int32_t sum = 0, one;
+		int k;
+
+		if (!axes[i].present || axes[i].adc.dev == dev) {
+			continue;
+		}
+		for (k = 0; k < BURST && read_axis(&axes[i], &one) == 0; k++) {
+			sum += one;
+		}
+		if (k == BURST) {
+			raw[i] = sum / BURST;
+			ok[i] = true;
+		}
+	}
+}
+
+/* A reading as 12-bit counts, what the library's calibration takes. */
+static uint16_t counts12(int i, int32_t raw)
+{
+	return (uint16_t)MIN(raw * OPENSC2_CAL_ADC_MAX / MAX(cal[i].full, 1), OPENSC2_CAL_ADC_MAX);
+}
+
+/* With CONFIG_APP_ANALOG_RAW, a calibrated stick or trigger goes to the library as raw counts
+ * (true); otherwise it is given back to the finished values (false). */
+static bool raw_stick(enum opensc2_side side, uint16_t x, uint16_t y)
+{
+#if defined(CONFIG_APP_ANALOG_RAW)
+	if (opensc2_cal_stick_ok(side)) {
+		return opensc2_set_stick_raw(side, x, y) == 0;
+	}
+	(void)opensc2_cal_raw_release((uint8_t)(OPENSC2_RAW_STICK_L << side));
+#else
+	ARG_UNUSED(side);
+	ARG_UNUSED(x);
+	ARG_UNUSED(y);
+#endif
+	return false;
+}
+
+static bool raw_trigger(enum opensc2_side side, uint16_t counts)
+{
+#if defined(CONFIG_APP_ANALOG_RAW)
+	if (opensc2_cal_trigger_ok(side)) {
+		return opensc2_set_trigger_raw(side, counts) == 0;
+	}
+	(void)opensc2_cal_raw_release((uint8_t)(OPENSC2_RAW_TRIGGER_L << side));
+#else
+	ARG_UNUSED(side);
+	ARG_UNUSED(counts);
+#endif
+	return false;
+}
+
+void inputs_sample(struct opensc2_state *state)
+{
+	int32_t raw[AXES] = { 0 };
+	bool ok[AXES];
+
+	sensor_supply(true);
+	burst_read(raw, ok);
+	sensor_supply(false);
+
+	for (int side = 0; side < 2; side++) {
+		enum opensc2_side s = side ? OPENSC2_RIGHT : OPENSC2_LEFT;
+		int x = side ? RIGHT_X : LEFT_X, y = x + 1;
+		int t = side ? RIGHT_TRIGGER : LEFT_TRIGGER;
+
+		if (ok[x] || ok[y]) {
+			int32_t rx = ok[x] ? oriented(x, raw[x]) : cal[x].centre;
+			int32_t ry = ok[y] ? oriented(y, raw[y]) : cal[y].centre;
+
+			if (!raw_stick(s, counts12(x, rx), counts12(y, ry))) {
+				/* Inside the callback the state is written in place, not with the
+				 * setters (the library writes `state` back after the callback). */
+				state->stick[side].x = ok[x] ? stick_value(x, rx) : 0;
+				state->stick[side].y = ok[y] ? stick_value(y, ry) : 0;
+			}
+		}
+		if (ok[t]) {
+			int32_t rt = oriented(t, raw[t]);
+
+			if (!raw_trigger(s, counts12(t, rt))) {
+				state->trigger[side] = trigger_value(t, rt);
+			}
+		}
+	}
+}
+
+int inputs_init(void)
+{
+#if DT_NODE_HAS_PROP(USER, vcc_enable_gpios)
+	if (gpio_is_ready_dt(&vcc)) {
+		gpio_pin_configure_dt(&vcc, GPIO_OUTPUT_ACTIVE);
+	}
+#endif
+#if DT_NODE_HAS_PROP(USER, sensor_supply_gpios)
+	if (!gpio_is_ready_dt(&supply) || gpio_pin_configure_dt(&supply, GPIO_OUTPUT_INACTIVE) != 0) {
+		LOG_ERR("Sensor supply pin not usable");
+	}
+#endif
+	/* The supply stays on while the resting values are taken (about 30 ms at start-up). */
+	sensor_supply(true);
+	setup_axes();
+	sensor_supply(false);
+	return 0;
+}
+
+#else /* !CONFIG_APP_ANALOG_SAMPLE */
+
+static void analog_thread(void *p1, void *p2, void *p3)
+{
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+
+	setup_axes();
 
 	for (;;) {
 		int16_t stick[4] = { 0 };
@@ -293,3 +495,5 @@ int inputs_init(void)
 	}
 	return 0;
 }
+
+#endif /* CONFIG_APP_ANALOG_SAMPLE */

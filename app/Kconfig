@@ -12,6 +12,33 @@ config APP_OBEY_BOOTLOADER_REQUEST
 	  UF2 drive instead; Steam's update still cannot run. To flash a new .uf2, short RST to GND
 	  twice quickly, or use the shell command "uf2" (wireless mode).
 
+config APP_ANALOG_SAMPLE
+	bool "Read the sticks and triggers right before each state report, four conversions averaged"
+	help
+	  As the real controller: no analog thread; the axes are read in the library's sample
+	  callback (in its radio or USB report thread), each converted four times and averaged, with
+	  the sensors' supply (zephyr,user sensor-supply-gpios, optional) on only while they are
+	  read, after sensor-supply-settle-us (200 by default). The readings are as fresh as the report
+	  that carries them. Untested on hardware.
+
+config APP_ANALOG_RAW
+	bool "Calibrated sticks and triggers through the library's stored calibration"
+	depends on APP_ANALOG_SAMPLE && OPENSC2_CAL
+	help
+	  A stick or trigger with a usable stored calibration (cal/joy_l, cal/trg_l, ...) goes to the
+	  library as raw counts: the real controller's processing, controller settings 46 and 62, and
+	  the recordings of vendor commands 0xD8 and 0xC0 or of the shell's "opensc2 cal". Without a
+	  calibration the axis keeps this firmware's own centring, so a new board works before it is
+	  calibrated. Untested on hardware.
+
+config APP_BATTERY
+	bool "Measure the battery for report 0x43"
+	help
+	  Once a second: the battery's voltage through a divider plus cal/volt_offset, the level from
+	  the average of the last 40 readings with OpenSC2's LiPo curves (<opensc2/gauge.h>), charging
+	  while USB power is present. Without a "battery" io-channel in zephyr,user it reads the
+	  nRF52840's VDDH / 5, for a cell that feeds VDDH. Untested on a battery.
+
 config APP_PWM
 	bool
 	default y if DT_HAS_NORDIC_NRF_PWM_ENABLED

@@ -374,5 +374,5 @@ OPENSC2_TEST(sensors_adc_average)
 	CHECK_EQ(out[0], 101);   /* 407 / 4, toward zero */
 	CHECK_EQ(out[1], 0);     /* -3 / 4 is 0; below 0 would be limited */
 	opensc2_adc_average(over, 1, 4, out);
-	CHECK_EQ(out[0], 4095);
+	CHECK_EQ(out[0], 4548);   /* not limited to 12 bits */
 }

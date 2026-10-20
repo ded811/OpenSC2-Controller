@@ -144,6 +144,17 @@ and grows the first time a stick goes further, so after one full circle each sti
 output at its own extremes. A 6 % centre dead zone (`stick-deadzone-percent` in the overlay) hides
 potentiometer noise. Flip an axis with `invert-left-stick-y;` and friends.
 
+The build [sensors.conf](sensors.conf) (untested on hardware) works like the real controller
+instead: the sticks and triggers are read right before each state report, four conversions
+averaged, and once a stick or trigger has a stored calibration the library's processing takes over
+(the real controller's two halves and bands, settings 46 and 62). Record one on the console with
+the parts connected and a link up (the recordings take one sample per state report):
+`opensc2 cal sticks 1` with the sticks released, `opensc2 cal sticks 2` while circling them fully,
+`opensc2 cal sticks 3` to save; the same with `triggers` (released, pulled). `opensc2 cal` shows what
+is stored. Steam's own calibration commands (`0xD8`, `0xC0`) do the same over the cable. The
+calibration is kept in the board's storage, through a `.uf2` reflash and a factory reset
+([docs/api.md](../docs/api.md#calibration-and-raw-inputs)).
+
 ## Wired and wireless modes
 
 Each boot is wired or wireless, decided at power-up from the nRF52840's own USB power detection,
@@ -236,6 +247,7 @@ On Linux it is usually `/dev/ttyACM0`, on macOS `/dev/cu.usbmodem…` (Linux and
 | `opensc2 bonds`, `opensc2 slot 1`, `opensc2 forget 1` | the pairings |
 | `opensc2 id`, `opensc2 id set unit OSC2MYBOARD01`, `opensc2 id set rev 0x48`, `opensc2 id set name "My Steam Controller"`, `opensc2 id clear` | the identity Steam sees, and the name Windows shows ([Identity](#identity)) |
 | `opensc2 state` | what the inputs read right now |
+| `opensc2 cal`, `opensc2 cal sticks 1`, `... triggers 2`, `... pressure 3`, `opensc2 cal save 0 7`, `opensc2 cal erase c6674885` | the stored calibration: show it, record it (steps 1, 2, 3; 0 stops), save one side's, erase all of it ([Calibration](#calibration)) |
 | `uf2` | reboot into the UF2 bootloader to flash a new build |
 
 Keep the OSC prefix in a unit serial you set: the hardware test suite only talks to boards whose
@@ -375,6 +387,9 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_GIT_REVISION="..."` | the revision string Steam reads, 1 to 12 characters (`osc2-0.2.0`) |
 | `CONFIG_APP_OBEY_BOOTLOADER_REQUEST=y` | open the UF2 drive when Steam asks for a bootloader ([above](#steams-firmware-update)) |
 | `CONFIG_APP_IMU_ALWAYS=y` | stream the IMU even while Steam has it off |
+| `CONFIG_APP_ANALOG_SAMPLE=y` | read sticks and triggers right before each state report, four conversions averaged; `sensor-supply-gpios` (and `sensor-supply-settle-us`, 200 by default) in `zephyr,user` powers the sensors only while they are read (untested) |
+| `CONFIG_APP_ANALOG_RAW=y` | with it: a calibrated stick or trigger through the library's stored calibration ([Calibration](#calibration); untested) |
+| `CONFIG_APP_BATTERY=y` | the battery level of report `0x43` from VDDH / 5, or from a `battery` io-channel in `zephyr,user` with `battery-divider-ohms = <total bottom>` and an optional `battery-enable-gpios` (untested) |
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
 
 The USB session log and the warm-restart mark live in a 16 KB RAM area that the overlay takes out

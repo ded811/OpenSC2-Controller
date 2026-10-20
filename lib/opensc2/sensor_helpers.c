@@ -425,6 +425,6 @@ void opensc2_adc_average(const int16_t *samples, uint8_t channels, uint8_t scans
 		for (uint8_t s = 0; s < scans; s++) {
 			sum += samples[s * channels + ch];
 		}
-		out[ch] = (uint16_t)clamp32(scans ? sum / scans : 0, 0, 4095);
+		out[ch] = (uint16_t)clamp32(scans ? sum / scans : 0, 0, 65535);
 	}
 }

@@ -13,6 +13,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/shell/shell.h>
 #include "internal.h"
+#include "cal_store.h"
 #include "test_hooks.h"
 
 static const char *const state_names[] = { "off", "no bond", "pairing", "listening",
@@ -463,6 +464,11 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_opensc2,
 	SHELL_CMD_ARG(forget, NULL, "Delete a bond: forget <1|2>", cmd_forget, 2, 0),
 	SHELL_CMD(id, &sub_id, "Identity", cmd_id_show),
 	SHELL_CMD(state, NULL, "Current input state", cmd_state),
+#if defined(CONFIG_OPENSC2_CAL)
+	SHELL_CMD_ARG(cal, NULL,
+		      "Calibration: cal | cal sticks|triggers|pressure <step 0-3> | "
+		      "cal save <0|1> <mask> | cal erase <key>", osc2_cal_shell, 1, 3),
+#endif
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	SHELL_CMD_ARG(test, NULL,
 		      "Hardware test hooks: test [<id>] sync | raw <hex> | status | arm <key> [<s>] | "

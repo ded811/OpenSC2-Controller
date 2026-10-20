@@ -42,6 +42,10 @@ void osc2_cal_flush(void);
 /* Back to boot (the host tests). */
 void osc2_cal_reset(void);
 
+struct shell;
+/* "opensc2 cal ..." (cal_shell.c). */
+int osc2_cal_shell(const struct shell *sh, size_t argc, char **argv);
+
 /* cal_flash.c: the glue (the host tests have a stand-in). A name is a key's own ("cal/joy_l"); it is
  * stored as opensc2/cal/joy_l. */
 void osc2_cal_defer(void);
