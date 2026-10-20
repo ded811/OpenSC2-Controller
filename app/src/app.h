@@ -17,6 +17,8 @@ int inputs_init(void);
 int status_init(void);
 void status_mode(enum opensc2_mode mode);
 void status_link(enum opensc2_link_state state);
+/* The link is Bluetooth's (its own patterns, in blue), set before status_link(). */
+void status_bluetooth(bool on);
 void status_usb(enum opensc2_usb_state state);
 void status_led(const struct opensc2_led *led);
 /* Wired, the pairing button held 3 s: the LED stays dark ("release now") while `on`. */

@@ -329,18 +329,30 @@ static int cmd_ble_status(const struct shell *sh, size_t argc, char **argv)
 	ARG_UNUSED(argv);
 	osc2_ble_status(&st);
 	shell_print(sh, "bluetooth: %s%s; slot %u, identity %u %s", st.enabled ? "on" : "off",
-		    !osc2_transport_is_ble(osc2_transport_running()) ? " (not the transport)" : "",
-		    st.slot + 1, st.id, st.address[0] ? st.address : "-");
+		    !st.running ? " (not the transport)" : "", st.slot + 1, st.id,
+		    st.address[0] ? st.address : "-");
 	shell_print(sh, "name:      %s", st.name[0] ? st.name : "-");
+	shell_print(sh, "bonds:     identity 1 %s, 2 %s (slot 1); 3 %s, 4 %s (slot 2)",
+		    st.bonded & BIT(1) ? "yes" : "no", st.bonded & BIT(2) ? "yes" : "no",
+		    st.bonded & BIT(3) ? "yes" : "no", st.bonded & BIT(4) ? "yes" : "no");
 	if (st.connected) {
 		shell_print(sh, "link:      connected%s, security %u, ATT MTU %u, interval %u us, "
 			    "paced by %s", st.active ? " and active" : " (waiting for encryption and "
 			    "an ATT MTU of 64)", st.security, st.mtu, st.interval_us,
 			    st.trigger ? "the connection events" : "a timer");
 		shell_print(sh, "traffic:   %u state reports, %u dropped", st.reports, st.dropped);
+	} else if (st.advertising) {
+		shell_print(sh, "link:      advertising %s; %u s left of the window",
+			    st.form == OSC2_BLE_ADV_DIRECTED ? "directed to the bonded host" :
+			    st.form == OSC2_BLE_ADV_ALLOW_LISTED ? "for the bonded host only" :
+			    "open to any host (pairing mode)", st.window_left_ms / 1000);
 	} else {
-		shell_print(sh, "link:      %s", st.advertising ? (st.open ? "advertising, open to any "
-			    "host (pairing mode)" : "advertising for the bonded host") : "idle");
+		shell_print(sh, "link:      %s", st.wireless_off ? (st.reason ==
+			    OPENSC2_REASON_LISTEN_TIMEOUT ? "wireless off: no host within the "
+			    "advertising window" : "wireless off: the host ended the link") : "idle");
+	}
+	if (st.last_reason) {
+		shell_print(sh, "last disconnect: reason 0x%02x", st.last_reason);
 	}
 	return 0;
 }
@@ -353,7 +365,8 @@ static int cmd_ble_pair(const struct shell *sh, size_t argc, char **argv)
 		shell_error(sh, "Bluetooth is not the transport: opensc2 transport ble");
 		return -EBUSY;
 	}
-	shell_print(sh, "Pairing mode: the slot forgets its host and is open to a new one");
+	shell_print(sh, "Pairing mode: the slot's other identity, reset, is open to a new host; "
+		    "the slot's host keeps its bond until a new one has paired");
 	return osc2_ble_pair();
 }
 #endif

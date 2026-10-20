@@ -90,10 +90,179 @@ OPENSC2_TEST(ble_advertising_data)
 	CHECK_EQ(sr[1], OSC2_AD_NAME_SHORT);
 	CHECK(memcmp(&sr[2], in.name, 29) == 0);
 
-	/* The form: open without a bond or when a pairing is asked for. */
+	/* Directed advertising carries no data and no scan response. */
+	in.form = OSC2_BLE_ADV_DIRECTED;
+	sr_len = 99;
+	CHECK_EQ(osc2_ble_adv_data(&in, ad, sr, &sr_len), 0);
+	CHECK_EQ(sr_len, 0);
+
+	/* The form: pairing mode without a bond; with one, directed first, allow-listed after the
+	 * directed try (or a failed connection). */
 	CHECK_EQ(osc2_ble_adv_form(false, false), OSC2_BLE_ADV_PAIRING);
-	CHECK_EQ(osc2_ble_adv_form(true, false), OSC2_BLE_ADV_ALLOW_LISTED);
-	CHECK_EQ(osc2_ble_adv_form(true, true), OSC2_BLE_ADV_PAIRING);
+	CHECK_EQ(osc2_ble_adv_form(false, true), OSC2_BLE_ADV_PAIRING);
+	CHECK_EQ(osc2_ble_adv_form(true, false), OSC2_BLE_ADV_DIRECTED);
+	CHECK_EQ(osc2_ble_adv_form(true, true), OSC2_BLE_ADV_ALLOW_LISTED);
+}
+
+/* Five identities, two per slot; which one a start advertises on; the bond rule. */
+OPENSC2_TEST(ble_identities_and_bonds)
+{
+	/* What the slot gets without a pairing request: the first identity if it has a bond or
+	 * neither has one, otherwise the second; with one, the other one, reset first. */
+	static const struct {
+		uint8_t slot;
+		bool first, second, pair;
+		uint8_t id;
+		bool reset;
+	} pick[] = {
+		{ 0, false, false, false, 1, false },   /* a slot never paired: identity 1, open */
+		{ 0, true, false, false, 1, false },
+		{ 0, false, true, false, 2, false },
+		{ 0, true, true, false, 1, false },     /* both (after an interrupted rule): the first */
+		{ 0, false, false, true, 2, true },     /* a pairing request: the other one, reset */
+		{ 0, true, false, true, 2, true },      /* the bond on 1 stays until a host pairs on 2 */
+		{ 0, false, true, true, 1, true },
+		{ 1, false, false, false, 3, false },
+		{ 1, true, false, false, 3, false },
+		{ 1, false, true, false, 4, false },
+		{ 1, true, false, true, 4, true },
+		{ 1, false, true, true, 3, true },
+	};
+
+	CHECK_EQ(osc2_ble_slot_first_id(0), 1);
+	CHECK_EQ(osc2_ble_slot_first_id(1), 3);
+	CHECK_EQ(osc2_ble_id_slot(0), -1);         /* identity 0 never advertises */
+	CHECK_EQ(osc2_ble_id_slot(1), 0);
+	CHECK_EQ(osc2_ble_id_slot(2), 0);
+	CHECK_EQ(osc2_ble_id_slot(3), 1);
+	CHECK_EQ(osc2_ble_id_slot(4), 1);
+	CHECK_EQ(osc2_ble_id_slot(5), -1);
+	CHECK_EQ(osc2_ble_other_id(1), 2);
+	CHECK_EQ(osc2_ble_other_id(2), 1);
+	CHECK_EQ(osc2_ble_other_id(3), 4);
+	CHECK_EQ(osc2_ble_other_id(4), 3);
+	CHECK_EQ(osc2_ble_other_id(0), 0);
+	for (size_t i = 0; i < sizeof(pick) / sizeof(pick[0]); i++) {
+		bool reset = !pick[i].reset;
+
+		CHECK_EQ(osc2_ble_pick_id(pick[i].slot, pick[i].first, pick[i].second, pick[i].pair,
+					  &reset), pick[i].id);
+		CHECK_EQ(reset, pick[i].reset);
+	}
+
+	/* A new host: bonded on an identity without a bond at the start of its advertising, once
+	 * encrypted. A host that was bonded already, or did not bond, is none. */
+	CHECK(osc2_ble_new_host(false, true, 2));
+	CHECK(osc2_ble_new_host(false, true, 4));
+	CHECK(!osc2_ble_new_host(false, true, 1));
+	CHECK(!osc2_ble_new_host(true, true, 2));
+	CHECK(!osc2_ble_new_host(false, false, 2));
+}
+
+/* What follows a disconnect, and the timings of advertising. */
+OPENSC2_TEST(ble_disconnect_rules)
+{
+	CHECK_EQ(osc2_ble_after_disconnect(OSC2_HCI_REMOTE_USER_TERM, false),
+		 OSC2_BLE_AFTER_WIRELESS_OFF);
+	CHECK_EQ(osc2_ble_after_disconnect(OSC2_HCI_REMOTE_POWER_OFF, false),
+		 OSC2_BLE_AFTER_WIRELESS_OFF);
+	CHECK_EQ(osc2_ble_after_disconnect(OSC2_HCI_CONN_TIMEOUT, false), OSC2_BLE_AFTER_READVERTISE);
+	CHECK_EQ(osc2_ble_after_disconnect(0x14, false), OSC2_BLE_AFTER_READVERTISE);
+	CHECK_EQ(osc2_ble_after_disconnect(0x3E, false), OSC2_BLE_AFTER_READVERTISE);
+	CHECK_EQ(osc2_ble_after_disconnect(OSC2_HCI_LOCAL_TERM, false), OSC2_BLE_AFTER_READVERTISE);
+	/* The controller's own ends, to turn wireless off or to switch, lead to nothing. */
+	CHECK_EQ(osc2_ble_after_disconnect(OSC2_HCI_REMOTE_USER_TERM, true), OSC2_BLE_AFTER_NOTHING);
+	CHECK_EQ(osc2_ble_after_disconnect(OSC2_HCI_CONN_TIMEOUT, true), OSC2_BLE_AFTER_NOTHING);
+	CHECK_EQ(OSC2_BLE_ADV_WINDOW_MS, 60000);
+	CHECK_EQ(OSC2_BLE_READVERTISE_MS, 500);
+}
+
+/* Valve's vendor service: its UUIDs on the air and the characteristic of every report; where a
+ * report goes. */
+OPENSC2_TEST(ble_vendor_service)
+{
+	static const uint8_t service[16] = {
+		0xF3, 0xE5, 0x31, 0x71, 0x56, 0x38, 0x02, 0xB4,
+		0x13, 0x43, 0x35, 0x17, 0x32, 0x6C, 0x0F, 0x10,
+	};
+	uint8_t uuid[16];
+
+	osc2_ble_vendor_uuid(OSC2_BLE_VENDOR_SERVICE, uuid);
+	CHECK(memcmp(uuid, service, sizeof(uuid)) == 0);
+	osc2_ble_vendor_uuid(0x7A, uuid);
+	CHECK_EQ(uuid[12], 0x7A);
+	CHECK(memcmp(uuid, service, 12) == 0 && memcmp(&uuid[13], &service[13], 3) == 0);
+	/* The command channel 0x34; inputs 0x75..0x7A; outputs 0xB5..0xBE. */
+	CHECK_EQ(osc2_ble_vendor_xx(&osc2_ble_reports[16]), 0x34);
+	for (int i = 0; i < OSC2_BLE_INPUTS; i++) {
+		CHECK_EQ(osc2_ble_vendor_xx(&osc2_ble_reports[i]), 0x75 + i);
+	}
+	for (int j = 0; j < OSC2_BLE_OUTPUTS; j++) {
+		CHECK_EQ(osc2_ble_vendor_xx(&osc2_ble_reports[OSC2_BLE_INPUTS + j]), 0xB5 + j);
+	}
+	/* SDL's state report characteristic is 0x45's: 100F6C7A. */
+	CHECK_EQ(osc2_ble_vendor_xx(&osc2_ble_reports[osc2_ble_report_index(0x45, OSC2_HID_INPUT)]),
+		 0x7A);
+	/* The service, the command channel's two, three per input, two per output. */
+	CHECK_EQ(OSC2_BLE_VENDOR_ATTRS, 1 + 2 + 3 * OSC2_BLE_INPUTS + 2 * OSC2_BLE_OUTPUTS);
+	/* The vendor characteristic first, then the HID one, else dropped. */
+	CHECK_EQ(osc2_ble_input_target(true, true), OSC2_BLE_TARGET_VENDOR);
+	CHECK_EQ(osc2_ble_input_target(true, false), OSC2_BLE_TARGET_VENDOR);
+	CHECK_EQ(osc2_ble_input_target(false, true), OSC2_BLE_TARGET_HID);
+	CHECK_EQ(osc2_ble_input_target(false, false), OSC2_BLE_TARGET_NONE);
+}
+
+/* The test channel's BLE_STATUS answer, byte for byte. */
+OPENSC2_TEST(ble_status_pack)
+{
+	struct osc2_ble_status st;
+	uint8_t out[OSC2_BLE_STATUS_LEN];
+
+	memset(&st, 0, sizeof(st));
+	st.enabled = true;
+	st.connected = true;
+	st.active = true;
+	st.running = true;
+	st.wireless_off = false;
+	st.form = OSC2_BLE_ADV_NONE;
+	st.slot = 1;
+	st.id = 3;
+	st.bonded = 0x08;
+	st.identities = 5;
+	st.security = 2;
+	st.last_reason = 0x08;
+	st.state = 4;
+	st.reason = 16;
+	st.mtu = 67;
+	st.interval_us = 7500;
+	st.window_left_ms = 0x01020304;
+	st.reports = 1000;
+	st.dropped = 3;
+	strcpy(st.name, "not in the answer");
+	strcpy(st.address, "not in the answer");
+	memset(out, 0xEE, sizeof(out));
+	osc2_ble_pack_status(&st, out);
+	CHECK_EQ(out[0], 0x01 | 0x04 | 0x08 | 0x20);
+	CHECK_EQ(out[1], 0xFF);
+	CHECK_EQ(out[2], 1);
+	CHECK_EQ(out[3], 3);
+	CHECK_EQ(out[4], 0x08);
+	CHECK_EQ(out[5], 5);
+	CHECK_EQ(out[6], 2);
+	CHECK_EQ(out[7], 0x08);
+	CHECK_EQ(out[8], 4);
+	CHECK_EQ(out[9], 16);
+	CHECK_EQ(opensc2_get_le16(&out[10]), 67);
+	CHECK_EQ(opensc2_get_le32(&out[12]), 7500);
+	CHECK_EQ(opensc2_get_le32(&out[16]), 0x01020304);
+	CHECK_EQ(opensc2_get_le32(&out[20]), 1000);
+	CHECK_EQ(opensc2_get_le32(&out[24]), 3);
+	st.advertising = true;
+	st.trigger = true;
+	st.pair_request = true;
+	st.wireless_off = true;
+	osc2_ble_pack_status(&st, out);
+	CHECK_EQ(out[0], 0xFF);
 }
 
 /* The service's report table is the report map's (the USB report descriptor, byte for byte): every

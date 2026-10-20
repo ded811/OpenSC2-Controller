@@ -49,8 +49,11 @@ enum opensc2_reason {
 	OPENSC2_REASON_BAD_VERSION = 4,     /* the puck's protocol version is not one we know */
 	OPENSC2_REASON_PAIRED = 16,         /* pairing succeeded; the bond is stored */
 	OPENSC2_REASON_PAIRING_FAILED,      /* the pairing window closed without a puck */
-	OPENSC2_REASON_LISTEN_TIMEOUT,      /* CONFIG_OPENSC2_LISTEN_TIMEOUT_S passed without a puck */
+	OPENSC2_REASON_LISTEN_TIMEOUT,      /* CONFIG_OPENSC2_LISTEN_TIMEOUT_S passed without a puck;
+					     * Bluetooth: the advertising window ended without a host */
 	OPENSC2_REASON_BOND_CHANGED,        /* a bond or the slot selection changed */
+	OPENSC2_REASON_HOST_DISCONNECTED,   /* Bluetooth: the host ended the link (HCI 0x13) or
+					     * powered off (0x15): wireless off */
 };
 
 struct opensc2_link_info {
@@ -176,6 +179,12 @@ enum opensc2_power_request {
 					  * battery has lost its power anyway): the real controller
 					  * shuts down. Power off, or opensc2_reboot(PLAIN), which
 					  * comes back wireless without USB power (the default) */
+	OPENSC2_POWER_WIRELESS_OFF,      /* Bluetooth gave up: its 60 s advertising window ended
+					  * without a host, or the host ended the link (HCI 0x13) or
+					  * powered off (0x15). The library has already stopped the
+					  * transport (the link state is OFF and says why); the real
+					  * controller turns off on battery and stays on with wireless
+					  * off on USB power. Default: nothing more */
 };
 
 struct opensc2_callbacks {
@@ -354,6 +363,12 @@ enum opensc2_transport {
  * does, so a choice whose link never comes up is not kept; in wired mode it is stored at once, for
  * the next wireless boot. -ENOTSUP for Bluetooth in a build without CONFIG_OPENSC2_BLE. */
 int opensc2_select_transport(enum opensc2_transport transport);
+/* The same with the pairing flag the real controller's transport chords give when held 4 s:
+ * Bluetooth opens the slot for a new host (pairing mode on the slot's other identity, which is
+ * reset first, so the bond of the slot's old host stays until a new host has paired); the puck's
+ * radio ignores the flag, as the real controller's does. In wired mode the choice is stored and
+ * the flag is dropped. */
+int opensc2_select_transport_pairing(enum opensc2_transport transport);
 /* The transport this boot runs. */
 enum opensc2_transport opensc2_selected_transport(void);
 

@@ -71,6 +71,30 @@ config OPENSC2_BLE_MANUFACTURER
 	  Empty, as in the October 2026 firmware (July's said "Valve Corporation"): the
 	  characteristic is there with a value of length 0.
 
+config OPENSC2_BLE_VENDOR_SERVICE
+	bool "Valve's vendor GATT service (for SDL on Android and Apple platforms)"
+	default y
+	help
+	  A second GATT service, UUIDs 100F6Cxx-1735-4313-B402-38567131E5F3, that mirrors the
+	  HID service's reports as plain characteristics: the command channel (0x34), inputs
+	  0x40 to 0x45 (0x75 to 0x7A) and outputs 0x80 to 0x89 (0xB5 to 0xBE), all encrypted,
+	  sharing their values with the HID service. SDL's Android and Apple back ends talk to
+	  the controller through it instead of the system's HID-over-GATT support. A report goes
+	  out on the vendor characteristic when the host enabled its notifications there, else on
+	  the HID service's.
+
+config OPENSC2_BLE_ADV_WINDOW_S
+	int "Advertising window, seconds (0: advertise until a host connects)"
+	default 60
+	range 0 3600
+	help
+	  Every start of advertising arms this window, as on the real controller (60 s): when it
+	  ends without a connection, advertising stops, the link goes OFF with reason
+	  OPENSC2_REASON_LISTEN_TIMEOUT and the application gets OPENSC2_POWER_WIRELESS_OFF (the
+	  real controller turns off on battery and turns wireless off on USB power). A start
+	  (opensc2_start(), a button in the blank canvas) advertises again. 0 keeps advertising
+	  until a host connects (the puck radio's CONFIG_OPENSC2_LISTEN_TIMEOUT_S defaults to that).
+
 config OPENSC2_BLE_THREAD_PRIORITY
 	int "Bluetooth thread priority"
 	default 6

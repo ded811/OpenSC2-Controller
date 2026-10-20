@@ -61,7 +61,7 @@ int osc2_wireless_start(void)
 {
 #if defined(CONFIG_OPENSC2_BLE)
 	if (osc2_transport_is_ble(running)) {
-		return osc2_ble_start(running);
+		return osc2_ble_start(running, false);
 	}
 #endif
 	osc2_radio_post(OSC2_EV_START);
@@ -128,7 +128,7 @@ void osc2_transport_link_up(uint8_t t)
  * the other bond (as a new slot always did), Bluetooth advertises for the other slot. Between the
  * two, the running one stops and hands the radio to the other (ble.c does the order: Bluetooth
  * waits until ESB is off; ESB starts once the Bluetooth stack is disabled). */
-static int switch_to(uint8_t t)
+static int switch_to(uint8_t t, bool pair)
 {
 	uint8_t was = running;
 
@@ -142,18 +142,18 @@ static int switch_to(uint8_t t)
 		if (osc2_transport_is_puck(was)) {
 			osc2_radio_post(OSC2_EV_STOP);   /* Bluetooth waits until the radio is idle */
 		}
-		return osc2_ble_start(t);
+		return osc2_ble_start(t, pair);
 	}
 	return osc2_ble_stop(true, true);   /* the stack disabled, then the radio starts */
 #else
+	ARG_UNUSED(pair);
 	return 0;
 #endif
 }
 
-int opensc2_select_transport(enum opensc2_transport transport)
+/* `pair`: the pairing flag of a transport chord held 4 s, which only Bluetooth acts on. */
+static int select_transport(uint8_t t, bool pair)
 {
-	uint8_t t = (uint8_t)transport;
-
 	if (!osc2.initialised) {
 		return -EACCES;
 	}
@@ -169,8 +169,19 @@ int opensc2_select_transport(enum opensc2_transport transport)
 		running = t;
 		return osc2_storage_save_transport(t);
 	}
-	LOG_INF("Transport %s", osc2_transport_name(t));
-	return switch_to(t);
+	LOG_INF("Transport %s%s", osc2_transport_name(t),
+		pair && osc2_transport_is_ble(t) ? ", pairing" : "");
+	return switch_to(t, pair);
+}
+
+int opensc2_select_transport(enum opensc2_transport transport)
+{
+	return select_transport((uint8_t)transport, false);
+}
+
+int opensc2_select_transport_pairing(enum opensc2_transport transport)
+{
+	return select_transport((uint8_t)transport, true);
 }
 
 enum opensc2_transport opensc2_selected_transport(void)

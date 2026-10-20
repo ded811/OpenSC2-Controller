@@ -28,9 +28,12 @@ size_t osc2_ble_name(const char *prefix, const char *serial, char *out, size_t s
 
 /* ---- advertising ------------------------------------------------------------------------------ */
 
-enum osc2_ble_adv_form osc2_ble_adv_form(bool bonded, bool pairing_request)
+enum osc2_ble_adv_form osc2_ble_adv_form(bool bonded, bool fallback)
 {
-	return bonded && !pairing_request ? OSC2_BLE_ADV_ALLOW_LISTED : OSC2_BLE_ADV_PAIRING;
+	if (!bonded) {
+		return OSC2_BLE_ADV_PAIRING;
+	}
+	return fallback ? OSC2_BLE_ADV_ALLOW_LISTED : OSC2_BLE_ADV_DIRECTED;
 }
 
 /* Append {len + 1, type, data}; returns the new length (unchanged when it does not fit). */
@@ -57,6 +60,10 @@ size_t osc2_ble_adv_data(const struct osc2_ble_adv_in *in, uint8_t ad[OSC2_BLE_A
 	uint8_t company[2] = { (uint8_t)in->company_id, (uint8_t)(in->company_id >> 8) };
 	size_t n = 0;
 
+	*sr_len = 0;
+	if (in->form == OSC2_BLE_ADV_DIRECTED || in->form == OSC2_BLE_ADV_NONE) {
+		return 0;   /* directed advertising carries only the two addresses */
+	}
 	n = put_item(ad, n, OSC2_AD_FLAGS, &flags, 1);
 	if (pairing) {
 		n = put_item(ad, n, OSC2_AD_APPEARANCE, appearance, sizeof(appearance));
@@ -67,7 +74,6 @@ size_t osc2_ble_adv_data(const struct osc2_ble_adv_in *in, uint8_t ad[OSC2_BLE_A
 	}
 	n = put_item(ad, n, OSC2_AD_MANUFACTURER, company, sizeof(company));
 
-	*sr_len = 0;
 	if (pairing && in->name && in->name[0]) {
 		size_t len = strlen(in->name);
 
@@ -92,6 +98,57 @@ bool osc2_ble_ad_next(const uint8_t *buf, size_t buf_len, size_t *pos, uint8_t *
 	*len = (uint8_t)(buf[at] - 1);
 	*pos = at + 1 + buf[at];
 	return true;
+}
+
+/* ---- identities and bonds ------------------------------------------------------------------- */
+
+uint8_t osc2_ble_slot_first_id(uint8_t slot)
+{
+	return (uint8_t)(1 + 2 * (slot ? 1 : 0));
+}
+
+int osc2_ble_id_slot(uint8_t id)
+{
+	if (id == 0 || id >= OSC2_BLE_ID_COUNT) {
+		return -1;
+	}
+	return (id - 1) / 2;
+}
+
+uint8_t osc2_ble_other_id(uint8_t id)
+{
+	int slot = osc2_ble_id_slot(id);
+
+	if (slot < 0) {
+		return 0;
+	}
+	return id == osc2_ble_slot_first_id((uint8_t)slot) ? (uint8_t)(id + 1) : (uint8_t)(id - 1);
+}
+
+uint8_t osc2_ble_pick_id(uint8_t slot, bool first_bonded, bool second_bonded, bool pair_request,
+			 bool *reset)
+{
+	uint8_t first = osc2_ble_slot_first_id(slot);
+	uint8_t usual = first_bonded || !second_bonded ? first : (uint8_t)(first + 1);
+
+	*reset = pair_request;
+	return pair_request ? osc2_ble_other_id(usual) : usual;
+}
+
+bool osc2_ble_new_host(bool bonded_at_start, bool bonded_now, uint8_t security_level)
+{
+	return !bonded_at_start && bonded_now && security_level >= 2;
+}
+
+enum osc2_ble_after osc2_ble_after_disconnect(uint8_t reason, bool ended_here)
+{
+	if (ended_here) {
+		return OSC2_BLE_AFTER_NOTHING;
+	}
+	if (reason == OSC2_HCI_REMOTE_USER_TERM || reason == OSC2_HCI_REMOTE_POWER_OFF) {
+		return OSC2_BLE_AFTER_WIRELESS_OFF;
+	}
+	return OSC2_BLE_AFTER_READVERTISE;
 }
 
 /* ---- the HID service's reports ------------------------------------------------------------------ */
@@ -254,6 +311,72 @@ int osc2_ble_input_value(const uint8_t *report, size_t len, uint8_t pad[64],
 uint8_t osc2_ble_write_check(uint16_t offset, uint16_t len, uint16_t size)
 {
 	return (uint32_t)offset + len > size ? OSC2_ATT_ERR_INVALID_OFFSET : 0;
+}
+
+/* ---- Valve's vendor service ------------------------------------------------------------------- */
+
+void osc2_ble_vendor_uuid(uint8_t xx, uint8_t out[16])
+{
+	/* 100F6Cxx-1735-4313-B402-38567131E5F3, least significant byte first */
+	static const uint8_t base[16] = {
+		0xF3, 0xE5, 0x31, 0x71, 0x56, 0x38, 0x02, 0xB4,
+		0x13, 0x43, 0x35, 0x17, 0x00, 0x6C, 0x0F, 0x10,
+	};
+
+	memcpy(out, base, sizeof(base));
+	out[12] = xx;
+}
+
+uint8_t osc2_ble_vendor_xx(const struct osc2_hid_report *r)
+{
+	if (r->type == OSC2_HID_FEATURE) {
+		return OSC2_BLE_VENDOR_COMMAND;
+	}
+	return (uint8_t)(OSC2_BLE_VENDOR_OFFSET + r->id);
+}
+
+enum osc2_ble_target osc2_ble_input_target(bool vendor_subscribed, bool hid_subscribed)
+{
+	if (vendor_subscribed) {
+		return OSC2_BLE_TARGET_VENDOR;
+	}
+	return hid_subscribed ? OSC2_BLE_TARGET_HID : OSC2_BLE_TARGET_NONE;
+}
+
+/* ---- what the link is doing ------------------------------------------------------------------ */
+
+static void put16(uint8_t *p, uint16_t v)
+{
+	p[0] = (uint8_t)v;
+	p[1] = (uint8_t)(v >> 8);
+}
+
+static void put32(uint8_t *p, uint32_t v)
+{
+	put16(p, (uint16_t)v);
+	put16(&p[2], (uint16_t)(v >> 16));
+}
+
+void osc2_ble_pack_status(const struct osc2_ble_status *st, uint8_t out[OSC2_BLE_STATUS_LEN])
+{
+	out[0] = (uint8_t)((st->enabled ? 0x01 : 0) | (st->advertising ? 0x02 : 0) |
+			   (st->connected ? 0x04 : 0) | (st->active ? 0x08 : 0) |
+			   (st->trigger ? 0x10 : 0) | (st->running ? 0x20 : 0) |
+			   (st->pair_request ? 0x40 : 0) | (st->wireless_off ? 0x80 : 0));
+	out[1] = st->form;
+	out[2] = st->slot;
+	out[3] = st->id;
+	out[4] = st->bonded;
+	out[5] = st->identities;
+	out[6] = st->security;
+	out[7] = st->last_reason;
+	out[8] = st->state;
+	out[9] = st->reason;
+	put16(&out[10], st->mtu);
+	put32(&out[12], st->interval_us);
+	put32(&out[16], st->window_left_ms);
+	put32(&out[20], st->reports);
+	put32(&out[24], st->dropped);
 }
 
 /* ---- timing ------------------------------------------------------------------------------------- */

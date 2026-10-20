@@ -576,7 +576,7 @@ int opensc2_init(const struct opensc2_config *config)
 #if defined(CONFIG_OPENSC2_BLE)
 	if (osc2_ble_init() == 0 && config->start && !osc2_wired() &&
 	    osc2_transport_is_ble(osc2_transport_running())) {
-		(void)osc2_ble_start(osc2_transport_running());
+		(void)osc2_ble_start(osc2_transport_running(), false);
 	}
 #endif
 	/* USB comes up whatever happened to the radio: the wired device, or the console. */

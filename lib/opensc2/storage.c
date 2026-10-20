@@ -231,6 +231,9 @@ int osc2_storage_factory_reset(void)
 	err |= settings_delete("opensc2/bond1");
 	err |= osc2_storage_delete_transport();
 	err |= settings_delete("opensc2/chime");
+#if defined(CONFIG_OPENSC2_BLE)
+	err |= osc2_ble_factory_reset();   /* the whole bt subtree: bonds, identities, the name */
+#endif
 	return err ? -EIO : 0;
 }
 

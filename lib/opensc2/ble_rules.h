@@ -47,16 +47,23 @@ size_t osc2_ble_name(const char *prefix, const char *serial, char *out, size_t s
 #define OSC2_BLE_UUID_BATTERY  0x180F
 #define OSC2_BLE_APPEARANCE    0x03C4   /* gamepad */
 
-/* The ways the controller advertises. The real controller first tries high-duty directed
- * advertising to its bonded host; that third form is not built yet. */
+/* The three ways the controller advertises. */
 enum osc2_ble_adv_form {
-	OSC2_BLE_ADV_PAIRING = 0,     /* open to any host, with the pairing-mode items */
-	OSC2_BLE_ADV_ALLOW_LISTED,    /* only the bonded host may connect or scan */
+	OSC2_BLE_ADV_PAIRING = 0,     /* every 100 to 150 ms, open to any host, with the
+				       * pairing-mode items */
+	OSC2_BLE_ADV_ALLOW_LISTED,    /* every 100 to 150 ms, only the bonded host may connect or
+				       * ask for the scan response */
+	OSC2_BLE_ADV_DIRECTED,        /* high duty cycle to the bonded host, 1.28 s at most; no
+				       * advertising data */
+	OSC2_BLE_ADV_NONE = 0xFF,     /* not advertising (the status, ring entries) */
 };
 
-/* The form for an identity: open while it has no bond or a pairing was asked for; otherwise only
- * its bonded host. */
-enum osc2_ble_adv_form osc2_ble_adv_form(bool bonded, bool pairing_request);
+/* The form for the identity in use: pairing mode while it has no bond; with one, directed
+ * advertising to that host first, and allow-listed advertising once that try is over
+ * (`fallback`: the directed advertising ended without a connection, or a connection failed while
+ * advertising). A pairing request picks an identity without a bond (osc2_ble_pick_id()), so it
+ * always ends in pairing mode. */
+enum osc2_ble_adv_form osc2_ble_adv_form(bool bonded, bool fallback);
 
 struct osc2_ble_adv_in {
 	enum osc2_ble_adv_form form;
@@ -70,7 +77,8 @@ struct osc2_ble_adv_in {
  * manufacturer data, in that order; appearance and UUIDs only in pairing mode) and the scan
  * response in `sr` (the name in pairing mode, complete if it fits in 29 characters, else cut and
  * marked short; empty otherwise). Returns the advertising data's length; `*sr_len` the scan
- * response's. Pairing mode gives 20 bytes, allow-listed 10. */
+ * response's. Pairing mode gives 20 bytes, allow-listed 10, directed none (its packets carry only
+ * the two addresses). */
 size_t osc2_ble_adv_data(const struct osc2_ble_adv_in *in, uint8_t ad[OSC2_BLE_AD_MAX],
 			 uint8_t sr[OSC2_BLE_AD_MAX], size_t *sr_len);
 
@@ -78,6 +86,77 @@ size_t osc2_ble_adv_data(const struct osc2_ble_adv_in *in, uint8_t ad[OSC2_BLE_A
  * and `len`. Returns false at the end or for a malformed one. */
 bool osc2_ble_ad_next(const uint8_t *buf, size_t buf_len, size_t *pos, uint8_t *type,
 		      const uint8_t **data, uint8_t *len);
+
+/* ---- identities and bonds ------------------------------------------------------------------- */
+
+/* Five identities. Identity 0, the stack's default, never advertises; slot 1 (transport value 0)
+ * has identities 1 and 2, slot 2 (transport value 1) identities 3 and 4. Each identity has its own
+ * static random address and keeps at most the bond of one host; each slot keeps at most one. */
+#define OSC2_BLE_ID_COUNT   5
+
+/* The first identity of `slot` (0 or 1): 1 or 3. */
+uint8_t osc2_ble_slot_first_id(uint8_t slot);
+/* The slot of identity `id` (0 or 1); -1 for identity 0 and anything above 4. */
+int osc2_ble_id_slot(uint8_t id);
+/* The other identity of the same slot (1 and 2, 3 and 4); 0 for an identity in no slot. */
+uint8_t osc2_ble_other_id(uint8_t id);
+
+/* The identity a start of `slot` advertises on, from which of the slot's two identities have a
+ * bond. Without a pairing request: the first if it has a bond or neither has one, otherwise the
+ * second. With one: the slot's other identity, which `*reset` says to reset first (a fresh random
+ * address and no keys), so the bond the slot holds stays until a new host has paired. */
+uint8_t osc2_ble_pick_id(uint8_t slot, bool first_bonded, bool second_bonded, bool pair_request,
+			 bool *reset);
+
+/* The bond rule, checked once the link is encrypted (security level 2 or more): a host that has a
+ * bond on an identity which had none when its advertising started is the slot's new host. Then the
+ * bond on the slot's other identity is deleted (one host per slot), the moment the real controller
+ * plays its "paired" cue. */
+bool osc2_ble_new_host(bool bonded_at_start, bool bonded_now, uint8_t security_level);
+
+/* ---- the advertising window and disconnects ---------------------------------------------- */
+
+/* Every start of advertising, whatever its form, arms a 60 s window: if no host has connected
+ * when it ends, advertising stops and wireless goes off. A failed connection starts advertising
+ * again, with a fresh window. */
+#define OSC2_BLE_ADV_WINDOW_MS   60000u
+/* After a lost link the same identity advertises again this much later. */
+#define OSC2_BLE_READVERTISE_MS  500u
+
+/* HCI disconnect reasons the rules name. */
+#define OSC2_HCI_CONN_TIMEOUT        0x08   /* supervision timeout */
+#define OSC2_HCI_REMOTE_USER_TERM    0x13   /* the host ended the link */
+#define OSC2_HCI_REMOTE_POWER_OFF    0x15   /* the host is powering off */
+#define OSC2_HCI_LOCAL_TERM          0x16   /* this side ended it */
+#define OSC2_HCI_ADV_TIMEOUT         0x3C   /* directed advertising ended unanswered */
+
+/* What follows a link that ended with HCI reason `reason`. */
+enum osc2_ble_after {
+	OSC2_BLE_AFTER_READVERTISE = 0,    /* the link was lost (a supervision timeout, anything but
+					    * the two below): the same identity advertises again
+					    * 500 ms later */
+	OSC2_BLE_AFTER_WIRELESS_OFF = 1,   /* the host ended the link (0x13) or powered off (0x15):
+					    * "wireless off", as when the window runs out */
+	OSC2_BLE_AFTER_NOTHING = 2,        /* the controller ended it itself, to turn wireless off
+					    * or to switch: advertising stays off */
+};
+/* `ended_here`: this side ended the link (then `reason` does not matter). */
+enum osc2_ble_after osc2_ble_after_disconnect(uint8_t reason, bool ended_here);
+
+/* Why an advertising round ended (ring entries). */
+enum osc2_ble_adv_end {
+	OSC2_BLE_ADV_END_CONNECTED = 0,   /* a host connected */
+	OSC2_BLE_ADV_END_FAILED = 1,      /* a connection failed: 0x3C when directed advertising ended
+					   * unanswered */
+	OSC2_BLE_ADV_END_WINDOW = 2,      /* the window ran out */
+	OSC2_BLE_ADV_END_STOPPED = 3,     /* stopped: Bluetooth off, a switch, a new round */
+};
+
+/* What turned wireless off (ring entries). */
+enum osc2_ble_off_cause {
+	OSC2_BLE_OFF_WINDOW = 0,          /* the advertising window ran out */
+	OSC2_BLE_OFF_HOST = 1,            /* the host ended the link or powered off */
+};
 
 /* ---- the HID service's reports ------------------------------------------------------------------ */
 
@@ -136,6 +215,70 @@ uint8_t osc2_ble_write_check(uint16_t offset, uint16_t len, uint16_t size);
 /* The feature report's value: 64 bytes, one more than the map declares. A command is its first 63
  * bytes {opcode, length, payload}. */
 #define OSC2_BLE_FEATURE_LEN 64
+
+/* ---- Valve's vendor service ------------------------------------------------------------------- */
+
+/* A second GATT service mirrors the HID service's reports as plain characteristics, for hosts that
+ * talk GATT themselves (SDL's Android and Apple back ends). Its 128-bit UUIDs share one base,
+ * 100F6Cxx-1735-4313-B402-38567131E5F3: xx 0x32 the service, 0x34 the command channel (feature
+ * report 1), 0x35 + the report ID for the inputs 0x40 to 0x45 (0x75 to 0x7A, read and notify) and
+ * the outputs 0x80 to 0x89 (0xB5 to 0xBE, read and write). 41 attributes. */
+#define OSC2_BLE_VENDOR_SERVICE   0x32
+#define OSC2_BLE_VENDOR_COMMAND   0x34
+#define OSC2_BLE_VENDOR_OFFSET    0x35
+#define OSC2_BLE_VENDOR_ATTRS     41
+
+/* The UUID with `xx` as its 16 bytes go on the air, least significant first:
+ * F3 E5 31 71 56 38 02 B4 13 43 35 17 xx 6C 0F 10. */
+void osc2_ble_vendor_uuid(uint8_t xx, uint8_t out[16]);
+/* `xx` of the vendor characteristic of report `r` (an entry of osc2_ble_reports). */
+uint8_t osc2_ble_vendor_xx(const struct osc2_hid_report *r);
+
+/* Where an input report goes: on the vendor characteristic if the host enabled its notifications
+ * there, otherwise on the HID service's if enabled there, otherwise nowhere (it is dropped). */
+enum osc2_ble_target {
+	OSC2_BLE_TARGET_NONE = 0,
+	OSC2_BLE_TARGET_VENDOR,
+	OSC2_BLE_TARGET_HID,
+};
+enum osc2_ble_target osc2_ble_input_target(bool vendor_subscribed, bool hid_subscribed);
+
+/* ---- what the link is doing ------------------------------------------------------------------ */
+
+/* For the shell and the test channel. */
+struct osc2_ble_status {
+	bool enabled;          /* the stack is on */
+	bool advertising;
+	bool open;             /* advertising in pairing mode (any host) */
+	bool connected;
+	bool active;           /* past the gate: reports flow */
+	bool trigger;          /* paced by the connection-event trigger (else by a timer) */
+	bool running;          /* Bluetooth is the running wireless transport */
+	bool pair_request;     /* the next start opens the slot for a new host */
+	bool wireless_off;     /* the window or the host turned wireless off (until a start) */
+	uint8_t form;          /* enum osc2_ble_adv_form of the advertising running, else NONE */
+	uint8_t slot;          /* 0 or 1 */
+	uint8_t id;            /* the identity in use */
+	uint8_t bonded;        /* one bit per identity that has a bond (bit 1 for identity 1, ...) */
+	uint8_t identities;    /* identities that exist (5 once Bluetooth has started) */
+	uint8_t security;      /* the link's security level */
+	uint8_t last_reason;   /* the HCI reason of the last disconnect (0: none yet) */
+	uint8_t state;         /* enum opensc2_link_state */
+	uint8_t reason;        /* enum opensc2_reason of the last change */
+	uint16_t mtu;
+	uint32_t interval_us;
+	uint32_t window_left_ms;   /* left of the advertising window, 0 when none runs */
+	uint32_t reports, dropped;
+	char name[32];
+	char address[32];      /* the identity's own address, as text */
+};
+
+/* The 28 bytes the test channel's BLE_STATUS answers (docs/test-protocol.md): flags (bit 0
+ * enabled, 1 advertising, 2 connected, 3 active, 4 trigger, 5 running, 6 pairing request, 7
+ * wireless off), form, slot, identity, bonded, identities, security, last reason, state, reason,
+ * MTU u16, interval u32, window left u32, reports u32, dropped u32. No name, no address. */
+#define OSC2_BLE_STATUS_LEN 28
+void osc2_ble_pack_status(const struct osc2_ble_status *st, uint8_t out[OSC2_BLE_STATUS_LEN]);
 
 /* ---- timing --------------------------------------------------------------------------------- */
 

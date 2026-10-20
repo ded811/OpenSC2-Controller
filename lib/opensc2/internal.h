@@ -220,40 +220,37 @@ bool osc2_ble_active(void);
 /* The connection interval in µs while Bluetooth is active (attribute 11 of 0x83), else 0. */
 uint32_t osc2_ble_interval_us(void);
 #if defined(CONFIG_OPENSC2_BLE)
+#include "ble_rules.h"   /* struct osc2_ble_status */
 /* The Bluetooth thread and report thread; nothing goes on the air yet. */
 int osc2_ble_init(void);
 /* Bluetooth on as transport `t` (0 or 1): the radio taken over from ESB first, then advertising.
- * Asynchronous (the Bluetooth thread). */
-int osc2_ble_start(uint8_t t);
+ * With `pair` (a pairing request, the real controller's chord held 4 s) the slot's other identity
+ * is reset and advertises in pairing mode. Asynchronous (the Bluetooth thread). */
+int osc2_ble_start(uint8_t t, bool pair);
 /* Bluetooth off: the zero report, then a disconnect, no advertising. `release` also disables the
  * stack so the puck's radio can have the radio; the radio is started after it when `then_radio`. */
 int osc2_ble_stop(bool release, bool then_radio);
 /* Bluetooth has the radio (its stack is enabled): ESB must not start. */
 bool osc2_ble_owns_radio(void);
-/* Pairing mode on the running slot: its bond is forgotten and it advertises open to a new host. */
+/* A pairing request on the running slot: a host connected is left, and the slot's other identity,
+ * reset, advertises in pairing mode; the slot's bond stays until a new host has paired. */
 int osc2_ble_pair(void);
 /* An input report towards the host (osc2_input_send()). */
 int osc2_ble_send(const uint8_t *report, size_t len, bool droppable);
 /* The Bluetooth link's state in the terms of the radio's (opensc2_link_state()). */
 void osc2_ble_info(struct opensc2_link_info *info);
-/* For the shell: what the Bluetooth link is doing. */
-struct osc2_ble_status {
-	bool enabled;          /* the stack is on */
-	bool advertising;
-	bool open;             /* advertising in pairing mode (any host), else for the bonded one */
-	bool connected;
-	bool active;           /* past the gate: reports flow */
-	bool trigger;          /* paced by the connection-event trigger (else by a timer) */
-	uint8_t slot;          /* 0 or 1 */
-	uint8_t id;            /* the identity in use */
-	uint8_t security;      /* the link's security level */
-	uint16_t mtu;
-	uint32_t interval_us;
-	uint32_t reports, dropped;
-	char name[32];
-	char address[32];      /* the identity's own address, as text */
-};
+/* For the shell and the test channel: what the Bluetooth link is doing. */
 void osc2_ble_status(struct osc2_ble_status *st);
+/* The factory reset (0x86): every key of the stack's `bt` settings subtree is deleted (bonds,
+ * identities, the stored name), so the next start creates new identities; no advertising until
+ * the reboot that follows. 0 or a negative errno. */
+int osc2_ble_factory_reset(void);
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+/* The test channel's Bluetooth ops (BLE_STATUS, BLE_DROP, BLE_WINDOW): an answer status
+ * (enum osc2_test_status), the result in `result` (`*rlen` bytes). */
+uint8_t osc2_ble_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			 uint8_t *rlen);
+#endif
 #else
 static inline bool osc2_ble_owns_radio(void)
 {

@@ -314,6 +314,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+#if defined(CONFIG_OPENSC2_BLE)
+	.ble_op = osc2_ble_test_op,
+#endif
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

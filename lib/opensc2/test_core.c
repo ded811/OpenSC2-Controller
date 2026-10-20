@@ -1014,6 +1014,37 @@ static uint8_t op_radio_deaf(struct op_req *r)
 	return OSC2_TEST_OK;
 }
 
+/* The Bluetooth ops: the library's Bluetooth code answers them (BAD_OP in a build without it). */
+static uint8_t op_ble(struct op_req *r, uint8_t op)
+{
+	uint8_t status;
+
+	if (!r->env->ble_op) {
+		return OSC2_TEST_BAD_OP;
+	}
+	status = r->env->ble_op(op, r->args, r->alen, r->result, &r->rlen);
+	if (r->rlen > OSC2_TEST_RESULT_MAX) {
+		r->rlen = 0;
+		return OSC2_TEST_BAD_OP;   /* never more than an answer holds */
+	}
+	return status;
+}
+
+static uint8_t op_ble_status(struct op_req *r)
+{
+	return op_ble(r, OSC2_TEST_OP_BLE_STATUS);
+}
+
+static uint8_t op_ble_drop(struct op_req *r)
+{
+	return op_ble(r, OSC2_TEST_OP_BLE_DROP);
+}
+
+static uint8_t op_ble_window(struct op_req *r)
+{
+	return op_ble(r, OSC2_TEST_OP_BLE_WINDOW);
+}
+
 typedef uint8_t (*op_fn)(struct op_req *r);
 
 static const struct {
@@ -1044,6 +1075,9 @@ static const struct {
 	{ OSC2_TEST_OP_HOST_GET, 0, 0, false, op_host_get },
 	{ OSC2_TEST_OP_APP_SEND, 1, OSC2_TEST_ARGS_MAX, false, op_app_send },
 	{ OSC2_TEST_OP_RADIO_DEAF, 2, 2, false, op_radio_deaf },
+	{ OSC2_TEST_OP_BLE_STATUS, 0, 0, false, op_ble_status },
+	{ OSC2_TEST_OP_BLE_DROP, 1, 1, false, op_ble_drop },
+	{ OSC2_TEST_OP_BLE_WINDOW, 4, 4, false, op_ble_window },
 };
 
 /* Lengths that depend on the arguments themselves. */
