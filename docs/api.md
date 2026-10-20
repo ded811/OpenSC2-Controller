@@ -678,9 +678,9 @@ summary and the gaps):
   the link `OFF` with reason `HOST_DISCONNECTED`, and `OPENSC2_POWER_WIRELESS_OFF`. Any other reason
   (a supervision timeout, `0x08`): 500 ms later the same identity advertises again, directed to its
   host first, with a fresh window. When the board ends the link itself (`opensc2_stop()`, another
-  slot, a pairing request) it first sends an all-zero `0x45` if the link is past the gate, waits
-  100 ms and disconnects with `0x13`; nothing more follows. A reboot just resets (the host sees the
-  link time out).
+  slot, a pairing request) it stops its state reports and sends an all-zero `0x45` if the link is
+  past the gate, so that is the last state the host sees, waits 100 ms and disconnects with `0x13`;
+  nothing more follows. A reboot just resets (the host sees the link time out).
 - **Services**: the library's own HID service with the USB report map byte for byte (inputs `0x40`
   to `0x45`, outputs `0x80` to `0x89`, feature report 1), the library's own Device Information
   Service (model "Steam Controller", an empty manufacturer name, PnP ID `28DE:1303` version
