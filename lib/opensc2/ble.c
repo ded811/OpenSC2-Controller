@@ -1476,7 +1476,11 @@ static void do_stop(bool release, bool then_radio)
 	set_state(OPENSC2_LINK_OFF, OPENSC2_REASON_DISABLED);
 	if (release) {
 		stack_down();
-		if (then_radio && !osc2_ble_owns_radio()) {
+		/* The puck's radio only while it is still the chosen transport: after a switch back to
+		 * Bluetooth, queued behind this stop, ESB must stay off (that start takes the radio
+		 * again, and would wait for ESB in vain). */
+		if (then_radio && !osc2_ble_owns_radio() &&
+		    osc2_transport_is_puck(osc2_transport_running())) {
 			osc2_radio_post(OSC2_EV_START);
 		}
 	}
