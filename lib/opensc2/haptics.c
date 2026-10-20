@@ -34,6 +34,9 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 static struct osc2_hap_rt rt;
 static K_MUTEX_DEFINE(hap_lock);
+/* Held while the outbox is emptied and sent, so the reports go out in the order they were made
+ * even when two threads flush at once (taken before hap_lock, never while holding it). */
+static K_MUTEX_DEFINE(flush_lock);
 static K_SEM_DEFINE(wake_pads, 0, 1);
 static K_SEM_DEFINE(wake_grips, 0, 1);
 
@@ -88,12 +91,14 @@ static void emit(const struct osc2_hap_out_item *it)
 #endif
 }
 
-/* Send what the last calls left in the outbox (without the lock). */
+/* Send what the last calls left in the outbox (without the lock). One thread at a time: a 0x08 of
+ * a write and the 0x04 the sequencer makes right after it must not swap places on their way out. */
 static void flush(void)
 {
 	struct osc2_hap_out_item it[FLUSH_CHUNK];
 	uint8_t n;
 
+	(void)k_mutex_lock(&flush_lock, K_FOREVER);
 	do {
 		lock();
 		n = osc2_hap_rt_take(&rt, it, FLUSH_CHUNK);
@@ -102,6 +107,7 @@ static void flush(void)
 			emit(&it[i]);
 		}
 	} while (n == FLUSH_CHUNK);
+	(void)k_mutex_unlock(&flush_lock);
 }
 
 static void wake(uint8_t paths)
