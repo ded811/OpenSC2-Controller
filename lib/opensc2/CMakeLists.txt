@@ -19,6 +19,7 @@ zephyr_library_sources(
 	codec.c
 	core.c
 	commands.c
+	gauge.c
 	id_rules.c
 	lizard.c
 	mode.c
