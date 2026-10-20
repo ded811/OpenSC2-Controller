@@ -193,12 +193,36 @@ KEY_FACTORY_RESET = 0xEFC1A917
 KEY_REBOOT_WIRELESS = 0xA427AF52   # safe: wired -> wireless (modes.to_wireless)
 KEY_TURN_OFF = 0xABDF9710          # allowed on HOST_SET (turn off, wireless only)
 
-# key names (0xED/0xEE/0xEF/0xF0), and the ring's key-ID encoding (docs/test-protocol.md).
+# key names (0xED/0xEE/0xEF/0xF0), and the ring's key-ID encoding (docs/test-protocol.md); the
+# library's key_rules.c numbers them the same way.
 KEY_NAMES = {
     1: "esb/bond", 2: "esb/bond_2", 3: "user/wireless_transport", 4: "user/haptic_boot_level",
     5: "opensc2/unit_serial", 6: "opensc2/board_serial", 7: "opensc2/git_revision",
     8: "opensc2/board_revision",
+    9: "user/keylock", 10: "user/fully_charged_led_intensity", 11: "mte/charge_level",
+    12: "debug/resetreason", 13: "settings/haptics/haptic_master_gain_db",
+    14: "settings/haptics/amplifier_mode", 15: "settings/haptics/enabled",
+    16: "cal/joy_l", 17: "cal/joy_r", 18: "cal/trg_l", 19: "cal/trg_r", 20: "cal/prs_l",
+    21: "cal/prs_r", 22: "cal/touch_l", 23: "cal/touch_r", 24: "cal/rgbw_r", 25: "cal/rgbw_g",
+    26: "cal/rgbw_b", 27: "cal/rgbw_w", 28: "cal/volt_offset", 29: "cal/sensors/gyroscope/bias",
 }
+# The keys the library keeps as plain values ("blobs", keys.c): name -> (size, 0xED reads it).
+# Until set, and after 0xF0, zeros (user/fully_charged_led_intensity: 3).
+KEPT_KEYS = {
+    "user/keylock": (4, True), "user/fully_charged_led_intensity": (1, False),
+    "mte/charge_level": (8, True), "debug/resetreason": (33, True),
+    "settings/haptics/haptic_master_gain_db": (2, False),
+    "settings/haptics/amplifier_mode": (2, False), "settings/haptics/enabled": (2, False),
+}
+# The calibration keys and their sizes: never written, saved or deleted by the suite (S5); 0xED
+# reads them (all but the gyro bias), empty until the library keeps calibration.
+CAL_KEYS = {
+    "cal/joy_l": 18, "cal/joy_r": 18, "cal/trg_l": 7, "cal/trg_r": 7, "cal/prs_l": 8,
+    "cal/prs_r": 8, "cal/touch_l": 10, "cal/touch_r": 10, "cal/rgbw_r": 1, "cal/rgbw_g": 1,
+    "cal/rgbw_b": 1, "cal/rgbw_w": 1, "cal/volt_offset": 2, "cal/sensors/gyroscope/bias": 12,
+}
+# A name that is no key at all (0xF0 of it is refused before any flash access).
+NO_KEY = "test/no_such_key"
 
 # ---- caps build flags (docs/test-protocol.md) -----------------------------------------------
 CAP_TRIGGER_CLICK_AUTO = 0

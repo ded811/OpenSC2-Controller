@@ -218,10 +218,50 @@ class VendorDenylist(unittest.TestCase):
     def test_named_refusal_forms_allowed_without_flash(self):
         ctx = safety.Context()
         ctx.empty_slots = {"esb/bond_2"}
-        # 0xDC type 2 (refused by firmware), 0xF0 on an unknown name, 0xEE bond length != 24
+        # 0xDC type 2 (refused by firmware), 0xF0 on a name that is no key, 0xEE bond length != 24
         safety.check_vendor(C.VC_USER_STORE_SET, b"\x02\x01", "usb", ctx=ctx)
-        safety.check_vendor(C.VC_BY_NAME_DELETE, b"cal/joy_l\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\x00", "usb", ctx=ctx)
         safety.check_vendor(C.VC_BY_NAME_SET, b"esb/bond\x00\x00", "usb", ctx=ctx)
+
+    def test_calibration_keys_never_written(self):
+        """S5: calibration keys are never written, saved or deleted, whatever the tokens; only the
+        forms every firmware refuses first (another size for 0xEE, a byte after the NUL for 0xEF)."""
+        ctx = safety.Context()
+        ctx.flash_allowed = True
+        for name, size in C.CAL_KEYS.items():
+            key = name.encode() + b"\x00"
+            safety.check_vendor(C.VC_BY_NAME_SET, key + bytes(size + 1), "usb", ctx=ctx)
+            safety.check_vendor(C.VC_BY_NAME_SAVE, key + b"\x01", "usb", ctx=ctx)
+            for opcode, value in ((C.VC_BY_NAME_SET, bytes(size)), (C.VC_BY_NAME_SAVE, b""),
+                                  (C.VC_BY_NAME_DELETE, b"")):
+                ctx.add_token(opcode, name, value)
+                with self.assertRaises(safety.SafetyError):
+                    safety.check_vendor(opcode, key + value, "usb", ctx=ctx)
+
+    def test_kept_keys(self):
+        """The keys the library keeps (keylock, charge window, crash record, ...): 0xEE of another
+        size or of the value just read back; everything else with a token only."""
+        ctx = safety.Context()
+        lock = b"user/keylock\x00"
+        safety.check_vendor(C.VC_BY_NAME_SET, lock + bytes(3), "usb", ctx=ctx)
+        with self.assertRaises(safety.SafetyError):
+            safety.check_vendor(C.VC_BY_NAME_SET, lock + bytes(4), "usb", ctx=ctx)
+        ctx.read_values["user/keylock"] = bytes(4)
+        safety.check_vendor(C.VC_BY_NAME_SET, lock + bytes(4), "usb", ctx=ctx)
+        with self.assertRaises(safety.SafetyError):
+            safety.check_vendor(C.VC_BY_NAME_SET, lock + b"\xC3\x0A\xFB\x41", "usb", ctx=ctx)
+        # no read function: only another size without a token
+        led = b"user/fully_charged_led_intensity\x00"
+        safety.check_vendor(C.VC_BY_NAME_SET, led + b"\x01\x02", "usb", ctx=ctx)
+        with self.assertRaises(safety.SafetyError):
+            safety.check_vendor(C.VC_BY_NAME_SET, led + b"\x03", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_SAVE, lock + b"\x01", "usb", ctx=ctx)   # refused form
+        for opcode in (C.VC_BY_NAME_SAVE, C.VC_BY_NAME_DELETE):
+            with self.assertRaises(safety.SafetyError):
+                safety.check_vendor(opcode, lock, "usb", ctx=ctx)
+        ctx.flash_allowed = True
+        ctx.add_token(C.VC_BY_NAME_SAVE, "user/keylock", b"")
+        safety.check_vendor(C.VC_BY_NAME_SAVE, lock, "usb", ctx=ctx)
 
     def test_transport_and_chime_values(self):
         """safety-HW-6: 0x01 is ignored only for the transport key (Bluetooth); the chime key

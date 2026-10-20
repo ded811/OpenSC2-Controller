@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include "key_rules.h"  /* the key IDs of VENDOR entries */
 #include "retained.h"   /* osc2_crc32() */
 #include "test_core.h"
 
@@ -238,29 +239,14 @@ bool osc2_test_host_set_allowed(uint8_t opcode, const uint8_t *payload, uint8_t 
 	}
 }
 
-static const char *const key_names[] = {
-	"esb/bond", "esb/bond_2", "user/wireless_transport", "user/haptic_boot_level",
-	"opensc2/unit_serial", "opensc2/board_serial", "opensc2/git_revision",
-	"opensc2/board_revision",
-};
-
 uint8_t osc2_test_key_id(const uint8_t *payload, size_t len, uint8_t *value_len)
 {
+	uint8_t name_len = 0;
+	const struct osc2_key_info *k = osc2_key_lookup(payload, len, &name_len);
 	const uint8_t *nul = len ? memchr(payload, 0, len) : NULL;
-	size_t name;
 
-	*value_len = 0;
-	if (!nul) {
-		return 0;
-	}
-	name = (size_t)(nul - payload);
-	*value_len = (uint8_t)(len - name - 1);
-	for (size_t i = 0; i < sizeof(key_names) / sizeof(key_names[0]); i++) {
-		if (strlen(key_names[i]) == name && memcmp(payload, key_names[i], name) == 0) {
-			return (uint8_t)(i + 1);
-		}
-	}
-	return 0;
+	*value_len = nul ? (uint8_t)(len - (size_t)(nul - payload) - 1) : 0;
+	return k ? k->id : 0;   /* the numbers of key_rules.h */
 }
 
 bool osc2_test_host_get_masked(const uint8_t *stored, uint8_t stored_len, uint8_t n)

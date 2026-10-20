@@ -158,8 +158,19 @@ def run(ctx):
                 c.true("%s: n 24 or 0" % name[:-1].decode(), b.n in (0, 24))
                 c.observe(**{name[:-1].decode().replace("/", "_"): "empty" if b.n == 0 else
                              "crc32 %08x" % b.crc})
-            a = rig.vendor(C.VC_BY_NAME_READ, b"cal/joy_l\0")
-            c.eq("cal/joy_l: n", a.n, 0)
+            # the kept keys: their whole value (zeros until set), or 0 without a read function
+            for name, (size, readable) in sorted(C.KEPT_KEYS.items()):
+                a = rig.read_named(name.encode() + b"\0")
+                c.eq("%s: n (%s)" % (name, "its size" if readable else "no read function"), a.n,
+                     size if readable else 0)
+                if name == "debug/resetreason" and a.n == 33:
+                    c.observe(crash_record="none" if not any(a.data[:33]) else
+                              "new %d, reason %d" % (a.data[0], a.data[21]))
+            for name in sorted(C.CAL_KEYS):
+                a = rig.vendor(C.VC_BY_NAME_READ, name.encode() + b"\0")
+                c.eq("%s: n (no calibration kept)" % name, a.n, 0)
+            a = rig.vendor(C.VC_BY_NAME_READ, C.NO_KEY.encode() + b"\0")
+            c.eq("a name that is no key: n", a.n, 0)
             a = rig.vendor(C.VC_BY_NAME_READ, TRANSPORT[:-1])
             c.eq("a name without its NUL: n", a.n, 0)
 
@@ -180,8 +191,19 @@ def run(ctx):
             else:
                 c.true("0xEE opensc2/unit_serial bad! is refused",
                        rig.refused(C.VC_BY_NAME_SET, b"opensc2/unit_serial\0bad!"))
+            kept = [n.encode() + b"\0" for n, (_s, readable) in sorted(C.KEPT_KEYS.items())
+                    if readable]
+            kept_before = [rig.read_named(n).data for n in kept]
+            for name, (size, _readable) in sorted(C.KEPT_KEYS.items()):
+                key = name.encode() + b"\0"
+                c.true("0xEE %s with %d bytes is refused" % (name, size + 1),
+                       rig.refused(C.VC_BY_NAME_SET, key + bytes(size + 1)))
+                c.true("0xEE %s with no value is refused" % name,
+                       rig.refused(C.VC_BY_NAME_SET, key))
             after = [rig.read_named(n).data for n in (TRANSPORT, CHIME, BOND2)]
             c.true("nothing changed (0xED re-read equal)", after == before)
+            c.true("the kept keys unchanged (0xED re-read equal)",
+                   [rig.read_named(n).data for n in kept] == kept_before)
 
     if ctx.want("cmd.by_name_harmless"):
         with ctx.check(GROUP, "cmd.by_name_harmless") as c:
@@ -197,9 +219,15 @@ def run(ctx):
             if b2.n == 0:
                 c.true("0xEE esb/bond_2 with 24 zero bytes (it is empty) is taken",
                        not rig.refused(C.VC_BY_NAME_SET, BOND2 + bytes(24)))
+            kept = [n.encode() + b"\0" for n, (_s, readable) in sorted(C.KEPT_KEYS.items())
+                    if readable]
+            values = [rig.read_named(n).data for n in kept]
+            for key, value in zip(kept, values):
+                c.true("0xEE %s with its value (RAM only) is taken" % key[:-1].decode(),
+                       not rig.refused(C.VC_BY_NAME_SET, key + value))
             c.true("0xED re-reads unchanged",
                    [rig.read_named(n).data for n in (TRANSPORT, CHIME, BOND2)] ==
-                   [t.data, h.data, b2.data])
+                   [t.data, h.data, b2.data] and [rig.read_named(n).data for n in kept] == values)
 
     if ctx.want("cmd.save_refusals"):
         with ctx.check(GROUP, "cmd.save_refusals") as c:
@@ -211,8 +239,10 @@ def run(ctx):
                 c.note("esb/bond_2 holds a bond: its 0xEF refusal is not sent")
             c.true("0xEF user/haptic_boot_level with a byte after the NUL is refused",
                    rig.refused(C.VC_BY_NAME_SAVE, CHIME + b"\x01"))
-            c.true("0xF0 cal/joy_l is refused", rig.refused(C.VC_BY_NAME_DELETE,
-                                                            b"cal/joy_l\0"))
+            c.true("0xEF user/keylock with a byte after the NUL is refused",
+                   rig.refused(C.VC_BY_NAME_SAVE, b"user/keylock\0\x01"))
+            c.true("0xF0 of a name that is no key is refused",
+                   rig.refused(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\0"))
             c.true("nothing stored", rig.read_named(BOND2).data == b2.data and
                    rig.read_named(CHIME).data == h.data)
 

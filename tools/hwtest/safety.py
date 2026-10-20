@@ -173,9 +173,27 @@ def _check_named(opcode, payload, ctx, consume=True):
     name, value = _split_named(payload)
     known = name in set(C.KEY_NAMES.values())
     is_bond = name in ("esb/bond", "esb/bond_2")
+    kept = C.KEPT_KEYS.get(name)
+    # calibration, before any token: never written, saved or deleted (the board's own once the
+    # library keeps calibration); only the forms every firmware refuses before it writes: 0xEE of
+    # another size, 0xEF with a byte after the NUL
+    if name in C.CAL_KEYS:
+        if opcode == C.VC_BY_NAME_SET and len(value) != C.CAL_KEYS[name]:
+            return
+        if opcode == C.VC_BY_NAME_SAVE and len(value) > 0:
+            return
+        raise SafetyError("0x%02X on %s: calibration is never written, saved or deleted"
+                          % (opcode, name))
     # a matching one-shot token (with --flash) lets a real flash write through
     if ctx.flash_allowed and ctx._take_token(opcode, name, value, consume):
         return
+    if kept and opcode == C.VC_BY_NAME_SET:
+        size, readable = kept
+        if len(value) != size:
+            return   # another size: refused
+        if readable and value == ctx.read_values.get(name):
+            return   # the value 0xED just read back, in RAM only
+        raise SafetyError("0xEE %s with a new value needs --flash and a token" % name)
     if opcode == C.VC_BY_NAME_DELETE:   # 0xF0
         if name is None or not known:
             return   # deleting an unknown key: the firmware refuses before any flash access

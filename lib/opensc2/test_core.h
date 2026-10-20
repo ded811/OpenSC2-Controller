@@ -452,10 +452,11 @@ bool osc2_test_host_set_allowed(uint8_t opcode, const uint8_t *payload, uint8_t 
 /* HOST_GET: is an answer of `n` bytes to the stored request {opcode, len, payload} masked (bonds,
  * serials, the chip ID)? */
 bool osc2_test_host_get_masked(const uint8_t *stored, uint8_t stored_len, uint8_t n);
-/* The settings-by-name keys VENDOR entries name: 1 esb/bond, 2 esb/bond_2,
- * 3 user/wireless_transport, 4 user/haptic_boot_level, 5 opensc2/unit_serial,
- * 6 opensc2/board_serial, 7 opensc2/git_revision, 8 opensc2/board_revision, 0 anything else or no
- * NUL. `*value_len`: the bytes after the NUL. */
+/* The settings-by-name keys VENDOR entries name, numbered as key_rules.h's enum osc2_key_id: 1
+ * esb/bond, 2 esb/bond_2, 3 user/wireless_transport, 4 user/haptic_boot_level, 5..8 the
+ * opensc2/ identity keys, 9 user/keylock, 10 user/fully_charged_led_intensity,
+ * 11 mte/charge_level, 12 debug/resetreason, 13..15 settings/haptics/..., 16..29 the cal/ keys;
+ * 0 anything else or no NUL. `*value_len`: the bytes after the NUL. */
 uint8_t osc2_test_key_id(const uint8_t *payload, size_t len, uint8_t *value_len);
 
 /* Entry data (each returns its length). */

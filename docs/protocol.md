@@ -363,6 +363,16 @@ open, the library does what should work with Steam and the puck, and says so her
     application's charge state (1 for state 2, charging, with or without the flag), its simplest
     reading; on the real controller it may come from the charger's own status, which no host has
     been seen to compare.
+24. **Settings by name.** The library knows exactly the real controller's keys
+    ([api.md](api.md#settings-by-name)); other names go to the application. It keeps
+    `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level` and the
+    `settings/haptics/` keys as plain values: stored, read back where the real controller has a
+    read function, deleted by the factory reset where it deletes them, acted on by nothing yet (the
+    travel lock, the fully-charged LED display, the factory charge window and the haptics settings
+    are not implemented). Choices where the documentation says nothing: a readable key that was
+    never set answers its whole size in zeros (the real controller's RAM value), `0xEF` saves
+    whatever value is in RAM, and the calibration keys go to the application until the library
+    keeps calibration, so without one `0xED` answers length 0 and the others are refused.
 
 ## What this library adds for development boards
 

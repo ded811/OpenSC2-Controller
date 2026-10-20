@@ -23,7 +23,8 @@ from ..proto import console as cproto
 GROUP = "flash"
 TESTS = [("flash.pairing_rehearsal", "W", ["flash"]), ("flash.chime", "W", ["flash"]),
          ("flash.transport", "W", ["flash"]), ("flash.bond_a2", "W", ["flash"]),
-         ("flash.delete_empty", "W", ["flash"]), ("flash.policy", "R", ["flash"])]
+         ("flash.delete_empty", "W", ["flash"]), ("flash.kept_keys", "W", ["flash"]),
+         ("flash.policy", "R", ["flash"])]
 
 TRANSPORT = b"user/wireless_transport\0"
 BOND = b"esb/bond\0"
@@ -121,6 +122,26 @@ def run(ctx):
             rig.vendor_set(C.VC_BY_NAME_DELETE, BOND2)
             writes["flash_writes"] += 1
             c.eq("esb/bond_2 still empty", rig.read_named(BOND2).n, 0)
+
+    if ctx.want("flash.kept_keys") and rig.path == "W":
+        with ctx.check(GROUP, "flash.kept_keys") as c:
+            # the keys the library keeps and 0xED reads (keylock, charge window, crash record):
+            # each value saved as it reads now, then read back
+            for name, (size, readable) in sorted(C.KEPT_KEYS.items()):
+                if not readable:
+                    continue
+                key = name.encode() + b"\0"
+                a = rig.read_named(key)
+                if not c.eq("0xED %s: n" % name, a.n, size):
+                    continue
+                value = a.data[:size]
+                rig.vendor_set(C.VC_BY_NAME_SET, key + value)   # the value read back: RAM only
+                _token(rig, C.VC_BY_NAME_SAVE, name, b"")
+                rig.vendor_set(C.VC_BY_NAME_SAVE, key)
+                writes["flash_writes"] += 1
+                c.eq("0xED %s after the save" % name, rig.read_named(key).data[:size], value)
+            c.note("user/keylock, mte/charge_level and debug/resetreason saved as they read; %s"
+                   % PINNED)
 
     if ctx.want("flash.policy") and rig.path == "R":
         with ctx.check(GROUP, "flash.policy") as c:

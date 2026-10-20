@@ -1272,7 +1272,13 @@ OPENSC2_TEST(hooks_vendor_mask)
 	CHECK(d[7] == 2 && d[8] == 24);
 	memcpy(payload, "cal/joy_l", 10);
 	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xEF, 10, 0, payload, 10, 61), 9);
+	CHECK(d[7] == 16 && d[8] == 0);   /* key_rules.h's number */
+	memcpy(payload, "cal/joy_m", 10);   /* no key */
+	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xEF, 10, 0, payload, 10, 61), 9);
 	CHECK(d[7] == 0 && d[8] == 0);
+	memcpy(payload, "debug/resetreason", 18);
+	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xED, 18, 0, payload, 18, 61), 9);
+	CHECK(d[7] == 12 && d[8] == 0);
 	memcpy(payload, "opensc2/unit_serial", 20);
 	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xEE, 24, 0, payload, 24, 61), 9);
 	CHECK(d[7] == 5 && d[8] == 4);

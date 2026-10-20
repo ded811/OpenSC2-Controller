@@ -19,6 +19,8 @@ zephyr_library_sources(
 	core.c
 	commands.c
 	id_rules.c
+	key_rules.c
+	keys.c
 	lizard.c
 	mode.c
 	mode_rules.c

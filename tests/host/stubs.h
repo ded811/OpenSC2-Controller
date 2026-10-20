@@ -8,6 +8,7 @@
 #define OSC2_HOST_STUBS_H_
 
 #include "internal.h"
+#include "keys.h"
 
 struct stub_record {
 	int64_t now_ms;
@@ -24,6 +25,10 @@ struct stub_record {
 	int watchdog_armed, watchdog_cancelled;
 	char lizard[32];                /* E enter, L leave, U switches up, D switches down */
 	unsigned int lizard_calls;
+	/* keys.c's blob values, and the keys saved and deleted (a bit per enum osc2_key_id) */
+	struct osc2_blob_store blobs;
+	uint32_t key_saves, key_deletes;
+	int key_factory_resets;
 };
 
 extern struct stub_record stub;

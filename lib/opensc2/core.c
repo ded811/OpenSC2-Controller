@@ -14,6 +14,7 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "keys.h"
 #include "test_hooks.h"
 
 LOG_MODULE_REGISTER(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -539,6 +540,7 @@ int opensc2_init(const struct opensc2_config *config)
 	osc2.policy = IS_ENABLED(CONFIG_OPENSC2_DEFAULT_POLICY_WIRELESS) ? OPENSC2_POLICY_WIRELESS :
 									   OPENSC2_POLICY_AUTO;
 	osc2_settings_restore_defaults(false);
+	osc2_keys_boot();   /* the kept keys' defaults, before the stored ones load */
 
 	err = osc2_storage_load();
 	if (err) {

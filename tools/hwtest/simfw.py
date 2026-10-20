@@ -75,6 +75,10 @@ class SimBoard:
         self.trig = [False, False]
         self.lizard = M.LizardModel()          # on at boot (setting 9 = 1)
         self.slot = world.slot
+        if not hasattr(world, "kept_saved"):
+            world.kept_saved = {}              # keys.c's stored values (C.KEPT_KEYS)
+            world.kept_writes = 0
+        self.kept = dict(world.kept_saved)     # their RAM values, loaded at boot
         # wireless: connected through the puck at once, or listening when there is no puck
         self.link_state = (4 if world.puck_present else 3) if mode == "R" else 0
         self.last_reason = 0
@@ -297,10 +301,14 @@ class SimBoard:
 
     # ---- the command channel (commands.c) ----
     def _named(self, payload):
+        """(the key: NAMED's index, a kept key's name, -1 for another name, None without a NUL;
+        the value after the NUL)."""
         nul = payload.find(b"\0")
         if nul < 0:
             return None, None
         name = payload[:nul].decode("ascii", "replace")
+        if name in C.KEPT_KEYS:
+            return name, payload[nul + 1:]
         return (NAMED.index(name) if name in NAMED else -1), payload[nul + 1:]
 
     def run_set(self, link, opcode, payload, avail):
@@ -343,6 +351,8 @@ class SimBoard:
             return 0
         if opcode in (0xEE, 0xEF, 0xF0):
             key, value = self._named(payload)
+            if isinstance(key, str):
+                return self._kept_key(opcode, key, value)
             if key is None or key < 0:
                 return ENOENT   # the blank canvas's vendor_command knows no other key
             if opcode == 0xEE:
@@ -402,6 +412,25 @@ class SimBoard:
         self.world.chime = value[0]
         return 0
 
+    def _kept_key(self, opcode, name, value):
+        """keys.c: a value the library only keeps (C.KEPT_KEYS), exactly its size."""
+        size, _readable = C.KEPT_KEYS[name]
+        if opcode == 0xEE:
+            if len(value) != size:
+                return EINVAL
+            self.kept[name] = bytes(value)
+            return 0
+        if len(value) != 0:
+            return EINVAL           # the NUL must be the last byte
+        if opcode == 0xEF:
+            self.world.kept_saved[name] = self.kept.get(name, kept_default(name))
+            self.world.kept_writes += 1
+        else:
+            self.kept.pop(name, None)
+            self.world.kept_saved.pop(name, None)
+            self.world.kept_writes += 1
+        return 0
+
     def run_get(self, link, opcode, payload):
         """(rc, answer bytes)."""
         sel = payload[0] if payload else 0
@@ -451,6 +480,8 @@ class SimBoard:
             return 0, bytes([sel]) + struct.pack("<h", M.setting_answer(sel, self.settings[sel]))
         if opcode == 0xED:
             key, _value = self._named(payload)
+            if isinstance(key, str):    # a kept key: its value, or nothing without a read function
+                return 0, self.kept.get(key, kept_default(key)) if C.KEPT_KEYS[key][1] else b""
             if key is not None and key in (0, 1):
                 return 0, self.world.bonds[key]
             if key == 2:
@@ -1115,6 +1146,13 @@ def host_set_allowed(opcode, payload):
     if opcode == 0x95:
         return int.from_bytes((bytes(payload[:4]) + bytes(4))[:4], "little") == KEY_TURN_OFF
     return False
+
+
+def kept_default(name):
+    """A kept key's value until it is set, and after 0xF0 (key_rules.c): zeros, 3 for the
+    fully-charged LED level."""
+    size, _readable = C.KEPT_KEYS[name]
+    return bytes([3]) if name == "user/fully_charged_led_intensity" else bytes(size)
 
 
 def _key_id(payload):

@@ -629,7 +629,7 @@ The library answers these itself:
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link |
-| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | `esb/bond`, `esb/bond_2`, `user/wireless_transport` (2 = the first slot, 3 = the second), `user/haptic_boot_level`. `0xED` answers length 0 for an empty bond; `0xEE` refuses an empty value and a bond that is not 24 bytes; `0xEF` needs the key's NUL as the last byte and refuses an empty bond; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
+| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (2 = the first slot, 3 = the second), `user/haptic_boot_level`, the keys the library keeps (`user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`, the application's). `0xED` answers length 0 for an empty bond; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
 | `0xE2` | set | persist calibration: acknowledged for side 0 or 1 (after `vendor_command`, which may do something with it), refused above |
 | `0xA2` | set | write the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes (an ID of zero deletes it) |
 | `0x86`, `0x90`, `0x95`, `0x9F` | set | factory reset, bootloader, reboot, turn off: `power_request`; turn-off is ignored while wired |
@@ -655,6 +655,32 @@ payload of the SET before it. Commands may take their time (a flash write): Stea
 While wired the callback runs in Zephyr's USB stack thread, inside the host's control request: only
 its return value counts. (The stack would stall a GET that leaves `errno` set, which C library calls
 may do; the library clears it before it answers.)
+
+### Settings by name
+
+`0xED` reads a key, `0xEE` sets it in RAM, `0xEF` saves the RAM value and `0xF0` deletes it (from
+flash, and the RAM value goes back to its default). The payload is the key's name with its NUL,
+then for `0xEE` the value; `0xEF` and `0xF0` need the NUL as the last byte. The library knows every
+key of the real controller and nothing else, so a host cannot fill the storage partition with
+names of its own:
+
+| Key | Size | `0xED` | Kept as | The factory reset (`0x86`) |
+| --- | --- | --- | --- | --- |
+| `esb/bond`, `esb/bond_2` | 24 | the bond, length 0 when empty | the two bonds (`opensc2/bond0`, `bond1`) | deletes |
+| `user/wireless_transport` | 1 | 2 + the slot | the slot (`opensc2/slot`); 0 and 1, Bluetooth, are taken and ignored | deletes |
+| `user/haptic_boot_level` | 1 | the chime level | `opensc2/chime` | deletes |
+| `user/keylock` | 4 | the value, zeros until set | `opensc2/k/keylock` | deletes |
+| `user/fully_charged_led_intensity` | 1 | length 0 (no read function) | `opensc2/k/fcled`; 3 until set | deletes |
+| `mte/charge_level` | 8 | the value, zeros until set | `opensc2/k/mte` | deletes |
+| `debug/resetreason` | 33 | the crash record, zeros when there is none | `opensc2/k/crash` | deletes |
+| `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled` | 2 each | length 0 (no read function) | `opensc2/k/hgain`, `hamp`, `hen` | keeps |
+| `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | the application's `vendor_command`; length 0 without one (the gyro bias never) | the application's | keeps |
+
+`0xEE` takes exactly the key's size (another length is refused, as on the real controller). The
+values of `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level` and the haptics
+keys are kept and read back but nothing in the library acts on them yet; `debug/resetreason` holds
+the crash record of vendor command `0xF2` selector 1. With `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`,
+`0xEE` also takes OpenSC2's identity keys ([Identity](#identity)).
 
 ## Controller settings
 

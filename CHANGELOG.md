@@ -14,6 +14,13 @@ still change between minor versions.
   for each channel they reach (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default). Steam's pair
   of zero pulses now gets `44 04 02 ...` and `44 03 02 ...`, as from the real controller. The
   test hooks record each in the ring (kind `0x30`, STOP_STATUS); hwtest `outputs.stop_status`.
+- Every settings key of the real controller in `0xED`..`0xF0`: the library now keeps
+  `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason` and
+  `settings/haptics/...` (stored under `opensc2/k/`, read back where the real controller can, each
+  exactly its size, deleted by the factory reset where it deletes them), and knows the `cal/` keys,
+  which go to the application until the library keeps calibration. Any other name is still the
+  application's, so a host cannot fill the storage partition. The test ring numbers the new keys
+  9 to 29; hwtest `cmd` and `flash.kept_keys` cover them.
 
 ### Changed
 
