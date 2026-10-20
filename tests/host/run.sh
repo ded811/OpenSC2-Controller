@@ -23,7 +23,7 @@ compile() {
 		"$here/stubs.c" "$lib/codec.c" "$lib/lizard.c" \
 		"$lib/settings_defaults.c" "$lib/fusion.c" "$lib/usb_desc.c" "$lib/usb_rules.c" \
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
-		"$lib/report_rules.c" "$lib/test_core.c" "$@" -lm
+		"$lib/report_rules.c" "$lib/test_core.c" "$lib/cal.c" "$@" -lm
 }
 
 compile "$here/run_tests.c" -o "$out/opensc2_host_tests_plain"

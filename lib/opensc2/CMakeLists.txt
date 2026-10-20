@@ -15,6 +15,7 @@ endif()
 zephyr_library_named(opensc2)
 
 zephyr_library_sources(
+	cal.c
 	codec.c
 	core.c
 	commands.c

@@ -31,7 +31,8 @@ $flags = @('-std=c11', '-Wall', '-Wextra', '-Wshadow', '-Werror', "-I$shim", "-I
 $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\codec.c", "$lib\lizard.c", "$lib\settings_defaults.c", "$lib\fusion.c",
     "$lib\usb_desc.c", "$lib\usb_rules.c", "$lib\mode_rules.c", "$lib\retained.c",
-    "$lib\id_rules.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c")
+    "$lib\id_rules.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c",
+    "$lib\cal.c")
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',
     '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c",
