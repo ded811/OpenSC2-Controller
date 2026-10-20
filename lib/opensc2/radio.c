@@ -156,6 +156,13 @@ static int hfclk_request(void) { return 0; }
 static void hfclk_release(void) {}
 #endif
 
+/* Set while radio_enable() runs, before it looks at Bluetooth's claim: Bluetooth's idle check
+ * (osc2_radio_idle()) then waits. Each side marks itself before it reads the other (Bluetooth sets
+ * its claim before it polls), so one of them always sees the other: ESB never starts on top of a
+ * SoftDevice Controller that was just enabled, also while the crystal starts (hfclk_request() can
+ * sleep in 1 ms steps). */
+static atomic_t esb_starting;
+
 static int radio_enable(void)
 {
 	struct esb_config cfg = ESB_DEFAULT_CONFIG;
@@ -164,16 +171,26 @@ static int radio_enable(void)
 	if (radio_on) {
 		return 0;
 	}
+	atomic_set(&esb_starting, 1);
 	if (osc2_ble_owns_radio()) {
 		/* Only one wireless transport at a time: Bluetooth has the radio (transport.c starts
 		 * the radio again once it has given it back). */
+		atomic_set(&esb_starting, 0);
 		LOG_WRN("Bluetooth has the radio: the puck's link stays off");
 		return -EBUSY;
 	}
 	err = hfclk_request();
 	if (err) {
+		atomic_set(&esb_starting, 0);
 		LOG_ERR("The 32 MHz clock did not start (%d)", err);
 		return err;
+	}
+	if (osc2_ble_owns_radio()) {
+		/* Bluetooth asked for the radio while the crystal started: it waited, it has it. */
+		hfclk_release();
+		atomic_set(&esb_starting, 0);
+		LOG_WRN("Bluetooth took the radio: the puck's link stays off");
+		return -EBUSY;
 	}
 	cfg.protocol = ESB_PROTOCOL_ESB_DPL;
 	cfg.mode = ESB_MODE_PRX;
@@ -191,9 +208,11 @@ static int radio_enable(void)
 	if (err) {
 		LOG_ERR("esb_init failed (%d)", err);
 		hfclk_release();
+		atomic_set(&esb_starting, 0);
 		return err;
 	}
-	radio_on = true;
+	radio_on = true;   /* before the flag clears: an idle check that sees it clear sees this */
+	atomic_set(&esb_starting, 0);
 	return 0;
 }
 
@@ -289,7 +308,8 @@ bool osc2_radio_connected(void)
 
 bool osc2_radio_idle(void)
 {
-	return !radio_on && link_state == OPENSC2_LINK_OFF;
+	/* The flag first: once it reads clear, a start that finished has set radio_on already. */
+	return !atomic_get(&esb_starting) && !radio_on && link_state == OPENSC2_LINK_OFF;
 }
 
 void osc2_radio_info(struct opensc2_link_info *out)
