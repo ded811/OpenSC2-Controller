@@ -344,6 +344,91 @@ OPENSC2_TEST(cal_store_persist)
 	CHECK_EQ(cal_set(0xE2, (const uint8_t[]){ 1, 3 }, 2), 0);
 	osc2_cal_flush();
 	cal_host.fail_writes = false;
+	/* the length is not checked: behind n = 0 the next two bytes are the side and the mask */
+	CHECK_EQ(cal_named(0xEE, "cal/joy_l", cal_joy_bytes, 18), 0);
+	memset(cal_frame_buf, 0, sizeof(cal_frame_buf));
+	cal_frame_buf[0] = 1;
+	cal_frame_buf[1] = 0xE2;
+	cal_frame_buf[3] = 0;   /* side 0 */
+	cal_frame_buf[4] = 2;   /* the stick */
+	CHECK_EQ(osc2_usb_feature_set(cal_frame_buf, sizeof(cal_frame_buf)), 0);
+	osc2_cal_flush();
+	CHECK_EQ(cal_host_flash_get("cal/joy_l", value, &len), 0);
+	cal_frame_buf[3] = 2;   /* a side above 1 there is refused */
+	CHECK(osc2_usb_feature_set(cal_frame_buf, sizeof(cal_frame_buf)) < 0);
+}
+
+OPENSC2_TEST(cal_store_boot_load)
+{
+	uint8_t out[64];
+
+	/* what a boot finds in storage: a key of another length is refused (the built-in value
+	 * stays), the others are used from RAM */
+	stub_reset();
+	CHECK_EQ(osc2_cal_flash_write("cal/joy_l", cal_joy_bytes, 17), 0);
+	CHECK_EQ(osc2_cal_flash_write("cal/joy_r", cal_joy_bytes, 18), 0);
+	CHECK_EQ(osc2_cal_flash_write("cal/rgbw_g", (const uint8_t[]){ 150 }, 1), 0);
+	CHECK_EQ(osc2_cal_flash_write("cal/volt_offset", (const uint8_t[]){ 0x0A, 0x00 }, 2), 0);
+	cal_host_boot();
+	CHECK_EQ(cal_read("cal/joy_l", out), 0);
+	CHECK(!opensc2_cal_stick_ok(OPENSC2_LEFT));
+	CHECK_EQ(cal_read("cal/joy_r", out), 18);
+	CHECK(opensc2_cal_stick_ok(OPENSC2_RIGHT));
+	CHECK_EQ(opensc2_cal_led_trim(1), 150);
+	CHECK_EQ(opensc2_cal_led_trim(0), 90);   /* not stored: the default */
+	CHECK_EQ(opensc2_cal_volt_offset(), 10);
+	/* the glue's names are the keys' own without "cal/" */
+	CHECK_EQ(osc2_cal_load("joy_l", cal_joy_bytes, 19), -EINVAL);
+	CHECK_EQ(osc2_cal_load("joy", cal_joy_bytes, 18), -ENOENT);
+	CHECK_EQ(osc2_cal_load("joy_l", cal_joy_bytes, 18), 0);
+	CHECK(opensc2_cal_stick_ok(OPENSC2_LEFT));
+}
+
+/* The wire form of a state, to compare two states field by field (not their padding). */
+static void cal_wire(const struct opensc2_state *s, uint8_t out[OPENSC2_STATE_REPORT_LEN])
+{
+	memset(out, 0, OPENSC2_STATE_REPORT_LEN);
+	opensc2_encode_state(s, 0, out);
+}
+
+OPENSC2_TEST(cal_store_finished_values)
+{
+	/* Steam's settings in its wired session (24, 52, 53, 46, 34, 35, 84, 85, 82, 48, 45) */
+	static const uint8_t steam[] = {
+		24, 0, 0, 52, 0xFF, 0xFF, 53, 0xFF, 0xFF, 46, 0, 0, 34, 100, 0, 35, 80, 0,
+		84, 1, 0, 85, 50, 0, 82, 3, 0, 48, 0, 0, 45, 100, 0,
+	};
+	struct opensc2_state app, s;
+	uint8_t want[OPENSC2_STATE_REPORT_LEN], got[OPENSC2_STATE_REPORT_LEN];
+
+	/* An application that gives finished values only: the calibration's processing and the pad
+	 * rules leave every field as it was, with the defaults and with Steam's settings. */
+	stub_reset();
+	memset(&app, 0, sizeof(app));
+	app.buttons = 0x3FFFFFFFu;
+	app.trigger[OPENSC2_LEFT] = 12345;
+	app.trigger[OPENSC2_RIGHT] = 32767;
+	app.stick[OPENSC2_LEFT] = (struct opensc2_stick){ .x = -32767, .y = 32767 };
+	app.stick[OPENSC2_RIGHT] = (struct opensc2_stick){ .x = 1001, .y = -1 };
+	app.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = 1001, .y = -3001, .pressure = 20000,
+							   .touched = true, .clicked = true };
+	app.pad[OPENSC2_RIGHT] = (struct opensc2_trackpad){ .x = -32767, .y = 32767,
+							    .pressure = 32767, .touched = true };
+	app.imu = (struct opensc2_imu){ .timestamp_us = 0x12345678u, .accel = { 1, -2, 16384 },
+					.gyro = { -3, 4, -5 }, .quat = { 32767, 1, 2, 3 } };
+	cal_wire(&app, want);
+	for (int round = 0; round < 2; round++) {
+		if (round == 1) {
+			CHECK_EQ(cal_set(0x87, steam, sizeof(steam)), 0);
+		}
+		for (int i = 0; i < 3; i++) {
+			s = app;
+			osc2_cal_frame(&s);
+			osc2_cal_rules(&s);
+			cal_wire(&s, got);
+			CHECK(memcmp(got, want, sizeof(got)) == 0);
+		}
+	}
 }
 
 OPENSC2_TEST(cal_store_recordings)
