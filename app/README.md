@@ -352,6 +352,8 @@ Each needs pins, which the default map has used up: take them from buttons you d
 | RGB LED following Steam's colour | PWM channels named `red`, `green`, `blue` | [samples/rgb_led](../samples/rgb_led/README.md) |
 | Trackpads (any touch device of Zephyr's input subsystem) | `chosen { opensc2,right-trackpad = &touch; };` (and `opensc2,left-trackpad`), `right-trackpad-size`, optional `right-trackpad-keep-y` | [samples/touchpad](../samples/touchpad/README.md) |
 | IMU (any accelerometer and gyroscope with a sensor driver) | `aliases { imu0 = &imu; };` | [samples/imu](../samples/imu/README.md) |
+| Stick touch and grips (any input device whose key codes are the touch bits, such as a CAP12xx capacitive sensor) | `chosen { opensc2,touch-keys = &touch_keys; };` | [sensors.overlay](sensors.overlay) |
+| More buttons on an I2C port expander | a second gpio-keys node labelled `opensc2_buttons_polled`, in polling mode | [expander.overlay](expander.overlay) |
 | A mode switch (closed at power-up: wireless) | `mode-wireless-gpios` in `zephyr,user` | the overlay's comment |
 
 The PWM parts share one `pwms` list in `zephyr,user`, found by their `pwm-names`. All channels of
