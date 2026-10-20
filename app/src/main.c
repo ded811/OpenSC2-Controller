@@ -281,7 +281,13 @@ void app_pair_button(bool pressed)
 		return;
 	}
 	if (pressed) {
-		LOG_INF("Pairing: Steam must have the puck's pairing window open");
+		enum opensc2_transport t = opensc2_selected_transport();
+
+		if (t == OPENSC2_TRANSPORT_BLE_1 || t == OPENSC2_TRANSPORT_BLE_2) {
+			LOG_INF("Bluetooth pairing mode: add the board on the new host");
+		} else {
+			LOG_INF("Pairing: Steam must have the puck's pairing window open");
+		}
 		opensc2_pair_start(0);
 	}
 }
