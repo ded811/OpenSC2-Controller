@@ -124,10 +124,10 @@ The sample is built to do the following; none of it has run on hardware yet.
   and bit 16 for STEAM (`0x00010000`); `sticks L <x> <y>` from -32767 to 32767; `triggers` with the
   right one from 0 to 32767. `opensc2 status` shows the board's serials: mask them before you post
   the output.
-- When the PC goes to sleep, the puck tells the controller to turn off, and the radio stays off:
-  this sample has no code that turns it back on (`app/` turns it on at any button press). Reset the
-  board (short RST to GND once), holding the pairing button if it is on USB power, so that it
-  starts wireless again.
+- When the PC goes to sleep, the puck tells the controller to turn off: the library's system state
+  machine switches wireless off, as the real controller does on USB power. A STEAM press then
+  reboots the board, which comes back wired on a PC; `opensc2 start` on its console turns wireless
+  on again, and so does a reset (short RST to GND once) with the pairing button held on USB power.
 
 ## Change it
 

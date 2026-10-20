@@ -620,16 +620,17 @@ On the console (wireless mode):
 | `opensc2 transport ble save` | the same, stored at once (then `opensc2 reboot wireless` comes back on Bluetooth) |
 | `opensc2 ble status` | advertising (its form and the seconds left of its 60 s window), connected (security, ATT MTU, interval, the reports sent) or wireless off; the identity and its address, the bonds |
 | `opensc2 ble pair` | pairing mode: the slot's other identity, reset, is open to a new host for 60 s; the old host keeps its bond until a new one has paired (the pairing button does the same while Bluetooth is the transport) |
-| `opensc2 start` | advertise again after "wireless off" (any button does the same) |
+| `opensc2 start` | advertise again after "wireless off" (STEAM instead reboots the board, which comes back wired, as on the real controller on USB power) |
 | `opensc2 transport puck` | back to the puck |
 
 Then pair it in Windows: **Settings, Bluetooth & devices, Add device, Bluetooth**; it shows as
 "Steam Ctrl (BT)" and the board's serial, and pairs without a prompt. As on the real controller,
-advertising stops after 60 s without a host, and when the host ends the link ("wireless off"; the
-board stays on, as on USB power); a lost link advertises again after 500 ms. The LED shows the
-real controller's Bluetooth patterns, in blue on an RGB LED: two quick flashes every half second
-while open to a new host, a slow pulse (1 s on in 2 s) while it advertises for its host, steady
-once connected (a slow fade on an RGB LED); dark while wireless is off. To pair it with another
+advertising stops after 60 s without a host, and when the host ends the link ("wireless off": on
+USB power the board stays on, and the system state machine shows amber); a lost link advertises
+again after 500 ms. The LED shows the real controller's Bluetooth patterns, in blue on an RGB LED:
+two quick flashes every half second while open to a new host, a slow pulse (1 s on in 2 s) while
+it advertises for its host, steady once connected; amber while wireless is off (on the one-colour
+LED: on with a short dark blink every second). To pair it with another
 host, or again after removing it in Windows: `opensc2 ble pair` first. The whole procedure, and the
 hardware test suite's Bluetooth path: [docs/testing.md](../docs/testing.md#bluetooth). What is
 built and what is not: [docs/api.md](../docs/api.md#the-bluetooth-build).

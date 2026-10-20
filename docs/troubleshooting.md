@@ -163,7 +163,7 @@ status` on the board's console says what it does:
 | It shows | What to do |
 | --- | --- |
 | `bluetooth: off (not the transport)` | `opensc2 transport ble` |
-| `link: wireless off: no host within the advertising window` | it advertised for 60 s and nobody connected: `opensc2 start`, or press any button, then pair or connect within 60 s |
+| `link: wireless off: no host within the advertising window` | it advertised for 60 s and nobody connected: `opensc2 start`, then pair or connect within 60 s (a STEAM press instead reboots the board, which comes back wired on a PC) |
 | `link: wireless off: the host ended the link` | the PC disconnected it (for example when the device was removed or Bluetooth turned off): `opensc2 start` |
 | `link: advertising for the bonded host only` or `directed to the bonded host` | only the host it is bonded to may connect. If that host forgot it (Remove device in Windows), it refuses to pair again on the same identity: `opensc2 ble pair` opens the slot to a new host with a fresh address |
 | `link: advertising open to any host (pairing mode)` | Windows: Settings, Bluetooth & devices, Add device, Bluetooth; it is "Steam Ctrl (BT) " and the board's serial. If it does not appear, check that the PC's Bluetooth is on and does Bluetooth LE |

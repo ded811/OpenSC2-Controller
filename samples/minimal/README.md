@@ -100,10 +100,10 @@ The sample is built to do the following; none of it has run on hardware yet.
   `buttons   0x00000001` while A is held, `opensc2 status` the mode and the link, and
   `opensc2 usb log` what happened while the board was wired. `opensc2 status` shows the board's
   serials: mask them before you post the output.
-- When the PC goes to sleep, the puck tells the controller to turn off, and the radio stays off:
-  this sample has no code that turns it back on (`app/` turns it on at any button press). Reset the
-  board (short RST to GND once), holding the pairing button if it is on USB power, so that it
-  starts wireless again.
+- When the PC goes to sleep, the puck tells the controller to turn off: the library's system state
+  machine switches wireless off, as the real controller does on USB power, and nothing in this
+  sample turns it on again. Type `opensc2 start` on its console, or reset the board (short RST to
+  GND once), holding the pairing button if it is on USB power, so that it starts wireless again.
 
 ## Change it
 
