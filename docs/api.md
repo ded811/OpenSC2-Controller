@@ -1064,7 +1064,8 @@ A frame is two samples, the left channel's first. Each path has its own thread: 
 something plays; then a first block that begins with 4 ms of silence, and block after block, one
 block ahead of what plays, until nothing plays any more, when it lets the output drain. A sound
 therefore starts about 4 ms after its report on an idle path, 8 to 16 ms after it while something
-plays. Each channel runs up to eight generators at once, one of each type (click A, click B, pulse
+plays (one block sooner than on the real controller:
+[protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 35). Each channel runs up to eight generators at once, one of each type (click A, click B, pulse
 train, tone, rumble, sweep, stream, clip); their samples, each scaled by its own gain, are summed,
 multiplied by the channel gain and clipped. The channel gain is the master gain (controller setting
 76, default -3 dB), negated for the left pad and the right grip as on the real controller. Every
@@ -1463,9 +1464,9 @@ summary and the gaps):
   read a GET), with refusals as ATT error `0x04` and a write past 64 bytes as `0x07`. Power and
   reboot commands act as on the other links; a reboot into wireless mode comes back on Bluetooth when
   Bluetooth is the stored transport.
-- **Connection**: 7.5 ms, latency 0 and 420 ms asked for 5 s after connecting, every host request
-  accepted (a longer interval is logged as suboptimal), the 2M PHY asked for; no data-length update
-  of its own.
+- **Connection**: 7.5 ms, latency 0 and 420 ms asked for 5 s after connecting, every valid host
+  request accepted (the stack refuses invalid ones; a longer interval is logged as suboptimal), the
+  2M PHY asked for; no data-length update of its own.
 - **The radio**: the puck's ESB and Bluetooth share it, one at a time. Both take their interrupts at
   run time; MPSL (Nordic's radio scheduler, in this build also the clock driver for the radio and the
   USB console) stays initialised. Bluetooth starts once ESB is off and gives the radio back by
@@ -1597,7 +1598,7 @@ most likely to act on:
 | 9 | `OPENSC2_SETTING_LIZARD_MODE` | 1 | lizard mode; Steam sends `0x81`, SDL writes 0 |
 | 11, 12 | `OPENSC2_SETTING_MOMENTUM_MIN_VEL`, `_DECAY` | 200, 100 | lizard mode's glide: the flick speed it needs (pad units per frame), its length in frames (used by the library) |
 | 14 | `OPENSC2_SETTING_HAPTIC_INCREMENT` | 5500 | lizard mode's tick spacing (used by the library) |
-| 27 | `OPENSC2_SETTING_RUMBLE_GAIN_DB` | -10 | rumble gain offset, dB |
+| 27 | `OPENSC2_SETTING_RUMBLE_GAIN_DB` | -10 | rumble gain offset, dB: on the real controller the left grip's only (the haptics synthesiser does the same) |
 | 36 | `OPENSC2_SETTING_IR_LED_BRIGHTNESS` | 0 | the IR LED, percent ([Status LED](#status-led)) |
 | 37 | `OPENSC2_SETTING_LED_OVERRIDE` | 0 | show `0xC5`'s colour |
 | 38 | `OPENSC2_SETTING_LED_CURVE` | 1 | not 0: setting 45 goes through the brightness curve ([Status LED](#status-led)) |
@@ -1989,8 +1990,9 @@ or the radio.
 - **Nothing else goes to the dock**: no lizard mode reports, no battery report `0x43`, no `0x44`.
   `0xBE` answers over the dock as on any link.
 - **Timing.** An answer is built at once (well under a millisecond) unless the command writes flash;
-  the puck waits 64 ms for it. The dock link logs a warning for an answer that took over 50 ms, and
-  the test hooks report the slowest.
+  the puck waits up to 64 ms until the whole answer is in, so an answer has to start within about
+  57 ms of the request. The dock link logs a warning for an answer that took over 50 ms, and the
+  test hooks report the slowest.
 
 ### The dock's rules
 

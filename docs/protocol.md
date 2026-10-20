@@ -314,15 +314,18 @@ been seen on a wire. The puck's three pogo pads are `+` (a rail at about USB vol
 switches on itself), `−` (ground) and `P`, the **pilot**: an analog level that tells the puck a
 controller is there, and (inferred) the line of a half-duplex serial link too.
 
-- **The puck's side**: idle, it keeps `+` off and reads the pilot every 100 ms; once the pilot has
-  been inside its window for 200 readings in a row, it switches `+` on, checks both voltages every
-  5 ms, and after 1 s sends a probe. An answer means attached (the puck reports it to the PC as
-  input report `0x79` = 2 on its fifth HID interface); no answer is a fault (`+` off for 10 s). While
-  attached it relays the PC's feature report 1 and, with nothing pending for 64 ms, polls the
-  controller's input; a failed poll that a probe 10 ms later does not forgive sends it back to idle.
-  Each exchange: send, throw away the first frame back within 100 ms (its own echo), wait up to
-  64 ms for the answer, wait 10 ms; one retry. The puck answers Steam's `0x83` and `0xAE` for a
-  docked controller itself, from the probe's record (attribute 11 = 64000).
+- **The puck's side**: idle, it keeps `+` off and reads the pilot every 100 ms, every 1 ms once it
+  lies inside its window; after 200 readings in a row inside it, it switches `+` on, checks both
+  voltages every 5 ms (not during its own exchanges), and after 1 s sends a probe. An answer means
+  attached (the puck reports it to the PC as input report `0x79` = 2 on its fifth HID interface);
+  no answer is a fault (`+` off for 10 s). While attached it relays the PC's feature report 1 and,
+  with nothing pending for 64 ms, polls the controller's input; a failed poll that a probe 10 ms
+  later does not forgive sends it back to idle. Each exchange: send; its own request must come
+  back as an echo, whole and with a good CRC, within 100 ms (or the exchange fails), and is thrown
+  away; then up to 64 ms until the whole answer is in, so the controller has about 57 ms after the
+  request to start sending; then 10 ms; one retry. Of an answer the puck checks only the length and
+  the CRC, and it reads the result only of a GET of a vendor command. The puck answers Steam's
+  `0x83` and `0xAE` for a docked controller itself, from the probe's record (attribute 11 = 64000).
 - **The link**: 115200 baud, 8N1, no flow control. Every message is a 73-byte frame: the start byte
   (`0x5A` from the puck, `0xAC` from the controller, checked by nobody), the request type, two unused
   bytes, the result (s32), 63 payload bytes and a CRC-16/KERMIT of bytes 0 to 70, low byte first.
@@ -536,7 +539,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | Reading feature report 1 | 64 bytes, the answer then left-overs; a read blob gets the start again | the 63 bytes the report map declares; a read blob gets the rest of the same answer |
     | Feature report 1's stored request | kept from one connection to the next: a new connection's first read answers what the last SET of an earlier one selected (`0x83` until the first SET after boot) | starts again at `0x83` at every connection, as the radio's does; a host that sends a SET before its GET, as Steam and SDL do, sees no difference |
     | No connection-event trigger | no state reports (inferred) | a timer at the connection interval paces them |
-    | Report pacing | the slot less the worst processing time of the last 65 frames | the slot less a fixed 500 µs (`CONFIG_OPENSC2_BLE_REPORT_LEAD_US`) |
+    | Report pacing | the report slot is one connection interval after the event's start less 500 µs, and the state is sampled before it by the worst processing time of the last 65 frames | the same slot (`CONFIG_OPENSC2_BLE_REPORT_LEAD_US`, 500 µs), with the state sampled at the slot itself |
     | A report that cannot be sent | logged as an error with its ID | logged at debug level (at the default MTU every state report would be) |
 
     Valve's Bluetooth company ID and the PnP ID `28DE:1303` are advertised for interoperability, as
@@ -696,8 +699,9 @@ open, the library does what should work with Steam and the puck, and says so her
       transport`) becomes the machine's choice, as a chord's would: the LED shows its colour, the
       battery wait's timer starts it, and `opensc2 power` reports it.
     - **Power that goes away** must stay away 0.2 s before it counts (the wired unplug rule's
-      debounce); the real controller acts on its charger's events. The dock exists only as a power
-      source an application names (OpenSC2 has no dock).
+      debounce); the real controller acts on its charger's events. The dock is a power source an
+      application names, or the one the dock's supply rule gives in a UART build with a sense
+      input for `+` (gap 40); the SuperMini builds have none, so they never count as docked.
     - **Host requests**: the states that do not act on a host's reboot, bootloader or warm-reboot
       request ignore it, as documented; the library's own reboots (STEAM before a host, the shell,
       the pairing button) are never held back.
@@ -748,6 +752,8 @@ open, the library does what should work with Steam and the puck, and says so her
     | Setting 70 | does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
     | `0x87` and `0x89` through the puck | the report's own length on every link. The real controller's handlers are told the radio record's length, which counts the report ID too, so through the puck its `0x87` takes one byte from beyond the report (63 in a full one, the last a junk byte) and its `0x89` accepts n one larger (n = 62 in a full report, with a junk byte), which OpenSC2 drops. Not copied: the extra byte would put a 16-bit stream out of step; an n of 61 or less is the same on every link |
+    | When a command is heard | about 4 ms after it on an idle path, as on the real controller; while something plays 8 to 16 ms after it, one block sooner than the real controller's 16 to 24 ms: OpenSC2's thread takes the queued commands once the output has taken the block before, right before it renders the next, where the real one takes them before it waits for the output |
+
 36. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
     not write as it was: a probe's type and result, a SET's payload, the bytes after a GET's answer
     (the rest of the SET that selected the command, then its previous answer), and the whole frame
