@@ -119,7 +119,28 @@ def _setup_battery(rig, c, settings=None):
     return rig.ring_next()
 
 
+def _clear_boot(rig):
+    """No system injection and no boot-time injection left for the next boot: a test that stored
+    one (SYS_BOOT, _setup_battery) and stopped before its own reboot would have the next switch
+    boot on the injected power source. Best effort: the restore does it again at the end."""
+    if not rig.ctx.armed:
+        return
+    for fn in (rig.sys_inject_off, rig.sys_boot_clear):
+        try:
+            fn()
+        except Exception:
+            pass
+
+
 def run(ctx):
+    try:
+        _run(ctx)
+    finally:
+        if ctx.rig.caps and T.cap_flag(ctx.rig.caps, C.CAP_SYSTEM):
+            _clear_boot(ctx.rig)
+
+
+def _run(ctx):
     rig = ctx.rig
     w = rig.path == "W"
     if not rig.ctx.armed:
@@ -438,7 +459,10 @@ def run(ctx):
                 rig.to_wireless()
                 _rearm(rig)
 
-    # the rest of the run expects the board as it came: wireless, on USB power
+    # the rest of the run expects the board as it came: wireless, on USB power (and nothing left
+    # for the next boot by a test that stopped early)
+    if rig.caps and T.cap_flag(rig.caps, C.CAP_SYSTEM):
+        _clear_boot(rig)
     if rig.path == "W":
         rig.to_wireless()
         _rearm(rig)

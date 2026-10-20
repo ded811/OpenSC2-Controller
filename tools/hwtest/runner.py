@@ -280,6 +280,23 @@ class Runner:
             return
         if rearm:
             self._phase_start(rig.path)
+            self._clear_system_injection()
+
+    def _clear_system_injection(self):
+        """After an unplanned reset (or a reboot that did not come): a test that stored a
+        boot-time injection (SYS_BOOT) and stopped before its own reboot left it in retained RAM
+        for the board's next boot, so the next mode switch would boot on the injected power source
+        (a battery: wireless, whatever the switch asked for). The system injection off and the
+        boot words cleared, as restore.inputs does at the end."""
+        rig = self.rig
+        caps = rig.caps or {}
+        if not rig.ctx.armed or not caps.get("build_flags", 0) & (1 << C.CAP_SYSTEM):
+            return
+        for fn in (rig.sys_inject_off, rig.sys_boot_clear):
+            try:
+                fn()
+            except Exception:
+                pass                       # the restore at the end tries again
 
     def _wait_steam_closed(self):
         """Steam is open where it must not be: with --yes (or no terminal) the run stops; else the

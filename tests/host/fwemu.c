@@ -37,7 +37,8 @@
  *   RADIO OFF|ON        "opensc2 stop" / "opensc2 start" (wireless)
  *   STATE               "MODE W|R", "LINK <state>", "ARMED <0|1>", "GUARD <0|1>"
  *   REBOOT PLAIN|WIRELESS|WIRED   "opensc2 reboot [wireless|wired]": the mode the emulator decides
- *                       (a boot-time injection of the test hooks' system ops can make it wireless)
+ *                       (a boot-time injection of the test hooks' system ops can make it wireless,
+ *                       also after WIRED: the boot rule looks at the power before the mark)
  *   QUIT
  * Reports sent outside FRAMES come as "RPT <hex>" lines in that command's reply. A reboot (a power
  * request falling due) prints "EVENT BOOT W|R" where it happens.
@@ -649,8 +650,13 @@ int main(void)
 			boot(arg[0] == 'R', arg[0] == 'R');
 		} else if (strcmp(line, "REBOOT") == 0) {
 			if (strcmp(arg, "WIRED") == 0) {
-				printf("EVENT BOOT W\n");
-				boot(false, false);
+				/* The "wired once" mark: wired whatever the policy, but the boot rule
+				 * still looks at the power first: a boot-time injection of a battery or
+				 * the dock (no USB power in effect) boots wireless, as on the board. */
+				bool to_r = emu_sys_boot_wireless();
+
+				printf("EVENT BOOT %c\n", to_r ? 'R' : 'W');
+				boot(to_r, false);
 			} else {
 				reboot_now(strcmp(arg, "WIRELESS") == 0, strcmp(arg, "WIRELESS") == 0);
 			}
