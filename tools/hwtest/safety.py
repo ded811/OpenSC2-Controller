@@ -168,9 +168,25 @@ def _split_named(payload):
     return payload[:nul].decode("ascii", "replace"), payload[nul + 1:]
 
 
+def _check_cal(opcode, name, value):
+    """0xEE/0xEF/0xF0 on a calibration key (cal/...): never, not even with --flash and a token
+    (S5: a real controller's factory calibration cannot be made again). Only the forms the
+    firmware refuses before it touches anything: 0xEE with a size other than the key's, 0xEF or
+    0xF0 with a byte after the NUL."""
+    size = C.CAL_KEY_SIZES.get(name)
+    if opcode == C.VC_BY_NAME_SET and size is not None and len(value) != size:
+        return
+    if opcode in (C.VC_BY_NAME_SAVE, C.VC_BY_NAME_DELETE) and len(value) > 0:
+        return
+    raise SafetyError("0x%02X on the calibration key %r is never sent" % (opcode, name))
+
+
 def _check_named(opcode, payload, ctx, consume=True):
     """0xEE/0xEF/0xF0: the allowed forms of S5. Raises SafetyError when refused."""
     name, value = _split_named(payload)
+    if name is not None and name.startswith("cal/"):
+        _check_cal(opcode, name, value)
+        return
     known = name in set(C.KEY_NAMES.values())
     is_bond = name in ("esb/bond", "esb/bond_2")
     # a matching one-shot token (with --flash) lets a real flash write through
@@ -219,7 +235,7 @@ def _check_named(opcode, payload, ctx, consume=True):
             if value == b"bad!" and not ctx.caps_identity_write:
                 return
             raise SafetyError("0xEE %s: identity write refused" % name)
-        # any other name (e.g. cal/joy_l 00): the library does not know it, the firmware refuses
+        # any other name: the library does not know it, the firmware refuses
         return
     raise SafetyError("unreachable named opcode")
 

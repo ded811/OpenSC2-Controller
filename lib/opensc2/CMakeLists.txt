@@ -42,6 +42,9 @@ if(CONFIG_OPENSC2_USB OR CONFIG_OPENSC2_TEST_HOOKS)
   zephyr_library_sources(retained.c)
 endif()
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_SHELL shell.c)
+# The calibration keys, commands and raw inputs (stand-ins without CONFIG_OPENSC2_CAL).
+zephyr_library_sources(cal_store.c)
+zephyr_library_sources_ifdef(CONFIG_OPENSC2_CAL cal_flash.c)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_FUSION fusion.c)
 # The hardware test hooks (tools/hwtest).
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_TEST_HOOKS

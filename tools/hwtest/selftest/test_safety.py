@@ -220,8 +220,35 @@ class VendorDenylist(unittest.TestCase):
         ctx.empty_slots = {"esb/bond_2"}
         # 0xDC type 2 (refused by firmware), 0xF0 on an unknown name, 0xEE bond length != 24
         safety.check_vendor(C.VC_USER_STORE_SET, b"\x02\x01", "usb", ctx=ctx)
-        safety.check_vendor(C.VC_BY_NAME_DELETE, b"cal/joy_l\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_DELETE, b"nope/key\x00", "usb", ctx=ctx)
         safety.check_vendor(C.VC_BY_NAME_SET, b"esb/bond\x00\x00", "usb", ctx=ctx)
+
+    def test_calibration_keys_never_written(self):
+        """S5: a calibration key is never written, saved or deleted, not even with --flash and a
+        token; only the forms the firmware refuses go out."""
+        ctx = safety.Context()
+        ctx.flash_allowed = True
+        joy = b"cal/joy_l\x00"
+        ctx.add_token(C.VC_BY_NAME_SET, "cal/joy_l", bytes(18))
+        ctx.add_token(C.VC_BY_NAME_DELETE, "cal/joy_l", b"")
+        for opcode, payload in ((C.VC_BY_NAME_SET, joy + bytes(18)),
+                                (C.VC_BY_NAME_SAVE, joy),
+                                (C.VC_BY_NAME_DELETE, joy),
+                                (C.VC_BY_NAME_DELETE, b"cal/foo\x00"),
+                                (C.VC_BY_NAME_SET, b"cal/foo\x00\x01"),
+                                (C.VC_BY_NAME_SET, b"cal/rgbw_r\x00\x5a"),
+                                (C.VC_BY_NAME_DELETE, b"cal/sensors/gyroscope/bias\x00")):
+            with self.assertRaises(safety.SafetyError):
+                safety.check_vendor(opcode, payload, "usb", ctx=ctx)
+        # refused by the firmware: a wrong size, a byte after the NUL
+        safety.check_vendor(C.VC_BY_NAME_SET, joy + b"\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_SET, joy + bytes(17), "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_SAVE, joy + b"\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_DELETE, joy + b"\x00", "usb", ctx=ctx)
+        # the calibration commands themselves stay hard-refused
+        for opcode in (0xD8, 0xC0, 0xC3, 0xFE):
+            with self.assertRaises(safety.SafetyError):
+                safety.check_vendor(opcode, b"\x00\x01", "usb", ctx=ctx)
 
     def test_transport_and_chime_values(self):
         """safety-HW-6: 0x01 is ignored only for the transport key (Bluetooth); the chime key

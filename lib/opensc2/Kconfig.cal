@@ -1,0 +1,60 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# Calibration and sensor processing (lib/opensc2/cal_store.c and friends), sourced from Kconfig.
+
+config OPENSC2_CAL
+	bool "Calibration: the cal/ keys, the calibration commands and raw inputs"
+	default y
+	help
+	  As on the real controller: the calibration keys (cal/joy_l, cal/joy_r, cal/trg_l,
+	  cal/trg_r, cal/prs_l, cal/prs_r, cal/touch_l, cal/touch_r, cal/rgbw_r/_g/_b/_w,
+	  cal/volt_offset, cal/sensors/gyroscope/bias) kept under "opensc2/cal/" in Zephyr settings,
+	  read with vendor command 0xED and changed with 0xEE, 0xEF and 0xF0; the factory recordings
+	  0xD8 (sticks), 0xC0 (triggers) and 0xC3 (pad pressure); 0xE2 (save one side) and 0xFE
+	  (erase every cal/ key, only with its key). A factory reset (0x86) keeps them.
+
+	  Raw inputs (opensc2_set_stick_raw() and friends, <opensc2/cal.h>): the library applies the
+	  stored calibration and controller settings 30, 31, 34, 35, 46, 52, 53, 60 and 62 to raw ADC
+	  counts, pressure and capacitive words at every state report, as the real controller does,
+	  and the recordings take their samples from them. An application that gives finished values
+	  only is not affected. About 400 bytes of RAM.
+
+if OPENSC2_CAL
+
+config OPENSC2_CAL_PRESSURE_CLICK
+	bool "Raw pad pressure also sets the pad's click bit"
+	default y
+	help
+	  As on the real controller, which has no click switch under its pads: the click follows the
+	  calibrated pressure (settings 52 and 53, 8 points of hysteresis) while the pad is touched.
+	  Turn off on a board whose pads have a click switch of their own and also report pressure.
+
+config OPENSC2_CAL_STICK_DEAD_ZONE
+	int "Centre dead zone of raw sticks, report units (0: none, as the real controller)"
+	default 0
+	range 0 16383
+	help
+	  Per axis: a calibrated value up to this reads 0, the rest is stretched back to full scale.
+	  The real controller has none (its Hall sticks do not drift); potentiometer sticks may want
+	  about 2000 (6 %).
+
+config OPENSC2_CAL_STICK_GROW_RANGE
+	bool "Raw sticks: let the range grow past the stored extremes (July 2026's rule)"
+	help
+	  July 2026's controller firmware let each half's outer end follow a low-pass copy of the
+	  reading (factor 0.15) past the stored extreme, in RAM only; October keeps the stored range.
+
+endif # OPENSC2_CAL
+
+config OPENSC2_PAD_RULES
+	bool "Pad rotation (settings 2 and 24) and stabiliser (setting 80 = 2) on the reported pads"
+	default y
+	depends on OPENSC2_CAL
+	help
+	  After the hardware test hooks' injection, as the real controller processes its pads: with
+	  settings 2 and 24 both non-zero the pads' positions turn by setting 2's angle (the left pad
+	  the other way), and with setting 80 = 2 the touch stabiliser holds a new touch still until
+	  the thumb moves more than 4369 units. Both are off with the default settings (2 = 0,
+	  80 = 1), so nothing changes until a host writes them. Report 0x42 and lizard mode see the
+	  result.

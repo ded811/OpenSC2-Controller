@@ -154,7 +154,8 @@ def run(ctx):
                 c.observe(**{name[:-1].decode().replace("/", "_"): "empty" if b.n == 0 else
                              "crc32 %08x" % b.crc})
             a = rig.vendor(C.VC_BY_NAME_READ, b"cal/joy_l\0")
-            c.eq("cal/joy_l: n", a.n, 0)
+            c.true("cal/joy_l: n 0 (none stored) or 18", a.n in (0, 18))
+            c.observe(cal_joy_l="empty" if a.n == 0 else "stored")
             a = rig.vendor(C.VC_BY_NAME_READ, TRANSPORT[:-1])
             c.eq("a name without its NUL: n", a.n, 0)
 
@@ -206,8 +207,8 @@ def run(ctx):
                 c.note("esb/bond_2 holds a bond: its 0xEF refusal is not sent")
             c.true("0xEF user/haptic_boot_level with a byte after the NUL is refused",
                    rig.refused(C.VC_BY_NAME_SAVE, CHIME + b"\x01"))
-            c.true("0xF0 cal/joy_l is refused", rig.refused(C.VC_BY_NAME_DELETE,
-                                                            b"cal/joy_l\0"))
+            c.true("0xEF cal/joy_l with a byte after the NUL is refused",
+                   rig.refused(C.VC_BY_NAME_SAVE, b"cal/joy_l\0\x00"))
             c.true("nothing stored", rig.read_named(BOND2).data == b2.data and
                    rig.read_named(CHIME).data == h.data)
 

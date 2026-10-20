@@ -190,6 +190,13 @@ KEY_NAMES = {
     5: "opensc2/unit_serial", 6: "opensc2/board_serial", 7: "opensc2/git_revision",
     8: "opensc2/board_revision",
 }
+# The calibration keys (CONFIG_OPENSC2_CAL) and their sizes: S5 never lets the suite write, save
+# or delete one; only the forms the firmware refuses before touching anything go out.
+CAL_KEY_SIZES = {
+    "cal/joy_l": 18, "cal/joy_r": 18, "cal/trg_l": 7, "cal/trg_r": 7, "cal/prs_l": 8,
+    "cal/prs_r": 8, "cal/touch_l": 10, "cal/touch_r": 10, "cal/rgbw_r": 1, "cal/rgbw_g": 1,
+    "cal/rgbw_b": 1, "cal/rgbw_w": 1, "cal/volt_offset": 2, "cal/sensors/gyroscope/bias": 12,
+}
 
 # ---- caps build flags (docs/test-protocol.md) -----------------------------------------------
 CAP_TRIGGER_CLICK_AUTO = 0

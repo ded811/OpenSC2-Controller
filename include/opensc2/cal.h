@@ -237,11 +237,38 @@ void opensc2_cal_rec_pressure(const struct opensc2_cal_rec *r, enum opensc2_side
 			      struct opensc2_cal_pressure *out);
 
 /* ---- The library's calibration (CONFIG_OPENSC2_CAL) -------------------------------------------
- * Raw inputs: a side given with one of these is processed by the library at every state report
- * (calibration, settings 46, 60 and 62, the factory recordings); the finished-value setters
- * (opensc2_set_stick(), opensc2_set_trigger(), opensc2_set_trackpad()'s pressure) take it back.
- * Thread safe and cheap, like the other setters. -ENOTSUP without CONFIG_OPENSC2_CAL.
+ * Raw inputs: an input given with one of these is processed by the library at every state report
+ * (the stored calibration, settings 30, 31, 34, 35, 46, 52, 53, 60 and 62, the factory
+ * recordings), and its processed value replaces whatever the finished-value setters gave it, until
+ * opensc2_cal_raw_release() gives it back. Thread safe and cheap, like the other setters; the
+ * values are taken at the next state report (give them from the `sample` callback to have them
+ * sampled at the last moment). -ENOTSUP without CONFIG_OPENSC2_CAL.
  */
+
+#define OPENSC2_RAW_STICK_L     OPENSC2_BIT(0)
+#define OPENSC2_RAW_STICK_R     OPENSC2_BIT(1)
+#define OPENSC2_RAW_TRIGGER_L   OPENSC2_BIT(2)
+#define OPENSC2_RAW_TRIGGER_R   OPENSC2_BIT(3)
+#define OPENSC2_RAW_PRESSURE_L  OPENSC2_BIT(4)
+#define OPENSC2_RAW_PRESSURE_R  OPENSC2_BIT(5)
+#define OPENSC2_RAW_TOUCH_L     OPENSC2_BIT(6)   /* the stick-touch and grip words */
+#define OPENSC2_RAW_TOUCH_R     OPENSC2_BIT(7)
+#define OPENSC2_RAW_ALL         0xFFu
+
+/* All raw inputs at once (the hardware test hooks inject this too). */
+struct opensc2_raw_inputs {
+	uint8_t present;            /* OPENSC2_RAW_*: the inputs below that are given */
+	uint16_t stick[2][2];       /* [side][X, Y]: 12-bit counts, right and up the higher */
+	uint16_t trigger[2];        /* 12-bit counts */
+	int16_t pressure[2];        /* raw pressure words */
+	int16_t stick_touch[2];     /* capacitive words, the controller's units */
+	int16_t grip[2];
+};
+
+/* The inputs in `raw->present` become raw with these values (the others stay as they are). */
+int opensc2_set_raw(const struct opensc2_raw_inputs *raw);
+/* Give inputs (OPENSC2_RAW_* bits) back to the finished-value setters. */
+int opensc2_cal_raw_release(uint8_t inputs);
 
 /* Both axes of a stick, 12-bit ADC counts (0..4095), right and up the higher values. */
 int opensc2_set_stick_raw(enum opensc2_side side, uint16_t x_counts, uint16_t y_counts);

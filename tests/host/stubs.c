@@ -8,6 +8,8 @@
  */
 #include <string.h>
 #include "internal.h"
+#include "cal_store.h"
+#include "cal_host.h"
 #include "stubs.h"
 #include "test_hooks.h"
 
@@ -170,6 +172,8 @@ void stub_reset(void)
 	for (int link = 0; link < OSC2_LINK_COUNT; link++) {
 		osc2_commands_reset((enum osc2_link)link);
 	}
+	cal_host_erase_all();   /* a new board: no calibration stored */
+	osc2_cal_reset();
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	hooks_reset();
 #endif

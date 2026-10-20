@@ -23,6 +23,14 @@
 /* osc2_test_ctx_enter() with the hooks unarmed: nothing to restore. */
 #define OSC2_TEST_CTX_UNSET 0xFF
 
+struct opensc2_raw_inputs;
+
+/* In osc2_cal_frame(): the raw injection replaces the application's raw inputs. */
+static inline void osc2_test_raw_inputs(struct opensc2_raw_inputs *raw)
+{
+	(void)raw;
+}
+
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 
 /* ---- state reports, lizard mode, battery ---- */
