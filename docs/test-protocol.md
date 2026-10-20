@@ -55,7 +55,7 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x03` | STATUS | | status, 32 bytes | also the lease's keep-alive |
 | `0x10` | INJECT | flags u8 (bit 0: stop a running sequence first; bit 1: the lizard test), state52 | frames u32 | the static injected state; DENIED while lizard mode is on without bit 1 |
 | `0x11` | INJECT_OFF | | frames u32 | also stops a sequence |
-| `0x12` | BATTERY | charge state u8, level u8, battery, system, input mV u16, current s16, input current u16, temperature u16, gauge flags u8, flags u8 (bit 0: send a `0x43` now; the 3.5 s period restarts from it) | | |
+| `0x12` | BATTERY | charge state u8, level u8, battery, system, input mV u16, current s16, input current u16, temperature u16, gauge flags u8 (kept in the battery the library holds; no report carries it), flags u8 (bit 0: send a `0x43` now; the 3.5 s period restarts from it) | | |
 | `0x13` | BATTERY_OFF | | | |
 | `0x14` | SEQ_LOAD | step u8 (below the depth), hold u8 (1..255 frames), state52 | | BUSY while a sequence runs |
 | `0x15` | SEQ_RUN | count u8 (1..depth; steps 0..count-1 loaded since ARM), flags u8 (bit 0 loop, bit 1 keep the last step as the static state, bit 2 the lizard test) | frames u32 | starts with the next frame built; BAD_ARG for a step not loaded, BUSY while one runs, DENIED while lizard mode is on without bit 2 |
