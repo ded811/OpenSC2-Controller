@@ -479,9 +479,9 @@ class SimBoard:
             return 0, bytes(M.led_readback(self.led[k]) for k in ("red", "green", "blue", "white"))
         if opcode == 0xDB:
             return 0, bytes([1, self.world.chime])
-        if opcode == 0x89:
+        if opcode == 0x89:      # a number above 85 reads 0, as on the real controller
             if sel >= 86:
-                return EINVAL, b""
+                return 0, bytes([sel, 0, 0])
             return 0, bytes([sel]) + struct.pack("<h", M.setting_answer(sel, self.settings[sel]))
         if opcode == 0xED:
             key, _value = self._named(payload)

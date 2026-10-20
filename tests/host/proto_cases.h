@@ -225,6 +225,21 @@ OPENSC2_TEST(proto_cmd_imu_settings)
 		CHECK_EQ(proto_usb(0x89, &n49, 1, reply), 3);
 		CHECK_EQ(opensc2_get_le16(&reply[4]), 2);
 	}
+	/* A number above 85 is no setting: it reads 0, an answer and not a STALL, as on the real
+	 * controller. */
+	for (int number = 86; number < 256; number += 13) {
+		const uint8_t n = (uint8_t)number;
+
+		CHECK_EQ(proto_usb(0x89, &n, 1, reply), 3);
+		CHECK_EQ(reply[3], n);
+		CHECK_EQ(opensc2_get_le16(&reply[4]), 0);
+	}
+	{
+		const uint8_t top = 0xFF;
+
+		CHECK_EQ(proto_usb(0x89, &top, 1, reply), 3);
+		CHECK(reply[3] == 0xFF && reply[4] == 0 && reply[5] == 0);
+	}
 }
 
 OPENSC2_TEST(proto_cmd_led_readback)

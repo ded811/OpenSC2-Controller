@@ -715,12 +715,11 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		*out_len = 2;
 		return 0;
 	case 0x89:   /* ID_GET_SETTINGS_VALUES */
-		if (sel >= OPENSC2_SETTINGS_COUNT) {
-			return -EINVAL;
-		}
 		out[0] = sel;
-		/* 48, 84 and 85 answer their defaults, as the real controller's IMU keeps them */
-		opensc2_put_le16(&out[1], (uint16_t)osc2_setting_answer(sel, osc2.settings[sel]));
+		/* As the real controller answers: a number above 85 reads 0, and 48, 84 and 85 their
+		 * defaults (its IMU keeps those) */
+		opensc2_put_le16(&out[1], sel < OPENSC2_SETTINGS_COUNT ?
+				 (uint16_t)osc2_setting_answer(sel, osc2.settings[sel]) : 0);
 		*out_len = 3;
 		return 0;
 	case 0xED: { /* read a setting by name: length 0 for a key without a value */

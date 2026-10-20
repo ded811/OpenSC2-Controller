@@ -192,14 +192,10 @@ def run(ctx):
             c.eq("27 = -11 taken, 90 ignored", rig.settings_read()[27], -11)
             c.true("no SETTING entry for 90", not [e for e in base.of_kind(
                 _entries(rig, start), C.RING_SETTING) if e["number"] == 90])
-            if rig.path == "W":
-                with rig.exclusive():          # the SET and its GET: no keep-alive between
-                    rig.vendor_set(C.VC_SETTINGS_GET, bytes([86]))
-                    c.true("0x89 86: the GET STALLs", rig.refused_get())
-            else:
-                c.eq("HOST_SET 0x89 86", rig.host_set(C.VC_SETTINGS_GET, bytes([86])), 0)
-                a = rig.host_get()
-                c.eq("HOST_GET answers {0x89, 0}", (a.opcode, a.n), (C.VC_SETTINGS_GET, 0))
+            # a number above 85 is no setting: 0x89 answers it with 0, as the real controller
+            for number in (86, 0xFF):
+                a = rig.vendor(C.VC_SETTINGS_GET, bytes([number]))
+                c.eq("0x89 %d reads 0" % number, (a.n, a.data[:3]), (3, bytes([number, 0, 0])))
             _restore(rig, snap, (27,))
 
     if ctx.want("settings.watchdog"):

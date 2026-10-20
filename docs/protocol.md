@@ -267,7 +267,8 @@ open, the library does what should work with Steam and the puck, and says so her
    documentation yet). These are the ranges the library knows ([api.md](api.md#controller-settings)
    lists them). Other settings are stored as sent. Settings 48, 84 and 85 are stored too, for the
    application (the real controller hands them to its IMU instead), and `0x89` answers their
-   defaults, as on the real controller. Whether Steam reads them back is not known.
+   defaults, as on the real controller. Whether Steam reads them back is not known. `0x89` of a
+   number above 85 reads 0, as on the real controller (0.2.0 stalled it).
 7. **The quaternion's W** (offset 45): one page of the research documentation calls it always 0,
    another the quaternion's W (since October). The library sends whatever the application
    provides; the fusion helper fills W.

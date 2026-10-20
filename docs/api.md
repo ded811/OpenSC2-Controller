@@ -629,7 +629,7 @@ The library answers these itself:
 | `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`; byte 13 is 1 while charging, byte 14 the charge state without a `0x80` flag: [Battery](#battery)) |
 | `0xE9` / `0xC5` | get / set | LED colour, four percentages (`0xC5` clamps each to 100 and calls `led`). `0xE9` reads it back as the real controller does: a channel reads 100 when it is exactly 100, otherwise 0 (`opensc2_led_get()` has the colour as kept) |
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
-| `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does ([Controller settings](#controller-settings)) |
+| `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link |
 | `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (2 = the first slot, 3 = the second), `user/haptic_boot_level`, the keys the library keeps (`user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`, the application's). `0xED` answers length 0 for an empty bond; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
 | `0xE2` | set | persist calibration: acknowledged for side 0 or 1 (after `vendor_command`, which may do something with it), refused above |
@@ -716,7 +716,8 @@ value changes.
 `0x8E` and the Steam watchdog keep settings 48, 84 and 85 (the real controller passes those to its
 IMU instead of storing them), and `0x89` answers their defaults (0, 1, 100) whatever was written,
 as the real controller does; `opensc2_setting_get()` and the `setting_changed` callback give the
-application the values Steam wrote.
+application the values Steam wrote. `0x89` of a number above 85 reads 0, also as the real
+controller does.
 
 The functions for the settings and the other state Steam sets:
 
