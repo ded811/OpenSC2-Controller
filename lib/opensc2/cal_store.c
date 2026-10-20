@@ -514,7 +514,9 @@ void osc2_cal_frame(struct opensc2_state *s)
 						     OPENSC2_TOUCH_RIGHT_STICK };
 	static const uint32_t grip_bit[2] = { OPENSC2_TOUCH_LEFT_GRIP, OPENSC2_TOUCH_RIGHT_GRIP };
 	static const uint32_t pad_touch_bit[2] = { OPENSC2_TOUCH_LEFT_PAD, OPENSC2_TOUCH_RIGHT_PAD };
+#if defined(CONFIG_OPENSC2_CAL_PRESSURE_CLICK)
 	static const uint32_t pad_click_bit[2] = { OPENSC2_CLICK_LEFT_PAD, OPENSC2_CLICK_RIGHT_PAD };
+#endif
 	struct opensc2_raw_inputs in;
 	struct opensc2_cal_rec done;
 	uint16_t stick_mv[2][2] = { { 0 } }, trigger_mv[2] = { 0 };
@@ -630,8 +632,10 @@ void osc2_cal_rules(struct opensc2_state *s)
 		bool touched = pad->touched || (s->buttons & pad_touch_bit[side]);
 		bool rotated;
 
+		if (!touched || !stabilise) {
+			opensc2_stabiliser_reset(&proc.stab[side]);   /* a new touch starts it over */
+		}
 		if (!touched) {
-			opensc2_stabiliser_reset(&proc.stab[side]);
 			continue;
 		}
 		rotated = opensc2_pad_rotate((enum opensc2_side)side, angle, rotate, &x, &y);
@@ -642,8 +646,6 @@ void osc2_cal_rules(struct opensc2_state *s)
 		y = CLAMP(2 * y, -OPENSC2_AXIS_MAX, OPENSC2_AXIS_MAX);
 		if (stabilise) {
 			opensc2_stabiliser_step(&proc.stab[side], OPENSC2_STABILISER_FINE, &x, &y);
-		} else {
-			opensc2_stabiliser_reset(&proc.stab[side]);
 		}
 		pad->x = (int16_t)x;
 		pad->y = (int16_t)-y;
