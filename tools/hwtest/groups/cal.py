@@ -170,44 +170,41 @@ def run(ctx):
             def bits(f):
                 return f["buttons"] & (LSTICK_TOUCH | RSTICK_TOUCH | LGRIP | RGRIP)
 
+            # Each step: the words, what the bits must be in every report built with them, and
+            # why. The steps are chosen so that the first frame (the mean of the old and the new
+            # word) and the frames after it (the new word alone) give the same bit, so a report
+            # missed on the way does not matter.
+            steps = [
+                ({}, 0, "nothing touched"),
+                ({"lstick_touch": 1100}, LSTICK_TOUCH, "stick touch on above 500 (means 550, 1100)"),
+                ({"lstick_touch": 450}, LSTICK_TOUCH, "held while at least 400 (775, 450)"),
+                ({"lstick_touch": 300}, 0, "off below 400 (375, 300)"),
+                ({"lstick_touch": 450}, 0, "450 does not turn it on again (375, 450)"),
+                ({"lstick_touch": 600}, LSTICK_TOUCH, "on again above 500 (525, 600)"),
+                ({"rgrip": 2400}, RGRIP, "grip on above 1125, 34 = 100 (1200, 2400)"),
+                ({"rgrip": 950}, RGRIP, "held while at least 900, 35 = 80 (1675, 950)"),
+                ({"rgrip": 800}, 0, "off below 900 (875, 800)"),
+                ({"rgrip": 1000}, 0, "1000 does not turn it on again (900, 1000)"),
+            ]
             try:
-                # stick touch: the mean of the last two words, on above 500, held while >= 400
-                f = _raw(rig, c, "words 0", count=2, present=touch)
-                if f:
-                    c.eq("nothing touched", bits(f[-1]), 0)
-                f = _raw(rig, c, "left 1100", count=2, present=touch, lstick_touch=1100)
-                if f:
-                    c.eq("mean 550 then 1100: on", [bits(x) for x in f],
-                         [LSTICK_TOUCH, LSTICK_TOUCH])
-                f = _raw(rig, c, "left 300", count=2, present=touch, lstick_touch=300)
-                if f:
-                    c.eq("mean 700 (held), then 300 (off)", [bits(x) for x in f],
-                         [LSTICK_TOUCH, 0])
-                f = _raw(rig, c, "left 500", count=2, present=touch, lstick_touch=500)
-                if f:
-                    c.eq("mean 400, then 500: not above 500, stays off", [bits(x) for x in f],
-                         [0, 0])
-                # grip: on above (34 / 2 + 12.5) % of 1800 = 1125, held while >= 900
-                f = _raw(rig, c, "right grip 1200", count=2, present=touch, rgrip=1200)
-                if f:
-                    c.eq("mean 600 then 1200: on at the second", [bits(x) for x in f], [0, RGRIP])
-                f = _raw(rig, c, "right grip 950", count=2, present=touch, rgrip=950)
-                if f:
-                    c.eq("950: held", [bits(x) for x in f], [RGRIP, RGRIP])
-                # a change of setting 34 starts the means over: on 2025, off 1620
+                for words, want, why in steps:
+                    f = _raw(rig, c, why, count=3, present=touch, **words)
+                    if f:
+                        c.eq(why, [bits(x) for x in f], [want] * 3)
+                # setting 34 = 200: on at 2025, held while at least 1620 (the means start over)
                 _settings(rig, [(34, 200)])
-                f = _raw(rig, c, "after 34 = 200", count=2, present=touch, rgrip=1900)
+                f = _raw(rig, c, "34 = 200, grip 1900", count=3, present=touch, rgrip=1900)
                 if f:
-                    c.eq("1900 under the new on level: off", [bits(x) for x in f], [0, 0])
-                f = _raw(rig, c, "2100", count=2, present=touch, rgrip=2100)
+                    c.eq("1900 under the new on level: off", [bits(x) for x in f], [0] * 3)
+                f = _raw(rig, c, "34 = 200, grip 4200", count=3, present=touch, rgrip=4200)
                 if f:
-                    c.eq("mean 2000 then 2100: on at the second", [bits(x) for x in f],
-                         [0, RGRIP])
-                # setting 30 raises the stick-touch level
+                    c.eq("on above 2025 (3050, 4200)", [bits(x) for x in f], [RGRIP] * 3)
+                # setting 30 = 800 raises the stick-touch level
                 _settings(rig, [(34, 100), (30, 800)])
-                f = _raw(rig, c, "left 700, 30 = 800", count=2, present=touch, lstick_touch=700)
+                f = _raw(rig, c, "30 = 800, stick 700", count=3, present=touch,
+                         lstick_touch=700)
                 if f:
-                    c.eq("700 under 800: off", bits(f[-1]) & LSTICK_TOUCH, 0)
+                    c.eq("700 under 800: off", [bits(x) & LSTICK_TOUCH for x in f], [0] * 3)
             finally:
                 rig.raw_off()
                 _settings(rig, [(30, 500), (34, 100)])
