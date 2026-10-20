@@ -45,7 +45,7 @@ extern "C" {
 #define OSC2_TEST_KIND_SYS_END       0x53   /* state, cause, end, how */
 #define OSC2_TEST_KIND_CHORD         0x54   /* what, chord */
 #define OSC2_TEST_KIND_SOURCE        0x55   /* from, to, event (0xFF: none) */
-#define OSC2_TEST_KIND_IDLE          0x56   /* history u16 */
+#define OSC2_TEST_KIND_IDLE          0x56   /* history u16 (only while the rules see an injection) */
 
 /* Flags of SYS_INJECT and SYS_BOOT: what is injected. */
 #define OSC2_TEST_SYS_BUTTONS        0x01

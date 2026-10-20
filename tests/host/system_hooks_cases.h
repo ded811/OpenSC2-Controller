@@ -279,8 +279,12 @@ OPENSC2_TEST(sys_hooks_ring)
 			       OSC2_TEST_SYS_HOW_TEST);
 	osc2_test_sys_note_chord(OSC2_TEST_CHORD_STEAM_HOLD, OSC2_CHORD_STEAM);
 	osc2_test_sys_note_source(OSC2_SRC_USB, OSC2_SRC_BATTERY, OSC2_SYS_EV_POWER_NONE);
-	osc2_test_sys_note_idle(0);
+	osc2_test_sys_note_idle(0);   /* nothing injected: not noted */
+	CHECK_EQ(con_op(OSC2_TEST_OP_SYS_INJECT, sargs(4, 0, 0, OSC2_SRC_BATTERY, 0), 8),
+		 OSC2_TEST_OK);
+	osc2_test_sys_note_idle(0);   /* now it is */
 	read_ring(0);
+	CHECK_EQ(count_kind(OSC2_TEST_KIND_IDLE), 1);
 	base = find_kind(OSC2_TEST_KIND_SYS_STATE, 0);
 	CHECK(base >= 0);
 	CHECK_EQ(count_kind(OSC2_TEST_KIND_CUE), 1);

@@ -269,13 +269,12 @@ def run(ctx):
         with ctx.check(GROUP, "system.idle_usb") as c:
             _need_system(rig, c)
             rig.write_settings([(50, 2)])
-            start = rig.ring_next()
             rig.sleep(2.6)
-            entries = rig.ring_all(start)[2]
-            c.true("the idle monitor fired (an IDLE entry)", _of(entries, C.RING_IDLE) != [])
             st = _status(rig, c)
+            c.eq("setting 50 in use, periods of 125 ms", (st["idle_timeout_s"],
+                                                         st["idle_period_ms"]), (2, 125))
+            c.eq("the idle monitor's history ran empty", st["idle_history"], 0)
             c.eq("on USB power nothing acts on it", st["state_name"], "usb-link-on")
-            c.eq("setting 50 in use", st["idle_timeout_s"], 2)
             rig.write_settings([(50, 900)])
 
     if ctx.want("system.link_off_steam"):

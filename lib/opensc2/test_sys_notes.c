@@ -124,9 +124,16 @@ void osc2_test_sys_note_source(uint8_t from, uint8_t to, int event)
 
 void osc2_test_sys_note_idle(uint16_t history)
 {
+	uint32_t v;
 	uint8_t d[2];
 
-	if (osc2_test_core_armed(CORE)) {
+	/* Only while a test injects into the system rules: a long run on a board with nothing wired
+	 * would otherwise meet the idle monitor every period after the timeout, in the middle of
+	 * other groups' rings. */
+	if (osc2_test_core_armed(CORE) &&
+	    (osc2_test_sys_get(ENV, OSC2_TEST_SYS_BUTTONS, &v) ||
+	     osc2_test_sys_get(ENV, OSC2_TEST_SYS_LEVEL, &v) ||
+	     osc2_test_sys_get(ENV, OSC2_TEST_SYS_SOURCE, &v))) {
 		opensc2_put_le16(d, history);
 		note(OSC2_TEST_KIND_IDLE, d, sizeof(d));
 	}
