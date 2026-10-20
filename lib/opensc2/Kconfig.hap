@@ -24,7 +24,7 @@ menuconfig OPENSC2_HAPTICS_SYNTH
 	  clicks and the system state machine's cues. Applies controller settings 76 (master
 	  gain), 75 (amplifier mode) and 27 (rumble gain offset). The application's rumble and haptic
 	  callbacks are still called. About 10 KB of RAM (two thread stacks, four 512-byte stream rings,
-	  the generators and queues) and 14 KB of flash. Built; not yet tested on hardware.
+	  the generators and queues) and 15 KB of flash. Built; not yet tested on hardware.
 
 if OPENSC2_HAPTICS_SYNTH
 

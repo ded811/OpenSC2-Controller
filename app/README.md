@@ -282,6 +282,8 @@ On Linux it is usually `/dev/ttyACM0`, on macOS `/dev/cu.usbmodem…` (Linux and
 | `opensc2 reboot`, `opensc2 reboot wireless`, `opensc2 reboot wired` | reboot by the rule, into wireless, into wired once |
 | `opensc2 usb`, `opensc2 usb log`, `opensc2 usb log clear` | the USB state, the USB session log |
 | `opensc2 pair`, `opensc2 cancel` | pairing over the air |
+| `opensc2 start`, `opensc2 stop` | the wireless link on, off (for example after "wireless off") |
+| `opensc2 transport`, `opensc2 transport puck2` | the wireless transport: show it, or run another (`puck`, `puck2`; `ble`, `ble2` in the [Bluetooth build](#test-build-bluetooth-le)) |
 | `opensc2 bonds`, `opensc2 slot 1`, `opensc2 forget 1` | the pairings |
 | `opensc2 id`, `opensc2 id set unit OSC2MYBOARD01`, `opensc2 id set rev 0x48`, `opensc2 id set name "My Steam Controller"`, `opensc2 id clear` | the identity Steam sees, and the name Windows shows ([Identity](#identity)) |
 | `opensc2 state` | what the inputs read right now |
@@ -448,7 +450,22 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 
 Every fragment of this folder is a build of its own on top of `prj.conf`
 (`-Project app\<name>.conf`), with the overlay of the same name when there is one;
-[all.conf](#test-build-everything-without-parts) builds on three others.
+[all.conf](#test-build-everything-without-parts) builds on three others. What each one costs, as
+built with nRF Connect SDK v3.4.0 for the SuperMini (792 KB of flash for the application, 176 KB of
+RAM; every build prints its own use):
+
+| Build | Flash | RAM | |
+| --- | --- | --- | --- |
+| `prj.conf` (the default, test hooks on) | about 213 KB | about 52 KB | within it, about: the system state machine 10 KB of flash, calibration 10 KB and 0.7 KB of RAM, the dock link with its test ops 4 KB and 0.5 KB, the test hooks 3 KB of RAM |
+| `ble.conf` | about 364 KB | about 82 KB | Bluetooth LE: about 150 KB and 30 KB more |
+| `haptics.conf` | about 228 KB | about 62 KB | the haptics synthesiser: about 15 KB and 10 KB more |
+| `dock.conf` | about 219 KB | about 55 KB | the dock's UART and pilot sense, with a 2 KB thread stack |
+| `watchdog.conf` | about 215 KB | about 53 KB | |
+| `battery.conf`, `test-charger.conf` | about 214 KB | about 52 KB | |
+| `expander.conf` | about 218 KB | about 52 KB | |
+| `sensors.conf` | about 239 KB | about 56 KB | the IMU, trackpad and capacitive-sensor drivers |
+| `imu-stream.conf` | about 246 KB | about 65 KB | |
+| `all.conf` | about 380 KB | about 94 KB | Bluetooth, the synthesiser, the dock link and the watchdog |
 
 The USB session log and the warm-restart mark live in a 16 KB RAM area that the overlay takes out
 of the application's RAM, clear of the RAM the UF2 bootloader uses at every reset
@@ -608,8 +625,8 @@ has connected once. Build it with the fragment on top of `prj.conf`, in a build 
 powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\ble.conf -OutDir C:\b\osc2-ble -Pristine
 ```
 
-The image is `C:\b\osc2-ble\app\zephyr\zephyr.uf2` (about 360 KB of flash and 82 KB of RAM, against
-about 212 KB and 52 KB without Bluetooth). With west: `west build -p always -d build-ble -b
+The image is `C:\b\osc2-ble\app\zephyr\zephyr.uf2` (about 364 KB of flash and 82 KB of RAM, against
+about 213 KB and 52 KB without Bluetooth). With west: `west build -p always -d build-ble -b
 promicro_nrf52840/nrf52840/uf2 app -- -DEXTRA_CONF_FILE=ble.conf`.
 
 On the console (wireless mode):
@@ -683,7 +700,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\all.c
 ```
 
 With west: `west build -p always -d build-all -b promicro_nrf52840/nrf52840/uf2 app --
--DEXTRA_CONF_FILE=all.conf`. The four fit together (about 380 KB of flash and 93 KB of RAM). Left
+-DEXTRA_CONF_FILE=all.conf`. The four fit together (about 380 KB of flash and 94 KB of RAM). Left
 out, as they need parts: `sensors.conf`, `imu-stream.conf` and `expander.conf`, `battery.conf` (a
 battery: without one a shutdown that powers off could not be woken) and `dock.conf` (its pins).
 

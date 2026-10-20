@@ -1228,7 +1228,7 @@ mutex: call it from a thread, never from an interrupt.
   synthesiser, never held while an output plays or a report goes out, and a second one lets one
   thread at a time send what it made, so its `0x44` reports keep their order. Output reports reach it from
   the radio or USB thread after the callbacks, and only queue commands and copy stream bytes there.
-- About 10 KB of RAM and 14 KB of flash (the blank canvas with `app/haptics.conf` against without).
+- About 10 KB of RAM and 15 KB of flash (the blank canvas with `app/haptics.conf` against without).
 
 ## Identity
 

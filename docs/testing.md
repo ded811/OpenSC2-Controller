@@ -484,7 +484,7 @@ python -I tools\fake_puck.py --test-op --polls 20
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 280 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 281 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking (Bluetooth addresses too), every
   safety rule (including the source scan of the puck reader, that every function that sends checks
   the exact bytes, and which Bluetooth node is the board's), the link lock against a racing
