@@ -228,8 +228,11 @@ Then the opt-ins, one at a time:
 ```powershell
 python -I tools\hwtest\run.py --flash --through-puck
 python -I tools\hwtest\run.py --lizard
+python -I tools\hwtest\run.py --dock                   # the dock link through the test hooks
 python -I tools\hwtest\run.py --with-steam --steam-control
 ```
+
+The Bluetooth build has a path of its own, `--bluetooth` ([Bluetooth](#bluetooth)).
 
 | Option | |
 | --- | --- |
