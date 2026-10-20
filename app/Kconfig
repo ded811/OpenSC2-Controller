@@ -78,6 +78,15 @@ config APP_IMU_BIAS
 	  6 deg/s). It starts from the stored cal/sensors/gyroscope/bias when there is one. Untested
 	  on hardware.
 
+config APP_PAD_PROCESSING
+	bool "The real controller's trackpad processing on the touch devices"
+	help
+	  For a device with a touch strength (the Cirque Pinnacle): touch with the hysteresis of
+	  controller settings 72 and 73 and the damping near lift-off, the strength scaled by
+	  zephyr,user's trackpad-strength-scale (40 by default); the speed-adaptive position filter
+	  while setting 65 is on; with a stored pressure calibration, the strength as the library's
+	  raw pressure (its pressure and click). Untested on hardware.
+
 config APP_I2C_RECOVER
 	bool "Free each I2C bus at boot, before its parts' drivers start"
 	depends on APP_I2C

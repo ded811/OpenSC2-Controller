@@ -5,8 +5,10 @@
  * The devicetree half of the build sensors.conf (app/CMakeLists.txt adds it with that fragment):
  * the real controller's IMU, an ST LSM6DSV16X, on I2C instead of the two D-pad buttons whose pins
  * it takes (left P0.17 is SDA, right P0.20 is SCL, the pins samples/imu uses), with the real
- * controller's ranges and rates and its mounting matrix. Untested on hardware: check the pins and
- * the module's address (0x6A, or 0x6B with its SA0 pin high) against your board.
+ * controller's ranges and rates and its mounting matrix; and a Cirque Pinnacle module on the same
+ * bus as the right trackpad, its data-ready line on the left bumper's pin (P0.22), as
+ * samples/touchpad has it. Untested on hardware: check the pins and the addresses (0x6A, or 0x6B
+ * with the IMU's SA0 pin high; 0x2A) against your board.
  */
 #include <zephyr/dt-bindings/i2c/i2c.h>
 #include <zephyr/dt-bindings/sensor/lsm6dsv16x.h>
@@ -16,7 +18,12 @@
 		imu0 = &imu;
 	};
 
+	chosen {
+		opensc2,right-trackpad = &touch;
+	};
+
 	zephyr,user {
+		right-trackpad-size = <1024 1024>;
 		/* The real controller's mounting: x' = y, y' = -x, z' = z (row major). Use the one
 		 * that turns your module's axes into the controller's: X right, Y away from the
 		 * player, Z up when it lies flat. */
@@ -27,6 +34,7 @@
 &opensc2_buttons {
 	/delete-node/ dpad_left;
 	/delete-node/ dpad_right;
+	/delete-node/ bumper_l;
 };
 
 &pinctrl {
@@ -58,5 +66,17 @@
 		gyro-range = <LSM6DSV16X_DT_FS_2000DPS>;
 		accel-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
 		gyro-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
+	};
+
+	touch: trackpad@2a {
+		compatible = "cirque,pinnacle";
+		reg = <0x2a>;
+		data-ready-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
+		data-mode = "absolute";
+		idle-packets-count = <1>;
+		clipping-enable;
+		scaling-enable;
+		scaling-x-resolution = <1024>;
+		scaling-y-resolution = <1024>;
 	};
 };

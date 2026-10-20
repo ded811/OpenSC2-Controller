@@ -144,8 +144,8 @@ and grows the first time a stick goes further, so after one full circle each sti
 output at its own extremes. A 6 % centre dead zone (`stick-deadzone-percent` in the overlay) hides
 potentiometer noise. Flip an axis with `invert-left-stick-y;` and friends.
 
-The build [sensors.conf](sensors.conf) (untested on hardware) works like the real controller
-instead: the sticks and triggers are read right before each state report, four conversions
+The build [sensors.conf](sensors.conf) (with [sensors.overlay](sensors.overlay); untested on
+hardware) works like the real controller instead: the sticks and triggers are read right before each state report, four conversions
 averaged, and once a stick or trigger has a stored calibration the library's processing takes over
 (the real controller's two halves and bands, settings 46 and 62). Record one on the console with
 the parts connected and a link up (the recordings take one sample per state report):
@@ -390,6 +390,7 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_APP_ANALOG_SAMPLE=y` | read sticks and triggers right before each state report, four conversions averaged; `sensor-supply-gpios` (and `sensor-supply-settle-us`, 200 by default) in `zephyr,user` powers the sensors only while they are read (untested) |
 | `CONFIG_APP_ANALOG_RAW=y` | with it: a calibrated stick or trigger through the library's stored calibration ([Calibration](#calibration); untested) |
 | `CONFIG_APP_IMU_BIAS=y` | a rest-based gyro bias for an IMU without one, subtracted while setting 84 is on, setting 85 its threshold ([sensor helpers](../docs/api.md#sensor-helpers); untested). The IMU's mounting matrix is `imu-mounting-matrix` in `zephyr,user` (9 values, row major) |
+| `CONFIG_APP_PAD_PROCESSING=y` | the real controller's trackpad processing for a device with a touch strength: touch with settings 72 and 73 and the damping near lift-off (`trackpad-strength-scale` in `zephyr,user`, 40 by default: tune it), the position filter while setting 65 is on, and with a stored pressure calibration the library's pressure and click by pressure (untested) |
 | `CONFIG_APP_I2C_RECOVER=y` | free each I2C bus at boot, in case a reset caught a part in the middle of a transfer (untested) |
 | `CONFIG_APP_BATTERY=y` | the battery level of report `0x43` from VDDH / 5, or from a `battery` io-channel in `zephyr,user` with `battery-divider-ohms = <total bottom>` and an optional `battery-enable-gpios` (untested) |
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
