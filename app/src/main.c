@@ -94,6 +94,9 @@ static enum opensc2_boot_mode boot_mode(void)
 static void on_link(const struct opensc2_link_info *info, void *user_data)
 {
 	ARG_UNUSED(user_data);
+	/* Bluetooth (a build with CONFIG_OPENSC2_BLE) has patterns of its own, in blue. */
+	status_bluetooth(info->transport == OPENSC2_TRANSPORT_BLE_1 ||
+			 info->transport == OPENSC2_TRANSPORT_BLE_2);
 	status_link(info->state);
 	if (info->reason == OPENSC2_REASON_PAIRED) {
 		LOG_INF("Paired (slot %u)", info->slot + 1);
@@ -172,6 +175,12 @@ static void on_power(enum opensc2_power_request request, void *user_data)
 		 * it. The real controller shuts down instead; this firmware has no power-off of its
 		 * own. A board on USB power alone has already gone dark. */
 		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
+		break;
+	case OPENSC2_POWER_WIRELESS_OFF:
+		/* Bluetooth gave up (no host within its advertising window, or the host ended the
+		 * link): the library has stopped it. The real controller turns off on battery; on USB
+		 * power, like this board, it stays on with wireless off. */
+		LOG_INF("Wireless off. Press any button to come back.");
 		break;
 	case OPENSC2_POWER_BOOTLOADER:
 		/* Steam's firmware update. The UF2 bootloader does not speak Steam's update protocol,
@@ -272,7 +281,13 @@ void app_pair_button(bool pressed)
 		return;
 	}
 	if (pressed) {
-		LOG_INF("Pairing: Steam must have the puck's pairing window open");
+		enum opensc2_transport t = opensc2_selected_transport();
+
+		if (t == OPENSC2_TRANSPORT_BLE_1 || t == OPENSC2_TRANSPORT_BLE_2) {
+			LOG_INF("Bluetooth pairing mode: add the board on the new host");
+		} else {
+			LOG_INF("Pairing: Steam must have the puck's pairing window open");
+		}
 		opensc2_pair_start(0);
 	}
 }

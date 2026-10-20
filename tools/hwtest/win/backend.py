@@ -12,6 +12,12 @@
 # The board's slot is the reader that carried the signature; the leak detector, the through-puck
 # writer and the handles of the Steam phase are bound to that exact node, never looked up again
 # by slot number.
+#
+# Bluetooth (--bluetooth, path B): the board paired with Windows shows up as a Bluetooth HID device
+# (28DE:1303) next to its console. Its vendor collection is "the board" only once
+# safety.classify_ble() matched it to the address and serial the board's console gave (the Rig puts
+# them in the safety Context); the board's HID handle is then that collection's, the same code as
+# on USB (feature report 1, output reports, the input reader).
 import os
 import time
 
@@ -41,6 +47,29 @@ class WinBackend:
         self._nodes_at = 0.0
         self._last_mode = None
         self._last_board_node = None
+        self._path = "W"            # the Rig's path: the board's handle is USB's (W) or Bluetooth's
+
+    def use_path(self, path):
+        """The Rig's path changed: the board's own handle is the USB one for W, the Bluetooth
+        one for B (a handle of the other is closed)."""
+        if path != self._path and path in ("W", "B"):
+            self._close_board()
+        self._path = path
+
+    def _ble_expect(self):
+        return getattr(self.safety_ctx, "ble_expect", None)
+
+    def ble_nodes(self):
+        """For messages: the Bluetooth 28DE:1303 collections Windows lists, as (is the board's,
+        why). Nothing opened."""
+        expect = self._ble_expect()
+        out = []
+        for n in self._enum():
+            f = safety.ble_node_fields(n)
+            if f and (f[0], f[1]) == (C.BOARD_VID, C.BLE_PID) and f[3] == "COL03":
+                cls, why = safety.classify_ble(n, expect)
+                out.append((cls == safety.BOARD_BLE, why))
+        return out
 
     # ---- discovery (nothing opened) ----
     def _enum(self, fresh=False):
@@ -87,14 +116,21 @@ class WinBackend:
         for s in slots:
             pucks.setdefault((s.get("instance_id") or "").upper(), s.get("location") or "?")
         board = boards[0] if boards else None
-        mode = "W" if board else ("R" if consoles else None)
+        # B: the board's Bluetooth vendor collection, only by classify_ble (S1), only with the
+        # console there (whose identity it was matched against) and --bluetooth
+        ble_board = None
+        expect = self._ble_expect()
+        if self.opt.get("bluetooth") and consoles and expect is not None:
+            ble = [n for n in nodes if safety.classify_ble(n, expect)[0] == safety.BOARD_BLE]
+            ble_board = ble[0] if len(ble) == 1 else None
+        mode = "W" if board else ("B" if ble_board else ("R" if consoles else None))
         self._last_mode = mode
-        self._last_board_node = board
-        if board is not None and self._leak is not None:
+        self._last_board_node = board or ble_board
+        if (board is not None or ble_board is not None) and self._leak is not None:
             self._leak.watch(self._board_collections())
         return {"board": board, "console": consoles[0] if consoles else None,
-                "puck_slots": slots, "mode": mode, "extra_boards": extra, "uf2": uf2,
-                "pucks": sorted(pucks.values())}
+                "ble_board": ble_board, "puck_slots": slots, "mode": mode,
+                "extra_boards": extra, "uf2": uf2, "pucks": sorted(pucks.values())}
 
     def steam_running(self):
         from . import procs
@@ -104,16 +140,23 @@ class WinBackend:
         from . import power
         (power.keep_awake if on else power.allow_sleep)()
 
-    # ---- the board's HID (W) ----
+    # ---- the board's HID (W; B over Bluetooth) ----
     def _open_board(self):
         from . import hid
         if self._board is not None and not self._board.gone:
             return self._board
         self._close_board()
-        node = self.discover().get("board")
-        if node is None:
-            raise Stall(1167, "the board is not there")
-        self._board = hid.BoardHid(node, writable=not self.steam_running())
+        if self._path == "B":
+            node = self.discover().get("ble_board")
+            if node is None:
+                raise Stall(1167, "the board's Bluetooth device is not there")
+            self._board = hid.BoardHid(node, writable=not self.steam_running(),
+                                       ble_expect=self._ble_expect())
+        else:
+            node = self.discover().get("board")
+            if node is None:
+                raise Stall(1167, "the board is not there")
+            self._board = hid.BoardHid(node, writable=not self.steam_running())
         self._board.start_reader()
         return self._board
 
@@ -169,21 +212,24 @@ class WinBackend:
 
     # ---- the stream ----
     def _reader(self, path):
-        if path == "W":
+        if path in ("W", "B"):
             return self._open_board()
         if self._proven is None or self._proven not in self._slots:
             raise Stall(1167, "the board's slot on the puck is not proven")
         return self._slots[self._proven]
 
     def read_stream(self, path, duration_s=None, count=None):
+        """The reports as they arrive (over Bluetooth the state report is 0x45: the Rig reads it
+        as 0x42 without the quaternion)."""
         reader = self._reader(path)
         got = []
         if duration_s is None:
-            duration_s = (count or 0) * 0.006 + 1.0
+            duration_s = (count or 0) * (0.012 if path == "B" else 0.006) + 1.0
         end = time.monotonic() + duration_s
+        states = (C.RPT_STATE, C.RPT_BT_STATE) if path == "B" else (C.RPT_STATE,)
         while True:
             got += [(ts, r) for ts, r in reader.drain() if r]
-            if count is not None and sum(1 for _t, r in got if r[0] == C.RPT_STATE) >= count:
+            if count is not None and sum(1 for _t, r in got if r[0] in states) >= count:
                 break
             if time.monotonic() >= end or reader.gone:
                 break
@@ -338,8 +384,13 @@ class WinBackend:
                 self._leak.watch([])
 
     # ---- S12: the sole reader ----
+    def _own_node(self):
+        """The board's own HID node on the current path (W: USB, B: Bluetooth), or None (R)."""
+        d = self.discover()
+        return d.get("ble_board") if self._path == "B" else d.get("board")
+
     def sole_reader_ok(self):
-        if self.discover().get("board") is None:
+        if self._own_node() is None:
             return True     # R: the slots are held when read_slots opens them
         try:
             self._open_board()
@@ -349,11 +400,12 @@ class WinBackend:
 
     def sole_reader_selfcheck_ok(self):
         from . import hid
-        node = self.discover().get("board")
+        node = self._own_node()
         if node is None:
             return True
         try:
-            probe = hid.BoardHid(node, writable=False, retry_s=0)
+            probe = hid.BoardHid(node, writable=False, retry_s=0,
+                                 ble_expect=self._ble_expect() if self._path == "B" else None)
         except OSError as e:
             return e.errno == C.ERROR_SHARING_VIOLATION
         probe.close()
@@ -361,6 +413,8 @@ class WinBackend:
 
     # ---- S13: the leak detector ----
     def _board_collections(self):
+        """The board's mouse and keyboard collections (Col01, Col02) on USB (W) or over
+        Bluetooth (B): the nodes of the same device as its vendor collection."""
         node = self._last_board_node or self.discover().get("board") or {}
         usb = (node.get("instance_id") or "").upper()
         return [n["own_instance_id"] for n in self._enum()

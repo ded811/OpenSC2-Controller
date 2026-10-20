@@ -3,8 +3,9 @@
 #
 # mask.py: nothing identifying is ever printed or saved (rule S9). Every string goes through a
 # Masker before it reaches the console or a results file, after the sources have already masked.
-# The known secrets of a run (serials, bond IDs, the chip ID, the console's USB serial) are
-# replaced by tags; general patterns catch anything the run did not know it held. As a backstop,
+# The known secrets of a run (serials, bond IDs, the chip ID, the console's USB serial, the board's
+# Bluetooth address) are replaced by tags; general patterns catch anything the run did not know it
+# held (any Bluetooth address, as text or in a Windows device name, among them). As a backstop,
 # any run of 16+ hex digits becomes <hex:N> and is counted (a non-zero count is a WARN: some
 # decoder missed a field). Bond bytes and chip IDs never leave memory; results keep only a CRC-32
 # or the word "equal".
@@ -28,7 +29,17 @@ _IFACEPATH = re.compile(r"((?:\\{1,4}|/{1,2})\?(?:\\{1,2}|/)[A-Za-z0-9_]+#[^#\s'
                         r"([^#\s'\"]+)(?=#)")
 _INSTANCEID = re.compile(r"(\b(?:USB|HID)(?:\\{1,2}|/)VID_[0-9A-Fa-f]{4}&PID_[0-9A-Fa-f]{4}"
                          r"[^\\/\s'\"]*(?:\\{1,2}|/))([^\\/\s'\"#]+)", re.IGNORECASE)
+# the same for a Bluetooth device's nodes: HID\{service}_DEV_...\<instance>,
+# BTHLEDEVICE\{service}_DEV_...\<instance>, BTHLE\DEV_<address>\<instance>
+_BTINSTANCE = re.compile(r"(\b(?:HID|BTHLEDEVICE)(?:\\{1,2}|/)\{[0-9A-Fa-f-]{36}\}[^\\/\s'\"]*"
+                         r"(?:\\{1,2}|/)|\bBTHLE(?:\\{1,2}|/)DEV_[^\\/\s'\"]*(?:\\{1,2}|/))"
+                         r"([^\\/\s'\"#]+)", re.IGNORECASE)
 _HEXRUN = re.compile(r"[0-9A-Fa-f]{16,}")
+# Bluetooth addresses: as text (C3:4F:12:AB:CD:EF, the console's form) and as Windows names a
+# Bluetooth device's nodes (BTHLE\DEV_<12 hex>, ..._REV&0100_<12 hex>&COL03, also in interface
+# paths), which identify the board and the PC's other devices
+_BTADDR = re.compile(r"(?<![0-9A-Fa-f:])[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}(?![0-9A-Fa-f:])")
+_BTNODE = re.compile(r"((?:_REV&[0-9A-F]{4}_|\bDEV_))([0-9A-F]{12})(?![0-9A-F])", re.IGNORECASE)
 # an 8-hex-digit word not preceded by 0x (a bond ID printed as %08x in a debug build), used in the
 # console transcript and Steam's log only: masking a nonce now and then costs nothing.
 _ID8 = re.compile(r"(?<![0-9A-Za-zx])[0-9A-Fa-f]{8}(?![0-9A-Fa-f])")
@@ -74,6 +85,16 @@ class Masker:
                 self._secrets.append((v.upper(), tag))
         self._secrets.sort(key=lambda p: len(p[0]), reverse=True)
 
+    def add_ble_address(self, address):
+        """The board's own Bluetooth address (any form: C3:4F:..., 12 hex digits) in every form
+        a log or a device name prints it."""
+        hexes = re.sub(r"[^0-9A-Fa-f]", "", str(address or ""))
+        if len(hexes) != 12:
+            return
+        colons = ":".join(hexes[i:i + 2] for i in range(0, 12, 2))
+        for form in (hexes, colons):
+            self.add_secret(form, "<bt-addr>")
+
     def _literals(self):
         return self._secrets
 
@@ -87,8 +108,11 @@ class Masker:
                 out = out.replace(literal, tag)
         for pat, tag in self._words:
             out = pat.sub(tag, out)
+        out = _BTNODE.sub(r"\1<bt-addr>", out)
+        out = _BTADDR.sub("<bt-addr>", out)
         out = _IFACEPATH.sub(r"\1<masked>", out)
         out = _INSTANCEID.sub(r"\1<masked>", out)
+        out = _BTINSTANCE.sub(r"\1<masked>", out)
         out = _OSC_SERIAL.sub(lambda m: m.group(1) + "*" * 10, out)
         out = _GENERIC_SERIAL.sub("<serial>", out)
         out = _STEAMID.sub("<steamid>", out)

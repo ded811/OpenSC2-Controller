@@ -20,7 +20,9 @@
 
 BUILD_ASSERT((int)OSC2_LINK_RADIO == (int)OSC2_TEST_LINK_RADIO &&
 	     (int)OSC2_LINK_USB == (int)OSC2_TEST_LINK_USB &&
-	     (int)OSC2_LINK_TEST == (int)OSC2_TEST_LINK_TEST && (int)OSC2_LINK_COUNT == OSC2_TEST_LINKS,
+	     (int)OSC2_LINK_TEST == (int)OSC2_TEST_LINK_TEST &&
+	     (int)OSC2_LINK_BLE == (int)OSC2_TEST_LINK_BLE &&
+	     (int)OSC2_LINK_DOCK == (int)OSC2_TEST_LINK_DOCK && (int)OSC2_LINK_COUNT == OSC2_TEST_LINKS,
 	     "the test hooks number the links as enum osc2_link does");
 
 struct osc2_test_core osc2_test_core_obj;
@@ -32,7 +34,9 @@ static atomic_t counters[OSC2_TEST_CNT_COUNT];
 
 /* ---- which link this thread's command came on ------------------------------------------------- */
 
-#define CTX_SLOTS 6   /* radio, USB stack, USB report, shell, system work queue, one spare */
+/* radio, USB stack, USB report, shell, system work queue, the Bluetooth host's receive thread and
+ * report thread, one spare */
+#define CTX_SLOTS 8
 
 static struct {
 	k_tid_t thread;
@@ -151,7 +155,7 @@ static void env_cnt_reset(void)
 
 static uint8_t env_mode_link(void)
 {
-	return osc2_wired() ? OSC2_TEST_LINK_USB : OSC2_TEST_LINK_RADIO;
+	return (uint8_t)osc2_mode_link();   /* USB while wired, else the radio or Bluetooth */
 }
 
 static void env_caps(struct osc2_test_lib_caps *caps)
@@ -177,6 +181,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= IS_ENABLED(CONFIG_OPENSC2_SHELL) ? OSC2_TEST_FLAG_SHELL : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_FUSION) ? OSC2_TEST_FLAG_FUSION : 0;
 	flags |= OSC2_NO_HOST_WIRELESS_MS > 0 ? OSC2_TEST_FLAG_NO_HOST_WIRELESS : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_BLE) ? OSC2_TEST_FLAG_BLE : 0;
 
 	opensc2_identity_get(&id);
 	caps->mode = osc2_wired() ? 1 : 0;
@@ -193,7 +198,7 @@ static void env_status(struct osc2_test_lib_status *status)
 {
 	status->mode = osc2_wired() ? 1 : 0;
 	status->mode_reason = (uint8_t)opensc2_mode_reason();
-	status->link_state = (uint8_t)osc2_radio_state();
+	status->link_state = (uint8_t)opensc2_link_state();   /* of the running transport */
 	status->usb_state = (uint8_t)opensc2_usb_state();
 	status->slot = opensc2_selected_slot();
 	status->last_reason = osc2.last_disconnect_reason;
@@ -309,6 +314,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+#if defined(CONFIG_OPENSC2_BLE)
+	.ble_op = osc2_ble_test_op,
+#endif
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

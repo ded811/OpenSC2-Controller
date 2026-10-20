@@ -13,11 +13,11 @@ from ..proto import model as M
 from ..proto import reports as R
 
 GROUP = "lizard"
-TESTS = [("lizard.on_at_start", "WR", ["lizard"]), ("lizard.keyboard", "WR", ["lizard"]),
-         ("lizard.pointer", "WR", ["lizard"]), ("lizard.scroll", "WR", ["lizard"]),
-         ("lizard.buttons", "WR", ["lizard"]), ("lizard.thumb_on_stick", "WR", ["lizard"]),
-         ("lizard.off", "WR", ["lizard"]), ("lizard.on_by_setting", "WR", ["lizard"]),
-         ("lizard.switches", "WR", ["lizard"]), ("lizard.no_leak", "WR", ["lizard"])]
+TESTS = [("lizard.on_at_start", "WRB", ["lizard"]), ("lizard.keyboard", "WRB", ["lizard"]),
+         ("lizard.pointer", "WRB", ["lizard"]), ("lizard.scroll", "WRB", ["lizard"]),
+         ("lizard.buttons", "WRB", ["lizard"]), ("lizard.thumb_on_stick", "WRB", ["lizard"]),
+         ("lizard.off", "WRB", ["lizard"]), ("lizard.on_by_setting", "WRB", ["lizard"]),
+         ("lizard.switches", "WRB", ["lizard"]), ("lizard.no_leak", "WRB", ["lizard"])]
 
 A, B, X, VIEW, MENU = 1 << 0, 1 << 1, 1 << 2, 1 << 6, 1 << 14
 DOWN, RIGHT, LEFT, UP = 1 << 10, 1 << 11, 1 << 12, 1 << 13
@@ -157,8 +157,9 @@ def run(ctx):
         # off, and --lizard is refused on this path
         _record_all(ctx, base.ERROR, "the leak detector does not watch the board's mouse and "
                                      "keyboard collections on this path (%s): --lizard refused "
-                                     "(S13)" % ("its own collections" if rig.path == "W" else
-                                                "the proven puck slot's"))
+                                     "(S13)" % ({"W": "its own collections",
+                                                 "B": "its Bluetooth device's collections"}.get(
+                                                     rig.path, "the proven puck slot's")))
         ctx.precondition = C.EXIT_PRECONDITION
         return
     rig.arm()

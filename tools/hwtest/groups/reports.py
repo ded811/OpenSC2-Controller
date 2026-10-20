@@ -3,21 +3,24 @@
 #
 # reports: the other input reports an application can send (docs/testing.md, group "reports"):
 # the haptic stream status 0x44 and a raw report, sent with APP_SEND as the application would, must
-# arrive on the board's Col03 (W) or its slot (R) as sent. A raw 0x45 counts as an injection (the
-# same preconditions). On R the puck relays these reports only at their exact length.
+# arrive on the board's Col03 (W), its Bluetooth HID device (B) or its slot (R) as sent. A raw
+# 0x45 counts as an injection (the same preconditions); over Bluetooth it shares its
+# characteristic with the state reports, so it is told from them by its bytes. On R the puck
+# relays these reports only at their exact length.
 import struct
 
 from . import base
 from .. import config as C
 
 GROUP = "reports"
-TESTS = [("reports.app_send", "WR", []), ("reports.app_send_raw", "WR", []),
+TESTS = [("reports.app_send", "WRB", []), ("reports.app_send_raw", "WRB", []),
          ("reports.puck_filter", "R", [])]
 
 
 def _arrives(rig, want, timeout):
+    # raw: over Bluetooth the reports as they came (a 0x45 is not read as a state report here)
     return rig.wait_report(lambda r: r[:len(want)] == want and
-                           not any(r[len(want):]), timeout)
+                           not any(r[len(want):]), timeout, raw=True)
 
 
 def run(ctx):

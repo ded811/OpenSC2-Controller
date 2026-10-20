@@ -66,7 +66,7 @@ def state(rig):
     s["slot"] = t.data[0] - 2 if t.n == 1 else None
     s["chime"] = rig.vendor(C.VC_USER_STORE_GET).data[1:2].hex()
     s["policy"] = (rig.caps or {}).get("policy")
-    if rig.path == "R":
+    if rig.wireless:
         s["policy_shell"] = cproto.parse_mode(rig.console_run("opensc2 mode")).get("policy")
     return s
 
@@ -189,7 +189,7 @@ def run(ctx, start_mode):
             if rig.hooks:
                 rig.disarm()
                 rig.sleep(0.06)
-            if rig.path == "W":
+            if rig.own_hid:
                 rig.vendor_set(C.VC_ATTRIBUTES)
                 a = rig.vendor_get()
                 c.eq("the stored request is 0x83 again", (a.opcode, a.n), (C.VC_ATTRIBUTES, 30))
@@ -236,7 +236,7 @@ def run(ctx, start_mode):
                 if armed:
                     rig.disarm()
                     rig.sleep(0.06)
-                if rig.path == "W":
+                if rig.own_hid:
                     rig.vendor_set(C.VC_ATTRIBUTES)
                     rig.vendor_get()
                 diffs = [k for k in ("bonds", "identity", "slot", "chime", "policy")

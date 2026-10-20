@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 #
 # hooks: the test hooks themselves (docs/testing.md, group "hooks"): present, invisible while
-# unarmed (W), arming and its first ring entries, the guard canary, the settings restore at the
-# end of arming, the lease, the DISARM answer (W), the ring wrapping and the paging of the
+# unarmed (W, B), arming and its first ring entries, the guard canary, the settings restore at
+# the end of arming, the lease, the DISARM answer (W, B), the ring wrapping and the paging of the
 # counters and settings. present() runs first in every phase (the runner calls it); run() does the
 # rest.
 import struct
@@ -13,19 +13,23 @@ from .. import config as C
 from ..proto import testproto as T
 
 GROUP = "hooks"
-TESTS = [("hooks.present", "WR", []), ("hooks.invisible", "W", []), ("hooks.arm", "WR", []),
-         ("hooks.guard", "WR", []), ("hooks.restore", "WR", []), ("hooks.lease", "WR", []),
-         ("hooks.disarm_answer", "W", []), ("hooks.ring", "WR", []),
-         ("hooks.paging", "WR", [])]
+TESTS = [("hooks.present", "WRB", []), ("hooks.invisible", "WB", []),
+         ("hooks.arm", "WRB", []), ("hooks.guard", "WRB", []), ("hooks.restore", "WRB", []),
+         ("hooks.lease", "WRB", []), ("hooks.disarm_answer", "WB", []), ("hooks.ring", "WRB", []),
+         ("hooks.paging", "WRB", [])]
+
+# the link a request through the test channel comes on, as the ring names it: feature report 1
+# on USB (W) or Bluetooth (B), the console (R)
+REQUEST_LINK = {"W": 1, "B": 4, "R": 2}
 
 
 def present(ctx):
-    """hooks.present: W a keyed ARM, R `opensc2 test 1 sync` (the handshake). Returns whether the
-    firmware has the hooks; without them every group that needs them is skipped."""
+    """hooks.present: W and B a keyed ARM, R `opensc2 test 1 sync` (the handshake). Returns
+    whether the firmware has the hooks; without them every group that needs them is skipped."""
     rig = ctx.rig
     have = False
     with ctx.check(GROUP, "hooks.present") as c:
-        if rig.path == "R" and not rig.board_info.get("hooks"):
+        if rig.wireless and not rig.board_info.get("hooks"):
             c.skip("firmware built without CONFIG_OPENSC2_TEST_HOOKS (no HWT answer)")
         try:
             caps = rig.arm()
@@ -39,6 +43,8 @@ def present(ctx):
         c.true("caps sequence depth 2..32", 2 <= caps["sequence_depth"] <= 32)
         c.eq("caps lease", caps["lease_s"], C.LEASE_DEFAULT_S)
         c.true("caps policy 0 or 1", caps["policy"] in (0, 1))
+        if rig.path == "B":
+            c.true("caps: a Bluetooth build (bit 17)", T.cap_flag(caps, C.CAP_BLE))
         if T.cap_flag(caps, C.CAP_NO_HOST_WIRELESS):
             c.warn("the charger test build (CONFIG_OPENSC2_NO_HOST_WIRELESS_MS): wired with no "
                    "USB host it goes wireless by itself, which the real controller does not; "
@@ -52,7 +58,6 @@ def present(ctx):
 
 def run(ctx):
     rig = ctx.rig
-    w = rig.path == "W"
 
     if ctx.want("hooks.invisible"):
         with ctx.check(GROUP, "hooks.invisible") as c:
@@ -80,7 +85,7 @@ def run(ctx):
                 e0, e1 = entries[0], entries[1]
                 c.eq("entry 0", (e0["seq"], e0["kind"]), (0, C.RING_ARMED))
                 c.eq("entry 0 nonce", e0.get("nonce"), rig.nonce)
-                c.eq("entry 0 link", e0["link"], 1 if w else 2)
+                c.eq("entry 0 link", e0["link"], REQUEST_LINK.get(rig.path, 2))
                 c.eq("entry 1", (e1["seq"], e1["kind"], e1.get("what")),
                      (1, C.RING_LIZARD, C.LIZARD_RESYNC))
                 c.true("entry 0 time close to 0", e0["time_us"] < 100000)
@@ -138,7 +143,7 @@ def run(ctx):
             with rig.quiet():
                 rig.arm(lease=2)
                 rig.sleep(3.0)
-                if w:
+                if rig.own_hid:
                     c.true("a GET right after the lease ran out STALLs (the held answer is "
                            "dropped)", rig.refused_get())
                     c.true("a keyed STATUS STALLs after the lease",
@@ -183,13 +188,14 @@ def run(ctx):
                 c.eq("entries read = next - first", len(entries), nxt - first)
                 c.eq("sequence of the first entry read", s0, first)
             else:
-                # Over the radio the board also logs on its own while the MARKs go in and while
-                # the ring is read page by page (a link or channel change, the Steam watchdog's
-                # lizard and setting entries): the ring can move on between two reads, so `first`
-                # may pass the first entry read. The extra entries that were read must be of
-                # these kinds.
+                # Wireless the board also logs on its own while the MARKs go in and while the
+                # ring is read page by page (a link or channel change, the Steam watchdog's
+                # lizard and setting entries; over Bluetooth the link's own events): the ring can
+                # move on between two reads, so `first` may pass the first entry read. The extra
+                # entries that were read must be of these kinds.
                 own = (C.RING_LINK, C.RING_CHANNELS, C.RING_VERSION, C.RING_IDENTITY,
-                       C.RING_LIZARD, C.RING_LIZARD_RPT, C.RING_SETTING, C.RING_HOST_ASLEEP)
+                       C.RING_LIZARD, C.RING_LIZARD_RPT, C.RING_SETTING, C.RING_HOST_ASLEEP,
+                       C.RING_BLE)
                 extra = [e for e in entries if e["kind"] not in (C.RING_MARK, C.RING_ARMED)]
                 c.true("next = MARKs + 2, or up to 8 more of the board's own entries (next %d, "
                        "MARKs + 2 = %d)" % (nxt, marks + 2), marks + 2 <= nxt <= marks + 10)
@@ -201,7 +207,8 @@ def run(ctx):
                        s0 is not None and len(entries) == nxt - s0)
                 c.true("the first entry read is no newer than first", s0 is not None and s0 <= first)
                 if nxt > marks + 2:
-                    c.note("%d entries of the board's own over the radio" % (nxt - marks - 2))
+                    c.note("%d entries of the board's own on its wireless link"
+                           % (nxt - marks - 2))
             got = [e.get("marker") for e in entries if e["kind"] == C.RING_MARK]
             c.true("consecutive MARKs in order", got == list(range(marks - len(got), marks)))
             a = rig.test(C.OP_RING_READ, struct.pack("<IB", nxt + 5, 0))

@@ -15,11 +15,11 @@ from ..proto import model as M
 from ..proto import vendor as V
 
 GROUP = "settings"
-TESTS = [("settings.led_color", "WR", []), ("settings.led_settings", "WR", []),
-         ("settings.defaults", "WR", []), ("settings.clamps", "WR", []),
-         ("settings.changes", "WR", []), ("settings.invalid", "WR", []),
-         ("settings.watchdog", "WR", []), ("settings.watchdog_rearm", "W", []),
-         ("settings.watchdog_off", "W", [])]
+TESTS = [("settings.led_color", "WRB", []), ("settings.led_settings", "WRB", []),
+         ("settings.defaults", "WRB", []), ("settings.clamps", "WRB", []),
+         ("settings.changes", "WRB", []), ("settings.invalid", "WRB", []),
+         ("settings.watchdog", "WRB", []), ("settings.watchdog_rearm", "WB", []),
+         ("settings.watchdog_off", "WB", [])]
 
 
 def _restore(rig, snap, numbers):
@@ -154,7 +154,7 @@ def run(ctx):
         with ctx.check(GROUP, "settings.invalid") as c:
             base.need(rig, "settings")
             four = bytes([27, 0x05, 0x00, 0x00])
-            if rig.path == "W":
+            if rig.own_hid:
                 c.true("0x87 with 4 bytes is refused (STALL)", rig.refused(C.VC_SETTINGS_SET,
                                                                             four))
             else:
@@ -165,7 +165,7 @@ def run(ctx):
             c.eq("27 = -11 taken, 90 ignored", rig.settings_read()[27], -11)
             c.true("no SETTING entry for 90", not [e for e in base.of_kind(
                 _entries(rig, start), C.RING_SETTING) if e["number"] == 90])
-            if rig.path == "W":
+            if rig.own_hid:
                 with rig.exclusive():          # the SET and its GET: no keep-alive between
                     rig.vendor_set(C.VC_SETTINGS_GET, bytes([86]))
                     c.true("0x89 86: the GET STALLs", rig.refused_get())

@@ -1,17 +1,18 @@
 # Copyright (c) 2026 the OpenSC2-Controller authors
 # SPDX-License-Identifier: MIT
 #
-# battery: input report 0x43 and vendor command 0xBE (docs/testing.md, group "battery"). The blank
-# canvas never sets a battery, so the library's default 0x43 is checked byte for byte, then the
-# BATTERY op injects values (with send-now) and both the next 0x43 and the 0xBE answer must carry
-# them; the 3.5 s cadence is measured over 30 s.
+# battery: input report 0x43 and vendor command 0xBE (docs/testing.md, group "battery"), on every
+# path (over Bluetooth a 0x43 also sets the battery service's level). The blank canvas never sets
+# a battery, so the library's default 0x43 is checked byte for byte, then the BATTERY op injects
+# values (with send-now) and both the next 0x43 and the 0xBE answer must carry them; the 3.5 s
+# cadence is measured over 30 s.
 from . import base
 from .. import config as C
 from ..proto import reports as R
 
 GROUP = "battery"
-TESTS = [("battery.default", "WR", []), ("battery.cadence", "WR", []),
-         ("battery.values", "WR", []), ("battery.be", "WR", []), ("battery.off", "WR", [])]
+TESTS = [("battery.default", "WRB", []), ("battery.cadence", "WRB", []),
+         ("battery.values", "WRB", []), ("battery.be", "WRB", []), ("battery.off", "WRB", [])]
 
 BASE = {"charge_state": 2, "level": 55, "battery_mv": 3900, "system_mv": 3300, "input_mv": 5000,
         "current_ma": -250, "input_current_ma": 500, "temperature": 0x1234, "gauge_flags": 0xA5}

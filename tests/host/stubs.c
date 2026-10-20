@@ -52,10 +52,40 @@ int osc2_storage_save_bond(uint8_t slot)
 	return 0;
 }
 
-int osc2_storage_save_slot(void)
+int osc2_storage_save_transport(uint8_t t)
 {
-	stub.saved_slot++;
+	stub.saved_transport++;
+	stub.stored_transport = t;
+	osc2.transport_saved = t;
 	return 0;
+}
+
+int osc2_storage_delete_transport(void)
+{
+	stub.deleted_transport++;
+	stub.stored_transport = OSC2_TRANSPORT_NONE;
+	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	return 0;
+}
+
+/* transport.c's: USB while wired, else the running wireless transport's link. */
+enum osc2_link osc2_mode_link(void)
+{
+	if (osc2_wired()) {
+		return OSC2_LINK_USB;
+	}
+	return stub.ble_running ? OSC2_LINK_BLE : OSC2_LINK_RADIO;
+}
+
+/* ble.c's (transport.c's without Bluetooth): the interval while Bluetooth is active, else 0. */
+uint32_t osc2_ble_interval_us(void)
+{
+	return stub.link_active[OSC2_LINK_BLE] ? stub.ble_interval_us : 0;
+}
+
+bool osc2_ble_active(void)
+{
+	return stub.link_active[OSC2_LINK_BLE];
 }
 
 int osc2_storage_save_chime(void)
@@ -143,9 +173,12 @@ bool osc2_link_active(enum osc2_link link)
 {
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	if (link == OSC2_LINK_TEST) {
-		link = osc2_wired() ? OSC2_LINK_USB : OSC2_LINK_RADIO;   /* as core.c does */
+		link = osc2_mode_link();   /* as core.c does */
 	}
 #endif
+	if (link == OSC2_LINK_DOCK) {
+		return false;   /* as core.c does: the dock never counts */
+	}
 	return stub.link_active[link];
 }
 
@@ -165,6 +198,9 @@ void stub_reset(void)
 	osc2.identity.bootloader_build_time = 0x68D2F92E;
 	memcpy(osc2.identity.product_name, "Steam Controller", 16);
 	osc2.chime = 2;
+	osc2.transport = OSC2_TRANSPORT_DEFAULT;   /* as core.c starts it */
+	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	stub.stored_transport = OSC2_TRANSPORT_NONE;
 	osc2.mode = OPENSC2_MODE_WIRED;
 	stub.link_active[OSC2_LINK_USB] = true;
 	for (int link = 0; link < OSC2_LINK_COUNT; link++) {

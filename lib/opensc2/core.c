@@ -320,7 +320,7 @@ bool osc2_link_active(enum osc2_link link)
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	if (link == OSC2_LINK_TEST) {
 		/* The test hooks' host emulation stands in for the host of the mode's real link. */
-		link = osc2_wired() ? OSC2_LINK_USB : OSC2_LINK_RADIO;
+		link = osc2_mode_link();
 	}
 #endif
 	if (link == OSC2_LINK_USB) {
@@ -329,6 +329,12 @@ bool osc2_link_active(enum osc2_link link)
 #else
 		return false;
 #endif
+	}
+	if (link == OSC2_LINK_BLE) {
+		return !osc2_wired() && osc2_ble_active();
+	}
+	if (link == OSC2_LINK_DOCK) {
+		return false;   /* the real controller's 0x81 and 0x85 do nothing from the dock */
 	}
 	return !osc2_wired() && osc2_radio_connected();
 }
@@ -478,15 +484,10 @@ int opensc2_bond_set(uint8_t slot, const struct opensc2_bond *bond)
 
 int opensc2_select_slot(uint8_t slot)
 {
-	int err;
-
 	if (slot >= OPENSC2_BOND_SLOTS) {
 		return -EINVAL;
 	}
-	osc2.slot = slot;
-	err = osc2_storage_save_slot();
-	osc2_radio_post(OSC2_EV_BOND);
-	return err;
+	return opensc2_select_transport((enum opensc2_transport)(OSC2_TRANSPORT_PUCK_1 + slot));
 }
 
 uint8_t opensc2_selected_slot(void)
@@ -538,6 +539,8 @@ int opensc2_init(const struct opensc2_config *config)
 	};
 	osc2.policy = IS_ENABLED(CONFIG_OPENSC2_DEFAULT_POLICY_WIRELESS) ? OPENSC2_POLICY_WIRELESS :
 									   OPENSC2_POLICY_AUTO;
+	osc2.transport = OSC2_TRANSPORT_DEFAULT;
+	osc2.transport_saved = OSC2_TRANSPORT_NONE;
 	osc2_settings_restore_defaults(false);
 
 	err = osc2_storage_load();
@@ -547,6 +550,7 @@ int opensc2_init(const struct opensc2_config *config)
 	if (config->bond_slot < OPENSC2_BOND_SLOTS) {
 		osc2.slot = config->bond_slot;
 	}
+	osc2_transport_init();   /* the stored transport (a puck one uses the slot just set) */
 	osc2_identity_refresh();
 	for (int link = 0; link < OSC2_LINK_COUNT; link++) {
 		osc2_commands_reset((enum osc2_link)link);
@@ -557,17 +561,24 @@ int opensc2_init(const struct opensc2_config *config)
 	osc2_report_init();
 	osc2_watchdog_arm();   /* armed at boot; lizard mode is on, so its first expiry does nothing */
 
-	LOG_INF("Controller %s (board %s, revision 0x%x, build 0x%08x), bond slot %u%s, %s",
+	LOG_INF("Controller %s (board %s, revision 0x%x, build 0x%08x), bond slot %u%s, %s, %s",
 		osc2.identity.unit_serial, osc2.identity.board_serial, osc2.identity.board_revision,
 		osc2.identity.build_time, osc2.slot + 1,
 		opensc2_bond_valid(&osc2.bonds[osc2.slot]) ? "" : " (empty: pair first)",
-		osc2_wired() ? "wired" : "wireless");
+		osc2_wired() ? "wired" : "wireless", osc2_transport_name(osc2_transport_running()));
 
 	osc2.initialised = true;
-	err = osc2_radio_init(config->start && !osc2_wired());
+	err = osc2_radio_init(config->start && !osc2_wired() &&
+			      osc2_transport_is_puck(osc2_transport_running()));
 	if (err) {
 		LOG_ERR("The radio thread did not start (%d)", err);
 	}
+#if defined(CONFIG_OPENSC2_BLE)
+	if (osc2_ble_init() == 0 && config->start && !osc2_wired() &&
+	    osc2_transport_is_ble(osc2_transport_running())) {
+		(void)osc2_ble_start(osc2_transport_running(), false);
+	}
+#endif
 	/* USB comes up whatever happened to the radio: the wired device, or the console. */
 	osc2_mode_start(config->start);
 	return err;
@@ -581,8 +592,7 @@ int opensc2_start(void)
 	if (osc2_wired()) {
 		return -EBUSY;
 	}
-	osc2_radio_post(OSC2_EV_START);
-	return 0;
+	return osc2_wireless_start();   /* the radio, or Bluetooth when that is the transport */
 }
 
 int opensc2_stop(void)
@@ -590,8 +600,7 @@ int opensc2_stop(void)
 	if (!osc2.initialised) {
 		return -EACCES;
 	}
-	osc2_radio_post(OSC2_EV_STOP);
-	return 0;
+	return osc2_wireless_stop();
 }
 
 int opensc2_pair_start(uint16_t seconds)
@@ -602,6 +611,12 @@ int opensc2_pair_start(uint16_t seconds)
 	if (osc2_wired()) {
 		return -EBUSY;
 	}
+#if defined(CONFIG_OPENSC2_BLE)
+	if (osc2_transport_is_ble(osc2_transport_running())) {
+		ARG_UNUSED(seconds);
+		return osc2_ble_pair();   /* pairing mode: open to a new host */
+	}
+#endif
 	osc2_radio_set_pair_seconds(seconds ? seconds : CONFIG_OPENSC2_PAIRING_TIMEOUT_S);
 	osc2_radio_post(OSC2_EV_PAIR);
 	return 0;
@@ -618,6 +633,14 @@ int opensc2_pair_cancel(void)
 
 enum opensc2_link_state opensc2_link_state(void)
 {
+#if defined(CONFIG_OPENSC2_BLE)
+	if (osc2_transport_is_ble(osc2_transport_running())) {
+		struct opensc2_link_info info;
+
+		osc2_ble_info(&info);
+		return info.state;
+	}
+#endif
 	return osc2_radio_state();
 }
 
@@ -626,6 +649,13 @@ int opensc2_link_info(struct opensc2_link_info *info)
 	if (!osc2.initialised) {
 		return -EACCES;
 	}
+#if defined(CONFIG_OPENSC2_BLE)
+	if (osc2_transport_is_ble(osc2_transport_running())) {
+		osc2_ble_info(info);
+		return 0;
+	}
+#endif
 	osc2_radio_info(info);
+	info->transport = osc2_transport_running();
 	return 0;
 }

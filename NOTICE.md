@@ -9,6 +9,16 @@ and the real controller's USB strings ("Valve Software", "Steam Controller"), an
 Steam's commands the way a real Steam Controller 2 does. This is for personal interoperability and
 research use.
 
+In the same way, the opt-in Bluetooth build (`CONFIG_OPENSC2_BLE`) presents itself as the real
+controller does over Bluetooth, so that hosts that look for a Steam Controller 2 (Windows, SDL's
+Android and Apple back ends, Steam) find it: the name "Steam Ctrl (BT) " followed by the board's
+serial, Valve's Bluetooth company ID (`0x055D`) in the advertised manufacturer data, the PnP ID
+`28DE:1303` with the model "Steam Controller" in its Device Information Service, and the UUIDs of
+the real controller's vendor GATT service (`100F6Cxx-1735-4313-B402-38567131E5F3`), which SDL's
+Android and Apple back ends look for. The first three are Kconfig options
+(`CONFIG_OPENSC2_BLE_NAME_PREFIX`, `_COMPANY_ID`, `_PNP_VENDOR`, `_PNP_PRODUCT`, `_MODEL`) that you
+can change, and the vendor service can be left out (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE=n`).
+
 OpenSC2 is original code. It was written from the protocol documentation the same authors wrote by
 studying the controller's and the puck's firmware (to be published in
 [steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered);

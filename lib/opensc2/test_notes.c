@@ -247,3 +247,14 @@ void osc2_test_note_channels(const uint8_t channels[4])
 		note(OSC2_TEST_KIND_CHANNELS, OSC2_TEST_LINK_RADIO, channels, 4);
 	}
 }
+
+void osc2_test_note_ble(uint8_t event, uint8_t a, uint16_t b, uint32_t c)
+{
+	uint8_t d[8] = { event, a };
+
+	if (osc2_test_core_armed(CORE)) {
+		opensc2_put_le16(&d[2], b);
+		opensc2_put_le32(&d[4], c);
+		note(OSC2_TEST_KIND_BLE, OSC2_TEST_LINK_BLE, d, sizeof(d));
+	}
+}

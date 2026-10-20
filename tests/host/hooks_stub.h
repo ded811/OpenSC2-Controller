@@ -47,6 +47,11 @@ struct hooks_record {
 	void (*resync_hook)(void);
 	/* ... and report.c's osc2_output_dispatch() for HOST_OUT (the rumble timeout too) */
 	int (*output_hook)(uint8_t link, const uint8_t *report, uint8_t len);
+	/* The Bluetooth ops (BLE_STATUS, BLE_DROP, BLE_WINDOW): a stand-in for ble.c's; NULL is a
+	 * build without Bluetooth (BAD_OP). */
+	uint8_t (*ble_hook)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			    uint8_t *rlen);
+	int ble_op_calls;
 };
 
 extern struct hooks_record hk;

@@ -239,6 +239,17 @@ class VendorDenylist(unittest.TestCase):
         with self.assertRaises(safety.SafetyError):
             safety.check_vendor(C.VC_BY_NAME_SET, chime + b"\x01", "usb", ctx=ctx)
 
+    def test_transport_in_a_bluetooth_build(self):
+        """safety-HW-6: in a Bluetooth build (caps bit 17) 0x01 selects Bluetooth slot 2, so
+        only the value read back (or a token) passes."""
+        ctx = safety.Context()
+        ctx.caps_ble = True
+        transport = b"user/wireless_transport\x00"
+        with self.assertRaises(safety.SafetyError):
+            safety.check_vendor(C.VC_BY_NAME_SET, transport + b"\x01", "usb", ctx=ctx)
+        ctx.read_values["user/wireless_transport"] = b"\x01"
+        safety.check_vendor(C.VC_BY_NAME_SET, transport + b"\x01", "usb", ctx=ctx)
+
     def test_feature_report_2_never(self):
         buf = bytearray(C.FEATURE_LEN)
         buf[0] = 2

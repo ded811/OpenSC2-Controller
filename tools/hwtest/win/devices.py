@@ -8,7 +8,15 @@
 # of its interfaces, &MI_nn), the serial at the end of that instance ID, the USB product string
 # read on that device node, its location and, for a port, its COM name. safety.classify() turns
 # each node into one class; nothing here opens anything.
+#
+# A Bluetooth LE HID collection has no USB ancestor: its node (HID\{00001812-...}_DEV_VID&02...
+# _<address>&COL0n\...) sits under the HID service's node (BTHLEDEVICE\{00001812-...}_DEV_...),
+# which sits under the device's (BTHLE\DEV_<address>\...), whose name Windows took from the device.
+# For those, "instance_id" is the service node's ID (the collections of one device share it),
+# "ble_address" the address in the device node's ID and "ble_names" the names that node carries;
+# safety.classify_ble() decides with them.
 import ctypes
+import re
 import uuid
 from ctypes import wintypes
 
@@ -23,6 +31,12 @@ _CLASSES = {"hid": C.GUID_DEVINTERFACE_HID, "port": C.GUID_DEVINTERFACE_COMPORT}
 _DEVPKEY_Device_InstanceId = ("78c34fc8-104a-4aca-9ea4-524d52996e57", 256)
 _DEVPKEY_Device_BusReportedDeviceDesc = ("540b947e-8b40-45bc-a8a2-6a0b894cbda2", 4)
 _DEVPKEY_Device_LocationInfo = ("a45c254e-df1c-4efd-8020-67d146a850e0", 15)
+# a device's names: DEVPKEY_Device_FriendlyName, DEVPKEY_NAME, DEVPKEY_Device_DeviceDesc
+_DEVPKEY_Device_FriendlyName = ("a45c254e-df1c-4efd-8020-67d146a850e0", 14)
+_DEVPKEY_NAME = ("b725f130-47ef-101a-a5f1-02608c9ebac0", 10)
+_DEVPKEY_Device_DeviceDesc = ("a45c254e-df1c-4efd-8020-67d146a850e0", 2)
+_BLE_SERVICE_NODE = re.compile(r"^BTHLEDEVICE\\", re.IGNORECASE)
+_BLE_DEVICE_NODE = re.compile(r"^BTHLE\\DEV_([0-9A-F]{12})\\", re.IGNORECASE)
 
 
 class _GUID(ctypes.Structure):
@@ -172,8 +186,33 @@ def usb_device(cfg, devnode):
     return None, None
 
 
+def ble_device(cfg, devnode):
+    """A Bluetooth LE HID collection's ancestors: (the HID service node's ID, the device's
+    address, the device's names) or (None, None, []) when the node is not one."""
+    dn, hops = devnode, 0
+    service_id = None
+    names_keys = [_propkey(*k) for k in (_DEVPKEY_Device_FriendlyName, _DEVPKEY_NAME,
+                                         _DEVPKEY_Device_DeviceDesc)]
+    while dn is not None and hops < 6:
+        did = cfg.device_id(dn) or ""
+        if _BLE_SERVICE_NODE.match(did):
+            service_id = did
+        m = _BLE_DEVICE_NODE.match(did)
+        if m:
+            names = []
+            for key in names_keys:
+                name = cfg.devnode_property(dn, key)
+                if name and name not in names:
+                    names.append(name)
+            return service_id, m.group(1).upper(), names
+        dn = cfg.parent(dn)
+        hops += 1
+    return None, None, []
+
+
 def enumerate_nodes():
-    """The present HID interfaces and COM ports, described for safety.classify()."""
+    """The present HID interfaces and COM ports, described for safety.classify() (and, for a
+    Bluetooth LE HID collection, for safety.classify_ble())."""
     cfg = _Cfgmgr()
     iid_key = _propkey(*_DEVPKEY_Device_InstanceId)
     bus_key = _propkey(*_DEVPKEY_Device_BusReportedDeviceDesc)
@@ -184,7 +223,7 @@ def enumerate_nodes():
             own = cfg.interface_property(iface, iid_key)
             own_dn = cfg.locate(own) if own else None
             usb_dn, usb_id = usb_device(cfg, own_dn) if own_dn is not None else (None, None)
-            nodes.append({
+            node = {
                 "kind": kind,
                 "interface_id": iface,
                 "own_instance_id": own,
@@ -195,7 +234,15 @@ def enumerate_nodes():
                 "location": cfg.devnode_property(usb_dn, loc_key) if usb_dn is not None
                 else None,
                 "com": cfg.port_name(own_dn) if kind == "port" and own_dn is not None else None,
-            })
+            }
+            if kind == "hid" and usb_id is None and own_dn is not None and \
+                    (own or "").upper().startswith("HID\\{00001812-"):
+                service_id, address, names = ble_device(cfg, own_dn)
+                if service_id:
+                    node["instance_id"] = service_id
+                node["ble_address"] = address
+                node["ble_names"] = names
+            nodes.append(node)
     return nodes
 
 

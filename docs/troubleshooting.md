@@ -13,6 +13,7 @@ flashes or adds a board.
 | No USB drive after shorting RST | [The UF2 drive does not appear](#the-uf2-drive-does-not-appear) |
 | The build stops with an error | [The build fails](#the-build-fails) |
 | The test suite stops with exit code 2 or 3 | [The hardware test suite refuses my board](#the-hardware-test-suite-refuses-my-board) |
+| The Bluetooth build: Windows does not find or connect the board | [Bluetooth](#windows-does-not-find-the-board-over-bluetooth) |
 | A real controller as well | [Can I keep using my real controller?](#can-i-keep-using-my-real-controller) |
 | Worried about the puck | [Does any of this change my puck?](#does-any-of-this-change-my-puck) |
 | Posting a log | [What can I share in an issue?](#what-can-i-share-in-an-issue) |
@@ -135,8 +136,25 @@ exit code when it is not:
 | Two pucks are plugged in | unplug one: the suite cannot tell their slots apart |
 | Another program reads the board's or a slot's collection | close it (a game, a controller-mapping tool, a browser tab using WebHID) |
 | Not Windows (exit code 3) | hardware runs need Windows; `--selftest` and `--dry-run` run anywhere |
+| `--bluetooth`: no Bluetooth, or the transport is not Bluetooth | flash the Bluetooth build (`app/ble.conf`); `opensc2 transport ble` on its console, then pair it in Windows |
+| `--bluetooth`: the board's Bluetooth HID device is not there | pair it in Windows and keep it connected ([below](#windows-does-not-find-the-board-over-bluetooth)); a device renamed in Windows is refused, since the name is one of the checks |
 
 The exit codes in full: [testing.md](testing.md#how-to-read-the-report).
+
+## Windows does not find the board over Bluetooth
+
+Only for the opt-in Bluetooth build (`app/ble.conf`, not yet tested on hardware). `opensc2 ble
+status` on the board's console says what it does:
+
+| It shows | What to do |
+| --- | --- |
+| `bluetooth: off (not the transport)` | `opensc2 transport ble` |
+| `link: wireless off: no host within the advertising window` | it advertised for 60 s and nobody connected: `opensc2 start`, or press any button, then pair or connect within 60 s |
+| `link: wireless off: the host ended the link` | the PC disconnected it (for example when the device was removed or Bluetooth turned off): `opensc2 start` |
+| `link: advertising for the bonded host only` or `directed to the bonded host` | only the host it is bonded to may connect. If that host forgot it (Remove device in Windows), it refuses to pair again on the same identity: `opensc2 ble pair` opens the slot to a new host with a fresh address |
+| `link: advertising open to any host (pairing mode)` | Windows: Settings, Bluetooth & devices, Add device, Bluetooth; it is "Steam Ctrl (BT) " and the board's serial. If it does not appear, check that the PC's Bluetooth is on and does Bluetooth LE |
+
+The whole procedure: [testing.md](testing.md#bluetooth).
 
 ## Can I keep using my real controller?
 

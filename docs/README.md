@@ -13,7 +13,7 @@ start here if you are looking for something.
 | [API reference](api.md) | developers | every function, callback, field, mode rule, vendor command, setting, Kconfig option and shell command |
 | [Porting to other boards](porting.md) | people porting to other boards | what a board needs, the steps, wired mode, where the retained RAM may go, boards with more analog pins |
 | [The protocol, in brief](protocol.md) | the curious | the radio link, the puck's end, the cable, the vendor commands, lizard mode and the reports in short, links to the full research pages (not public yet), and every gap the library had to fill |
-| [Testing on hardware](testing.md) | people changing the library, porting it, or checking a board | the automated hardware test suite: what it covers, its safety rules, how to run it, the results so far |
+| [Testing on hardware](testing.md) | people changing the library, porting it, or checking a board | the automated hardware test suite: what it covers, its safety rules, how to run it, the results so far; [the Bluetooth build's procedure](testing.md#bluetooth) |
 | [The test protocol](test-protocol.md) | people changing the test hooks or the runner | the test channel (vendor command `0x7E`), the ring, the counters and the console's `opensc2 test` |
 | [Releasing](releasing.md) | the maintainer | the checklist for the push, a release, making the repository public, and the day the research repository goes public |
 
@@ -41,6 +41,11 @@ off. Steam reads it like the real controller, and pairs it with the puck in this
 **Wireless mode.** The board talks to the puck over its 2.4 GHz radio (Nordic's Enhanced
 ShockBurst). On USB it shows at most a debug serial port with other IDs (`2FE3:0004`), which has
 the shell.
+
+**Wireless transport.** What a wireless boot runs: the puck's radio with bond 1 or 2, or (in the
+opt-in Bluetooth build, not yet tested on hardware) Bluetooth LE in slot 1 or 2, one at a time.
+The choice is stored on the board, as the real controller's `user/wireless_transport`;
+`opensc2 transport` shows and changes it ([api.md](api.md#wireless-transports-and-bluetooth-le)).
 
 **Lizard mode.** Until Steam takes over, a Steam Controller 2 acts as a plain mouse and keyboard
 (the right trackpad moves the pointer, A is Enter, B is Escape, the D-pad gives the arrow keys).

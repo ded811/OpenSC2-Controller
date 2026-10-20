@@ -22,23 +22,27 @@ from . import results as results_mod
 from . import safety
 from .board import BoardGone, DeviceError, NoLink, Rig, RigError
 from .groups import base as gbase
-from .groups import (battery, cmd, desc, flash, hooks, inputs, lizard, modes, outputs, puck,
+from .groups import (battery, ble, cmd, desc, flash, hooks, inputs, lizard, modes, outputs, puck,
                      reports, restore, settings, steam, stream, wireless)
 
 CATALOG = [
     ("hooks", hooks), ("desc", desc), ("cmd", cmd), ("inputs", inputs), ("battery", battery),
     ("stream", stream), ("reports", reports), ("outputs", outputs), ("settings", settings),
     ("flash", flash), ("lizard", lizard), ("wireless", wireless), ("puck", puck),
-    ("steam", steam), ("modes", modes), ("restore", restore),
+    ("ble", ble), ("steam", steam), ("modes", modes), ("restore", restore),
 ]
 MODULES = dict(CATALOG)
-INJECTION_GROUPS = {"inputs", "reports", "lizard", "wireless"}
+INJECTION_GROUPS = {"inputs", "reports", "lizard", "wireless", "ble"}
 STEAM_CLOSED_GROUPS = {"hooks", "cmd", "inputs", "battery", "reports", "outputs", "settings",
-                       "flash", "lizard", "modes", "wireless", "puck", "desc", "stream"}
+                       "flash", "lizard", "modes", "wireless", "puck", "desc", "stream", "ble"}
 W_GROUPS = ("hooks", "desc", "cmd", "inputs", "battery", "stream", "reports", "outputs",
             "settings", "flash", "lizard")
 R_GROUPS = ("hooks", "inputs", "battery", "stream", "reports", "outputs", "settings", "cmd",
             "wireless", "flash", "puck", "lizard")
+# --bluetooth: the board over Bluetooth, through the HID device Windows made of it (TST-1)
+B_GROUPS = ("hooks", "desc", "cmd", "inputs", "battery", "stream", "reports", "outputs",
+            "settings", "ble", "lizard")
+PHASE_GROUPS = {"W": W_GROUPS, "R": R_GROUPS, "B": B_GROUPS}
 # the R groups that read the board's reports from its slot on the puck (proved by wireless.slot)
 SLOT_GROUPS = {"inputs", "battery", "stream", "reports", "wireless", "lizard", "puck"}
 STEAM_WAIT_S = 600.0                 # how long an interactive run waits for Steam to close
@@ -262,7 +266,7 @@ class Runner:
                 break
         self.results.add(results_mod.Result("env.board_reset", "env", rig.path).set(
             gbase.WARN, "the board reset unplanned and came back %s; %s" % (
-                "wired" if rig.path == "W" else "wireless", note)))
+                _path_word(rig.path), note)))
         if self.resets > 1:
             self.aborted = True
             self.results.add(results_mod.Result("run.stopped", "env", rig.path).set(
@@ -342,7 +346,7 @@ class Runner:
         ctx = self._ctx("hooks", path)
         if not self.backend.steam_running():
             try:
-                if path == "W" or not rig.models("puck"):
+                if path in ("W", "B") or not rig.models("puck"):
                     rig.acquire_sole_reader()
                 else:
                     rig.ctx.sole_reader = True   # the slots are held when they are opened
@@ -354,7 +358,7 @@ class Runner:
                 self.inject_blocked = True
                 self.results.safety["sole_reader"] = False
         notes = []
-        if rig.models("stream") and path == "W":
+        if rig.models("stream") and path in ("W", "B"):
             notes = rig.record_baseline()      # R: after the slot is proved (below)
         result = {}
         rig.steam_closed_required = True
@@ -392,9 +396,9 @@ class Runner:
         if not self._wants_path(path) or not self._go():
             return
         if not self._phase_start(path):
-            # no hooks: only what needs none (W: the descriptors and the stream read as it
+            # no hooks: only what needs none (W and B: the descriptors and the stream read as it
             # comes; R: nothing, since the board's slot on the puck is proved by an injection)
-            if path == "W":
+            if path in ("W", "B"):
                 self._run_group("desc", path)
                 self._run_group("stream", path, stream.passive)
             elif self._go():
@@ -406,7 +410,7 @@ class Runner:
             why = ("no puck: plug in Valve's puck (the wireless phase reads the board through it)")
             self._skip_phase(path, R_GROUPS[1], why)
             return
-        for name in (W_GROUPS if path == "W" else R_GROUPS):
+        for name in PHASE_GROUPS[path]:
             if path == "R" and name in SLOT_GROUPS and self.rig.slot_proven_at is None and \
                     self.rig.models("puck") and self._group_on(name):
                 why = "the board's slot on the puck is not proved"
@@ -418,7 +422,7 @@ class Runner:
                 continue
             if self.rig.path != path:
                 self._skip_phase(path, name, "the board came back %s after a reset" % (
-                    "wired" if self.rig.path == "W" else "wireless"))
+                    _path_word(self.rig.path)))
                 return
             if name == "puck" and path != "R":
                 continue
@@ -432,7 +436,7 @@ class Runner:
         return any(self._group_on(name) for name in SLOT_GROUPS)
 
     def _skip_phase(self, path, from_name, why):
-        names = W_GROUPS if path == "W" else R_GROUPS
+        names = PHASE_GROUPS[path]
         for name in names[names.index(from_name):]:
             if self._group_on(name):
                 self.results.add(results_mod.Result(name + ".phase", name, path).set(
@@ -552,7 +556,7 @@ class Runner:
         self.puck_info = {"present": bool(d.get("puck_slots")), "slot": None}
         self.results.add(results_mod.Result("env.devices", "env", rig.path).set(
             gbase.PASS, "the board (%s), %d puck slot(s)" % (
-                "wired" if rig.path == "W" else "wireless", len(d.get("puck_slots", [])))))
+                _path_word(rig.path), len(d.get("puck_slots", [])))))
         if self.backend.steam_running():
             self.steam_info["seen_open"] = True
             if self.opt.get("steam_control") and hasattr(self.backend, "steam_stop"):
@@ -582,7 +586,9 @@ class Runner:
         only_w = self.opt.get("wired_only")
         only_r = self.opt.get("wireless_only")
         try:
-            if start_mode == "W":
+            if self.opt.get("bluetooth"):
+                self._run_bluetooth(start_mode)
+            elif start_mode == "W":
                 if not only_r:
                     self._phase("W")
                 if not only_w and self._go() and self._wants_path("R"):
@@ -625,6 +631,26 @@ class Runner:
             if self._group_on(name):
                 self.results.add(results_mod.Result(name + ".phase", name, "R").set(
                     gbase.SKIP, why))
+
+    def _run_bluetooth(self, start_mode):
+        """--bluetooth: the board over Bluetooth (B) only, found through its console and the HID
+        device Windows made of it (Rig._find_ble). The B groups, then a warm reboot that must
+        come back on Bluetooth and the identity read over it. The wired and puck paths are a run
+        without --bluetooth (the board's transport is the puck again: `opensc2 transport puck`)."""
+        rig = self.rig
+        if start_mode != "B":
+            self.results.add(results_mod.Result("env.bluetooth", "env", start_mode).set(
+                gbase.ERROR, "--bluetooth: the board started %s, not on Bluetooth: boot it "
+                             "wireless on its Bluetooth transport first (docs/testing.md, "
+                             "Bluetooth)" % _path_word(start_mode)))
+            self.exit_base = max(self.exit_base, C.EXIT_PRECONDITION)
+            return
+        self._phase("B")
+        if self._go() and self._wants_path("B") and \
+                (self._group_on("modes") or not self._sel_groups):
+            self._switch(modes.warm_wireless, "modes.warm_wireless")
+            if rig.path == "B" and self._go():
+                self._run_group("modes", "B", modes.identity)
 
     def _finish(self, start_mode):
         """modes.return and restore, always: on the path the board started on. Nothing is
@@ -674,12 +700,12 @@ class Runner:
             return
         ctx = self._ctx("modes", rig.path)
         if rig.path != start_mode:
-            if rig.path == "R" and rig.console is None:
+            if rig.wireless and rig.console is None:
                 try:
                     rig.reopen_console()
                 except Exception:
                     pass
-            if rig.path == "R" and rig.console is None:
+            if rig.wireless and rig.console is None:
                 ctx.record("modes", "modes.return", gbase.ERROR,
                            "the board is wireless and its console cannot be opened: close the "
                            "program that holds it and run again, or replug the board (it starts "
@@ -704,6 +730,10 @@ class Runner:
         self._absorb(rctx)
         if rig.path != start_mode:
             self.exit6 = True
+
+
+def _path_word(path):
+    return {"W": "wired", "R": "wireless", "B": "wireless over Bluetooth"}.get(path, "wireless")
 
 
 def _steam_watchdog(ctx):

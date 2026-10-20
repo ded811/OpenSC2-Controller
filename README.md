@@ -73,7 +73,8 @@ Steam on a Windows PC.
 | The samples and the template: they build; none has run on hardware. | Built; not run on hardware |
 | Other boards. | Not tested |
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
-| Bluetooth. The dock (pogo pads). | Not implemented |
+| Bluetooth LE (an opt-in build, `app/ble.conf`): the board as a HID-over-GATT Steam Controller 2 (`28DE:1303`) that a PC or phone pairs without the puck, with the real controller's name, its three forms of advertising and the 60 s window, two identities per slot and its bond rules, "wireless off" when the host leaves, the report map, the vendor commands on feature report 1, output reports, Valve's vendor GATT service (for SDL on Android and Apple platforms), the battery service, lizard mode, a state report per connection event, and switching between the puck and Bluetooth. The hardware test suite has a Bluetooth path (`--bluetooth`), run so far only against its simulator. | Built; not yet tested on hardware |
+| The dock (pogo pads). | Not implemented |
 | Lizard mode's smoothing, glide and haptic ticks. PCM haptics playback in the samples. | Not implemented |
 
 Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
@@ -238,9 +239,9 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 52 host tests (2,209 checks); 79 (4,658 checks) with the hardware
+- **Host tests**, no hardware: 65 host tests (2,610 checks); 94 (5,164 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 207 self-tests; its dry run against the library's own code in a firmware emulator; 9
+  runner's 233 self-tests; its dry run against the library's own code in a firmware emulator; 9
   self-tests of `tools/match_steam_version.py`. Run
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc
   on PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
@@ -293,10 +294,10 @@ clean-room implementation. It contains no Valve code or binaries.
 In more detail, it was written from:
 
 - that documentation's pages on the controller's radio link to the puck, its USB device, the wired
-  session and pairing over the cable, the reports, the vendor commands, the controller settings and
-  lizard mode, and on the puck's end of the link: its slots, pairing window, connecting, channel
-  choice, suspend and what it shows Steam ([docs/protocol.md](docs/protocol.md) sums up each one
-  and links its page);
+  session and pairing over the cable, the reports, the vendor commands, the controller settings,
+  lizard mode and its Bluetooth link, and on the puck's end of the link: its slots, pairing window,
+  connecting, channel choice, suspend and what it shows Steam ([docs/protocol.md](docs/protocol.md)
+  sums up each one and links its page);
 - a few facts that come directly from the same authors' study of the controller's firmware, not
   from that documentation: the ranges of seven settings, details of the report descriptor (the
   sizes of its mouse and keyboard collections, the form of its items, the order of its reports),
@@ -335,6 +336,7 @@ include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (w
                         descriptors), settings.h, fusion.h
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
 lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc.c (wired mode),
+                        ble.c (Bluetooth LE, opt-in), transport.c (the puck or Bluetooth),
                         commands.c (vendor commands), report.c (reports on every link), lizard.c
                         (lizard mode), mode.c (wired or wireless), usblog.c (the session log),
                         storage.c, shell.c, test_*.c (the hardware test hooks)

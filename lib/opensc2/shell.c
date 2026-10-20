@@ -78,6 +78,10 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 		    "wireless (not the real controller's behaviour)",
 		    (unsigned int)OSC2_NO_HOST_WIRELESS_MS);
 #endif
+	shell_print(sh, "transport: %s (stored: %s)",
+		    osc2_transport_name(osc2_transport_running()),
+		    osc2.transport_saved == OSC2_TRANSPORT_NONE ? "none, the default" :
+		    osc2_transport_name(osc2.transport_saved));
 	if (opensc2_mode() == OPENSC2_MODE_WIRED) {
 		struct opensc2_usb_info usb;
 
@@ -85,6 +89,9 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 		shell_print(sh, "usb:       %s%s, %u reports, %u dropped, %u requests, %u stalls",
 			    usb_state_names[usb.state], usb.suspended ? " (suspended)" : "",
 			    usb.reports, usb.dropped, usb.requests, usb.stalls);
+	} else if (osc2_transport_is_ble(info.transport)) {
+		shell_print(sh, "link:      Bluetooth %s (last reason %d), slot %u",
+			    state_names[info.state], info.reason, info.slot + 1);
 	} else {
 		shell_print(sh, "link:      %s (last reason %d), bond slot %u",
 			    state_names[info.state], info.reason, info.slot + 1);
@@ -272,6 +279,107 @@ static int cmd_slot(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+/* `transport [puck|puck2|ble|ble2] [save]`: show, or run another wireless transport. October's
+ * rule stores the choice once its link is up; "save" stores it at once (as a host's 0xEE and 0xEF
+ * of user/wireless_transport do), for a reboot into it. */
+static int cmd_transport(const struct shell *sh, size_t argc, char **argv)
+{
+	int t;
+	int err;
+
+	if (argc < 2) {
+		shell_print(sh, "running %s (%s), chosen %s, stored %s",
+			    osc2_transport_word(osc2_transport_running()),
+			    osc2_transport_name(osc2_transport_running()),
+			    osc2_transport_word(osc2.transport),
+			    osc2.transport_saved == OSC2_TRANSPORT_NONE ? "none" :
+			    osc2_transport_word(osc2.transport_saved));
+		return 0;
+	}
+	t = osc2_transport_from_word(argv[1]);
+	if (t < 0 || (argc > 2 && strcmp(argv[2], "save") != 0)) {
+		shell_error(sh, "transport [puck|puck2|ble|ble2] [save]");
+		return -EINVAL;
+	}
+	err = opensc2_select_transport((enum opensc2_transport)t);
+	if (err == -ENOTSUP) {
+		shell_error(sh, "this build has no Bluetooth (CONFIG_OPENSC2_BLE)");
+		return err;
+	}
+	if (!err && argc > 2) {
+		err = osc2_storage_save_transport((uint8_t)t);
+	}
+	if (err) {
+		shell_error(sh, "failed (%d)", err);
+		return err;
+	}
+	shell_print(sh, "%s%s", osc2_transport_name((uint8_t)t),
+		    argc > 2 ? ", stored" : opensc2_mode() == OPENSC2_MODE_WIRED ?
+		    ", stored for the next wireless boot" : "; stored once its link is up");
+	return 0;
+}
+
+#if defined(CONFIG_OPENSC2_BLE)
+/* `ble [status]`: the Bluetooth link. The address is the board's own (the identity in use). */
+static int cmd_ble_status(const struct shell *sh, size_t argc, char **argv)
+{
+	struct osc2_ble_status st;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	osc2_ble_status(&st);
+	shell_print(sh, "bluetooth: %s%s; slot %u, identity %u %s", st.enabled ? "on" : "off",
+		    !st.running ? " (not the transport)" : "", st.slot + 1, st.id,
+		    st.address[0] ? st.address : "-");
+	shell_print(sh, "name:      %s", st.name[0] ? st.name : "-");
+	shell_print(sh, "bonds:     identity 1 %s, 2 %s (slot 1); 3 %s, 4 %s (slot 2)",
+		    st.bonded & BIT(1) ? "yes" : "no", st.bonded & BIT(2) ? "yes" : "no",
+		    st.bonded & BIT(3) ? "yes" : "no", st.bonded & BIT(4) ? "yes" : "no");
+	if (st.connected) {
+		shell_print(sh, "link:      connected%s, security %u, ATT MTU %u, interval %u us, "
+			    "paced by %s", st.active ? " and active" : " (waiting for encryption and "
+			    "an ATT MTU of 64)", st.security, st.mtu, st.interval_us,
+			    st.trigger ? "the connection events" : "a timer");
+		shell_print(sh, "traffic:   %u state reports, %u dropped", st.reports, st.dropped);
+	} else if (st.advertising) {
+		shell_print(sh, "link:      advertising %s; %u s left of the window",
+			    st.form == OSC2_BLE_ADV_DIRECTED ? "directed to the bonded host" :
+			    st.form == OSC2_BLE_ADV_ALLOW_LISTED ? "for the bonded host only" :
+			    "open to any host (pairing mode)", st.window_left_ms / 1000);
+	} else {
+		shell_print(sh, "link:      %s", st.wireless_off ? (st.reason ==
+			    OPENSC2_REASON_LISTEN_TIMEOUT ? "wireless off: no host within the "
+			    "advertising window" : "wireless off: the host ended the link") : "idle");
+	}
+	if (st.last_reason) {
+		shell_print(sh, "last disconnect: reason 0x%02x", st.last_reason);
+	}
+	return 0;
+}
+
+static int cmd_ble_pair(const struct shell *sh, size_t argc, char **argv)
+{
+	int err;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	if (!osc2_transport_is_ble(osc2_transport_running())) {
+		shell_error(sh, "Bluetooth is not the transport: opensc2 transport ble");
+		return -EBUSY;
+	}
+	/* Through opensc2_pair_start(), which refuses while wired: a wired boot (a console over
+	 * USB or a UART) must not start Bluetooth. */
+	err = opensc2_pair_start(0);
+	if (err) {
+		shell_error(sh, "failed (%d)%s", err, err == -EBUSY ? ": the board is wired" : "");
+		return err;
+	}
+	shell_print(sh, "Pairing mode: the slot's other identity, reset, is open to a new host; "
+		    "the slot's host keeps its bond until a new one has paired");
+	return 0;
+}
+#endif
+
 static int cmd_bonds(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
@@ -438,6 +546,14 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_id,
 	SHELL_CMD(clear, NULL, "Forget the stored identity (the name too)", cmd_id_clear),
 	SHELL_SUBCMD_SET_END);
 
+#if defined(CONFIG_OPENSC2_BLE)
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_ble,
+	SHELL_CMD(status, NULL, "The Bluetooth link", cmd_ble_status),
+	SHELL_CMD(pair, NULL, "Pairing mode: open the slot to a new host (the old host's bond goes "
+		  "once a new one has paired)", cmd_ble_pair),
+	SHELL_SUBCMD_SET_END);
+#endif
+
 #if defined(CONFIG_OPENSC2_USB)
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_usb,
 	SHELL_CMD_ARG(log, NULL, "The USB session log of the last wired sessions: log [clear]",
@@ -456,9 +572,15 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_opensc2,
 #endif
 	SHELL_CMD_ARG(pair, NULL, "Pair with a puck over the air: pair [seconds]", cmd_pair, 1, 1),
 	SHELL_CMD(cancel, NULL, "Cancel pairing", cmd_cancel),
-	SHELL_CMD(start, NULL, "Radio on", cmd_start),
-	SHELL_CMD(stop, NULL, "Radio off", cmd_stop),
+	SHELL_CMD(start, NULL, "The wireless transport on (the radio, or Bluetooth)", cmd_start),
+	SHELL_CMD(stop, NULL, "The wireless transport off", cmd_stop),
 	SHELL_CMD_ARG(slot, NULL, "Show or select the bond slot: slot [1|2]", cmd_slot, 1, 1),
+	SHELL_CMD_ARG(transport, NULL,
+		      "Show or run a wireless transport: transport [puck|puck2|ble|ble2] [save]",
+		      cmd_transport, 1, 2),
+#if defined(CONFIG_OPENSC2_BLE)
+	SHELL_CMD(ble, &sub_ble, "Bluetooth LE: status, pair", cmd_ble_status),
+#endif
 	SHELL_CMD(bonds, NULL, "List the bonds", cmd_bonds),
 	SHELL_CMD_ARG(forget, NULL, "Delete a bond: forget <1|2>", cmd_forget, 2, 0),
 	SHELL_CMD(id, &sub_id, "Identity", cmd_id_show),

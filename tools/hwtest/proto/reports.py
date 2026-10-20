@@ -109,6 +109,12 @@ def nonce_of_report(report):
     return _u32(report, 30)   # the IMU timestamp field at report offset 30
 
 
+def ble_cut(state52):
+    """A state52 as Bluetooth carries it: 0x42 goes out as 0x45, the first 44 bytes of the state
+    after the sequence byte; the quaternion (offsets 44..51) is cut (reads as zero)."""
+    return bytes(state52[:C.BLE_STATE52_KEPT]) + bytes(C.STATE52_LEN - C.BLE_STATE52_KEPT)
+
+
 def buttons_set(buttons):
     return {name for bit, name in BUTTON_BITS.items() if buttons & (1 << bit)}
 

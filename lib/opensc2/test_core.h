@@ -99,7 +99,15 @@ enum osc2_test_op {
 	OSC2_TEST_OP_HOST_GET = 0x42,
 	OSC2_TEST_OP_APP_SEND = 0x43,
 	OSC2_TEST_OP_RADIO_DEAF = 0x44,
+	/* Bluetooth LE (a build with CONFIG_OPENSC2_BLE; BAD_OP otherwise) */
+	OSC2_TEST_OP_BLE_STATUS = 0x60,   /* the link's state, 28 bytes */
+	OSC2_TEST_OP_BLE_DROP = 0x61,     /* end the link as if the host had, with this reason */
+	OSC2_TEST_OP_BLE_WINDOW = 0x62,   /* the next advertising window's length */
 };
+
+/* BLE_WINDOW's range, ms (0 restores the configured window). */
+#define OSC2_TEST_BLE_WINDOW_MIN_MS  100u
+#define OSC2_TEST_BLE_WINDOW_MAX_MS  600000u
 
 /* Flags of ARM, INJECT, SEQ_RUN and BATTERY. */
 #define OSC2_TEST_ARM_RESTORE        0x01   /* restore the settings and the LED colour at the end */
@@ -116,8 +124,11 @@ enum osc2_test_link {
 	OSC2_TEST_LINK_USB = 1,
 	OSC2_TEST_LINK_TEST = 2,    /* the host emulation, and everything the console causes */
 	OSC2_TEST_LINK_NONE = 3,    /* work queue events: the rumble timeout, the Steam watchdog */
+	OSC2_TEST_LINK_BLE = 4,     /* Bluetooth LE */
+	OSC2_TEST_LINK_DOCK = 5,    /* the dock */
 };
-#define OSC2_TEST_LINKS 3          /* links with a stored request and a held answer */
+/* Links with a stored request and a held answer: every number below this but 3 (none). */
+#define OSC2_TEST_LINKS 6
 
 /* ---- the ring ---------------------------------------------------------------------------------
  * Entry: time u32 (µs since ARM), kind u8, link u8, data length u8, data. */
@@ -150,7 +161,48 @@ enum osc2_test_kind {
 	OSC2_TEST_KIND_VERSION = 0x22,
 	OSC2_TEST_KIND_IDENTITY = 0x23,
 	OSC2_TEST_KIND_CHANNELS = 0x24,
+	OSC2_TEST_KIND_BLE = 0x40,   /* a Bluetooth LE link event (enum osc2_test_ble_event) */
 };
+
+/* BLE entries: event u8, a u8, b u16, c u32. */
+enum osc2_test_ble_event {
+	OSC2_TEST_BLE_STATE = 1,       /* a link state (enum opensc2_link_state), b the reason, c the
+					* slot (bits 0..7), identity (8..15), advertising form (16..23) */
+	OSC2_TEST_BLE_SECURITY = 2,    /* a the security level, b the error */
+	OSC2_TEST_BLE_MTU = 3,         /* b the ATT MTU */
+	OSC2_TEST_BLE_PARAMS = 4,      /* b the latency, c the interval in µs */
+	OSC2_TEST_BLE_GATE = 5,        /* a 1 up (the transport is active), 0 down */
+	OSC2_TEST_BLE_TRIGGER = 6,     /* a 1 the connection-event trigger is set, 0 it failed and a
+					* timer paces the reports; b the error */
+	OSC2_TEST_BLE_DISCONNECT = 7,  /* a the HCI reason acted on, b what followed (0 advertising
+					* again after 500 ms, 1 wireless off, 2 nothing: ended
+					* here), c the reason the stack reported */
+	OSC2_TEST_BLE_ADV = 8,         /* advertising started: a the form (0 pairing mode, 1
+					* allow-listed, 2 directed), b the error (0: running), c the
+					* slot (bits 0..7), identity (8..15), how (16..23: 0 a start,
+					* 1 again after a lost link, 2 after a failed connection),
+					* identity reset first (24) */
+	OSC2_TEST_BLE_ADV_END = 9,     /* advertising ended: a why (0 a host connected, 1 a connection
+					* failed, 2 the window ran out, 3 stopped), b the HCI error,
+					* c the identity */
+	OSC2_TEST_BLE_IDENTITY = 10,   /* a what (0 created, 1 reset, 2 a reset failed), b the error,
+					* c the identity */
+	OSC2_TEST_BLE_BOND = 11,       /* a what (0 a new host bonded: c the identity, bits 8..15 the
+					* slot's other one, whose bond goes; 1 a bond was deleted and
+					* its identity is reset; 2 deleted, but the identity is in use
+					* and kept), c the identity */
+	OSC2_TEST_BLE_OFF = 12,        /* wireless off: a the cause (0 the window, 1 the host), b the
+					* HCI reason */
+};
+
+/* IDENTITY entries. */
+#define OSC2_TEST_BLE_ID_CREATED       0
+#define OSC2_TEST_BLE_ID_RESET         1
+#define OSC2_TEST_BLE_ID_RESET_FAILED  2
+/* BOND entries. */
+#define OSC2_TEST_BLE_BOND_NEW_HOST    0
+#define OSC2_TEST_BLE_BOND_DELETED     1
+#define OSC2_TEST_BLE_BOND_KEPT        2
 
 /* LIZARD entries. */
 enum osc2_test_lizard {
@@ -223,6 +275,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+/* CONFIG_OPENSC2_BLE: Bluetooth LE. */
+#define OSC2_TEST_FLAG_BLE                    (1u << 17)
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)
@@ -296,6 +350,10 @@ struct osc2_test_env {
 	void (*battery_now)(void);                /* a battery report now; the period restarts */
 	bool (*release_held)(void);               /* osc2_lizard_release_held() */
 	void (*lizard_resync)(void);              /* osc2_lizard_resync() (writes a LIZARD entry) */
+	/* The Bluetooth ops (BLE_STATUS, BLE_DROP, BLE_WINDOW): an answer status, the result into
+	 * `result` (`*rlen` bytes). NULL in a build without Bluetooth: BAD_OP. */
+	uint8_t (*ble_op)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			  uint8_t *rlen);
 };
 
 /* ---- the core's state ------------------------------------------------------------------------ */

@@ -51,6 +51,11 @@ int osc2_input_send(const uint8_t *report, size_t len, bool droppable)
 		return -ENOTCONN;
 #endif
 	}
+#if defined(CONFIG_OPENSC2_BLE)
+	if (osc2_ble_active()) {
+		return osc2_ble_send(report, len, droppable);
+	}
+#endif
 	ARG_UNUSED(droppable);
 	if (!osc2_radio_connected()) {
 		return -ENOTCONN;

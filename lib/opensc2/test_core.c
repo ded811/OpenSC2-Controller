@@ -1014,6 +1014,37 @@ static uint8_t op_radio_deaf(struct op_req *r)
 	return OSC2_TEST_OK;
 }
 
+/* The Bluetooth ops: the library's Bluetooth code answers them (BAD_OP in a build without it). */
+static uint8_t op_ble(struct op_req *r, uint8_t op)
+{
+	uint8_t status;
+
+	if (!r->env->ble_op) {
+		return OSC2_TEST_BAD_OP;
+	}
+	status = r->env->ble_op(op, r->args, r->alen, r->result, &r->rlen);
+	if (r->rlen > OSC2_TEST_RESULT_MAX) {
+		r->rlen = 0;
+		return OSC2_TEST_BAD_OP;   /* never more than an answer holds */
+	}
+	return status;
+}
+
+static uint8_t op_ble_status(struct op_req *r)
+{
+	return op_ble(r, OSC2_TEST_OP_BLE_STATUS);
+}
+
+static uint8_t op_ble_drop(struct op_req *r)
+{
+	return op_ble(r, OSC2_TEST_OP_BLE_DROP);
+}
+
+static uint8_t op_ble_window(struct op_req *r)
+{
+	return op_ble(r, OSC2_TEST_OP_BLE_WINDOW);
+}
+
 typedef uint8_t (*op_fn)(struct op_req *r);
 
 static const struct {
@@ -1044,6 +1075,9 @@ static const struct {
 	{ OSC2_TEST_OP_HOST_GET, 0, 0, false, op_host_get },
 	{ OSC2_TEST_OP_APP_SEND, 1, OSC2_TEST_ARGS_MAX, false, op_app_send },
 	{ OSC2_TEST_OP_RADIO_DEAF, 2, 2, false, op_radio_deaf },
+	{ OSC2_TEST_OP_BLE_STATUS, 0, 0, false, op_ble_status },
+	{ OSC2_TEST_OP_BLE_DROP, 1, 1, false, op_ble_drop },
+	{ OSC2_TEST_OP_BLE_WINDOW, 4, 4, false, op_ble_window },
 };
 
 /* Lengths that depend on the arguments themselves. */
@@ -1559,6 +1593,7 @@ static const char *kind_name(uint8_t kind)
 	case OSC2_TEST_KIND_VERSION:     return "VERSION";
 	case OSC2_TEST_KIND_IDENTITY:    return "IDENTITY";
 	case OSC2_TEST_KIND_CHANNELS:    return "CHANNELS";
+	case OSC2_TEST_KIND_BLE:         return "BLE";
 	default:                         return NULL;
 	}
 }
@@ -1728,6 +1763,14 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 			return;
 		}
 		break;
+	case OSC2_TEST_KIND_BLE:
+		if (n >= 8) {
+			add(out, size, at, " event=%u a=%u b=%u c=%lu", (unsigned int)d[0],
+			    (unsigned int)d[1], (unsigned int)opensc2_get_le16(&d[2]),
+			    (unsigned long)opensc2_get_le32(&d[4]));
+			return;
+		}
+		break;
 	default:
 		break;
 	}
@@ -1737,7 +1780,7 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 
 void osc2_test_fmt_entry(char *out, size_t size, uint32_t seq, const uint8_t *entry, size_t len)
 {
-	static const char *const links[] = { "radio", "usb", "test", "none" };
+	static const char *const links[] = { "radio", "usb", "test", "none", "ble", "dock" };
 	size_t at = 0;
 	uint32_t t;
 	uint8_t n;
@@ -1751,7 +1794,7 @@ void osc2_test_fmt_entry(char *out, size_t size, uint32_t seq, const uint8_t *en
 	n = (uint8_t)MIN_OF((size_t)entry[6], len - OSC2_TEST_ENTRY_HEADER);
 	name = kind_name(entry[4]);
 	add(out, size, &at, "%lu %lu.%03lu %s ", (unsigned long)seq, (unsigned long)(t / 1000u),
-	    (unsigned long)(t % 1000u), entry[5] < 4 ? links[entry[5]] : "?");
+	    (unsigned long)(t % 1000u), entry[5] < 6 ? links[entry[5]] : "?");
 	if (name) {
 		add(out, size, &at, "%s", name);
 	} else {

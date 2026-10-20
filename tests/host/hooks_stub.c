@@ -310,6 +310,19 @@ static void env_lizard_resync(void)
 	osc2_test_note_lizard(OSC2_TEST_LIZARD_RESYNC);
 }
 
+/* ble.c's test ops, when a test sets a stand-in; without one, a build without Bluetooth. */
+static uint8_t env_ble_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			  uint8_t *rlen)
+{
+	library_call();
+	hk.ble_op_calls++;
+	*rlen = 0;
+	if (!hk.ble_hook) {
+		return OSC2_TEST_BAD_OP;
+	}
+	return hk.ble_hook(op, args, alen, result, rlen);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -338,4 +351,5 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+	.ble_op = env_ble_op,
 };

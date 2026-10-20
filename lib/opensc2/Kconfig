@@ -454,4 +454,6 @@ config OPENSC2_BOOTLOADER_BUILD_TIME
 
 endmenu
 
+rsource "Kconfig.ble"
+
 endif # OPENSC2

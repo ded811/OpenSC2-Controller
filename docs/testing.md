@@ -29,34 +29,38 @@ and arming ends by itself 15 seconds after the PC goes quiet.
 
 Each test runs on one or more **paths**: **W** wired (the PC talks to the board's own USB HID
 device), **R** wireless (the board's reports are read through Valve's puck, the test channel goes
-over the board's USB console), **P** through the puck (opt-in, below) and **S** with Steam open
-(opt-in). `python -I tools\hwtest\run.py --list` prints every test with its paths. In the console
-and the report, a test carries the mode it ran in after an `@`: `@W` or `@R`, also for the P and S
+over the board's USB console), **P** through the puck (opt-in, below), **S** with Steam open
+(opt-in) and **B** over Bluetooth (opt-in `--bluetooth`, a run of its own: [Bluetooth](#bluetooth)).
+`python -I tools\hwtest\run.py --list` prints every test with its paths. In the console and the
+report, a test carries the mode it ran in after an `@`: `@W`, `@R` or `@B`, also for the P and S
 tests (for example `puck.output@R`, `steam.wired_passive@W`).
 
 | Group | Paths | What it checks |
 | --- | --- | --- |
-| `hooks` | W R | the hooks themselves: present (a warning for the charger test build, whose wired boots go wireless without a host, unlike the real controller); invisible while unarmed (a wrong key, a wrong version, a short request and a keyed request all STALL and leave the stored request alone); arming and its first ring entries; the **guard canary**; the settings restore at the end of arming; the lease; the DISARM answer; the ring (wrapping, eviction count, paging); the paging of counters and settings |
-| `desc` | W | the USB identity as Windows sees it: VID:PID and version, the three strings (the product string is the board's configured name, "Steam Controller" unless one is stored: checked against the CRC-32 of the name the hooks' caps carry, and against `opensc2 id` once the run has read the console), the collections, the HID capabilities against the real controller's descriptors |
-| `cmd` | W (R) | the vendor commands Steam sends: `0x83` attributes, `0xAE` strings, `0xF2` device info, `0xA1` reset info, `0xDB` the chime level, `0xED` reads by name, the refusal forms of the writes (refused before anything is written), the `0xE2` forms Steam sends and one that must be refused, unknown opcodes STALL, the framing rules (length, report IDs other than 1, the control pipe's output and input reports), the stored request, turn-off ignored while wired, the first GET after a boot; on R the lizard commands refused while the radio link is down |
-| `inputs` | W R | every button bit, both sticks, both triggers (analog and the digital bits with setting 68's hysteresis), both trackpads (position, touch, pressure), every IMU field, random full states, the latency from injection to report, the **lizard lock** (an injection is refused while lizard mode is on and stopped in the frame lizard mode comes back), an injected STEAM button that changes nothing |
-| `battery` | W R | the library's default `0x43` byte for byte, the 3.5 s cadence, injected values in `0x43` and `0xBE`, the level clamp, back to the default |
-| `stream` | W R | the report IDs, the state report cadence (about 248 a second wired), the sequence numbers and every hole explained by the counters; `--soak S` for a long run |
-| `reports` | W R | the haptic stream status `0x44` and raw reports an application sends; on R the puck's exact-length filter |
-| `outputs` | W R | rumble (`0x80`) decoded field by field, the 500 ms rumble timeout, rumble stopped when the link goes down, every haptic report the library decodes (`0x81`..`0x89`, PCM data included), `0x8A` ignored, short reports refused, padded reports equal to exact ones |
-| `settings` | W R | the LED colour and LED settings, `0x8E` defaults, the clamps of the ranged settings, changes and invalid numbers, the Steam watchdog (lizard mode and the defaults back 10 s after the last `0x81`), its re-arm, no watchdog while setting 71 is 0 |
-| `modes` | W R | a plain reboot, the reboot into wireless (`0x95` with Steam's key), the USB session log, a warm restart, back to wired, the identity equal on both paths (the product name too), back to the mode the board was found in |
+| `hooks` | W R B | the hooks themselves: present (a warning for the charger test build, whose wired boots go wireless without a host, unlike the real controller); invisible while unarmed (a wrong key, a wrong version, a short request and a keyed request all STALL and leave the stored request alone); arming and its first ring entries; the **guard canary**; the settings restore at the end of arming; the lease; the DISARM answer; the ring (wrapping, eviction count, paging); the paging of counters and settings |
+| `desc` | W B | the USB identity as Windows sees it: VID:PID and version, the three strings (the product string is the board's configured name, "Steam Controller" unless one is stored: checked against the CRC-32 of the name the hooks' caps carry, and against `opensc2 id` once the run has read the console), the collections, the HID capabilities against the real controller's descriptors; on B the Bluetooth HID device: `28DE:1303` version `0x0100` (the PnP ID), the same collections and capabilities, the strings reported |
+| `cmd` | W B (R) | the vendor commands Steam sends: `0x83` attributes, `0xAE` strings, `0xF2` device info, `0xA1` reset info, `0xDB` the chime level, `0xED` reads by name, the refusal forms of the writes (refused before anything is written), the `0xE2` forms Steam sends and one that must be refused, unknown opcodes STALL, the framing rules (length, report IDs other than 1, the control pipe's output and input reports), the stored request, turn-off ignored while wired, the first GET after a boot; on R the lizard commands refused while the radio link is down; on B the same commands over Bluetooth's feature report 1 (a refusal is an ATT error there), attribute 11 the connection interval, without the USB framing and never `0x9F` |
+| `inputs` | W R B | every button bit, both sticks, both triggers (analog and the digital bits with setting 68's hysteresis), both trackpads (position, touch, pressure), every IMU field, random full states, the latency from injection to report, the **lizard lock** (an injection is refused while lizard mode is on and stopped in the frame lizard mode comes back), an injected STEAM button that changes nothing |
+| `battery` | W R B | the library's default `0x43` byte for byte, the 3.5 s cadence, injected values in `0x43` and `0xBE`, the level clamp, back to the default |
+| `stream` | W R B | the report IDs, the state report cadence (about 248 a second wired; on B one a connection event, the rate the connection interval gives, and only `0x45` and `0x43` arriving), the sequence numbers and every hole explained by the counters; `--soak S` for a long run |
+| `reports` | W R B | the haptic stream status `0x44` and raw reports an application sends; on R the puck's exact-length filter |
+| `outputs` | W R B | rumble (`0x80`) decoded field by field, the 500 ms rumble timeout, rumble stopped when the link goes down, every haptic report the library decodes (`0x81`..`0x89`, PCM data included), `0x8A` ignored, short reports refused, padded reports equal to exact ones |
+| `settings` | W R B | the LED colour and LED settings, `0x8E` defaults, the clamps of the ranged settings, changes and invalid numbers, the Steam watchdog (lizard mode and the defaults back 10 s after the last `0x81`), its re-arm, no watchdog while setting 71 is 0 |
+| `modes` | W R B | a plain reboot, the reboot into wireless (`0x95` with Steam's key), the USB session log, a warm restart, back to wired, the identity equal on both paths (the product name too), back to the mode the board was found in; on B a warm restart that comes back on Bluetooth (Windows connects the board again) and the identity read over Bluetooth |
 | `wireless` | R | which of the puck's slots carries the board (an injected signature), the puck's link status and link quality reports, the identity sent on connect, reconnecting after `opensc2 stop`/`start`, a lost link (the radio made deaf for 800 ms), the turn-off requests |
+| `ble` | B | the Bluetooth link: connected and past its gate (encrypted, ATT MTU 64 or more), the identity in use and its bond, the connection interval, the name and address the console shows; the state report cut to `0x45` (no quaternion); a lost link (the board drops it with reason `0x08`): the same identity advertises again 500 ms later, directed to its host, and Windows connects it again; the host ending the link (`0x13`): wireless off and the `WIRELESS_OFF` power request, and `opensc2 start` brings it back; with `--flash` the 60 s advertising window, shortened to 3 s, running out in pairing mode on the slot's other identity while the slot's host keeps its bond |
 | `restore` | all | always last and always whole (whatever `--test` selects), also after a failure or Ctrl-C: outputs and injection off, settings and LED colour written back, disarmed, every link's stored request as after a boot, and the board **as found** (mode, bonds, identity, slot, chime level, mode policy, the settings and the LED colour) |
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, restating the mode policy); see [the note below](#what---flash-writes) |
-| `lizard` | W R | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, thumb on the stick, lizard mode off and back), with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path, and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
+| `lizard` | W R B | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, thumb on the stick, lizard mode off and back), with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path, and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
 | `puck` | P | opt-in `--through-puck`: rumble, haptics, vendor commands and the test channel through the puck ([below](#the---through-puck-opt-in)) |
 | `steam` | S | opt-in `--with-steam`: what Steam sends to the board through the puck, the lines it logs on a reconnect (masked), the wired stream with Steam open; passive |
 
 Because nothing is wired, the board's own inputs read neutral; the inputs come from the test
 channel, and the outputs (rumble, haptics, LED) show up in the hooks' ring, entry by entry, with the
 fields the library decoded. Not covered: the physical inputs and outputs of a board that has them
-(the samples' drivers), the USB cable rules (unplugging, plugging in), Bluetooth and the dock.
+(the samples' drivers), the USB cable rules (unplugging, plugging in) and the dock. Bluetooth is a
+run of its own, `--bluetooth` ([Bluetooth](#bluetooth)); of it the suite does not cover Valve's vendor
+GATT service, other hosts (phones, SDL) or Steam over Bluetooth, which are checked by hand.
 
 ## What it needs
 
@@ -75,6 +79,10 @@ fields the library decoded. Not covered: the physical inputs and outputs of a bo
 - **Windows 10 or 11** (tested on Windows 11) and **Python 3** (tested with 3.11; standard library
   and `ctypes` only, no packages), in a **normal, not elevated** terminal in the repository folder.
   `--selftest` and `--dry-run` also run on Linux and macOS.
+- **For `--bluetooth`**: the board flashed with the Bluetooth build (`app/ble.conf`), wireless on
+  its Bluetooth transport and paired with Windows, and the PC's Bluetooth on; no puck needed. A real
+  controller paired with the same PC is never opened, but switched off is simpler
+  ([Bluetooth](#bluetooth)).
 
 ## The safety rules it enforces
 
@@ -84,9 +92,14 @@ They are rules in code, each with its own self-test, not conventions:
   starting with `OSC`, and serial ports with the USB ID `2FE3:0004` and the product string
   "OpenSC2 console" that answer the OpenSC2 handshake. Before the first byte goes out, the HID serial string must
   equal the serial in the device's instance ID. Everything else is refused; a `28DE:1302` with
-  another serial (a real controller) is never opened at all. The rules are checked again in the
-  functions that actually send, on the exact bytes: every feature report, output report and
-  console line, so no caller can go around them.
+  another serial (a real controller) is never opened at all. Over Bluetooth (`--bluetooth`), where
+  the board and a real controller both appear as `28DE:1303` without a USB serial, only the vendor
+  collection of the Bluetooth device with the address the board's own console reports for the
+  identity it advertises on, and with the name "Steam Ctrl (BT) " and the board's `OSC` serial, is
+  the board's; every other Bluetooth device is never opened, and after opening the HID serial string
+  must name nothing else. The rules are checked again in the functions that actually send, on the
+  exact bytes: every feature report, output report and console line, so no caller can go around
+  them.
 - **Valve's puck is read-only.** Its four slot collections are opened with read access only, and
   the reader's module binds no function that can send anything (a self-test parses its source and
   fails on any other name). Writing to the puck needs `--through-puck`, and then goes only to the
@@ -126,8 +139,9 @@ They are rules in code, each with its own self-test, not conventions:
   after the last disarm. After Steam was open the runner also arms without the write-back, which
   would otherwise bring back Steam's settings.
 - **Nothing identifying is printed or saved.** Serials, bond IDs (in every form a log may print
-  them, once the run has read the bond), the chip ID, the console's USB serial, device instance
-  paths and user folders (also inside error messages) are masked in every line and every file, and
+  them, once the run has read the bond), the chip ID, the console's USB serial, Bluetooth addresses
+  (as text and inside Windows' device names), device instance paths and user folders (also inside
+  error messages) are masked in every line and every file, and
   no raw hex of an answer is ever written (any run of 16 or more hex digits that slipped through is
   replaced, and counted as a warning). Of Steam's log only lines with known phrases about the board
   are kept, and its bond lines lose their bond (`<bond>`, or `empty`). A product name stored on the
@@ -148,11 +162,11 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 52 host tests (2,209 checks); 79 (4,658 checks) with
+the suite against that emulator. Today that is 65 host tests (2,610 checks); 94 (5,164 checks) with
 the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
-alike; the runner's 207 self-tests; its dry run against the library's own code in a firmware
-emulator; 9 self-tests of `tools/match_steam_version.py`. To run the emulator by hand after
-`run.ps1` built it:
+alike; the runner's 233 self-tests (a dry run of the Bluetooth path among them); its dry run
+against the library's own code in a firmware emulator; 9 self-tests of
+`tools/match_steam_version.py`. To run the emulator by hand after `run.ps1` built it:
 
 ```powershell
 python -I tools\hwtest\run.py --dry-run --fw-emu $env:TEMP\opensc2_fwemu.exe --lizard
@@ -195,6 +209,7 @@ python -I tools\hwtest\run.py --with-steam --steam-control
 | --- | --- |
 | `--group G[,G...]`, `--test ID[,ID...]` | only these (the start snapshot, the switches they need and the whole restore always run) |
 | `--wired-only`, `--wireless-only` | one path; the board is switched there first if needed, and back at the end |
+| `--bluetooth` | the Bluetooth path alone (B): a board of the Bluetooth build, wireless on its Bluetooth transport and paired with Windows ([Bluetooth](#bluetooth)); not with `--wired-only`, `--wireless-only`, `--through-puck` or `--with-steam` |
 | `--through-puck` | allow writes through the puck to the board's slot ([below](#the---through-puck-opt-in)) |
 | `--flash` | allow the value-preserving flash rewrites of group `flash` ([what they write](#what---flash-writes)) |
 | `--lizard` | run group `lizard`: lizard mode on injected inputs, only the guard holding its reports back (needs the canary, the leak detector watching that path, and `inputs.lizard_lock` passed on it in the same run, for example `--group hooks,inputs,lizard`) |
@@ -205,7 +220,7 @@ python -I tools\hwtest\run.py --with-steam --steam-control
 | `--max-minutes N`, `--fail-fast` | stop after N minutes, or at the first failure; the restore still runs |
 | `--yes` | never wait for you: with Steam open the run stops (exit 2) instead of asking you to close it |
 | `--results DIR` | where the results folder goes (default `tools\hwtest\results`, git-ignored). `report.json` names a folder of your own only as `(--results)`, not by its path |
-| `--dry-run`, `--sim-fault NAME`, `--fw-emu EXE` | offline: against the simulator (with one injected fault), or against the firmware emulator |
+| `--dry-run`, `--sim-fault NAME`, `--fw-emu EXE` | offline: against the simulator (with one injected fault), or against the firmware emulator; `--dry-run --bluetooth` runs the Bluetooth path against the simulator's Bluetooth link (the emulator has none) |
 | `-v` | also print the board's console transcript at the end (masked, decoded) |
 
 What it does to the board: it switches it between wired and wireless and back (about ten seconds
@@ -240,7 +255,8 @@ haptics, LEDs, settings, all vendor commands Steam sends, lizard mode with nothi
 reboots, mode switches, reconnects, and a run with Steam open. Not covered: real buttons, sticks,
 trackpads, IMU, rumble motor, RGB LED and battery hardware, which no test has run on
 ([What works](../README.md#what-works)). A release image is checked the same way before it is
-tagged ([releasing.md](releasing.md)).
+tagged ([releasing.md](releasing.md)). The Bluetooth path (`--bluetooth`) has run only against the
+simulator so far ([Bluetooth](#bluetooth)).
 
 ### What `--flash` writes
 
@@ -299,6 +315,82 @@ The results folder `tools\hwtest\results\<date-time>\` holds:
 
 Everything in them is masked; they are safe to attach to an issue.
 
+## Bluetooth
+
+The Bluetooth build (`app/ble.conf`) is built and **not yet tested on hardware**: this is the
+procedure for its first run, and for any later one. It needs a PC with Bluetooth LE (Windows 10 or
+11 with its own Bluetooth stack), the board on the PC's USB for power and its console, and Steam
+closed.
+
+1. **Build and flash** the Bluetooth image: `powershell -NoProfile -ExecutionPolicy Bypass -File
+   build.ps1 -Project app\ble.conf -OutDir C:\b\osc2-ble -Pristine` (or `west build -p always -d
+   build-ble -b promicro_nrf52840/nrf52840/uf2 app -- -DEXTRA_CONF_FILE=ble.conf`), then `uf2` on
+   the board's console (a wireless boot), or RST shorted to GND twice quickly, and copy
+   `zephyr.uf2` to the USB drive that appears (`NICENANO`).
+2. **The puck first.** The image behaves like the default one while the puck is the transport:
+   run the suite as usual (`python -I tools\hwtest\run.py`, wired and through the puck); a
+   Bluetooth build reports caps bit 17. Then get the board wireless, with its console: plug it in
+   with P0.31 held against GND
+   ([I cannot find the console](troubleshooting.md#i-cannot-find-the-console)); on the console of a
+   wireless boot, `opensc2 mode wireless` keeps every boot wireless (`opensc2 mode auto` goes back
+   to the rule).
+3. **Switch to Bluetooth** on the console: `opensc2 transport ble`. `opensc2 ble status` shows
+   `bluetooth: on; slot 1, identity 1 <its address>` and `link: advertising open to any host
+   (pairing mode); N s left of the window`, N counting down from 60: the window is 60 s, as on the
+   real controller. When it runs out the board stops advertising (`link: wireless off: no host
+   within the advertising window`); `opensc2 start`, or any button, advertises again.
+4. **Pair it in Windows**: Settings, Bluetooth & devices, Add device, Bluetooth. "Steam Ctrl (BT)
+   OSC..." appears; select it: it pairs without a PIN or a prompt (Just Works).
+5. **Check it**: `opensc2 ble status` shows `connected and active, security 2` (or more), an ATT MTU
+   of 64 or more, the interval Windows granted (7500 µs asked for) and `paced by the connection
+   events`, and the state reports counting up. Device Manager (View, Devices by connection) shows
+   under the Bluetooth device a HID device with three collections (a mouse, a keyboard and a vendor
+   collection); its hardware IDs contain `VID&0228DE_PID&1303` (Windows may print the hex in lower
+   case). The transport is now stored (`opensc2 transport`: `stored ble`): wireless boots start on
+   Bluetooth, and Windows connects the board by itself when it advertises for it. With Steam closed
+   the board is also a Bluetooth mouse and keyboard (lizard mode; with nothing wired it sends no
+   motion).
+6. **Run the Bluetooth path**, Steam closed, a harmless window focused, step by step the first time:
+
+   ```powershell
+   python -I tools\hwtest\run.py --bluetooth --test desc.ids,desc.collections,desc.caps,desc.strings
+   python -I tools\hwtest\run.py --bluetooth --test hooks.present,hooks.arm,hooks.guard
+   python -I tools\hwtest\run.py --bluetooth --test cmd.attributes,ble.link
+   python -I tools\hwtest\run.py --bluetooth --group inputs
+   python -I tools\hwtest\run.py --bluetooth                     # the whole Bluetooth path
+   python -I tools\hwtest\run.py --bluetooth --lizard
+   python -I tools\hwtest\run.py --bluetooth --flash             # ble.window (see below)
+   ```
+
+   The runner finds the board through its console (the address of the identity it advertises on,
+   its unit serial) and then the HID device Windows made of it; it waits up to 20 s for Windows to
+   connect it. Feature report 1, the output reports and the input reports go over Bluetooth, the
+   test channel too; the console carries what must work while the link is down (the waits for the
+   link, the lease, the ring during a drop). `ble.reconnect` and `ble.wireless_off` take the link
+   down on purpose and wait for Windows to connect the board again (the leak detector ignores the
+   board's mouse and keyboard while the link goes down and comes back). A run that does not start
+   on Bluetooth stops at once and says so.
+7. **Back to the puck**: `opensc2 transport puck` (stored once the puck connects). The board keeps
+   its Bluetooth bond; `opensc2 transport ble` connects to Windows again.
+
+**Removing the pairing.** In Windows: Settings, Bluetooth & devices, the "Steam Ctrl (BT) ..." device,
+Remove device. The board keeps its own record of the bond and, as the real controller does, refuses
+a new pairing on the same identity. To pair again, open the slot for a new host first: `opensc2 ble
+pair` on the console (or the pairing button, while Bluetooth is the transport) resets the slot's
+other identity, which gets a fresh address, and advertises it in pairing mode for 60 s; Windows
+then lists it as a new device. The old bond goes once the new host has paired; until then
+`opensc2 start` advertises for the old host again. A factory reset (vendor command `0x86` with its
+key) deletes every Bluetooth bond and identity.
+
+What `--bluetooth` writes: like a run without it, settings in RAM (restored), and nothing in flash,
+except that the board stores Bluetooth as its transport when a link comes up while another one is
+stored (October's rule; it did so when you paired it) and `ble.window` (`--flash` only) resets the
+slot's other identity, which stores that identity's new address.
+
+What the first hardware run will show, and the suite reports rather than assumes: the interval
+Windows grants, the strings Windows gives a Bluetooth HID device, how Windows passes a refusal (an
+ATT error) to a feature request, and how quickly it connects the board again.
+
 ## The `--through-puck` opt-in
 
 By default nothing is ever written to Valve's puck: its slots are only read. With `--through-puck`
@@ -321,15 +413,16 @@ in `report.json` (`safety.puck_writes`).
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 207 tests): the wire formats, the expected-report and lizard models,
-  the test channel's codec, the console grammar, the masking, every safety rule (including the
-  source scan of the puck reader, and that every function that sends checks the exact bytes), the
-  link lock against a racing keep-alive, the leak detector's filter and watch list, the Windows
-  backend's slot handling on synthetic device lists (nothing opened), the writers, and the whole
-  runner against the simulator.
+- **Self-tests** (`--selftest`, 233 tests): the wire formats, the expected-report and lizard models,
+  the test channel's codec, the console grammar, the masking (Bluetooth addresses too), every
+  safety rule (including the source scan of the puck reader, that every function that sends checks
+  the exact bytes, and which Bluetooth node is the board's), the link lock against a racing
+  keep-alive, the leak detector's filter and watch list, the Windows backend's slot handling on
+  synthetic device lists (nothing opened), the writers, and the whole runner against the simulator,
+  the Bluetooth path included.
 - **The dry run** (`--dry-run`): every group against a simulator with a virtual clock (seconds,
   not minutes), which models the board in both modes, the puck, the console with log noise, Steam
-  and the reboots. `--sim-fault NAME` makes it misbehave in exactly one way, and each fault must
+  and the reboots; with `--bluetooth`, the board's Bluetooth link and a Windows host bonded to it. `--sim-fault NAME` makes it misbehave in exactly one way, and each fault must
   give its own failing test and exit code: `guard_leak`, `seq_gap`, `trigger_bit`,
   `stall_missing`, `no_reconnect`, `stale_battery`, `lease_ignored`, `not_as_found`,
   `steam_appears`, `lizard_ignored`, `second_reader`, `share_not_enforced`, `leak_event`,
