@@ -117,16 +117,17 @@ int opensc2_haptics_set_level_output(enum opensc2_haptics_path path, opensc2_hap
 int opensc2_haptics_play_cue(uint8_t cue, uint8_t level);
 
 /* Play built-in script `id` (1..17, OpenSC2's own sounds) on the channels in `channels`
- * (OPENSC2_HAPTIC_* bits) at `gain_db`, as report 0x85 does. Returns the channels it started on
- * (a channel whose script still runs refuses it), or a negative errno. */
+ * (OPENSC2_HAPTIC_* bits) at `gain_db`, as report 0x85 does. Returns how many channels it started
+ * on (a channel whose script still runs refuses it), or a negative errno. */
 int opensc2_haptics_play_script(uint8_t channels, uint8_t id, int8_t gain_db);
 
 /* Click A or B (OPENSC2_HAPTIC_CMD_CLICK_A, _B) on the pads in `channels` at `gain_db`; the grips
  * refuse clicks, as on the real controller. Lizard mode's pad ticks are click A at +8 dB, its pad
- * presses click B at +6 dB. Returns the channels queued, or a negative errno. */
+ * presses click B at +6 dB. Returns how many channels it queued, or a negative errno. */
 int opensc2_haptics_click(uint8_t channels, uint8_t click, int8_t gain_db);
 
-/* Stop everything on the channels in `channels` (a stop-all, as report 0x82 command 0). */
+/* Stop everything on the channels in `channels` (a stop-all, as report 0x82 command 0): how many
+ * channels it queued, or a negative errno. */
 int opensc2_haptics_stop(uint8_t channels);
 
 /* Play a recording on `channel` (0..3): `samples` samples in stream format `format` (0..11, as

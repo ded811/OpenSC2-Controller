@@ -567,9 +567,10 @@ right pad 4) on the link in use:
 | `0x20` | when a format is set |
 | `0x40` | for a format change while the stream plays (refused) |
 
-The `0x02` the real controller also sends after every stop, streaming or not (Steam's zero pulses
-get two: [protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 19), is left to the
-library's replies to a stop and not sent by the synthesiser, so it never comes twice.
+The synthesiser does not send the `0x02` the real controller also sends after every stop, streaming
+or not (Steam's zero pulses get two): those replies to a stop are the library's business
+([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 19), so they can never come
+twice, and where the library does not send them, a stop gets no reply.
 
 ### Outputs
 
@@ -648,9 +649,9 @@ in OpenSC2. The synthesiser has sounds of its own instead:
 | `opensc2_haptics_set_output(path, &out)` | the output of a path (NULL: none) |
 | `opensc2_haptics_set_level_output(path, fn, user)` | a path's block levels for an amplitude-only actuator |
 | `opensc2_haptics_play_cue(cue, level)` | a cue on both grips: 0, `-ENODATA` (silent at that level), `-EBUSY` (both grips' scripts run) |
-| `opensc2_haptics_play_script(channels, id, dB)` | script 1..17 on the channels (`OPENSC2_HAPTIC_*` bits): the channels it started on |
-| `opensc2_haptics_click(channels, click, dB)` | click A or B (`OPENSC2_HAPTIC_CMD_CLICK_A`, `_B`) on the pads |
-| `opensc2_haptics_stop(channels)` | stop everything on the channels |
+| `opensc2_haptics_play_script(channels, id, dB)` | script 1..17 on the channels (`OPENSC2_HAPTIC_*` bits): how many channels it started on |
+| `opensc2_haptics_click(channels, click, dB)` | click A or B (`OPENSC2_HAPTIC_CMD_CLICK_A`, `_B`) on the pads: how many it queued |
+| `opensc2_haptics_stop(channels)` | stop everything on the channels: how many it queued |
 | `opensc2_haptics_play_clip(channel, data, samples, format, dB)` | a recording of your own in a stream format (0..11); `data` stays valid until it has played |
 | `opensc2_haptics_free_fall()` | a free fall: maybe a drop sound |
 | `opensc2_haptics_info(&info)` | what plays, blocks, underruns, lost commands, stream fill |
@@ -667,7 +668,7 @@ in OpenSC2. The synthesiser has sounds of its own instead:
   1536); the scripts and drop sounds run on the system work queue; one mutex guards the
   synthesiser, never held while an output plays or a report goes out. Output reports reach it from
   the radio or USB thread after the callbacks, and only queue commands and copy stream bytes there.
-- About 10 KB of RAM and 13 KB of flash.
+- About 10 KB of RAM and 14 KB of flash (the blank canvas with `app/haptics.conf` against without).
 
 ## Identity
 

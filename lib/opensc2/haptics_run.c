@@ -149,7 +149,7 @@ static bool start_script(struct osc2_hap_rt *rt, uint8_t channel, uint8_t id, in
 {
 	bool ok = osc2_hap_player_start(&rt->player[channel], id, gain_db, now_ms);
 
-	/* A busy channel refuses ("already active"): the running script goes on. */
+	/* A busy channel refuses it: the running script goes on. */
 	note_script(rt, ok ? OSC2_HAP_SCRIPT_EV_START : OSC2_HAP_SCRIPT_EV_REFUSED, channel, id,
 		    gain_db, 0);
 	return ok;

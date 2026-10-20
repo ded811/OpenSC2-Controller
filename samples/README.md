@@ -147,5 +147,10 @@ full: [Add it in Steam](../docs/getting-started.md#add-it-in-steam).
 - **rgb_led**: `opensc2_led_get()`: Steam's colour and brightness once Steam turns its LED override
   on, and otherwise the board's state in the same patterns and colours as `app/`, wired and
   wireless.
+- **haptics**: the library's haptics synthesiser (`CONFIG_OPENSC2_HAPTICS_SYNTH`) with its built-in
+  outputs, each set up from a devicetree node (`opensc2,haptics-i2s`, `opensc2,haptics-pwm-dac`, or
+  a `ti,drv2605` chosen as `opensc2,haptics-drv2605`), a start-up cue with
+  `opensc2_haptics_play_cue()` at the chime level, and a shell command that plays the sounds by
+  hand.
 
 Back to the [documentation map](../docs/README.md)

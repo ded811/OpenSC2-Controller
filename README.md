@@ -22,7 +22,7 @@ public yet) and from black-box tests; no Valve code or binaries
 OpenSC2 (Open Steam Controller 2) makes an nRF52840 board act as a Steam Controller 2. Steam pairs
 it with Valve's puck over a USB-C cable, like a real controller, and it then connects through the
 puck. It is a library (a Zephyr module for nRF Connect SDK v3.4.0), a ready-to-build firmware for
-the SuperMini nRF52840, a template for your own project, six samples and an automated hardware
+the SuperMini nRF52840, a template for your own project, seven samples and an automated hardware
 test suite.
 
 - **The library** (`lib/opensc2`, `include/opensc2`) does the protocol: the puck's 2.4 GHz link,
@@ -35,7 +35,7 @@ test suite.
   buttons, the digital triggers, one stick and the pairing button, and the other inputs are listed
   there, ready for a board with more pins. Wire what you have.
 - **The template and the samples** (`template/`, `samples/`): a small project to copy as the start
-  of your own, and six samples that each show one part.
+  of your own, and seven samples that each show one part.
 
 Who it is for: makers who want to build a controller that Steam treats as a Steam Controller 2,
 and firmware developers who want that protocol in their own nRF52840 project.
@@ -334,15 +334,16 @@ hardware report, a new board). [CHANGELOG.md](CHANGELOG.md) lists the changes, a
 ```text
 zephyr/module.yml, CMakeLists.txt, Kconfig   the Zephyr module
 include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (wire formats and USB
-                        descriptors), settings.h, fusion.h
+                        descriptors), settings.h, fusion.h, haptics.h (the haptics synthesiser)
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
 lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc.c (wired mode),
                         commands.c (vendor commands), report.c (reports on every link), lizard.c
                         (lizard mode), mode.c (wired or wireless), usblog.c (the session log),
-                        storage.c, shell.c, test_*.c (the hardware test hooks)
+                        storage.c, shell.c, test_*.c (the hardware test hooks), haptics*.c (the
+                        haptics synthesiser, an option)
 app/                    the blank-canvas firmware for the SuperMini; app/build.ps1 builds it
 template/               a small project to copy as the start of your own
-samples/                minimal, buttons_sticks, touchpad, imu, rumble, rgb_led
+samples/                minimal, buttons_sticks, touchpad, imu, rumble, rgb_led, haptics
 tests/host/             host tests (run.ps1, run.sh) and the firmware emulator (fwemu.c)
 tests/codec/            the pure test cases as a ztest suite (optional; native_sim on Linux)
 tests/vectors/hwtest/   vectors that the host tests and the hardware test suite both check

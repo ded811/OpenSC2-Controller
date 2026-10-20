@@ -89,8 +89,8 @@ The sample is built to do the following; none of it has run on hardware yet.
 - At start-up a short cue of OpenSC2's own on the grips (wired: cue 0; wireless: the puck slot's
   cue), at the chime level Steam stores (`0xDC`; 1 quiet, 2 normal, anything else silent).
 - Games' rumble through Steam: a 50 Hz tone with a slow wobble on the left grip and 50 Hz bursts
-  on the right one, about 500 ms after each of Steam's rumble reports, as the real controller plays
-  it.
+  on the right one, each lasting 500 ms from Steam's latest rumble report (Steam repeats them while
+  a game rumbles), as the real controller plays it.
 - Steam's haptic effects: pulse trains, clicks on the pads, tones, sweeps and scripts, each with
   its gain and Steam's master gain (setting 76). PCM streams play once Steam has set their format.
 - `hap cue 5`, `hap script 13 3`, `hap click a`, `hap fall`, `hap info` in the shell (wireless

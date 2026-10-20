@@ -21,7 +21,7 @@ menuconfig OPENSC2_HAPTICS_SYNTH
 	  stream runs dry, 0x04, 0x08, 0x10, 0x20, 0x40). Applies controller settings 76 (master
 	  gain), 75 (amplifier mode) and 27 (rumble gain offset). The application's rumble and haptic
 	  callbacks are still called. About 10 KB of RAM (two thread stacks, four 512-byte stream rings,
-	  the generators and queues) and 13 KB of flash. Built; not yet tested on hardware.
+	  the generators and queues) and 14 KB of flash. Built; not yet tested on hardware.
 
 if OPENSC2_HAPTICS_SYNTH
 
@@ -85,8 +85,8 @@ config OPENSC2_HAPTICS_OUT_DRV2605
 	  A TI DRV2605(L) driving one ERM or LRA, through Zephyr's ti,drv2605 driver in real-time
 	  playback: every 8 ms the louder of the two paths' block levels becomes the amplitude. Rumble,
 	  clicks and pulses come through; tones, sweeps, chimes and PCM lose their pitch (the chip has
-	  no drive-frequency control). Choose the drv2605 node as opensc2,haptics-drv2605. The grips
-	  feed it unless the grips have an output of their own; then the pads do. Built; not yet
-	  tested on hardware.
+	  no drive-frequency control). Choose the drv2605 node as opensc2,haptics-drv2605. A path
+	  that has an output of its own (the grips on an I2S amplifier, say) does not feed it.
+	  Built; not yet tested on hardware.
 
 endif # OPENSC2_HAPTICS_SYNTH

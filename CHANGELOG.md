@@ -35,7 +35,7 @@ still change between minor versions.
 - Output report `0x88` with more than 31 bytes a side does nothing, as on the real controller (it
   was clamped to 31).
 - With the synthesiser, `app/`'s optional vibration motor follows the rendered blocks' loudness.
-- The host tests are now 77 (6,331 checks), and 106 (8,793 checks) with the hardware test hooks built
+- The host tests are now 80 (6,409 checks), and 109 (8,871 checks) with the hardware test hooks built
   in; the runner has 215 self-tests.
 
 ## [0.2.0] - 2026-10-19

@@ -390,7 +390,7 @@ bool osc2_hap_player_start(struct osc2_hap_player *p, uint8_t id, int8_t gain_db
 	uint8_t count;
 
 	if (p->busy || id < OSC2_HAP_SCRIPT_FIRST || id > OSC2_HAP_SCRIPT_LAST) {
-		return false;   /* "already active": the running script goes on */
+		return false;   /* a busy channel: the running script goes on */
 	}
 	steps = osc2_hap_script(id, &count);
 	if (!steps || count == 0) {
