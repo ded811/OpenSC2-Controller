@@ -836,15 +836,36 @@ OPENSC2_TEST(led_patterns)
 	CHECK_EQ(lc[3], 0);
 	st.connected = true;               /* the link came up: the dark part ends at once ... */
 	led_at(&st, 1510);
-	/* ... and the next cycle is steady (connected on battery). */
+	/* ... and the next cycle is steady (connected on battery), chosen again every 2 s. */
 	led_at(&st, 1520);
 	CHECK_EQ(lc[3], 500);
 	CHECK_EQ(lc[2], 50);
-	/* Connected on battery at 5 % or less: steady red. */
+	/* Connected on battery at 5 % or less: steady red, but only from the next 2 s cycle. */
 	st.level = 5;
 	led_at(&st, 1700);
+	CHECK_EQ(lc[3], 500);
+	led_at(&st, 3500);
+	CHECK_EQ(lc[3], 500);
+	led_at(&st, 3510);
 	CHECK_EQ(lc[0], 100);
 	CHECK_EQ(lc[3], 0);
+	/* A lost link waits for the cycle's end too ... */
+	st.level = 80;
+	st.connected = false;
+	led_at(&st, 4000);
+	CHECK_EQ(lc[0], 100);              /* still the red */
+	/* ... a mode other than 1 or 2 shows at the next 100 ms check: 5510 + 0.1 s */
+	st.connected = true;
+	led_at(&st, 5510);                 /* a new steady cycle, the puck's colour */
+	CHECK_EQ(lc[3], 500);
+	st.mode = OPENSC2_LED_MODE_OFF;
+	led_at(&st, 5560);
+	CHECK_EQ(lc[3], 500);
+	led_at(&st, 5600);
+	CHECK_EQ(lc[3], 500);
+	led_at(&st, 5610);
+	CHECK_EQ(lc[3], 0);                /* the dark display */
+	CHECK_EQ(lp.count, 1);
 
 	/* Bluetooth pairing: two 75 ms flashes 75 ms apart, then 300 ms dark: 525 ms a cycle. */
 	memset(&st, 0, sizeof(st));
@@ -921,6 +942,46 @@ OPENSC2_TEST(led_patterns)
 	led_at(&st, 3900);
 	CHECK_EQ(lc[0], 1000);
 	CHECK_EQ(lc[2], 200);
+
+	/* A breathing pattern starts from dark, not from the colour shown before it: the steady
+	 * puck colour, then external power. */
+	memset(&st, 0, sizeof(st));
+	st.mode = OPENSC2_LED_MODE_PUCK;
+	st.level = 60;
+	st.connected = true;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	CHECK_EQ(lc[3], 500);
+	st.external_power = true;
+	led_at(&st, 2000);                 /* the steady cycle's end: the breath begins, dark */
+	CHECK_EQ(lc[3], 0);
+	CHECK_EQ(lc[2], 0);
+	led_at(&st, 2900);
+	CHECK_EQ(lc[3], 250);              /* half way up, from dark */
+	/* ... while the fully-charged display fades from what showed */
+	st.level = 100;
+	st.full_level = 3;
+	led_at(&st, 5600);                 /* the breath's end, dark: the full display from dark */
+	led_at(&st, 6600);
+	CHECK_EQ(lc[3], 250);
+
+	/* Low battery above 5 %: it keeps what it showed, a 1 s cycle. */
+	memset(&st, 0, sizeof(st));
+	st.mode = OPENSC2_LED_MODE_PUCK;
+	st.level = 50;
+	st.connected = true;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	st.mode = OPENSC2_LED_MODE_LOW_BATTERY;
+	led_at(&st, 100);                  /* the steady display ends at its next check */
+	CHECK_EQ(lc[3], 500);
+	CHECK_EQ(lp.count, 1);
+	CHECK_EQ(lp.seg[0].ms, 1000);
+	st.level = 5;
+	led_at(&st, 1099);
+	CHECK_EQ(lc[3], 500);
+	led_at(&st, 1100);                 /* the next cycle: the red flashes */
+	CHECK_EQ(lc[0], 100);
 }
 
 OPENSC2_TEST(led_full_display)

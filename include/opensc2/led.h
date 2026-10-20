@@ -89,8 +89,11 @@ struct opensc2_led_player {
 void opensc2_led_player_init(struct opensc2_led_player *player);
 
 /* The colour to show at `now_ms`, R, G, B, W in thousandths, before trims and brightness. A new
- * status shows once the cycle in progress is over, as on the real controller (within 0.1 s from
- * the steady and dark displays, up to 10.3 s from the keylock pattern). */
+ * status shows once the cycle in progress is over, as on the real controller: within 0.1 s from
+ * the dark display and the override; from the steady link display (connected on battery, a chord
+ * state) within 0.1 s for a mode other than 1 or 2 and otherwise at the end of its 2 s cycle; up
+ * to 10.3 s from the keylock pattern. The breathing patterns start every cycle from dark; the
+ * other fades start from the colour last shown. */
 void opensc2_led_player_step(struct opensc2_led_player *player,
 			     const struct opensc2_led_status *status, uint32_t now_ms,
 			     uint16_t rgbw[4]);

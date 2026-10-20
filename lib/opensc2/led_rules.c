@@ -6,8 +6,10 @@
  * logic. The patterns, colours and timings are the protocol documentation's description of the
  * real controller's LED engine (not public yet; docs/protocol.md lists the pages); none of it has
  * been compared with a real controller's LED. The engine plays one cycle of a pattern at a time
- * and picks the next cycle from the status when one ends; fades are linear in 10 ms steps and
- * start from the colour last shown.
+ * and picks the next cycle from the status when one ends; fades are linear in 10 ms steps. The
+ * searching and fully-charged displays fade from the colour last shown, the breathing patterns
+ * start every cycle from dark, and the steady link display holds its colour for 2 s, ended early
+ * only by a mode other than Bluetooth's or the puck's (checked every 100 ms).
  */
 #include <string.h>
 #include <opensc2/led.h>
@@ -16,6 +18,7 @@ enum seg_kind {
 	SEG_HOLD,          /* show the colour */
 	SEG_FADE,          /* fade from the colour last shown to this one */
 	SEG_HOLD_UNTIL,    /* dark, cut short when a link comes up (the searching pattern) */
+	SEG_HOLD_LINK,     /* the steady link display: cut short only when the mode leaves 1 and 2 */
 };
 
 /* Colours in thousandths: R, G, B, W. */
@@ -47,6 +50,8 @@ static const uint8_t CURVE[101] = {
 
 #define FULL_MS          15000   /* the full colour this long after the level read below 100 % */
 #define LOW_LEVEL        5       /* at or below: the red displays */
+#define LINK_STEADY_MS   2000    /* the steady link display's cycle */
+#define LINK_CHECK_MS    100     /* how often it looks whether the mode left the link pattern */
 
 uint8_t opensc2_led_brightness(int16_t setting45, int16_t setting38)
 {
@@ -110,6 +115,14 @@ static void steady(struct opensc2_led_player *p, const uint16_t c[4])
 	add(p, SEG_HOLD, 100, c);   /* looked at again every 100 ms */
 }
 
+/* Connected on battery, or a chord state: the colour (or the red at 5 % or less) chosen again
+ * every 2 s; the other link mode, a power change, a lost link, the red and the override wait for
+ * the end of the cycle, a mode other than 1 or 2 shows at the next 100 ms check. */
+static void steady_link(struct opensc2_led_player *p, const uint16_t c[4])
+{
+	add(p, SEG_HOLD_LINK, LINK_STEADY_MS, c);
+}
+
 static void flashes(struct opensc2_led_player *p, const uint16_t c[4], uint16_t dark_ms)
 {
 	add(p, SEG_HOLD, 75, c);
@@ -118,8 +131,15 @@ static void flashes(struct opensc2_led_player *p, const uint16_t c[4], uint16_t 
 	add(p, SEG_HOLD, dark_ms, DARK);
 }
 
+/* A breathing pattern starts every cycle from dark, whatever showed before it. */
+static void from_dark(struct opensc2_led_player *p)
+{
+	add(p, SEG_HOLD, 0, DARK);
+}
+
 static void breathe(struct opensc2_led_player *p, const uint16_t c[4])
 {
+	from_dark(p);
 	add(p, SEG_FADE, 1800, c);
 	add(p, SEG_FADE, 1800, DARK);
 }
@@ -153,7 +173,7 @@ static void build(struct opensc2_led_player *p, const struct opensc2_led_status 
 	case OPENSC2_LED_MODE_BLUETOOTH:
 	case OPENSC2_LED_MODE_PUCK:
 		if (st->steady || (st->connected && !st->external_power)) {
-			steady(p, low ? RED : c);
+			steady_link(p, low ? RED : c);
 		} else if (st->connected) {
 			if (full(st)) {
 				full_display(p, st, now_ms);
@@ -181,6 +201,7 @@ static void build(struct opensc2_led_player *p, const struct opensc2_led_status 
 		if (full(st)) {
 			full_display(p, st, now_ms);
 		} else {
+			from_dark(p);   /* a breathing pattern: dark to a dim amber, full, back */
 			add(p, SEG_FADE, 200, AMBER_DIM);
 			add(p, SEG_FADE, 1600, AMBER);
 			add(p, SEG_FADE, 1600, AMBER_DIM);
@@ -191,7 +212,7 @@ static void build(struct opensc2_led_player *p, const struct opensc2_led_status 
 		if (low) {
 			flashes(p, RED, 1075);
 		} else {
-			steady(p, p->shown);   /* above 5 % it keeps what it showed */
+			add(p, SEG_HOLD, 1000, p->shown);   /* above 5 % it keeps what it showed, 1 s */
 		}
 		break;
 	case OPENSC2_LED_MODE_KEYLOCK:
@@ -242,14 +263,27 @@ void opensc2_led_player_step(struct opensc2_led_player *player,
 	/* Past the end of the segment (a late call can pass several): on to the next; a cycle that
 	 * ends starts the next one from the status as it is now. */
 	for (int guard = 0; guard < 16; guard++) {
+		uint32_t len;
+
 		s = &p->seg[p->index];
 		elapsed = now_ms - p->seg_start;
-		if (elapsed < s->ms && !(s->kind == SEG_HOLD_UNTIL && status->connected)) {
+		len = s->ms;
+		if (s->kind == SEG_HOLD_UNTIL && status->connected) {
+			len = elapsed < s->ms ? elapsed : s->ms;   /* a link came up: it ends now */
+		} else if (s->kind == SEG_HOLD_LINK && status->mode != OPENSC2_LED_MODE_BLUETOOTH &&
+			   status->mode != OPENSC2_LED_MODE_PUCK) {
+			/* the mode left the link pattern: it ends at the next 100 ms check */
+			uint32_t at = (elapsed + LINK_CHECK_MS - 1) / LINK_CHECK_MS * LINK_CHECK_MS;
+
+			at = at < LINK_CHECK_MS ? LINK_CHECK_MS : at;
+			len = at < s->ms ? at : s->ms;
+		}
+		if (elapsed < len) {
 			break;
 		}
 		memcpy(p->from, s->rgbw, sizeof(p->from));
 		memcpy(p->shown, s->rgbw, sizeof(p->shown));
-		p->seg_start += elapsed < s->ms ? elapsed : s->ms;
+		p->seg_start += len;
 		if (++p->index >= p->count) {
 			begin_cycle(p, status, p->seg_start);
 		}

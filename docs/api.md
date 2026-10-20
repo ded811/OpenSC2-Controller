@@ -969,12 +969,12 @@ static void every_10_ms(void)                /* OPENSC2_LED_STEP_MS */
 | Mode | `enum opensc2_led_mode` | Colour (R, G, B, W in thousandths) | Pattern |
 | --- | --- | --- | --- |
 | 0 | `NONE` | dark | nothing selected yet |
-| 1 | `BLUETOOTH` | blue (0, 0, 200, 0) | connected on battery, or a chord state: steady (red at 5 % or less). Connected on external power: a breath, 1.8 s up and 1.8 s down, or at 100 % the fully-charged display. Pairing: 75 ms on, 75 ms off, 75 ms on, 300 ms off. Otherwise (searching): 100 ms up, 900 ms on, 100 ms down, 900 ms dark, cut short when the link comes up |
+| 1 | `BLUETOOTH` | blue (0, 0, 200, 0) | connected on battery, or a chord state: steady (red at 5 % or less), chosen again every 2 s. Connected on external power: a breath from dark, 1.8 s up and 1.8 s down, or at 100 % the fully-charged display. Pairing: 75 ms on, 75 ms off, 75 ms on, 300 ms off. Otherwise (searching): 100 ms up, 900 ms on, 100 ms down, 900 ms dark, cut short when the link comes up |
 | 2 | `PUCK` | white with a little blue (0, 0, 50, 500) | as mode 1 |
-| 3 | `WIRED` | green (0, 250, 0, 0) | the breath; at 100 % the fully-charged display |
-| 4 | `AMBER` | amber (200, 200, 0, 0) | 200 ms to a dim amber (15, 20, 0, 0), 1.6 s up to amber, 1.6 s down, 200 ms to dark; at 100 % the fully-charged display. USB power without a host or with wireless off, the dock with the radio off |
+| 3 | `WIRED` | green (0, 250, 0, 0) | the breath from dark; at 100 % the fully-charged display |
+| 4 | `AMBER` | amber (200, 200, 0, 0) | from dark, 200 ms to a dim amber (15, 20, 0, 0), 1.6 s up to amber, 1.6 s down, 200 ms to dark; at 100 % the fully-charged display. USB power without a host or with wireless off, the dock with the radio off |
 | 5 | `OFF` | dark | shutdowns, reboots, lifted off the dock |
-| 6 | `LOW_BATTERY` | red (100, 0, 0, 0) | at 5 % or less 75 ms on, 75 ms off, 75 ms on, 1,075 ms off; above 5 % it keeps what it showed |
+| 6 | `LOW_BATTERY` | red (100, 0, 0, 0) | at 5 % or less 75 ms on, 75 ms off, 75 ms on, 1,075 ms off; above 5 % it keeps what it showed, for 1 s a cycle |
 | 7 | `KEYLOCK` | white (0, 0, 0, 200) | 75 ms on, 75 ms off, 75 ms on, 10,075 ms off |
 
 **The fully-charged display** (modes 1 and 2 connected on external power, 3 and 4, at 100 %): a 2 s
@@ -989,9 +989,13 @@ by name](#settings-by-name); Zephyr settings `opensc2/k/fcled`): `0xED` reads it
 **Steam's colour**: while setting 37 is on, `0xC5`'s colour shows steady instead of any pattern.
 
 **How the player plays**: one cycle of a pattern at a time; when it ends, the next cycle comes from
-the status as it is then, so a new status shows within 0.1 s from the steady and dark displays and
-up to 10.3 s from the keylock pattern. Fades are linear in 10 ms steps and start from the colour
-shown last.
+the status as it is then, as on the real controller. So a new status shows within 0.1 s from the
+dark display and Steam's colour; from the steady link display (modes 1 and 2 connected on battery,
+or a chord state) a mode other than 1 or 2 shows at its next 100 ms check, but the other link mode,
+a power change, a lost link, the red at 5 % or less and Steam's colour wait for the end of its 2 s
+cycle; up to 10.3 s from the keylock pattern. Fades are linear in 10 ms steps; the breathing
+patterns (modes 1 and 2 connected on external power, 3 and 4 below 100 %) start every cycle from
+dark, the searching and fully-charged displays from the colour shown last.
 
 | Function | Does |
 | --- | --- |
