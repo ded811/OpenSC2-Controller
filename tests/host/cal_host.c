@@ -24,6 +24,13 @@ void osc2_cal_defer(void)
 	cal_host.deferred++;
 }
 
+/* The system work queue's deferred work, waited for: done here and now. */
+void osc2_cal_flush_wait(void)
+{
+	cal_host.waits++;
+	osc2_cal_flush();
+}
+
 static int slot_of(const char *name)
 {
 	for (int i = 0; i < CAL_HOST_KEYS; i++) {

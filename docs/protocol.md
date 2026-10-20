@@ -622,7 +622,11 @@ open, the library does what should work with Steam and the puck, and says so her
       channel dark, as the real controller does;
     - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
       queue, in the order they were asked for (`0xFE` drops the saves still waiting from before
-      it); `0xEF` writes before it answers, as for the bonds;
+      it); `0xEF` and `0xF0` of a `cal/` key first wait for those, then write before they answer,
+      as for the bonds. The real controller's `0xEF` does not wait: there an erase still running
+      on its work queue can delete a key that a later `0xEF` saved, so a host's "erase, then store
+      the new calibration" can lose the new keys at the next boot. OpenSC2 keeps them (a
+      deliberate difference, in timing only when nothing is waiting);
     - a settings partition with every sector occupied at boot: the real controller erases all of
       it, calibration included, and starts over; so does OpenSC2 with
       `CONFIG_OPENSC2_STORAGE_RECOVERY`, on by default with NVS settings

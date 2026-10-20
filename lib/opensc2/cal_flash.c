@@ -5,7 +5,8 @@
  * cal_flash.c: where the calibration keys live (CONFIG_OPENSC2_CAL): Zephyr settings under
  * "opensc2/cal/", next to the library's other keys (storage.c), in the storage partition that a
  * .uf2 reflash leaves alone. A factory reset (0x86) does not delete them. Writes that the frames
- * cause (a finished recording, 0xE2, 0xFE) run here from the system work queue.
+ * cause (a finished recording, 0xE2, 0xFE) run here from the system work queue; 0xEF and 0xF0 by
+ * name wait for them (osc2_cal_flush_wait()).
  */
 #include <errno.h>
 #include <stdio.h>
@@ -26,6 +27,17 @@ static K_WORK_DEFINE(flush_work, flush_fn);
 void osc2_cal_defer(void)
 {
 	(void)k_work_submit(&flush_work);
+}
+
+void osc2_cal_flush_wait(void)
+{
+	struct k_work_sync sync;
+
+	if (k_current_get() == k_work_queue_thread_get(&k_sys_work_q)) {
+		osc2_cal_flush();   /* on the work queue itself: do what waits now, in order */
+		return;
+	}
+	(void)k_work_flush(&flush_work, &sync);
 }
 
 #if defined(CONFIG_OPENSC2_STORAGE)

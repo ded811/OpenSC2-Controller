@@ -20,6 +20,7 @@ struct cal_host_record {
 		uint8_t len;
 	} flash[CAL_HOST_KEYS];
 	int deferred;        /* osc2_cal_defer() calls since the last boot */
+	int waits;           /* osc2_cal_flush_wait() calls */
 	int writes, deletes;
 	bool fail_writes;
 };

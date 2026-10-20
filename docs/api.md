@@ -610,7 +610,9 @@ sends them):
 A recording takes the samples of the raw inputs, one per state report, so only while a link is up,
 and saves only the sides that gave samples. Its flash writes, and those of `0xE2` and `0xFE`, run
 from the system work queue in the order they were asked for (`0xFE` drops the saves still waiting
-from before it). Steps above 3 do nothing; a step 2 or 3 without a step 1 does nothing.
+from before it); `0xEF` and `0xF0` of a `cal/` key wait for them, then write before they answer, so
+a host's "erase, then store the new calibration" keeps the new keys. Steps above 3 do nothing; a
+step 2 or 3 without a step 1 does nothing.
 
 **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default) act on the reported pads, raw or not,
 after the hardware test hooks' injection, so report `0x42` and lizard mode both see them: with

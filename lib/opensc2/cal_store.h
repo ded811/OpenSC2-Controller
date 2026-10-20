@@ -47,8 +47,10 @@ struct shell;
 int osc2_cal_shell(const struct shell *sh, size_t argc, char **argv);
 
 /* cal_flash.c: the glue (the host tests have a stand-in). A name is a key's own ("cal/joy_l"); it is
- * stored as opensc2/cal/joy_l. */
+ * stored as opensc2/cal/joy_l. osc2_cal_flush_wait() returns once the deferred work asked for so
+ * far (an erase, saves) is done; never call it with a lock held that that work needs. */
 void osc2_cal_defer(void);
+void osc2_cal_flush_wait(void);
 int osc2_cal_flash_write(const char *name, const void *value, size_t len);
 int osc2_cal_flash_delete(const char *name);
 

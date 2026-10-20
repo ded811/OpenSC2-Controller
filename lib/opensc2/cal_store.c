@@ -15,7 +15,8 @@
  *   - after the test hooks' injection, the pad rules: the rotation (settings 2 and 24) and the
  *     touch stabiliser (setting 80 = 2), with CONFIG_OPENSC2_PAD_RULES.
  * The arithmetic is in cal.c and sensor_helpers.c; flash goes through cal_flash.c, from the system work
- * queue except for 0xEF, which writes before it answers as the bond keys do.
+ * queue except for 0xEF and 0xF0, which wait for that work and then write before they answer, as
+ * the bond keys do.
  */
 #include <errno.h>
 #include <string.h>
@@ -285,10 +286,16 @@ int osc2_cal_by_name(uint8_t opcode, const uint8_t *payload, uint8_t len)
 		if (!have) {
 			return -ENOENT;   /* nothing in RAM that could be read back: nothing saved */
 		}
+		/* After the deferred writes asked for before it (an 0xFE's erase above all), so that
+		 * an "erase, then store the new calibration" keeps the new keys. The real controller
+		 * does not wait: there an erase still running can delete a key saved after it
+		 * (docs/protocol.md, gap 31). */
+		osc2_cal_flush_wait();
 		return osc2_cal_flash_write(keys[k].name, value, keys[k].size);
 	}
 	if (opcode == 0xF0) {
 		clear_ram(k);   /* zeros, at once */
+		osc2_cal_flush_wait();   /* in order with the deferred writes, as for 0xEF */
 		return osc2_cal_flash_delete(keys[k].name);
 	}
 	return -ENOTSUP;

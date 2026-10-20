@@ -270,6 +270,7 @@ OPENSC2_TEST(cal_store_erase_order)
 {
 	static const uint8_t erase[4] = { 0x85, 0x48, 0x67, 0xC6 };
 	uint8_t value[18], len;
+	int waits;
 
 	stub_reset();
 	CHECK_EQ(cal_named(0xEE, "cal/joy_r", cal_joy_bytes, 18), 0);
@@ -293,6 +294,23 @@ OPENSC2_TEST(cal_store_erase_order)
 	CHECK_EQ(cal_set(0xFE, erase, 4), 0);
 	osc2_cal_flush();
 	CHECK(cal_host_flash_get("cal/prs_l", value, &len) < 0);
+	/* 0xEF and 0xF0 by name wait for the erase asked for before them: a host's "erase, then
+	 * store the new calibration" keeps the new key (the real controller's 0xEF does not wait) */
+	waits = cal_host.waits;
+	CHECK_EQ(cal_set(0xFE, erase, 4), 0);
+	CHECK_EQ(cal_named(0xEE, "cal/joy_l", cal_joy_bytes, 18), 0);
+	CHECK_EQ(cal_host.waits, waits);   /* 0xEE is RAM only */
+	CHECK_EQ(cal_named(0xEF, "cal/joy_l", NULL, 0), 0);
+	CHECK_EQ(cal_host.waits, waits + 1);
+	CHECK_EQ(cal_host_flash_get("cal/joy_l", value, &len), 0);
+	osc2_cal_flush();   /* nothing left: the work queue's run comes too late to delete it */
+	CHECK_EQ(cal_host_flash_get("cal/joy_l", value, &len), 0);
+	cal_host_boot();
+	CHECK(opensc2_cal_stick_ok(OPENSC2_LEFT));
+	CHECK_EQ(cal_set(0xFE, erase, 4), 0);
+	CHECK_EQ(cal_named(0xF0, "cal/joy_l", NULL, 0), 0);
+	CHECK_EQ(cal_host.waits, waits + 2);
+	CHECK(cal_host_flash_get("cal/joy_l", value, &len) < 0);
 }
 
 OPENSC2_TEST(cal_store_pad_start_over)
