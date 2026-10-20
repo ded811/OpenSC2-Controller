@@ -10,7 +10,7 @@
  *     stand-ins in shim/ and stubs.c;
  *   - vectors_cases.h: the hardware test suite's shared vectors through the library's own code;
  *   - differential_cases.h: the unarmed command channel, request by request, into a transcript;
- *   - cal_cases.h: the calibration helpers (cal.c);
+ *   - cal_cases.h, sensor_helpers_cases.h: the calibration and sensor helpers (cal.c, sensor_helpers.c);
  *   - hooks_cases.h, only in the binary built with CONFIG_OPENSC2_TEST_HOOKS: the hardware test
  *     hooks themselves (test_core.c, test_notes.c and the stand-in glue of hooks_stub.c).
  * run.sh and run.ps1 next to this file build it twice, without and with the hooks, run both, and
@@ -79,6 +79,7 @@ static void register_test(const char *name, test_fn fn)
 #include "vectors_cases.h"
 #include "differential_cases.h"
 #include "cal_cases.h"
+#include "sensor_helpers_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 #include "hooks_cases.h"
 #endif

@@ -26,6 +26,7 @@ zephyr_library_sources(
 	radio.c
 	report.c
 	report_rules.c
+	sensor_helpers.c
 	settings_defaults.c
 	storage.c
 )
