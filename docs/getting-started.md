@@ -131,7 +131,7 @@ with the new firmware.
    unplugged while you add the board.
 2. In Steam, start adding a controller. Steam asks you to connect it with a USB-C cable.
 3. Plug the board in with a USB-C data cable (not a charge-only cable). It comes up wired: the LED
-   is dark for half a second, then on with a short dark blink every 2 seconds.
+   turns on once the PC has set the board up.
 4. Steam pairs the board with the puck over the cable and reboots it into wireless mode: the LED
    goes dark, blinks slowly while the board looks for the puck, then stays on. The board is now
    connected through the puck.
@@ -163,12 +163,15 @@ The LED of the firmware in `app/` (the full table is in [app/README.md](../app/R
 
 | LED | Means |
 | --- | --- |
-| on, with a short dark blink every 2 s | wired, and the PC has set the board up |
-| a fast blink (100 ms on, 100 ms off) | wired, but no PC has set the board up (a charger, a power bank) |
-| a slow blink | wireless, looking for the puck |
-| on | wireless, connected through the puck |
-| a short blink every 2 s | wireless, no pairing yet |
-| off | wireless with the radio off (the PC went to sleep: press a button), or the first half second wired |
+| on | wired, and the PC has set the board up; or wireless, connected through the puck |
+| on, with a short dark blink every second | wired, but no PC has set the board up (a charger, a power bank); or wireless switched off on USB power (the PC went to sleep, Steam turned the controller off, STEAM held 7 s): STEAM brings it back wired, `opensc2 start` in the shell wireless |
+| a slow blink, about 1 s on and 1 s off | wireless, looking for the puck (also when it is not paired yet) |
+| two quick flashes, repeating | pairing over the air |
+| off | the first second or so after power-up, a reboot, a shutdown |
+
+These are the real controller's patterns, shown on the SuperMini's one-colour LED; they are built
+and not yet tested on hardware. The v0.2.0 release image shows simpler patterns of its own, as
+described in the README of its release.
 
 The steps say "the board" for `app/`; the samples and the template have their own LED behaviour,
 described in their READMEs.

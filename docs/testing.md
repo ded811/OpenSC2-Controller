@@ -47,6 +47,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `settings` | W R | the LED colour and LED settings, `0x8E` defaults, the clamps of the ranged settings, changes and invalid numbers, the Steam watchdog (lizard mode and the defaults back 10 s after the last `0x81`), its re-arm, no watchdog while setting 71 is 0 |
 | `modes` | W R | a plain reboot, the reboot into wireless (`0x95` with Steam's key), the USB session log, a warm restart, back to wired, the identity equal on both paths (the product name too), back to the mode the board was found in |
 | `wireless` | R | which of the puck's slots carries the board (an injected signature), the puck's link status and link quality reports, the identity sent on connect, reconnecting after `opensc2 stop`/`start`, a lost link (the radio made deaf for 800 ms), the turn-off requests |
+| `system` | W R | the [system state machine](api.md#power-and-the-system-state-machine), through the hooks' system injection (buttons, a battery level and a power source that reach the firmware's rules, never a report), Steam closed: the power-on state and its cue; battery operation with the link kept and back on USB power; the turn-off command, a link that gave up and STEAM held 7 s (its 20 ms and 7 s timings) switching wireless off on USB power, and `opensc2 start` back on; a STEAM press then rebooting into wired; the PC-asleep cue, once; the idle monitor on USB power (nothing acts on it); on an injected battery with setting 77 = 1, so that each shutdown reboots where the suite can see it: STEAM held 7 s, the idle timeout (its 16 to 17 periods), 0 % (the low-battery shutdown), the power-on chord with and without its 4 s pairing hold (a boot-time injection), the keylock (`--flash`); wired, the cable pulled (an injected battery). Each shutdown's end is read back after the reboot. Built, not yet run on hardware |
 | `restore` | all | always last and always whole (whatever `--test` selects), also after a failure or Ctrl-C: outputs and injection off, settings and LED colour written back, disarmed, every link's stored request as after a boot, and the board **as found** (mode, bonds, identity, slot, chime level, mode policy, the settings and the LED colour) |
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, restating the mode policy); see [the note below](#what---flash-writes) |
 | `lizard` | W R | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, thumb on the stick, lizard mode off and back), with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path, and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
@@ -56,7 +57,9 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 Because nothing is wired, the board's own inputs read neutral; the inputs come from the test
 channel, and the outputs (rumble, haptics, LED) show up in the hooks' ring, entry by entry, with the
 fields the library decoded. Not covered: the physical inputs and outputs of a board that has them
-(the samples' drivers), the USB cable rules (unplugging, plugging in), Bluetooth and the dock.
+(the samples' drivers), the USB cable rules on a real cable (unplugging, plugging in: the `system`
+group injects the power source instead), a real power-off (the board has no battery, so every
+shutdown reboots), Bluetooth and the dock.
 
 ## What it needs
 
@@ -109,7 +112,11 @@ They are rules in code, each with its own self-test, not conventions:
   `leak_ignored`). If the detector cannot see both collections of a path listed as raw-input
   devices, it is off there, and `--lizard` is refused on that path. If the canary fails, the
   firmware takes an injection it should refuse or does not stop one when lizard mode comes on, or
-  the leak detector fires, nothing is injected for the rest of the run (exit code 2).
+  the leak detector fires, nothing is injected for the rest of the run (exit code 2). The system
+  injection of the `system` group reaches only the firmware's rules, never a report, so the reader
+  and lizard-mode conditions do not apply to it; it still needs the hooks armed with the guard on,
+  this arming's canary passed and Steam closed (the shutdowns and reboots it causes would disturb a
+  Steam session), and while the hooks are armed the firmware turns every power-off into a reboot.
 - **It never touches what it cannot put back.** Never the bootloader (`0x90`, `0x95` with the
   bootloader key, the shell's `uf2`), never a factory reset (`0x86`), never a calibration erase,
   never a write to the identity, the bonds or the mode policy, except the value-preserving rewrites
@@ -253,6 +260,11 @@ pairs the controller, but the stored state can differ afterwards; `restore.as_fo
 values in effect and does not see it. Each of these rows says so in its note, and every write
 counts in `report.json` (`safety.flash_writes`).
 
+`system.keylock` also needs `--flash`: the keylock chord stores `user/keylock`, the next power-on
+(on an injected battery) shows the keylock shutdown, and the following power-on on USB power
+deletes the key again, as on the real controller (two writes; a board that had no keylock has none
+afterwards).
+
 ## How to read the report
 
 The runner prints one line per test and a summary:
@@ -336,8 +348,9 @@ in `report.json` (`safety.puck_writes`).
   `board_reset`, `wrong_mode`, `puck_reset`, `com_renumbered`, `console_busy`, `keepalive_race`,
   `answer_dropped`.
 - **The firmware emulator** (`--fw-emu`): the same groups against the library's own code
-  (commands, test channel, ring, injection, lizard mode, the battery and state reports), so the
-  runner and the firmware cannot drift apart unnoticed.
+  (commands, test channel, ring, injection, lizard mode, the battery and state reports, and the
+  system state machine's rules with their test ops and reboots), so the runner and the firmware
+  cannot drift apart unnoticed.
 - **The shared vectors** in `tests/vectors/hwtest/`: the C host tests and the runner's self-tests
   read the same files (the state report rules, lizard mode, ring entries, the test channel, the
   settings), so both sides agree on every byte.

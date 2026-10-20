@@ -28,7 +28,7 @@ change a pin there, or delete an input you do not wire.
 | [Pins](#pins) | wiring buttons and a stick |
 | [Wired and wireless modes](#wired-and-wireless-modes), [LED](#led) | what the board does and shows |
 | [The serial console](#the-serial-console-wireless-mode), [Identity](#identity), [Steam's firmware update](#steams-firmware-update) | looking inside and changing what Steam sees |
-| [Optional parts](#optional-parts), [Build options](#build-options) | more hardware, other settings |
+| [Optional parts](#optional-parts), [Build options](#build-options), [A battery build](#a-battery-build) | more hardware, other settings |
 | [The hardware test hooks](#the-hardware-test-hooks), [Test build: the charger fallback](#test-build-the-charger-fallback) | testing |
 
 ## Build and flash
@@ -80,7 +80,7 @@ can set `CONFIG_OPENSC2_TEST_HOOKS=n` in `prj.conf` before building.
    unplugged while you add the board.
 2. In Steam, start adding a controller. Steam asks you to connect it with a USB-C cable.
 3. Plug the board in with a USB-C data cable (not a charge-only cable). It comes up wired: the LED
-   is dark for half a second, then on with a short dark blink every 2 seconds.
+   turns on once the PC has set the board up.
 4. Steam pairs the board with the puck over the cable and reboots it into wireless mode: the LED
    goes dark, blinks slowly while the board looks for the puck, then stays on. The board is now
    connected through the puck.
@@ -184,7 +184,8 @@ Ways to switch:
 | wired | wireless | Steam's "reboot into wireless mode" after it paired the board |
 | wired | wireless | the pairing button **held 3 s** and released: the LED goes dark while it is held long enough, and the board reboots on the release (so the button is up again at the next boot) |
 | wired, before a PC has set the board up (a USB charger, a power bank) | wireless | the **pairing button** pressed and released, or **STEAM** pressed (at once). Without either it waits there for good, as the real controller does; for a board with no buttons wired there is a separate [test build](#test-build-the-charger-fallback) that goes wireless by itself |
-| wired, with a battery | wireless | the **cable pulled**: after 0.2 s without USB power it reboots and comes back wireless on the battery (the real controller shuts down instead); without a battery the board is simply off |
+| wired, with a battery | wireless | the **cable pulled**: after 0.2 s without USB power the board shuts down (the power-off cue, 0.5 s) and reboots, coming back wireless on the battery; a [battery build](#a-battery-build) turns off instead, as the real controller does. Without a battery the board is simply off |
+| wireless on USB power, with wireless switched off (the PC went to sleep, Steam's turn-off, STEAM held 7 s) | wired | **STEAM** pressed: a reboot, which comes back wired, as on the real controller (`opensc2 start` turns wireless on again instead) |
 | wireless, with a battery, policy auto | wired | USB power plugged in while the radio link is down, or with STEAM held; with the link up it stays wireless and charges |
 | wireless | wired | a new power-up on USB, or `opensc2 reboot wired` (once, whatever the policy) |
 
@@ -201,19 +202,34 @@ side: [docs/api.md](../docs/api.md#modes).
 
 ## LED
 
-| LED | Means |
-| --- | --- |
-| off | wireless with the radio off (turned off by the puck when the PC sleeps; press any button to come back), wired during its first half second or while the PC has let go of it (a bus reset, until it sets the board up again), or wired with the pairing button held 3 s (release it to go wireless) |
-| a short blink every 2 s | wireless, no pairing yet |
-| two quick flashes, repeating | pairing over the air |
-| a slow blink | wireless, looking for the puck |
-| on | connected through the puck (or Steam's LED colour, when Steam turns its override on) |
-| a fast blink, 100 ms on and off | wired, but no PC has set the board up (a charger); in the charger [test build](#test-build-the-charger-fallback) for 5 s at most, then it goes wireless |
-| on, with a short dark blink every 2 s | wired, set up by the PC |
+The status LED shows the real controller's modes and patterns: the library's system state machine
+picks the mode and its pattern player plays it ([docs/api.md](../docs/api.md#status-led)). Built;
+not yet tested on hardware. The v0.2.0 release image shows simpler patterns of its own, as
+described in the README of its release.
 
-An RGB LED (PWM channels `red`, `green`, `blue`, see [Optional parts](#optional-parts)) shows the
-same patterns in the real controller's colours: white with a little blue for the radio, green on a
-PC, amber without a host.
+| The on-board LED (one colour) | An RGB(W) LED | Means |
+| --- | --- | --- |
+| off | off | the first second or so after power-up (dark until a mode is chosen); a reboot or a shutdown; wired with the pairing button held 3 s (release it to go wireless) |
+| on | green | wired, set up by the PC |
+| on, with a short dark blink every second | amber | wired, but no PC has set the board up (a charger, a power bank; in the charger [test build](#test-build-the-charger-fallback) for 5 s at most, then it goes wireless); or wireless switched off on USB power (the PC went to sleep, Steam turned the controller off, STEAM held 7 s): STEAM brings it back wired |
+| a slow blink, about 1 s on and 1 s off | white with a little blue, fading in and out | wireless, looking for the puck (also when it is not paired yet) |
+| two quick flashes, repeating | the same, flashing | pairing over the air |
+| on | white with a little blue | connected through the puck |
+| | Steam's colour | while Steam's LED override is on |
+
+On USB power and wired, the real controller shows a full battery with a "fully-charged" display
+(full brightness while there was input in the last 15 minutes, then the level stored as
+`user/fully_charged_led_intensity`, full by default); this board measures no battery, so it counts
+as full and shows the steady colours above. Below 100 % (only when an application reports a level)
+the connected and wired displays breathe instead, and a [battery build](#a-battery-build) adds red
+for 5 % or less and the low-battery and keylock flashes of its shutdowns.
+
+An RGB or RGBW LED (PWM channels `red`, `green`, `blue` and optionally `white`, see
+[Optional parts](#optional-parts)) shows the colours, each channel scaled by its trim (`led-trims`,
+the real controller's factory values 90, 35, 120 and 80 % by default) and by the brightness Steam
+sets (controller setting 45, 50 % by default; Steam writes 100 on the cable), through the curve of
+setting 38. Without a white channel, white is mixed into red, green and blue. An IR LED (a PWM
+channel `ir`) follows controller setting 36 and is off during every shutdown and reboot.
 
 ## The serial console (wireless mode)
 
@@ -236,6 +252,7 @@ On Linux it is usually `/dev/ttyACM0`, on macOS `/dev/cu.usbmodem…` (Linux and
 | `opensc2 bonds`, `opensc2 slot 1`, `opensc2 forget 1` | the pairings |
 | `opensc2 id`, `opensc2 id set unit OSC2MYBOARD01`, `opensc2 id set rev 0x48`, `opensc2 id set name "My Steam Controller"`, `opensc2 id clear` | the identity Steam sees, and the name Windows shows ([Identity](#identity)) |
 | `opensc2 state` | what the inputs read right now |
+| `opensc2 power` | the power source, the system state, the LED mode, the battery level, the keylock and the idle monitor ([docs/api.md](../docs/api.md#power-and-the-system-state-machine)) |
 | `uf2` | reboot into the UF2 bootloader to flash a new build |
 
 Keep the OSC prefix in a unit serial you set: the hardware test suite only talks to boards whose
@@ -325,7 +342,10 @@ Each needs pins, which the default map has used up: take them from buttons you d
 | Part | In the overlay | Example |
 | --- | --- | --- |
 | Vibration motor (through a MOSFET) | a PWM channel named `rumble` | [samples/rumble](../samples/rumble/README.md) |
-| RGB LED following Steam's colour | PWM channels named `red`, `green`, `blue` | [samples/rgb_led](../samples/rgb_led/README.md) |
+| RGB or RGBW status LED: the real controller's colours and patterns, Steam's colour while its override is on ([LED](#led)) | PWM channels named `red`, `green`, `blue`, optionally `white`; optional `led-trims = <90 35 120 80>;` (percent, R G B W) | [samples/rgb_led](../samples/rgb_led/README.md) for the wiring |
+| IR LED (controller setting 36) | a PWM channel named `ir` | the overlay's comment |
+| A charger's status output (TP4056-style CHRG, active while charging): report `0x43`'s charge state | `charger-status-gpios` in `zephyr,user` | the overlay's comment; untested |
+| A LiPo on the battery pads | the [battery build](#a-battery-build) | `battery.conf` |
 | Trackpads (any touch device of Zephyr's input subsystem) | `chosen { opensc2,right-trackpad = &touch; };` (and `opensc2,left-trackpad`), `right-trackpad-size`, optional `right-trackpad-keep-y` | [samples/touchpad](../samples/touchpad/README.md) |
 | IMU (any accelerometer and gyroscope with a sensor driver) | `aliases { imu0 = &imu; };` | [samples/imu](../samples/imu/README.md) |
 | A mode switch (closed at power-up: wireless) | `mode-wireless-gpios` in `zephyr,user` | the overlay's comment |
@@ -376,12 +396,48 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_APP_OBEY_BOOTLOADER_REQUEST=y` | open the UF2 drive when Steam asks for a bootloader ([above](#steams-firmware-update)) |
 | `CONFIG_APP_IMU_ALWAYS=y` | stream the IMU even while Steam has it off |
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
+| `CONFIG_OPENSC2_BATTERY=y` | **not here**: in the [battery build](#a-battery-build) (`battery.conf`) |
+| `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
 
 The USB session log and the warm-restart mark live in a 16 KB RAM area that the overlay takes out
 of the application's RAM, clear of the RAM the UF2 bootloader uses at every reset
 ([docs/porting.md](../docs/porting.md#where-the-retained-region-may-go)). The SuperMini's own
 Kconfig lines (its RC oscillator) are in
 [boards/promicro_nrf52840_nrf52840_uf2.conf](boards/promicro_nrf52840_nrf52840_uf2.conf).
+
+### A battery build
+
+> [!NOTE]
+> Built; not yet tested on hardware: no LiPo has been on a test board yet.
+
+The default build takes a board without USB power to be on an external supply and never switches
+itself off: every shutdown reboots. For a SuperMini with a LiPo on its battery pads, build
+[battery.conf](battery.conf) on top of `prj.conf`, in a build folder of its own:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\battery.conf -OutDir C:\b\osc2-bat -Pristine
+```
+
+On Linux or macOS, from the repository folder:
+
+```sh
+west build -p always -d build-battery -b promicro_nrf52840/nrf52840/uf2 app -- -DEXTRA_CONF_FILE=battery.conf
+```
+
+Without USB power the board then runs on its battery as the real controller does
+([docs/api.md](../docs/api.md#power-and-the-system-state-machine)): at power-on it plays the stored
+transport's cue and waits 1 s for USB power, then connects; a transport chord held with STEAM while
+it powers up chooses the link (STEAM + A + right bumper the first pairing, STEAM + A + left bumper
+the second; held 4 s, with the pairing flag). STEAM held 7 s, Steam's turn-off, the idle timeout
+(controller setting 50, 15 minutes), a puck that is gone (60 s of listening, 10 s with an empty
+pairing slot), 0 % battery, and the cable pulled while wired turn it off: the LED goes dark and the
+nRF52840 enters System OFF. STEAM wakes it (the pin of the key with `OPENSC2_KEY_STEAM`; without
+one, any key), and so does plugging in USB. Without a STEAM button wired, only a USB cable or a
+reset brings it back. On USB power it behaves as the default build.
+
+This board measures no battery voltage, so the level stays at 100 % unless an application sets
+one, and low battery never turns it off. A charger with a status output can give report `0x43` its
+charge state (`charger-status-gpios`, [Optional parts](#optional-parts)).
 
 ## The hardware test hooks
 
@@ -441,7 +497,7 @@ fragment keeps it, with no sign at build time.
 
 | Where the board is plugged in | With the test build |
 | --- | --- |
-| a USB charger, a power bank, a powered hub on a PC that is off | LED dark for half a second, the fast "no host" blink, then after 5 s a reboot into wireless mode: the slow blink while it looks for the puck, then on (connected) |
+| a USB charger, a power bank, a powered hub on a PC that is off | LED dark at first, then the "no host" display (on with a short dark blink every second), then after 5 s a reboot into wireless mode: the slow blink while it looks for the puck, then on (connected) |
 | a PC that is on | wired, exactly as the default build: a PC sends its first USB request within a second, and from then on the board waits for it as long as it takes |
 | a PC that is asleep, or booting without touching USB (fast boot) | looks like a charger: wireless after 5 s. Replug the board once the PC is up to have it wired |
 

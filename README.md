@@ -26,9 +26,10 @@ the SuperMini nRF52840, a template for your own project, six samples and an auto
 test suite.
 
 - **The library** (`lib/opensc2`, `include/opensc2`) does the protocol: the puck's 2.4 GHz link,
-  the wired USB device, pairing over the cable and the vendor commands Steam sends. Your code hands
-  it the inputs (buttons, sticks, triggers, trackpads, IMU, battery) and gets the outputs (rumble,
-  haptics, LED colour, settings) as callbacks. It has no pins of its own.
+  the wired USB device, pairing over the cable and the vendor commands Steam sends, and the real
+  controller's power, chord and status-LED rules. Your code hands it the inputs (buttons, sticks,
+  triggers, trackpads, IMU, battery) and gets the outputs (rumble, haptics, the status LED's mode
+  and Steam's LED colour, settings, cues, power-off) as callbacks. It has no pins of its own.
 - **The firmware** (`app/`, "the blank canvas") is a complete Steam Controller 2 for the SuperMini
   nRF52840, a Pro Micro-sized nRF52840 board with the nice!nano pinout and the Adafruit nRF52 UF2
   bootloader. Every input is set up in one devicetree file: the SuperMini's pins carry the
@@ -75,6 +76,8 @@ Steam on a Windows PC.
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
 | Bluetooth. The dock (pogo pads). | Not implemented |
 | Lizard mode's smoothing, glide and haptic ticks. PCM haptics playback in the samples. | Not implemented |
+| Since v0.2.0, not in a release yet: the real controller's power and status rules ([docs/api.md](docs/api.md#power-and-the-system-state-machine)): the power-on decision, STEAM held 7 s, the transport chords and their pairing hold, the keylock, the idle timeout, low battery, shutdown and power-off, the status LED's modes and patterns, and the cue events. Host-tested, and run by the test suite against the firmware emulator. | Built; not yet tested on hardware |
+| Since v0.2.0: a battery build (`app/battery.conf`) that turns itself off and wakes on STEAM or USB power; an RGBW status LED and an IR LED; a charger status pin. | Built; not yet tested on hardware |
 
 Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
 
@@ -126,7 +129,7 @@ Nothing needs to be wired to try it.
       unplugged while you add the board.
    2. In Steam, start adding a controller. Steam asks you to connect it with a USB-C cable.
    3. Plug the board in with a USB-C data cable (not a charge-only cable). It comes up wired: the
-      LED is dark for half a second, then on with a short dark blink every 2 seconds.
+      LED turns on once the PC has set the board up.
    4. Steam pairs the board with the puck over the cable and reboots it into wireless mode: the LED
       goes dark, blinks slowly while the board looks for the puck, then stays on. The board is now
       connected through the puck.
@@ -332,12 +335,14 @@ hardware report, a new board). [CHANGELOG.md](CHANGELOG.md) lists the changes, a
 ```text
 zephyr/module.yml, CMakeLists.txt, Kconfig   the Zephyr module
 include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (wire formats and USB
-                        descriptors), settings.h, fusion.h
+                        descriptors), settings.h, led.h (the status LED), fusion.h
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
 lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc.c (wired mode),
                         commands.c (vendor commands), report.c (reports on every link), lizard.c
                         (lizard mode), mode.c (wired or wireless), usblog.c (the session log),
-                        storage.c, shell.c, test_*.c (the hardware test hooks)
+                        system.c with sys_rules.c, chord_rules.c, idle_rules.c and led_rules.c
+                        (power, chords, the status LED, cues), storage.c, shell.c, test_*.c
+                        (the hardware test hooks)
 app/                    the blank-canvas firmware for the SuperMini; app/build.ps1 builds it
 template/               a small project to copy as the start of your own
 samples/                minimal, buttons_sticks, touchpad, imu, rumble, rgb_led

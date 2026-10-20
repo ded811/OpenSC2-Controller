@@ -44,7 +44,7 @@ refreshes the lease. Claimed requests are counted in the USB session log but not
 
 **The console** has nothing to fall through to: a `raw` request shorter than 7 bytes or with the wrong
 key or version prints `HWT <id> ERR not a test request` and `HWT <id> END -22`; every other request
-runs, and while unarmed every op but `ARM` and `STATUS` answers NOT_ARMED.
+runs, and while unarmed every op but `ARM`, `STATUS` and `SYS_STATUS` answers NOT_ARMED.
 
 Ops (arguments and results little endian; state52 is report `0x42` without its ID and sequence byte):
 
@@ -71,6 +71,15 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x42` | HOST_GET | | opcode u8, n u8, flags u8 (bit 0 masked, bit 1 cut), then the first min(n, 54) answer bytes, or for a masked answer the CRC-32 of its n bytes | a vendor GET on the test link; masked: `0xED` of `esb/bond` or `esb/bond_2`, `0xAE` tags 0, 1 and 4, `0xF2` selector 0, `0xA1` selector 1 |
 | `0x43` | APP_SEND | kind u8; kind 0: an input report, ID first, 1..53 bytes; kind 1: channel u8, flags u32 | result s32 | as the application would (`opensc2_send_report()`, `opensc2_send_haptic_status()`), through the guard like every report; DENIED for a `0x42` |
 | `0x44` | RADIO_DEAF | ms u16 (100..5000) | | the radio hears nothing that long, so the link times out the normal way; BUSY while one is pending, NO_LINK unless wireless and connected |
+| `0x70` | SYS_INJECT | flags u8 (bit 0 buttons, 1 level, 2 power source), buttons u32, level u8, source u8 (0 battery, 1 USB, 2 the dock), zero u8 | | [system injection](#system-injection): what the flags name reaches the system state machine's rules from now on (the others stay as they are); BAD_ARG for another flag bit, a source above 2 or a last byte that is not 0 |
+| `0x71` | SYS_INJECT_OFF | | | ends every system injection, the boot-time one too |
+| `0x72` | SYS_STATUS | | the machine's status, 30 bytes | [below](#system-injection); also unarmed on the console |
+| `0x73` | SYS_BOOT | flags u8, buttons u32, level u8, source u8, hold u8 (× 100 ms; 0: until `SYS_INJECT_OFF`) | | keeps a boot-time injection for the next boot, in the retained RAM area (flags 0 clears it); DENIED without that area; BAD_ARG for another flag bit or a source above 2 |
+| `0x74` | SYS_EVENT | kind u8: 1 a link that gave up, 2 the puck's "PC asleep" | | as the radio would report it: 1 posts "wireless off" (with the listen timeout as its reason), 2 runs the `0xE6` path (the `host_asleep` callback, a `HOST_ASLEEP` entry, the once-per-boot cue); BAD_ARG for another kind |
+
+Ops `0x70` to `0x74` answer DENIED in a build without the system state machine
+(`CONFIG_OPENSC2_SYSTEM=n`, caps build flag 18 clear); `0x75` to `0x77` are kept for it and answer
+BAD_OP.
 
 The **test link** is a third command link of the library with a stored request of its own, used only
 by `HOST_SET` and `HOST_GET`, so emulating a host on the board never disturbs the stored request of
@@ -88,7 +97,8 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 (bit 0 `TRIGGER_CLICK_AUTO`, 1 `LIZARD_MODE`, 2 `STEAM_WATCHDOG`, 3 `USB`, 4 `USB_PROFILE_OCTOBER`,
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
-`NO_HOST_WIRELESS_MS` not 0, the charger test build); 6 battery report interval ms u16; 8 rumble
+`NO_HOST_WIRELESS_MS` not 0, the charger test build; 18 `SYSTEM`, the system state machine and its
+ops); 6 battery report interval ms u16; 8 rumble
 timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16;
 16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
 revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
@@ -101,6 +111,52 @@ mode; 2 mode reason; 3 link state; 4 USB state; 5 bond slot (0 or 1); 6 the last
 reason; 7 the sequence byte of the last state report; 8 nonce u32; 12 uptime ms u32; 16 the ring's
 first u32; 20 next u32; 24 frames since ARM u32; 28 the step in use (`0xFF` idle); 29 steps loaded;
 30 frames left in the step u16.
+
+### System injection
+
+The ops `0x70` to `0x74` reach the [system state machine](api.md#power-and-the-system-state-machine).
+`INJECT` replaces only what the state reports carry, and the rules that read STEAM never see it;
+`SYS_INJECT` is the other way round: its buttons, battery level and power source reach the machine's
+rules (the chords, STEAM pressed and held, the idle timeout, the battery level, the power source,
+the wired start's STEAM rule and the plug-in rule) and never a report, so lizard mode never sees
+them either. A level injected this way stands for the application's (the `0x80` rule still
+applies); a battery injected with `BATTERY` only changes the reports. The end of arming (and `ARM`)
+ends `SYS_INJECT`'s inputs, except in a boot that a boot-time injection started, where the injected
+level and source stay (below).
+
+**The boot-time injection.** `SYS_BOOT` keeps its inputs in the retained RAM area for the next boot
+(three words: `0x5B007A5E`, the buttons, then flags | level << 8 | source << 16 | hold << 24). The
+next boot reads and clears them first thing and injects them from the start, so the power-on
+decision itself sees them: a source of 0 (battery) or 2 (the dock) makes a boot with USB power a
+battery or dock power-on, not a wired one. They outlive the end of arming: the source and the
+level stay for that boot, the buttons until their hold time ends (then every injected button is
+up); `SYS_INJECT_OFF` ends them all. While the hooks are armed, and in a boot a boot-time
+injection started, a shutdown never turns the board off: it reboots (how 4 below).
+
+**The last end.** When the machine ends (a power-off or a reboot) it keeps how in the retained RAM
+area, three words (`0x5E0DE4D5`, state | cause << 8 | end << 16 | how << 24, the uptime in ms), so
+the next boot's `SYS_STATUS` can show what the last boot did. How: 1 `OPENSC2_POWER_OFF` asked for,
+2 a reboot state or setting 77, 3 a power-off that rebooted because the build has no battery, 4 one
+that rebooted because the test hooks were in use.
+
+SYS_STATUS (30 bytes): 0 state, 1 the chosen transport (`0xFF` none), 2 the power source, 3 the LED
+mode, 4 the LED flags (bit 0 external power, 1 steady, 2 shutting down), 5 the chord matching now
+(0 none, 1 STEAM alone, 2 B + R, 3 B + L, 4 A + R, 5 A + L, 6 the keylock), 6 the level the machine
+was told (255: none), 7 flags (bit 0 the keylock stored, 1 buttons injected, 2 a level injected, 3
+a source injected, 4 this boot came from a boot-time injection, 5 a Bluetooth transport exists, 6 a
+battery build, 7 the machine has ended), 8 the idle history u16, 10 the idle period ms u32, 14 the
+last cue (`0xFF` none), 15 the state the power-on decision chose, 16 its cue (`0xFF` none), 17 the
+chord held at power-on, 18 1 when a power-on chord state ended with the pairing flag, 19 1 when the
+last end is valid, 20 its state, 21 its cause, 22 its how, 23 its uptime ms u32, 27 the
+fully-charged LED level, 28 setting 50 as the idle monitor uses it, s16.
+
+States (byte 0, the `SYS_STATE` and `SYS_END` entries): 0 `start`, 1 `battery-wait`, 2 `wired-wait`,
+3 `wired`, 4 `usb-link-on`, 5 `usb-link-off`, 6 `dock-off`, 7 `lifted`, 8 `dock-chord`, 9 `dock-on`,
+10 `chord`, 11 `battery`, 12 `shutdown`, 13 `shutdown-silent`, 14 `shutdown-low`, 15
+`shutdown-locked`, 16 `reboot`. Events (the causes): 0 `power-none`, 1 `power-usb`, 2 `power-dock`,
+3 `configured`, 4 `steam-held`, 5 `steam-pressed`, 6 `idle`, 7 `wireless-off`, 8 `level`, 9
+`keylock-held`, 10 `chord-down`, 11 `chord-up`, 12 `timer`, 13 `bootloader`, 14 `reboot`, 15
+`warm-reboot`, 16 `turn-off`, 17 `steam-up`, 18 `link-started`, 19 `unplugged`.
 
 ## The ring
 
@@ -134,6 +190,15 @@ causes, 3 none: work queue events such as the rumble timeout or the Steam watchd
 | `0x22` | VERSION | the protocol version answered |
 | `0x23` | IDENTITY | product ID u16, build time u32, bootloader build time u32, revision u32, git revision 12 bytes (never the serials) |
 | `0x24` | CHANNELS | the four channel bytes of `0xE4` |
+| `0x50` | SYS_STATE | from u8, to u8 (the first state left and the last one entered), cause u8 (the event), transport u8, source u8 ([the numbers](#system-injection)) |
+| `0x51` | LED_MODE | mode u8, flags u8 (bit 0 external power, 1 steady, 2 shutting down), level u8, fully-charged level u8 |
+| `0x52` | CUE | cue u8, script u8, gain s8, played u8 (0: silent at the chime level) |
+| `0x53` | SYS_END | state u8, cause u8, end u8 (1 power off, 2 reboot), how u8 (as in the last end) |
+| `0x54` | CHORD | what u8 (1 down, 2 up, 3 STEAM pressed, 4 STEAM held, 5 the keylock's tap, 6 the keylock's hold), chord u8 |
+| `0x55` | SOURCE | from u8, to u8, the event it posted u8 (`0xFF`: none, power present did not change) |
+| `0x56` | IDLE | the idle history u16, when the idle event is posted; only while a system injection is in effect |
+
+The system entries (`0x50` to `0x56`; `0x57` is kept) have link 3, none.
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).
 
