@@ -28,7 +28,7 @@ STATES = ["start", "battery-wait", "wired-wait", "wired", "usb-link-on", "usb-li
 EVENTS = ["power-none", "power-usb", "power-dock", "configured", "steam-held", "steam-pressed",
           "idle", "wireless-off", "level", "keylock-held", "chord-down", "chord-up", "timer",
           "bootloader", "reboot", "warm-reboot", "turn-off", "steam-up", "link-started",
-          "unplugged"]
+          "unplugged", "transport"]
 STATE = {name: i for i, name in enumerate(STATES)}
 EVENT = {name: i for i, name in enumerate(EVENTS)}
 

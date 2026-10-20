@@ -1367,7 +1367,7 @@ pairs a controller over the cable:
 
 | Function | Does |
 | --- | --- |
-| `opensc2_select_transport(t)` | Run `t` from now on: the running transport stops and hands over the radio (only one runs at a time). Stored once its link is up, as the October 2026 firmware does (the puck: connected; Bluetooth: connected, encrypted, an ATT MTU of 64 or more), so a choice whose link never comes up is not kept; in wired mode it is stored at once, for the next wireless boot. `-ENOTSUP` for Bluetooth without `CONFIG_OPENSC2_BLE`, `-EINVAL` for another value. |
+| `opensc2_select_transport(t)` | Run `t` from now on: the running transport stops and hands over the radio (only one runs at a time). Stored once its link is up, as the October 2026 firmware does (the puck: connected; Bluetooth: connected, encrypted, an ATT MTU of 64 or more), so a choice whose link never comes up is not kept; in wired mode it is stored at once, for the next wireless boot. With the system state machine it is also the machine's choice from then on (the LED's colour, the battery wait's start, `opensc2 power`). `-ENOTSUP` for Bluetooth without `CONFIG_OPENSC2_BLE`, `-EINVAL` for another value. |
 | `opensc2_select_transport_pairing(t)` | The same with the pairing flag that the real controller's transport chords give when held 4 s: Bluetooth opens the slot for a new host (pairing mode on the slot's other identity, which is reset first, so the old host's bond stays until a new host has paired), even when that slot is connected; the puck's radio ignores the flag, as the real controller's does; in wired mode the choice is stored and the flag dropped. |
 | `opensc2_selected_transport()` | the transport this boot runs |
 

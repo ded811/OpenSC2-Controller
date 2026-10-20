@@ -204,7 +204,8 @@ States (byte 0, the `SYS_STATE` and `SYS_END` entries): 0 `start`, 1 `battery-wa
 `shutdown-locked`, 16 `reboot`. Events (the causes): 0 `power-none`, 1 `power-usb`, 2 `power-dock`,
 3 `configured`, 4 `steam-held`, 5 `steam-pressed`, 6 `idle`, 7 `wireless-off`, 8 `level`, 9
 `keylock-held`, 10 `chord-down`, 11 `chord-up`, 12 `timer`, 13 `bootloader`, 14 `reboot`, 15
-`warm-reboot`, 16 `turn-off`, 17 `steam-up`, 18 `link-started`, 19 `unplugged`.
+`warm-reboot`, 16 `turn-off`, 17 `steam-up`, 18 `link-started`, 19 `unplugged`, 20 `transport` (a
+transport selected at run time; it changes no state).
 
 **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, caps bit 19; without it the ops
 `0x80`..`0x83` answer BAD_OP once their length is right). Its ring entries (`0x60`..`0x63`, link 3)

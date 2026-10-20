@@ -116,6 +116,8 @@ enum osc2_sys_ev {
 	OSC2_SYS_EV_STEAM_UP,         /* the STEAM bit went up */
 	OSC2_SYS_EV_LINK_STARTED,     /* OpenSC2: the link was started from outside the machine */
 	OSC2_SYS_EV_UNPLUGGED,        /* OpenSC2: the wired device lost USB power */
+	OSC2_SYS_EV_TRANSPORT,        /* OpenSC2: a transport chosen at run time from outside the
+				       * machine (the argument; opensc2_select_transport()) */
 	OSC2_SYS_EVENTS,
 };
 

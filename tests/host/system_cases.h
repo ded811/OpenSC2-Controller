@@ -341,6 +341,69 @@ OPENSC2_TEST(sys_power_on)
 	CHECK_EQ(osc2_sys_next(&sm, 0), 1000);
 }
 
+/* A transport selected at run time (opensc2_select_transport(), the shell): the machine's choice
+ * from then on. */
+OPENSC2_TEST(sys_transport_chosen)
+{
+	/* Wireless on USB power with the main puck: a switch to Bluetooth shows Bluetooth's colour */
+	sys_in_reset();
+	sys_boot(false, true, OSC2_SRC_USB, 0);
+	CHECK_EQ(sm.chosen, OSC2_TRANSPORT_PUCK1);
+	ev(OSC2_SYS_EV_TRANSPORT, OSC2_TRANSPORT_BT1, 10);
+	CHECK_EQ(sm.chosen, OSC2_TRANSPORT_BT1);
+	CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_ON);
+	CHECK_EQ(sysout.actions, OSC2_SYS_DO_LED);
+	CHECK_EQ(sysout.led_mode, OSC2_LED_BLUETOOTH);
+	CHECK_EQ(sysout.led_flags, OSC2_LED_EXTERNAL);
+	/* the same again (the machine's own start selects what it chose): nothing */
+	ev(OSC2_SYS_EV_TRANSPORT, OSC2_TRANSPORT_BT1, 20);
+	CHECK_EQ(sysout.actions, 0);
+	/* wireless off, then a switch, then wireless on again: the new colour */
+	ev(OSC2_SYS_EV_WIRELESS_OFF, 0, 30);
+	CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_OFF);
+	ev(OSC2_SYS_EV_TRANSPORT, OSC2_TRANSPORT_PUCK2, 40);
+	CHECK_EQ(sysout.actions, 0);       /* amber stays */
+	CHECK_EQ(sm.chosen, OSC2_TRANSPORT_PUCK2);
+	ev(OSC2_SYS_EV_LINK_STARTED, 0, 50);
+	CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_ON);
+	CHECK_EQ(sysout.led_mode, OSC2_LED_PUCK);
+
+	/* The battery wait: its timer starts the transport chosen meanwhile */
+	sys_in_reset();
+	sysin.level = 50;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_BATTERY_WAIT);
+	ev(OSC2_SYS_EV_TRANSPORT, OSC2_TRANSPORT_BT2, 100);
+	CHECK_EQ(sysout.actions, 0);
+	ev(OSC2_SYS_EV_TIMER, 0, 1000);
+	CHECK_EQ(sm.state, OSC2_SYS_BATTERY);
+	CHECK(HAS(OSC2_SYS_DO_START));
+	CHECK_EQ(sysout.transport, OSC2_TRANSPORT_BT2);
+	CHECK_EQ(sysout.led_mode, OSC2_LED_BLUETOOTH);
+	CHECK_EQ(sysout.led_flags, 0);
+	/* on battery: the colour changes at once */
+	ev(OSC2_SYS_EV_TRANSPORT, OSC2_TRANSPORT_PUCK1, 1100);
+	CHECK_EQ(sysout.led_mode, OSC2_LED_PUCK);
+	CHECK_EQ(sysout.led_flags, 0);
+
+	/* A chord state keeps its chord's choice; a stored value above 3 means the main puck */
+	sys_in_reset();
+	sysin.level = 50;
+	sysin.chord = OSC2_CHORD_BT1;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_CHORD);
+	ev(OSC2_SYS_EV_TRANSPORT, OSC2_TRANSPORT_PUCK2, 600);
+	CHECK_EQ(sm.chosen, OSC2_TRANSPORT_BT1);
+	CHECK_EQ(sysout.actions, 0);
+	sys_in_reset();
+	sys_boot(false, true, OSC2_SRC_USB, 0);
+	ev(OSC2_SYS_EV_TRANSPORT, OSC2_TRANSPORT_BT2, 10);
+	ev(OSC2_SYS_EV_TRANSPORT, 9, 20);
+	CHECK_EQ(sm.chosen, OSC2_TRANSPORT_PUCK1);
+	CHECK_EQ(sysout.led_mode, OSC2_LED_PUCK);
+	CHECK(strcmp(osc2_sys_event_name(OSC2_SYS_EV_TRANSPORT), "transport") == 0);
+}
+
 OPENSC2_TEST(sys_battery_wait_and_chords)
 {
 	/* The battery wait: 1 s, then the link and battery operation; chords and STEAM do not

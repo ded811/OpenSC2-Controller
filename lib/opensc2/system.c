@@ -884,6 +884,11 @@ void osc2_sys_bt_event(uint8_t event)
 	}
 }
 
+void osc2_sys_transport_selected(uint8_t transport)
+{
+	post(OSC2_SYS_EV_TRANSPORT, transport);
+}
+
 /* ---- the test hooks' environment ------------------------------------------------------------- */
 
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)

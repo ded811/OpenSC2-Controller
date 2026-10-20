@@ -272,6 +272,31 @@ static void chord_done(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t
 	      o);
 }
 
+/* A transport chosen at run time from outside the machine (the application, the shell's `opensc2
+ * transport`): the machine's choice from now on, so a state that shows the link's colour shows the
+ * new one, wireless on again shows it, and the battery wait's timer starts it. A chord state keeps
+ * its chord's choice. */
+static void transport_chosen(struct osc2_sys *m, uint8_t transport, struct osc2_sys_out *o)
+{
+	uint8_t t = usable_transport(transport);
+
+	if (t == m->chosen || m->state == OSC2_SYS_CHORD || m->state == OSC2_SYS_DOCK_CHORD) {
+		return;   /* the machine's own start_link() selects what it chose: nothing new */
+	}
+	m->chosen = t;
+	switch (m->state) {
+	case OSC2_SYS_USB_LINK_ON:
+	case OSC2_SYS_DOCK_ON:
+		led(o, transport_led(t), OSC2_LED_EXTERNAL);
+		break;
+	case OSC2_SYS_BATTERY:
+		led(o, transport_led(t), 0);
+		break;
+	default:
+		break;
+	}
+}
+
 void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev, uint8_t arg,
 		    uint32_t now_ms, struct osc2_sys_out *out)
 {
@@ -301,6 +326,10 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 	}
 	if (timer_due) {
 		m->timer_on = false;
+	}
+	if (ev == OSC2_SYS_EV_TRANSPORT) {
+		transport_chosen(m, arg, out);
+		return;
 	}
 
 	switch (m->state) {
@@ -535,7 +564,7 @@ const char *osc2_sys_event_name(uint8_t ev)
 		"power-none", "power-usb", "power-dock", "configured", "steam-held",
 		"steam-pressed", "idle", "wireless-off", "level", "keylock-held", "chord-down",
 		"chord-up", "timer", "bootloader", "reboot", "warm-reboot", "turn-off", "steam-up",
-		"link-started", "unplugged",
+		"link-started", "unplugged", "transport",
 	};
 
 	return ev < OSC2_SYS_EVENTS ? names[ev] : "?";

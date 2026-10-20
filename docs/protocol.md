@@ -689,6 +689,9 @@ open, the library does what should work with Steam and the puck, and says so her
       application's `opensc2_start()`, pairing) while wireless is off on USB power counts as
       wireless on. A radio stopped on the board (`opensc2_stop()`) is not "wireless off": only a
       link that gave up, a protocol version the library does not speak, and the puck's turn-off are.
+      A transport selected at run time (`opensc2_select_transport()`, the shell's `opensc2
+      transport`) becomes the machine's choice, as a chord's would: the LED shows its colour, the
+      battery wait's timer starts it, and `opensc2 power` reports it.
     - **Power that goes away** must stay away 0.2 s before it counts (the wired unplug rule's
       debounce); the real controller acts on its charger's events. The dock exists only as a power
       source an application names (OpenSC2 has no dock).

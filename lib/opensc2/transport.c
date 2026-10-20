@@ -17,6 +17,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include "internal.h"
+#include "system.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
@@ -174,6 +175,9 @@ static int select_transport(uint8_t t, bool pair)
 	}
 	LOG_INF("Transport %s%s", osc2_transport_name(t),
 		pair && osc2_transport_is_ble(t) ? ", pairing" : "");
+	/* The system state machine's choice too (its LED; the battery wait starts it), before the
+	 * link's own events reach it. */
+	osc2_sys_transport_selected(t);
 	return switch_to(t, pair);
 }
 
