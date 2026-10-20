@@ -74,27 +74,30 @@ static void status_out(struct osc2_hap_rt *rt, uint8_t channel, uint32_t flags)
 		    flags);
 }
 
-/* The engine's events of `path`: 0x44 reports, and ring entries while the hooks are armed. */
+/* The engine's events of `path`: 0x44 reports, and ring entries while the hooks are armed. A few at
+ * a time: the sequencers' threads have small stacks. */
 static void drain(struct osc2_hap_rt *rt, uint8_t path)
 {
-	struct osc2_hap_event ev[OSC2_HAP_EVENTS_MAX];
-	uint8_t n = osc2_hap_take_events(&rt->engine, path, ev, OSC2_HAP_EVENTS_MAX);
+	struct osc2_hap_event ev[4];
+	uint8_t n;
 
-	for (uint8_t i = 0; i < n; i++) {
-		const struct osc2_hap_event *e = &ev[i];
+	while ((n = osc2_hap_take_events(&rt->engine, path, ev, 4)) != 0) {
+		for (uint8_t i = 0; i < n; i++) {
+			const struct osc2_hap_event *e = &ev[i];
 
-		if (e->kind == OSC2_HAP_EV_STATUS) {
-			status_out(rt, e->channel, e->flags);
-		} else if (e->kind == OSC2_HAP_EV_GEN) {
-			uint8_t d[12] = { e->channel, e->type, e->what, (uint8_t)e->gain_db };
+			if (e->kind == OSC2_HAP_EV_STATUS) {
+				status_out(rt, e->channel, e->flags);
+			} else if (e->kind == OSC2_HAP_EV_GEN) {
+				uint8_t d[12] = { e->channel, e->type, e->what, (uint8_t)e->gain_db };
 
-			put16(&d[4], e->a);
-			put16(&d[6], e->b);
-			put16(&d[8], e->c);
-			put16(&d[10], e->d);
-			note(rt, OSC2_HAP_RING_GEN, d, sizeof(d));
-		} else if (e->kind == OSC2_HAP_EV_STREAM) {
-			note_stream(rt, e->channel, e->what, e->a, e->flags);
+				put16(&d[4], e->a);
+				put16(&d[6], e->b);
+				put16(&d[8], e->c);
+				put16(&d[10], e->d);
+				note(rt, OSC2_HAP_RING_GEN, d, sizeof(d));
+			} else if (e->kind == OSC2_HAP_EV_STREAM) {
+				note_stream(rt, e->channel, e->what, e->a, e->flags);
+			}
 		}
 	}
 }
