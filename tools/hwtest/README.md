@@ -51,11 +51,12 @@ tools/hwtest/
                     models), vendor, testproto (the 0x7E channel), sysproto (the system ops and
                     their ring entries), console (parsers), shellfmt (shell.c's line formats),
                     steamlog, haptics (the haptics synthesiser's ops, ring entries and shared
-                    vectors)
+                    vectors), dock (the dock's frames, the dock ops, a model of the board's
+                    answers and rules)
   groups/           one module per test group (hooks, desc, cmd, inputs, battery, stream,
                     reports, outputs, haptics, settings, flash, lizard, wireless, puck, ble,
-                    steam, modes, system, restore, cal) and base.py (checks, results, what ends a
-                    group)
+                    steam, modes, system, restore, cal, dock) and base.py (checks, results, what
+                    ends a group)
   win/              Windows access through ctypes, imported lazily: backend (WinBackend),
                     devices (listing without opening; the Bluetooth HID nodes too), hid (the
                     board, on USB or over Bluetooth), serial (its console),
@@ -76,7 +77,7 @@ Comments in the code name the safety rules by label. Each rule is code with its 
 | S2 | the puck is read-only: its reader binds no function that can send |
 | S3 | writes to the puck only through the gated writer (`--through-puck`, Steam closed, the slot proven to be the board's) |
 | S4 | never feature report 2 (the puck's own commands) to the puck |
-| S5 | the vendor-command denylist and the one-shot tokens of `--flash`; a `cal/` key is never written, saved or deleted, not even with a token |
+| S5 | the vendor-command denylist and the one-shot tokens of `--flash`; a `cal/` key is never written, saved or deleted, not even with a token; a dock frame that runs a command (a SET) is held to the test link's allowlist |
 | S6 | the console's allowlist of commands |
 | S7 | the conditions for every injection (armed, the guard canary passed, Steam closed, the only reader, lizard mode off; for the system injection, which reaches no report: armed with the guard, the canary passed, Steam closed) |
 | S8 | Steam appearing during a group stops its injection |
@@ -93,9 +94,10 @@ says what the code does and why.
 
 ## The shared vectors
 
-`tests/vectors/hwtest/` (`state.txt`, `lizard.txt`, `ring.txt`, `testproto.txt`, `settings.txt`)
-holds the byte-level rules both sides must agree on. The firmware's host tests and the runner's
-self-tests read the same files; a change of a rule changes the file, and both sides follow.
+`tests/vectors/hwtest/` (`state.txt`, `lizard.txt`, `ring.txt`, `testproto.txt`, `settings.txt`,
+`haptics.txt`, `dock.txt`) holds the byte-level rules both sides must agree on. The firmware's
+host tests and the runner's self-tests read the same files; a change of a rule changes the file,
+and both sides follow.
 `proto/shellfmt.py` holds the console lines of `lib/opensc2/shell.c`, and a self-test checks that
 every one of them is still a format string of shell.c.
 
@@ -107,8 +109,9 @@ every one of them is still a format string of shell.c.
   library's code agree.
 - There is no recording and replay of a hardware run; the firmware emulator covers the offline
   cross-check against the real code.
-- `--lizard`, `--flash`, `--through-puck`, `--with-steam` and `--bluetooth` are opt-in and off by
-  default. The Bluetooth path (B) has run only against the simulator; the firmware emulator has no
-  Bluetooth link.
+- `--lizard`, `--flash`, `--through-puck`, `--with-steam`, `--dock` and `--bluetooth` are opt-in
+  and off by default. The Bluetooth path (B) has run only against the simulator; the firmware
+  emulator has no Bluetooth link. The groups added since v0.2.0 (`cal`, `system`, `haptics`, `ble`,
+  `dock`) have run only against the simulator and the firmware emulator.
 
 Back to the [documentation map](../../docs/README.md).
