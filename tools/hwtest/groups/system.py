@@ -324,8 +324,12 @@ def run(ctx):
     if ctx.want("system.idle_battery"):
         with ctx.check(GROUP, "system.idle_battery") as c:
             _need_system(rig, c)
-            _setup_battery(rig, c, [(77, 1), (50, 2)])
+            _setup_battery(rig, c, [(77, 1)])
             with rig.own_link_drop():
+                # setting 50 = 2 only now: the monitor starts afresh at the write (16 periods of
+                # 125 ms), so the battery set-up before it (the guard canary after the last
+                # reboot's ARM, the power source's 0.2 s) cannot use up the 2 s before the press
+                rig.write_settings([(50, 2)])
                 marker = rig.mark(0x1D1E0001)
                 rig.sys_inject(S.INJECT_BUTTONS, buttons=STEAM_X)   # one press: activity
                 st = _wait_state(rig, ("shutdown",), 3.5)
