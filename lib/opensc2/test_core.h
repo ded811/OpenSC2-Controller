@@ -23,6 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <opensc2/types.h>
+#include <opensc2/cal.h>
 #include <opensc2/codec.h>
 #include <opensc2/settings.h>
 
@@ -99,7 +100,14 @@ enum osc2_test_op {
 	OSC2_TEST_OP_HOST_GET = 0x42,
 	OSC2_TEST_OP_APP_SEND = 0x43,
 	OSC2_TEST_OP_RADIO_DEAF = 0x44,
+	/* the calibration's raw inputs (CONFIG_OPENSC2_CAL) */
+	OSC2_TEST_OP_RAW_INJECT = 0xA0,
+	OSC2_TEST_OP_RAW_OFF = 0xA1,
+	OSC2_TEST_OP_CAL_STATUS = 0xA2,
 };
+
+#define OSC2_TEST_RAW_ARGS        30   /* RAW_INJECT: flags, nonce u32, present, the values */
+#define OSC2_TEST_CAL_STATUS_LEN  16
 
 /* Flags of ARM, INJECT, SEQ_RUN and BATTERY. */
 #define OSC2_TEST_ARM_RESTORE        0x01   /* restore the settings and the LED colour at the end */
@@ -223,6 +231,7 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+#define OSC2_TEST_FLAG_CAL                    (1u << 21)   /* CONFIG_OPENSC2_CAL: RAW_INJECT */
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)
@@ -296,6 +305,9 @@ struct osc2_test_env {
 	void (*battery_now)(void);                /* a battery report now; the period restarts */
 	bool (*release_held)(void);               /* osc2_lizard_release_held() */
 	void (*lizard_resync)(void);              /* osc2_lizard_resync() (writes a LIZARD entry) */
+	/* CAL_STATUS's 16 bytes from the calibration (NULL: a build without CONFIG_OPENSC2_CAL,
+	 * where the raw ops answer BAD_OP). */
+	void (*cal_status)(uint8_t out[OSC2_TEST_CAL_STATUS_LEN]);
 };
 
 /* ---- the core's state ------------------------------------------------------------------------ */
@@ -351,6 +363,11 @@ struct osc2_test_core {
 	uint32_t frame_gen;         /* ... of this sequence */
 	volatile uint8_t skip_lizard;   /* built from an injected state without the lizard test */
 	uint16_t deaf_ms;           /* RADIO_DEAF, waiting for the radio thread */
+	/* the raw injection (RAW_INJECT) */
+	bool raw_on;
+	uint32_t raw_nonce;
+	struct opensc2_raw_inputs raw;
+	volatile uint8_t raw_frame;   /* the frame being built takes raw inputs from it */
 	/* the settings snapshot written back at the end of arming */
 	bool snap_on;
 	int16_t snap[OPENSC2_SETTINGS_COUNT];
@@ -417,6 +434,11 @@ bool osc2_test_core_divert(struct osc2_test_core *c, const struct osc2_test_env 
 			   const uint8_t *report, size_t len);
 /* RADIO_DEAF: the milliseconds to stay deaf, once (0: none). */
 uint16_t osc2_test_core_take_deaf(struct osc2_test_core *c, const struct osc2_test_env *env);
+/* Every state report, before the library processes its raw inputs: the raw injection replaces
+ * the application's inputs in its `present` (and stops when lizard mode came on). Returns the
+ * nonce for the IMU timestamp, or 0. */
+uint32_t osc2_test_core_raw_inputs(struct osc2_test_core *c, const struct osc2_test_env *env,
+				   bool lizard_on, struct opensc2_raw_inputs *raw);
 /* An entry for the ring, while armed. `link` OSC2_TEST_LINK_*, or OSC2_TEST_LINK_CTX for the link
  * of the command this thread runs. */
 #define OSC2_TEST_LINK_CTX 0xFE
@@ -439,6 +461,9 @@ static inline bool osc2_test_core_guard(const struct osc2_test_core *c)
 bool osc2_test_is_request(const uint8_t *payload, uint8_t n);
 /* The claiming rule of USB and the radio. */
 bool osc2_test_claims(const uint8_t *payload, uint8_t n, bool armed);
+/* RAW_INJECT's 30 argument bytes. */
+void osc2_test_raw_args(const uint8_t args[OSC2_TEST_RAW_ARGS], struct opensc2_raw_inputs *raw,
+			uint32_t *nonce, uint8_t *flags);
 /* BATTERY's 16 argument bytes. */
 void osc2_test_battery_args(const uint8_t args[OSC2_TEST_BATTERY_ARGS], struct opensc2_battery *b,
 			    uint8_t *flags);

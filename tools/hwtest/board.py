@@ -829,6 +829,43 @@ class Rig:
         got = self.wait_nonce(n, timeout)
         return (got[1] if got else None), n
 
+    # ---- raw inputs (CONFIG_OPENSC2_CAL, caps bit 21) ----
+    def inject_raw(self, raw, nonce=None):
+        """RAW_INJECT: raw inputs (R.encode_raw_args' fields) replace the application's before the
+        library's own processing, S7 first like every injection. The frames built with them carry
+        a fresh nonce (or `nonce`) in the IMU timestamp. Returns (answer, nonce)."""
+        n = self._fresh_nonce() if nonce is None else nonce
+        a = self._inject_op(C.OP_RAW_INJECT, R.encode_raw_args(n, **raw))
+        if a["status"] == C.ST_OK:
+            self.inject_active = True
+        return a, n
+
+    def raw_off(self):
+        a = self.test(C.OP_RAW_OFF)
+        self.inject_active = False
+        return a
+
+    def cal_status(self):
+        a = self.test(C.OP_CAL_STATUS)
+        if a["status"] != C.ST_OK:
+            return None
+        return R.decode_cal_status(a["result"])
+
+    def nonce_reports(self, nonce, count, timeout=None):
+        """The first `count` state reports carrying `nonce`, in order (fewer on a timeout)."""
+        got = []
+
+        def want(r):
+            if len(r) >= C.STATE_REPORT_LEN and r[0] == C.RPT_STATE and \
+                    R.nonce_of_report(r) == nonce:
+                got.append(bytes(r))
+            return len(got) >= count
+
+        timeout = timeout if timeout is not None else \
+            C.NONCE_DEADLINE_MS[self.path] / 1000.0 + 0.05 * count
+        self.wait_report(want, timeout)
+        return got
+
     # ---- ring, counters, settings ----
     def ring_read(self, frm, max_entries=0):
         a = self.test(C.OP_RING_READ, struct.pack("<IB", frm, max_entries))

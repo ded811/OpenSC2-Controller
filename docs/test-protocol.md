@@ -71,6 +71,14 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x42` | HOST_GET | | opcode u8, n u8, flags u8 (bit 0 masked, bit 1 cut), then the first min(n, 54) answer bytes, or for a masked answer the CRC-32 of its n bytes | a vendor GET on the test link; masked: `0xED` of `esb/bond` or `esb/bond_2`, `0xAE` tags 0, 1 and 4, `0xF2` selector 0, `0xA1` selector 1 |
 | `0x43` | APP_SEND | kind u8; kind 0: an input report, ID first, 1..53 bytes; kind 1: channel u8, flags u32 | result s32 | as the application would (`opensc2_send_report()`, `opensc2_send_haptic_status()`), through the guard like every report; DENIED for a `0x42` |
 | `0x44` | RADIO_DEAF | ms u16 (100..5000) | | the radio hears nothing that long, so the link times out the normal way; BUSY while one is pending, NO_LINK unless wireless and connected |
+| `0xA0` | RAW_INJECT | flags u8 (0), nonce u32, present u8 (bit 0 left stick, 1 right stick, 2 left trigger, 3 right trigger, 4 left pressure, 5 right pressure, 6 left and 7 right stick-touch and grip words), sticks LX, LY, RX, RY u16, triggers L, R u16, pressure L, R s16, stick touch L, R s16, grip L, R s16 (30 bytes) | frames u32 | builds with `CONFIG_OPENSC2_CAL` only (caps bit 21; BAD_OP without). The inputs in `present` replace the application's raw inputs before the library processes them ([api.md, Calibration and raw inputs](api.md#calibration-and-raw-inputs)), as `opensc2_set_raw()` would give them; a nonce other than 0 goes into the IMU timestamp of every frame built with them, so the reports that carry them are known. DENIED while lizard mode is on; BAD_ARG for a flag bit; frames as for `INJECT` |
+| `0xA1` | RAW_OFF | | frames u32 | the application's raw inputs again |
+| `0xA2` | CAL_STATUS | | 16 bytes: generation u32 (`opensc2_cal_generation()`); usable u8 (bit 0 left stick, 1 right stick, 2 left trigger, 3 right trigger, 4 left pressure, 5 right pressure: a stored calibration that the processing can use); raw u8 (the raw inputs the last frame processed, RAW_INJECT's bits); injected u8 (RAW_INJECT's `present`, 0 when off); flags u8 (bit 0 `CONFIG_OPENSC2_PAD_RULES`, bit 1 `CONFIG_OPENSC2_CAL_PRESSURE_CLICK`); the recordings' steps u8 × 3 (sticks `0xD8`, triggers `0xC0`, pressure `0xC3`; bit 7 while one runs); the pads' pressure filters s16 × 2 (left, right); clicks u8 (bit 0 left, bit 1 right: the pressure's click state) | reads only; also through the puck |
+
+A raw injection is an injection: everything that stops `INJECT` stops it too (`DISARM`, the end of
+the lease, lizard mode coming on: `INJECT_STOP` with `what` bit 2), and `INJECT`, applied after the
+library's processing, replaces whatever the raw inputs became. Frames built with it are kept away
+from lizard mode, as injected ones are.
 
 The **test link** is a third command link of the library with a stored request of its own, used only
 by `HOST_SET` and `HOST_GET`, so emulating a host on the board never disturbs the stored request of
@@ -88,7 +96,7 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 (bit 0 `TRIGGER_CLICK_AUTO`, 1 `LIZARD_MODE`, 2 `STEAM_WATCHDOG`, 3 `USB`, 4 `USB_PROFILE_OCTOBER`,
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
-`NO_HOST_WIRELESS_MS` not 0, the charger test build); 6 battery report interval ms u16; 8 rumble
+`NO_HOST_WIRELESS_MS` not 0, the charger test build; 21 `CAL`); 6 battery report interval ms u16; 8 rumble
 timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16;
 16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
 revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
@@ -118,7 +126,7 @@ causes, 3 none: work queue events such as the rumble timeout or the Steam watchd
 | `0x02` | MARK | marker u32 |
 | `0x03` | SEQ_STEP | step u8, frame u32, the report's sequence byte u8 (the first frame of each step) |
 | `0x04` | SEQ_END | frame u32 (the first frame not built from the sequence), how u8 (0 back to the static or the application's state, 1 kept the last step, 2 stopped, 3 lizard mode came on) |
-| `0x05` | INJECT_STOP | reason u8 (1 lizard mode came on), frame u32 (built from the application's state again), what u8 (bit 0 the static state, bit 1 a sequence) |
+| `0x05` | INJECT_STOP | reason u8 (1 lizard mode came on), frame u32 (built from the application's state again), what u8 (bit 0 the static state, bit 1 a sequence, bit 2 the raw injection) |
 | `0x10` | OUTPUT | report ID u8, length u8 (ID included), decode result s8, up to 16 bytes after the ID |
 | `0x11` | RUMBLE | left u16, right u16, intensity u16, gains s8 s8, type u8, timeout u8 |
 | `0x12` | HAPTIC | kind u8 (`enum opensc2_haptic_kind`), report ID u8, target u8, channels u8, then by kind: pulse on, off, count u16; command u8, gain s8; tone gain s8, Hz u16, ms u16, LFO Hz u16, depth u8; sweep gain s8, ms u16, start u16, end u16, antiphase u8; script id u8, gain s8; PCM control operation, format, encoding u8, rate u16; PCM data length u8, CRC-32 u32 of the samples |

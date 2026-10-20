@@ -31,6 +31,9 @@ int osc2_cal_command(uint8_t opcode, const uint8_t *payload, uint8_t len, size_t
 void osc2_cal_frame(struct opensc2_state *s);
 /* Every state report, after the injection: the pad rules (rotation, the stabiliser). */
 void osc2_cal_rules(struct opensc2_state *s);
+/* The hardware test hooks' CAL_STATUS (docs/test-protocol.md); byte 6, the injection's inputs, is
+ * the hooks' own. */
+void osc2_cal_status(uint8_t out[16]);
 
 /* cal_store.c, for the glue: a key found in storage at boot ("joy_l" for opensc2/cal/joy_l), and
  * the deferred flash work (saves and the erase), run from the system work queue. */

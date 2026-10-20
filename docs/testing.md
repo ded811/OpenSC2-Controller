@@ -47,6 +47,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `settings` | W R | the LED colour and LED settings, `0x8E` defaults, the clamps of the ranged settings, changes and invalid numbers, the Steam watchdog (lizard mode and the defaults back 10 s after the last `0x81`), its re-arm, no watchdog while setting 71 is 0 |
 | `modes` | W R | a plain reboot, the reboot into wireless (`0x95` with Steam's key), the USB session log, a warm restart, back to wired, the identity equal on both paths (the product name too), back to the mode the board was found in |
 | `wireless` | R | which of the puck's slots carries the board (an injected signature), the puck's link status and link quality reports, the identity sent on connect, reconnecting after `opensc2 stop`/`start`, a lost link (the radio made deaf for 800 ms), the turn-off requests |
+| `cal` | W R | builds with `CONFIG_OPENSC2_CAL` (caps bit 21): raw inputs given with the `RAW_INJECT` test op and processed by the library as an application's would be: uncalibrated sticks, triggers and pad pressure read 0, settings 46, 62 and 60 give millivolts or counts, the stick-touch and grip bits follow the means of their words with the hysteresis of settings 30, 31, 34 and 35, a change of setting 34 starts them over; on injected pads the rotation (settings 2 and 24) and the touch stabiliser (setting 80 = 2); `RAW_OFF`. It writes no calibration (safety rule S5): a board that holds a calibration skips the uncalibrated checks |
 | `restore` | all | always last and always whole (whatever `--test` selects), also after a failure or Ctrl-C: outputs and injection off, settings and LED colour written back, disarmed, every link's stored request as after a boot, and the board **as found** (mode, bonds, identity, slot, chime level, mode policy, the settings and the LED colour) |
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, restating the mode policy); see [the note below](#what---flash-writes) |
 | `lizard` | W R | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, thumb on the stick, lizard mode off and back), with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path, and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
@@ -336,8 +337,10 @@ in `report.json` (`safety.puck_writes`).
   `board_reset`, `wrong_mode`, `puck_reset`, `com_renumbered`, `console_busy`, `keepalive_race`,
   `answer_dropped`.
 - **The firmware emulator** (`--fw-emu`): the same groups against the library's own code
-  (commands, test channel, ring, injection, lizard mode, the battery and state reports), so the
-  runner and the firmware cannot drift apart unnoticed.
+  (commands, test channel, ring, injection, lizard mode, the battery and state reports, the
+  calibration's raw inputs and pad rules), so the runner and the firmware cannot drift apart
+  unnoticed. The simulator has no calibration (no caps bit 21), so group `cal` runs against the
+  emulator only.
 - **The shared vectors** in `tests/vectors/hwtest/`: the C host tests and the runner's self-tests
   read the same files (the state report rules, lizard mode, ring entries, the test channel, the
   settings), so both sides agree on every byte.

@@ -372,7 +372,8 @@ OPENSC2_TEST(hooks_arm_answer)
 	CHECK_EQ(caps[0], 1);
 	CHECK_EQ(caps[1], 1);       /* wired */
 	CHECK_EQ(opensc2_get_le32(&caps[2]), OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO |
-		 OSC2_TEST_FLAG_LIZARD_MODE | OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB);
+		 OSC2_TEST_FLAG_LIZARD_MODE | OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB |
+		 OSC2_TEST_FLAG_CAL);
 	CHECK_EQ(opensc2_get_le16(&caps[6]), 3500);
 	CHECK_EQ(opensc2_get_le16(&caps[8]), 500);
 	CHECK_EQ(opensc2_get_le16(&caps[10]), 512);   /* CONFIG_OPENSC2_TEST_RING_SIZE here */

@@ -16,6 +16,7 @@
 #include <zephyr/spinlock.h>
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
+#include "cal_store.h"
 #include "test_hooks.h"
 
 BUILD_ASSERT((int)OSC2_LINK_RADIO == (int)OSC2_TEST_LINK_RADIO &&
@@ -177,6 +178,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= IS_ENABLED(CONFIG_OPENSC2_SHELL) ? OSC2_TEST_FLAG_SHELL : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_FUSION) ? OSC2_TEST_FLAG_FUSION : 0;
 	flags |= OSC2_NO_HOST_WIRELESS_MS > 0 ? OSC2_TEST_FLAG_NO_HOST_WIRELESS : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_CAL) ? OSC2_TEST_FLAG_CAL : 0;
 
 	opensc2_identity_get(&id);
 	caps->mode = osc2_wired() ? 1 : 0;
@@ -281,6 +283,13 @@ static void env_lizard_resync(void)
 	osc2_lizard_resync();
 }
 
+#if defined(CONFIG_OPENSC2_CAL)
+static void env_cal_status(uint8_t out[OSC2_TEST_CAL_STATUS_LEN])
+{
+	osc2_cal_status(out);
+}
+#endif
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -309,6 +318,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+#if defined(CONFIG_OPENSC2_CAL)
+	.cal_status = env_cal_status,
+#endif
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

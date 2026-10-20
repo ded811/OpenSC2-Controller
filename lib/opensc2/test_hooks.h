@@ -23,13 +23,6 @@
 /* osc2_test_ctx_enter() with the hooks unarmed: nothing to restore. */
 #define OSC2_TEST_CTX_UNSET 0xFF
 
-struct opensc2_raw_inputs;
-
-/* In osc2_cal_frame(): the raw injection replaces the application's raw inputs. */
-static inline void osc2_test_raw_inputs(struct opensc2_raw_inputs *raw)
-{
-	(void)raw;
-}
 
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 
@@ -50,6 +43,9 @@ bool osc2_test_skip_lizard(void);
 void osc2_test_battery(struct opensc2_battery *b);
 /* RADIO_DEAF: milliseconds the radio thread stays deaf, once (0: none). */
 uint16_t osc2_test_take_deaf(void);
+/* In osc2_cal_frame(): the raw injection replaces the application's raw inputs; returns the nonce
+ * for the IMU timestamp, or 0. */
+uint32_t osc2_test_raw_inputs(struct opensc2_raw_inputs *raw);
 
 /* ---- the command channel ---- */
 
@@ -149,6 +145,12 @@ static inline void osc2_test_battery(struct opensc2_battery *b)
 
 static inline uint16_t osc2_test_take_deaf(void)
 {
+	return 0;
+}
+
+static inline uint32_t osc2_test_raw_inputs(struct opensc2_raw_inputs *raw)
+{
+	(void)raw;
 	return 0;
 }
 

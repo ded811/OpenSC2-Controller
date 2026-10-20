@@ -312,12 +312,14 @@ def check_output_report(report):
 
 # ---- the test channel at the send (S7 again, the puck's reading ops, the HOST_SET list) -------
 
-PUCK_READ_OPS = {C.OP_STATUS, C.OP_RING_READ, C.OP_CNT_READ, C.OP_SETTINGS_READ}
+PUCK_READ_OPS = {C.OP_STATUS, C.OP_RING_READ, C.OP_CNT_READ, C.OP_SETTINGS_READ,
+                 C.OP_CAL_STATUS}
 
 
 def _injection_op(op, args):
-    """INJECT, SEQ_RUN, or APP_SEND of a controller-state report (0x45): what S7 guards."""
-    if op in (C.OP_INJECT, C.OP_SEQ_RUN):
+    """INJECT, SEQ_RUN, RAW_INJECT, or APP_SEND of a controller-state report (0x45): what S7
+    guards."""
+    if op in (C.OP_INJECT, C.OP_SEQ_RUN, C.OP_RAW_INJECT):
         return True
     return op == C.OP_APP_SEND and len(args) >= 2 and args[0] == 0 and args[1] == C.RPT_BT_STATE
 

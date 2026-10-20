@@ -345,6 +345,46 @@ open, the library does what should work with Steam and the puck, and says so her
     or reboot (`OPENSC2_POWER_USB_UNPLUGGED`); without a callback it reboots, which comes back
     wireless on a battery, and the blank canvas does the same, having no power-off of its own. A
     board without a battery has lost its power anyway.
+22. **Calibration** (`CONFIG_OPENSC2_CAL`, on by default). The keys, their sizes and formats, the
+    commands `0xD8`, `0xC0`, `0xC3`, `0xE2` and `0xFE`, the recordings' steps and the arithmetic of
+    sticks, triggers and pad pressure follow the protocol documentation
+    ([input and sensors](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#calibration-keys)).
+    Where it leaves something open, or a part is Valve's hardware, OpenSC2 chose:
+    - the factors 0.9, 0.98 and 0.05 are exact fractions in integer arithmetic, so a value that
+      lands exactly on a whole number is not off by one the way a floating-point one can be;
+    - a recording saves only the sides that got raw samples since its step 1: a board that gives
+      no raw input for a side keeps that side's stored key;
+    - the raw inputs are processed once per state report: the pressure filter and the two-word
+      means of the capacitive words step per report, where the real controller steps them per
+      trackpad frame (about 250 a second, close to the report rate on the cable);
+    - a pressure calibration whose range is empty (B equal to A) counts as uncalibrated;
+    - `0xED` always answers `cal/touch_l`, `cal/touch_r` (10 bytes, used by nothing) and
+      `cal/volt_offset`, the LED trims while they lie within 1..199, a stick, trigger or pressure
+      key while its format word is not 0, and never the gyro bias; `0xEF` refuses an analog key
+      whose format word is 0, and the gyro bias (the real controller fails it too);
+    - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
+      queue; `0xEF` writes before it answers, as for the bonds;
+    - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
+      does, so an empty request reads the report's zero padding;
+    - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
+    - not reproduced, being Valve's hardware: the stick offsets while docked, the scaling of the
+      capacitive words without external power, the trackpad chip's electrode processing (an
+      application gives positions), and the IMU's runtime settings keys.
+    The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
+    calibration commands (its safety rule S5): calibration is tested by the host tests only.
+23. **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default, inactive with the default
+    settings). The rotation (settings 2 and 24) and the touch stabiliser (setting 80 = 2) run on
+    the application's finished positions, after the hardware test hooks' injection: the library
+    halves them back to the pad scale, turns Y back, applies the documented integer arithmetic and
+    doubles them again, so an odd position loses its lowest bit while a rule is on. The rotation's
+    sine and cosine are the exact values × 8192, truncated (30° gives 4096). The position filter
+    (setting 65, on by default on the real controller) is a helper for applications
+    (`<opensc2/sensor_helpers.h>`), not a library rule: as a rule it would change every board's pads. Its
+    speed is the change since the previous output, as in the usual "one euro" filter (the
+    documentation leaves open whether the previous input is meant).
+24. **Setting 85.** The real controller hands it to its IMU's fusion block, where its role is not
+    known. OpenSC2's rest-based gyro-bias estimate (`<opensc2/sensor_helpers.h>`, for IMUs without one of
+    their own) takes it as its rest threshold in report units.
 
 ## What this library adds for development boards
 

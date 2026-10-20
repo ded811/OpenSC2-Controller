@@ -54,13 +54,24 @@ OP_HOST_SET = 0x41
 OP_HOST_GET = 0x42
 OP_APP_SEND = 0x43
 OP_RADIO_DEAF = 0x44
+# the calibration's raw inputs (CONFIG_OPENSC2_CAL, caps bit 21)
+OP_RAW_INJECT = 0xA0
+OP_RAW_OFF = 0xA1
+OP_CAL_STATUS = 0xA2
 OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: "INJECT",
             OP_INJECT_OFF: "INJECT_OFF", OP_BATTERY: "BATTERY", OP_BATTERY_OFF: "BATTERY_OFF",
             OP_SEQ_LOAD: "SEQ_LOAD", OP_SEQ_RUN: "SEQ_RUN", OP_SEQ_STOP: "SEQ_STOP",
             OP_RING_READ: "RING_READ", OP_RING_CLEAR: "RING_CLEAR", OP_CNT_READ: "CNT_READ",
             OP_CNT_RESET: "CNT_RESET", OP_MARK: "MARK", OP_SETTINGS_READ: "SETTINGS_READ",
             OP_HOST_OUT: "HOST_OUT", OP_HOST_SET: "HOST_SET", OP_HOST_GET: "HOST_GET",
-            OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF"}
+            OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF", OP_RAW_INJECT: "RAW_INJECT",
+            OP_RAW_OFF: "RAW_OFF", OP_CAL_STATUS: "CAL_STATUS"}
+# RAW_INJECT's inputs (OPENSC2_RAW_*): bit 0 left stick, 1 right stick, 2 left trigger, 3 right
+# trigger, 4 left pressure, 5 right pressure, 6 left touch words, 7 right touch words
+RAW_STICK_L, RAW_STICK_R, RAW_TRIGGER_L, RAW_TRIGGER_R = 0x01, 0x02, 0x04, 0x08
+RAW_PRESSURE_L, RAW_PRESSURE_R, RAW_TOUCH_L, RAW_TOUCH_R = 0x10, 0x20, 0x40, 0x80
+RAW_ARGS_LEN = 30
+CAL_STATUS_LEN = 16
 
 # Answer status codes (docs/test-protocol.md).
 ST_OK = 0
@@ -214,6 +225,7 @@ CAP_USB_PLUG_IN_REBOOT = 11
 CAP_SHELL = 12
 CAP_FUSION = 13
 CAP_NO_HOST_WIRELESS = 14      # the charger test build (a testing aid, not the real controller)
+CAP_CAL = 21                   # CONFIG_OPENSC2_CAL: the cal/ keys, raw inputs, RAW_INJECT
 
 # ---- timings and thresholds -----------------------------------------------------------------
 STATE_PERIOD_MS = 4.0283            # USB state report period (about 248/s)

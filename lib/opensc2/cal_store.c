@@ -42,6 +42,16 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 #else
 #define STICK_GROW_RANGE false
 #endif
+#if defined(CONFIG_OPENSC2_PAD_RULES)
+#define IS_PAD_RULES true
+#else
+#define IS_PAD_RULES false
+#endif
+#if defined(CONFIG_OPENSC2_CAL_PRESSURE_CLICK)
+#define IS_PRESSURE_CLICK true
+#else
+#define IS_PRESSURE_CLICK false
+#endif
 
 /* ---- the keys -------------------------------------------------------------------------------- */
 
@@ -509,13 +519,17 @@ void osc2_cal_frame(struct opensc2_state *s)
 	struct opensc2_cal_rec done;
 	uint16_t stick_mv[2][2] = { { 0 } }, trigger_mv[2] = { 0 };
 	int16_t raw46, raw62, raw60;
-	uint32_t bits;
+	uint32_t bits, nonce;
 	k_spinlock_key_t lk = k_spin_lock(&raw_lock);
 
 	in = raw;
 	k_spin_unlock(&raw_lock, lk);
-	/* The hardware test hooks' raw injection replaces the application's raw inputs. */
-	osc2_test_raw_inputs(&in);
+	/* The hardware test hooks' raw injection replaces the application's raw inputs; its frames
+	 * carry the test's nonce in the IMU timestamp. */
+	nonce = osc2_test_raw_inputs(&in);
+	if (nonce) {
+		s->imu.timestamp_us = nonce;
+	}
 	proc.raw_seen = in.present;
 
 	apply_calibration();
@@ -813,6 +827,34 @@ int opensc2_cal_gyro_bias(float bias[3])
 		any |= word != 0;
 	}
 	return any ? 0 : -ENOENT;
+}
+
+void osc2_cal_status(uint8_t out[16])
+{
+	uint8_t usable = 0;
+	k_spinlock_key_t lk;
+
+	memset(out, 0, 16);
+	for (int side = 0; side < 2; side++) {
+		usable |= opensc2_cal_stick_ok((enum opensc2_side)side) ? BIT(0 + side) : 0;
+		usable |= opensc2_cal_trigger_ok((enum opensc2_side)side) ? BIT(2 + side) : 0;
+		usable |= opensc2_cal_pressure_ok((enum opensc2_side)side) ? BIT(4 + side) : 0;
+	}
+	opensc2_put_le32(&out[0], opensc2_cal_generation());
+	out[4] = usable;
+	out[5] = proc.raw_seen;
+	out[7] = (IS_PAD_RULES ? 0x01 : 0) | (IS_PRESSURE_CLICK ? 0x02 : 0);
+	lk = k_spin_lock(&rec_lock);
+	for (int k = 0; k < 3; k++) {
+		out[8 + k] = (uint8_t)(rec.step[k] | (rec.active[k] ? 0x80 : 0));
+	}
+	k_spin_unlock(&rec_lock, lk);
+	for (int side = 0; side < 2; side++) {
+		int32_t p = proc.pressure[side].filtered;
+
+		opensc2_put_le16(&out[11 + 2 * side], (uint16_t)(int16_t)CLAMP(p, -32768, 32767));
+		out[15] |= proc.pressure[side].click ? BIT(side) : 0;
+	}
 }
 
 uint32_t opensc2_cal_generation(void)

@@ -173,6 +173,23 @@ bool osc2_test_claims(const uint8_t *payload, uint8_t n, bool armed)
 	return osc2_test_is_request(payload, n) && (armed || payload[6] == OSC2_TEST_OP_ARM);
 }
 
+void osc2_test_raw_args(const uint8_t args[OSC2_TEST_RAW_ARGS], struct opensc2_raw_inputs *raw,
+			uint32_t *nonce, uint8_t *flags)
+{
+	memset(raw, 0, sizeof(*raw));
+	*flags = args[0];
+	*nonce = opensc2_get_le32(&args[1]);
+	raw->present = args[5];
+	for (int side = 0; side < 2; side++) {
+		raw->stick[side][0] = opensc2_get_le16(&args[6 + 4 * side]);
+		raw->stick[side][1] = opensc2_get_le16(&args[8 + 4 * side]);
+		raw->trigger[side] = opensc2_get_le16(&args[14 + 2 * side]);
+		raw->pressure[side] = (int16_t)opensc2_get_le16(&args[18 + 2 * side]);
+		raw->stick_touch[side] = (int16_t)opensc2_get_le16(&args[22 + 2 * side]);
+		raw->grip[side] = (int16_t)opensc2_get_le16(&args[26 + 2 * side]);
+	}
+}
+
 void osc2_test_battery_args(const uint8_t args[OSC2_TEST_BATTERY_ARGS], struct opensc2_battery *b,
 			    uint8_t *flags)
 {
@@ -496,6 +513,8 @@ static void stop_all_locked(struct osc2_test_core *c)
 	c->loaded = 0;
 	c->frame_seq = false;
 	c->skip_lizard = 0;
+	c->raw_on = false;
+	c->raw_frame = 0;
 }
 
 static void seq_end_locked(struct osc2_test_core *c, const struct osc2_test_env *env, uint8_t how)
@@ -1014,6 +1033,63 @@ static uint8_t op_radio_deaf(struct op_req *r)
 	return OSC2_TEST_OK;
 }
 
+static uint8_t op_raw_inject(struct op_req *r)
+{
+	struct osc2_test_core *c = r->c;
+	struct opensc2_raw_inputs raw;
+	uint32_t nonce, f;
+	uint8_t flags;
+
+	if (!r->env->cal_status) {
+		return OSC2_TEST_BAD_OP;   /* no calibration in this build */
+	}
+	osc2_test_raw_args(r->args, &raw, &nonce, &flags);
+	if (flags != 0) {
+		return OSC2_TEST_BAD_ARG;
+	}
+	if (r->env->lizard_on()) {
+		return OSC2_TEST_DENIED;
+	}
+	r->env->lock();
+	c->raw = raw;
+	c->raw_nonce = nonce;
+	c->raw_on = true;
+	f = c->frame_index;
+	r->env->unlock();
+	opensc2_put_le32(r->result, f);
+	r->rlen = 4;
+	return OSC2_TEST_OK;
+}
+
+static uint8_t op_raw_off(struct op_req *r)
+{
+	uint32_t f;
+
+	if (!r->env->cal_status) {
+		return OSC2_TEST_BAD_OP;
+	}
+	r->env->lock();
+	r->c->raw_on = false;
+	f = r->c->frame_index;
+	r->env->unlock();
+	opensc2_put_le32(r->result, f);
+	r->rlen = 4;
+	return OSC2_TEST_OK;
+}
+
+static uint8_t op_cal_status(struct op_req *r)
+{
+	if (!r->env->cal_status) {
+		return OSC2_TEST_BAD_OP;
+	}
+	r->env->cal_status(r->result);
+	r->env->lock();
+	r->result[6] = r->c->raw_on ? r->c->raw.present : 0;   /* the injection's inputs */
+	r->env->unlock();
+	r->rlen = OSC2_TEST_CAL_STATUS_LEN;
+	return OSC2_TEST_OK;
+}
+
 typedef uint8_t (*op_fn)(struct op_req *r);
 
 static const struct {
@@ -1044,6 +1120,9 @@ static const struct {
 	{ OSC2_TEST_OP_HOST_GET, 0, 0, false, op_host_get },
 	{ OSC2_TEST_OP_APP_SEND, 1, OSC2_TEST_ARGS_MAX, false, op_app_send },
 	{ OSC2_TEST_OP_RADIO_DEAF, 2, 2, false, op_radio_deaf },
+	{ OSC2_TEST_OP_RAW_INJECT, OSC2_TEST_RAW_ARGS, OSC2_TEST_RAW_ARGS, false, op_raw_inject },
+	{ OSC2_TEST_OP_RAW_OFF, 0, 0, false, op_raw_off },
+	{ OSC2_TEST_OP_CAL_STATUS, 0, 0, false, op_cal_status },
 };
 
 /* Lengths that depend on the arguments themselves. */
@@ -1315,7 +1394,8 @@ bool osc2_test_core_input(struct osc2_test_core *c, const struct osc2_test_env *
 		use = true;
 		lizard_test = c->static_lizard;
 	}
-	c->skip_lizard = use && !lizard_test;
+	/* A frame built from raw injected inputs is kept away from lizard mode too. */
+	c->skip_lizard = (use && !lizard_test) || c->raw_frame;
 	env->unlock();
 	if (use) {
 		buf[0] = OPENSC2_RPT_STATE;
@@ -1431,6 +1511,53 @@ bool osc2_test_core_divert(struct osc2_test_core *c, const struct osc2_test_env 
 	}
 	env->unlock();
 	return true;
+}
+
+uint32_t osc2_test_core_raw_inputs(struct osc2_test_core *c, const struct osc2_test_env *env,
+				   bool lizard_on, struct opensc2_raw_inputs *raw)
+{
+	uint32_t nonce = 0;
+
+	c->raw_frame = 0;
+	if (!c->armed) {
+		return 0;
+	}
+	env->lock();
+	if (c->armed && c->raw_on && lizard_on) {
+		/* Lizard mode came on: the raw injection stops in this very frame. */
+		uint8_t d[6];
+
+		c->raw_on = false;
+		d[0] = 1;
+		opensc2_put_le32(&d[1], c->frame_index);
+		d[5] = 0x04;
+		note_locked(c, env, OSC2_TEST_KIND_INJECT_STOP, env->mode_link(), d, sizeof(d));
+	}
+	if (c->armed && c->raw_on) {
+		const struct opensc2_raw_inputs *in = &c->raw;
+
+		for (int side = 0; side < 2; side++) {
+			if (in->present & (OPENSC2_RAW_STICK_L << side)) {
+				raw->stick[side][0] = in->stick[side][0];
+				raw->stick[side][1] = in->stick[side][1];
+			}
+			if (in->present & (OPENSC2_RAW_TRIGGER_L << side)) {
+				raw->trigger[side] = in->trigger[side];
+			}
+			if (in->present & (OPENSC2_RAW_PRESSURE_L << side)) {
+				raw->pressure[side] = in->pressure[side];
+			}
+			if (in->present & (OPENSC2_RAW_TOUCH_L << side)) {
+				raw->stick_touch[side] = in->stick_touch[side];
+				raw->grip[side] = in->grip[side];
+			}
+		}
+		raw->present |= in->present;
+		nonce = c->raw_nonce;
+		c->raw_frame = 1;
+	}
+	env->unlock();
+	return nonce;
 }
 
 uint16_t osc2_test_core_take_deaf(struct osc2_test_core *c, const struct osc2_test_env *env)
