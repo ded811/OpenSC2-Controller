@@ -12,12 +12,14 @@ force feedback on their controller and needs to see what the library hands over.
   (0..65535); the motor runs at the stronger one.
 - The `haptic` callback: Steam's haptic effects (clicks, pulses, tones, sweeps and scripts,
   reports `0x81` to `0x85`) as short buzzes, and "stop all" as a stop. PCM streams are ignored: a
-  motor cannot play samples.
+  motor cannot play samples. Lizard mode's own pad ticks and clicks (report ID 0) would come the
+  same way, on a board with trackpads.
 - The library's rumble timeout: when Steam stops repeating a rumble (500 ms,
   `CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS`) or the link drops, the callback gets speed 0 with `timeout`
   set.
 - Short work in callbacks: they run in the library's radio thread (wireless) or in the USB stack's
-  thread (wired), so they only set the PWM and schedule a work item.
+  thread (wired; lizard mode's haptic events in the USB report thread), so they only set the PWM
+  and schedule a work item.
 - `PWM_DT_SPEC_GET_BY_NAME(..., rumble)`: a PWM channel found by its name in `zephyr,user`.
 - The pairing button with the same rules as every sample.
 
