@@ -555,7 +555,12 @@ class Runner:
                 "wired" if rig.path == "W" else "wireless", len(d.get("puck_slots", [])))))
         if self.backend.steam_running():
             self.steam_info["seen_open"] = True
-            if not self.opt.get("with_steam") and not self._wait_steam_closed():
+            if self.opt.get("steam_control") and hasattr(self.backend, "steam_stop"):
+                # --steam-control: the runner closes Steam now and starts it again for the steam
+                # phase, as the docs promise (the groups before it need Steam closed, S8)
+                self.backend.steam_stop()
+            if self.backend.steam_running() and not self.opt.get("with_steam") and \
+                    not self._wait_steam_closed():
                 self.results.add(results_mod.Result("env.steam", "env", rig.path).set(
                     gbase.ERROR, "Steam is running: exit Steam (tray icon, Exit) and run again "
                                  "(S8)"))
