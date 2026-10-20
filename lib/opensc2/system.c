@@ -243,7 +243,7 @@ static bool plug_in_allowed(void)
 static void inputs(struct osc2_sys_in *in)
 {
 	memset(in, 0, sizeof(*in));
-	in->stored = (uint8_t)(OSC2_TRANSPORT_PUCK1 + osc2.slot);
+	in->stored = osc2_transport_running();   /* user/wireless_transport, as this boot runs it */
 	in->chord = chords.current;
 	in->level = level_told;
 	in->steam = (buttons & OPENSC2_BTN_STEAM) != 0;
@@ -367,27 +367,29 @@ static void drop_link(const char *why)
 
 static void start_link(uint8_t transport, bool pairing)
 {
-	uint8_t slot;
+	uint8_t was = osc2_transport_running();
 
 	if (!start_allowed || osc2_wired()) {
 		LOG_INF("Link not started: the application starts it (opensc2_config.start)");
 		return;
 	}
-	if (transport <= OSC2_TRANSPORT_BT2) {
+	if (osc2_transport_is_ble(transport)) {
 		if (bt && bt->start) {
-			(void)bt->start(transport, pairing);
+			(void)bt->start(transport, pairing);   /* selects it, switching if need be */
 			return;
 		}
 		LOG_WRN("Bluetooth slot %u chosen, but this build has no Bluetooth: the main puck",
 			transport + 1);
 		transport = OSC2_TRANSPORT_PUCK1;
 	}
-	/* The 2.4 GHz link ignores the pairing flag. */
-	slot = (uint8_t)(transport - OSC2_TRANSPORT_PUCK1);
-	if (opensc2_selected_slot() != slot) {
-		(void)opensc2_select_slot(slot);
+	/* The 2.4 GHz link ignores the pairing flag. Another transport or slot is selected first
+	 * (stored once its link is up); a switch from Bluetooth starts the radio itself. */
+	if (was != transport) {
+		(void)opensc2_select_transport((enum opensc2_transport)transport);
 	}
-	(void)opensc2_start();
+	if (!osc2_transport_is_ble(was)) {
+		(void)opensc2_start();
+	}
 }
 
 static void keep_end(const struct osc2_sys_out *o, uint8_t how)
@@ -819,6 +821,8 @@ bool osc2_sys_power_request(enum opensc2_power_request request, const char *why)
 	case OPENSC2_POWER_BOOTLOADER:
 		ev = OSC2_SYS_EV_BOOTLOADER;
 		break;
+	case OPENSC2_POWER_WIRELESS_OFF:
+		return true;   /* Bluetooth told the machine already (osc2_sys_bt_event(GAVE_UP)) */
 	default:
 		return false;
 	}
@@ -861,6 +865,9 @@ void osc2_sys_bt_event(uint8_t event)
 		break;
 	case OSC2_SYS_BT_PAIRED:
 		osc2_sys_cue_post(OPENSC2_CUE_PAIRED);
+		break;
+	case OSC2_SYS_BT_STARTED:
+		post(OSC2_SYS_EV_LINK_STARTED, 0);
 		break;
 	default:
 		break;

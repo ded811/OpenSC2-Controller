@@ -29,6 +29,7 @@
 #include <stdint.h>
 #include <opensc2/opensc2.h>
 #include "chord_rules.h"
+#include "transport_rules.h"
 
 /* What powers the board, as the machine sees it. */
 enum osc2_sys_source {
@@ -37,12 +38,11 @@ enum osc2_sys_source {
 	OSC2_SRC_DOCK = 2,      /* the puck's dock contacts */
 };
 
-/* Transports, as user/wireless_transport numbers them. */
-#define OSC2_TRANSPORT_BT1    0
-#define OSC2_TRANSPORT_BT2    1
-#define OSC2_TRANSPORT_PUCK1  2
-#define OSC2_TRANSPORT_PUCK2  3
-#define OSC2_TRANSPORT_NONE   0xFF
+/* Transports, as user/wireless_transport numbers them (transport_rules.h). */
+#define OSC2_TRANSPORT_BT1    OSC2_TRANSPORT_BLE_1
+#define OSC2_TRANSPORT_BT2    OSC2_TRANSPORT_BLE_2
+#define OSC2_TRANSPORT_PUCK1  OSC2_TRANSPORT_PUCK_1
+#define OSC2_TRANSPORT_PUCK2  OSC2_TRANSPORT_PUCK_2
 
 /* LED modes (the values of enum opensc2_led_mode). */
 #define OSC2_LED_NONE         0

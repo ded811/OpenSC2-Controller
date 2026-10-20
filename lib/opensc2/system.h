@@ -32,6 +32,7 @@ struct osc2_bt_transport {
 				  * "wireless off" (on battery a shutdown) */
 #define OSC2_SYS_BT_PAIRING  2   /* pairing-mode advertising started: cue 6 */
 #define OSC2_SYS_BT_PAIRED   3   /* a new host has paired (the link is encrypted): cue 7 */
+#define OSC2_SYS_BT_STARTED  4   /* the link left OFF (advertising or a host): wireless on again */
 
 /* core.c: the application's own button word. */
 uint32_t osc2_sys_app_buttons(void);

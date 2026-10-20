@@ -57,6 +57,7 @@
 #include <mpsl.h>
 #include "internal.h"
 #include "ble_rules.h"
+#include "system.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -575,6 +576,8 @@ static void set_state(enum opensc2_link_state state, enum opensc2_reason reason)
 					     "connected" };
 	struct opensc2_link_info info;
 
+	enum opensc2_link_state was = ble.state;
+
 	if (state == ble.state && reason == OPENSC2_REASON_NONE) {
 		return;
 	}
@@ -587,6 +590,19 @@ static void set_state(enum opensc2_link_state state, enum opensc2_reason reason)
 	link_info_locked(&info);
 	if (osc2.cb && osc2.cb->link_changed) {
 		osc2.cb->link_changed(&info, osc2.user_data);
+	}
+	/* The system state machine hears of Bluetooth while it is the transport in use: wireless
+	 * on again, pairing mode, a new host paired (wireless off: wireless_off()). */
+	if (osc2_transport_is_ble(osc2_transport_running())) {
+		if (was == OPENSC2_LINK_OFF && state != OPENSC2_LINK_OFF) {
+			osc2_sys_bt_event(OSC2_SYS_BT_STARTED);
+		}
+		if (state == OPENSC2_LINK_PAIRING && was != OPENSC2_LINK_PAIRING) {
+			osc2_sys_bt_event(OSC2_SYS_BT_PAIRING);
+		}
+		if (state == OPENSC2_LINK_CONNECTED && reason == OPENSC2_REASON_PAIRED) {
+			osc2_sys_bt_event(OSC2_SYS_BT_PAIRED);
+		}
 	}
 }
 
@@ -1434,6 +1450,11 @@ static void wireless_off(enum osc2_ble_off_cause cause, uint8_t reason)
 		"no host within the advertising window" : "the host ended the link");
 	set_state(OPENSC2_LINK_OFF, cause == OSC2_BLE_OFF_WINDOW ? OPENSC2_REASON_LISTEN_TIMEOUT :
 		  OPENSC2_REASON_HOST_DISCONNECTED);
+	/* With the system state machine it decides (on USB power wireless off, on a battery a
+	 * shutdown) and takes the power request; without it the application gets it. */
+	if (osc2_transport_is_ble(osc2_transport_running())) {
+		osc2_sys_bt_event(OSC2_SYS_BT_GAVE_UP);
+	}
 	osc2_schedule_power(OPENSC2_POWER_WIRELESS_OFF, 0, cause == OSC2_BLE_OFF_WINDOW ?
 			    "bluetooth: no host within the window" : "bluetooth: the host left");
 }
@@ -1764,8 +1785,46 @@ uint8_t osc2_ble_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t 
 
 /* ---- the library's side --------------------------------------------------------------------------- */
 
+#if defined(CONFIG_OPENSC2_SYSTEM)
+/* What the system state machine starts and looks at (system.h). Its start selects the transport
+ * (a switch from the puck, another slot, the pairing hold of a transport chord) and runs it, as
+ * opensc2_select_transport() does. */
+static int sys_bt_start(uint8_t transport, bool pairing)
+{
+	return pairing ? opensc2_select_transport_pairing((enum opensc2_transport)transport) :
+			 opensc2_select_transport((enum opensc2_transport)transport);
+}
+
+static void sys_bt_stop(void)
+{
+	if (osc2_transport_is_ble(osc2_transport_running())) {
+		(void)osc2_ble_stop(false, false);   /* the zero report, 100 ms, off */
+	}
+}
+
+static bool sys_bt_connected(void)
+{
+	return osc2_ble_active();
+}
+
+static bool sys_bt_pairing(void)
+{
+	return osc2_transport_is_ble(osc2_transport_running()) && ble.state == OPENSC2_LINK_PAIRING;
+}
+
+static const struct osc2_bt_transport sys_bt = {
+	.start = sys_bt_start,
+	.stop = sys_bt_stop,
+	.connected = sys_bt_connected,
+	.pairing = sys_bt_pairing,
+};
+#endif
+
 int osc2_ble_init(void)
 {
+#if defined(CONFIG_OPENSC2_SYSTEM)
+	osc2_sys_bluetooth(&sys_bt);   /* the Bluetooth chords, and the machine starts Bluetooth */
+#endif
 	ble.state = OPENSC2_LINK_OFF;
 	ble.form = OSC2_BLE_ADV_NONE;
 	IRQ_CONNECT(EGU_IRQN, EGU_PRIO, egu_isr, NULL, 0);
