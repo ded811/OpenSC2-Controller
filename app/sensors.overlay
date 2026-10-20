@@ -65,7 +65,9 @@
 	imu: lsm6dsv16x@6a {
 		compatible = "st,lsm6dsv16x";
 		reg = <0x6a>;
-		/* the real controller's: +-2 g and +-2000 deg/s, both at 240 Hz */
+		/* the real controller's +-2 g and +-2000 deg/s, at 240 Hz: the real controller runs at
+		 * 250 Hz, a rate of the chip's high-accuracy mode (LSM6DSVXXX_DT_ODR_HA01_AT_250Hz)
+		 */
 		accel-range = <LSM6DSV16X_DT_FS_2G>;
 		gyro-range = <LSM6DSV16X_DT_FS_2000DPS>;
 		accel-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
