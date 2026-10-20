@@ -217,7 +217,10 @@ usable without Steam. OpenSC2 does the same, on every link:
   a frequency sweep, `0x85` one of the built-in haptic scripts, `0x86` to `0x89` PCM streamed to
   the actuators (`0x86` starts or stops it and sets the format, the others carry the samples);
   `0x8A` does nothing. Most of them start with a target byte that picks the pads or the grips. The
-  library decodes each one for the application ([api.md](api.md#outputs)).
+  library decodes each one for the application ([api.md](api.md#outputs)) and, with its optional
+  haptics synthesiser, also plays them as the real controller's two sequencers do: sample blocks for
+  the four channels, outputs the application provides, the streams' flow control `0x44`
+  ([api.md](api.md#the-haptics-synthesiser); gap 22).
 - **The LED**: Steam sets its brightness (setting 45) and can override its colour (`0xC5`, shown
   while setting 37 is on); the library hands both to the application. The real controller's
   status LED shows its mode by colour: green while wired, white with a little blue on the puck's
@@ -283,7 +286,9 @@ open, the library does what should work with Steam and the puck, and says so her
     mouse report goes out every frame while anything is non-zero come from the same authors' study
     of the controller's firmware (not in that documentation yet). Not reproduced: the touch-down
     stabiliser, the motion average, the glide after a flick (settings 11 and 12) and the haptic
-    ticks (setting 14). The keyboard is evaluated once per report frame.
+    ticks (setting 14); the haptics synthesiser can play the ticks' and pad presses' clicks
+    (`opensc2_haptics_click()`) once lizard mode counts them. The keyboard is evaluated once per
+    report frame.
 12. **A bond written with `0xA2`** takes effect at once here; the documented controller only reads
     it at the next boot.
 13. **The report descriptor's bytes.** Each detail has one source:
@@ -345,6 +350,23 @@ open, the library does what should work with Steam and the puck, and says so her
     or reboot (`OPENSC2_POWER_USB_UNPLUGGED`); without a callback it reboots, which comes back
     wireless on a battery, and the blank canvas does the same, having no power-off of its own. A
     board without a battery has lost its power anyway.
+
+22. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, off by default; built, not yet
+    tested on hardware). Written from the research documentation's description of the real
+    controller's sequencers, generators, scripts, cues, streams and rumble emulation
+    ([docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md)),
+    with these choices:
+
+    | Point | OpenSC2 |
+    | --- | --- |
+    | Valve's data | not used: the two clicks are damped sine bursts of OpenSC2's own at the real clicks' lengths; scripts 1 to 17, the cues' sounds and the two drop sounds are short sounds of OpenSC2's own (tones, sweeps, pulses), not the real controller's step data, melodies or recordings; the 18th script, which nothing plays, is left out |
+    | Copied as the real controller plays it | the rumble's bursts at a constant 12 Hz (its rate formula divides by the 32-bit maximum); the left grip's LFO dipping to 8.8 Hz just above a fifth of full speed; `0x81` with a count of 0 playing nothing; formats 12 and above answered "set" (`0x20`) while the previous format stays; the rumble's random burst gains from the documented generator and seed; the left pad and the right grip rendered with the gain negated |
+    | Kept correct where only a sound would differ | gains added without wrapping round (the real controller adds in 8 bits, so `0x85` near -128 dB plays at +30 dB); a pulse train shorter than one sample plays nothing (the real arithmetic plays -1 for 65,536 samples); a sweep with 0 Hz at an end plays nothing and one with equal ends a plain tone with the fades (the real arithmetic produces invalid numbers); long sweeps do not wrap at 16 bits; a generator that ends leaves the mix at once (the real one lingers 1 or 4 silent samples); setting 75 going to 0 does not cut a playing sound (the real one drops the enable at once); a fall's drop sound is not cancelled for good when the IMU stops |
+    | Arithmetic | integers only, a sine table of OpenSC2's own (peak 1.0; the real polynomial peaks at about 1.0045), so blocks are bit for bit reproducible; the PWM DAC plays the pads at exactly 4 kHz (the real one at about 3906 Hz) |
+    | Not documented, chosen | an 8 kHz format on a pad is refused (`0x10`) before a format change while playing (`0x40`); a channel that never had a format plays formats 12 and above as s16le at 8 kHz; a tone's first sample is sin(0); a clip's last sample holds through its interpolated steps; the free-fall helper's thresholds (0.35 g for 150 ms; the real controller uses its IMU's detector); the DRV2605's amplitude is the louder path's block peak |
+    | Stops and `0x44` | the synthesiser sends `0x01`, `0x08`, `0x04`, `0x02` when a stream runs dry, `0x10`, `0x20` and `0x40`; the `0x02` after a stop is the library's (gap 19), never sent twice |
+    | Setting 70 | does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
+    | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
 
 ## What this library adds for development boards
 

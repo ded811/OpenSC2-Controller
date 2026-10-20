@@ -7,6 +7,37 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Added
+
+- The haptics synthesiser (`CONFIG_OPENSC2_HAPTICS_SYNTH`, off by default; `app/haptics.conf`
+  builds the blank canvas with it): the library renders the haptic output reports into sample
+  blocks as the real controller's two sequencers do (the pads at 4 kHz, the grips at 8 kHz, one
+  thread each): `0x81`'s pulse trains and special cases, clicks, tones with an LFO, exponential
+  sweeps, the October rumble emulation with settings 27, 75 and 76, scripts (one per channel), PCM
+  streams with their rings, s16le, s8 and mu-law, interpolation and the `0x44` flow control.
+  Sounds of OpenSC2's own (clicks, scripts 1 to 17, cues by number at the chime level, drop
+  sounds after a free fall), never Valve's recordings or script data. Outputs the application
+  provides (`<opensc2/haptics.h>`), a level callback for amplitude-only actuators, and three
+  built-in outputs: an I2S amplifier for the grips, a PWM "DAC" on nrfx for the pads, a DRV2605 in
+  real-time playback. Integer arithmetic: blocks are bit for bit the same on the board and on a
+  PC. Built; not yet tested on hardware.
+- `samples/haptics`: the synthesiser on the I2S and PWM DAC outputs, or a DRV2605
+  (`drv2605.conf`), with a `hap` shell command to play the sounds by hand.
+- The hardware test suite's `haptics` group (only on a board built with the synthesiser): CRCs of
+  rendered blocks against shared vectors (`tests/vectors/hwtest/haptics.txt`), generators, the
+  rumble's gains, scripts, cues, the streams' flags, the drop sounds' timing. The test hooks' ops
+  `0x80`..`0x83` and ring entries `0x60`..`0x63`, caps bit 19. The firmware emulator runs the
+  synthesiser, so the dry run checks the group against the library's code.
+- `tools/gen_haptics_tables.py`, which writes the synthesiser's constant tables.
+
+### Changed
+
+- Output report `0x88` with more than 31 bytes a side does nothing, as on the real controller (it
+  was clamped to 31).
+- With the synthesiser, `app/`'s optional vibration motor follows the rendered blocks' loudness.
+- The host tests are now 77 (6,331 checks), and 106 (8,793 checks) with the hardware test hooks built
+  in; the runner has 215 self-tests.
+
 ## [0.2.0] - 2026-10-19
 
 First public release.

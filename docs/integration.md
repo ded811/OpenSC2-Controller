@@ -24,7 +24,7 @@ library has no pins.
 | --- | --- | --- |
 | [`template/`](../template/README.md) (recommended) | you write firmware of your own | anything: it is small and made to be copied out |
 | [`app/`](../app/README.md) | you build a controller on the SuperMini with the parts `app/` supports; the hardware results come from its v0.2.0 release image ([What works](../README.md#what-works)) | usually only its overlay (pins and parts) |
-| [`samples/`](../samples/README.md) | you want to see one part on its own: buttons and a stick, a touchpad, an IMU, rumble, an RGB LED | copy that part into your project |
+| [`samples/`](../samples/README.md) | you want to see one part on its own: buttons and a stick, a touchpad, an IMU, rumble, an RGB LED, the haptics synthesiser | copy that part into your project |
 
 The template is the OpenSC2 library, five buttons, a pairing button and a status LED on the
 SuperMini nRF52840 (a Pro Micro-sized nRF52840 board with the nice!nano pinout and the Adafruit
@@ -423,6 +423,7 @@ int main(void)
 | Reboots | `opensc2_reboot()` sleeps 10 ms and must not run in the USB stack's thread. From a callback or an input handler, use `opensc2_reboot_later()`, which returns at once. |
 | Power requests | without a `power_request` callback the library carries out the reboots Steam asks for itself and ignores Steam's request to enter a bootloader. With one, you decide ([api.md](api.md#power-requests)). |
 | Priorities | the radio thread runs at priority 5 (`CONFIG_OPENSC2_THREAD_PRIORITY`): keep long-running application threads below it, at a higher number (the template's `main()` runs at 7). |
+| Haptics | the `rumble` and `haptic` callbacks hand over what Steam plays; to have it played as the real controller plays it, turn on the library's haptics synthesiser (`CONFIG_OPENSC2_HAPTICS_SYNTH`) and give it outputs, its built-in ones or your own ([api.md](api.md#the-haptics-synthesiser), [samples/haptics](../samples/haptics/README.md); built, not yet tested on hardware). |
 
 Every function, field and callback: [api.md](api.md). The wired device in detail:
 [api.md](api.md#wired-mode).

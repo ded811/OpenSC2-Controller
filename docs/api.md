@@ -16,6 +16,8 @@ library into a project: [integration.md](integration.md).
 - [Wired mode](#wired-mode): the USB device, what a project needs, the session log
 - [Inputs](#inputs): every field, its range, and where Steam sees it
 - [Outputs](#outputs): callbacks and what is in them
+- [The haptics synthesiser](#the-haptics-synthesiser): the output reports rendered for actuators
+  (an option)
 - [Identity](#identity)
 - [Bonds and pairing](#bonds-and-pairing)
 - [Vendor commands](#vendor-commands): what the library answers itself
@@ -56,6 +58,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_fusion_init(&f)`, `opensc2_fusion_update(&f, a, g, dt)`, `opensc2_fusion_quat(&f, q)` | the orientation quaternion from an IMU without its own fusion | [The IMU fusion helper](#the-imu-fusion-helper) |
 | `opensc2_accel_from_g(g)`, `opensc2_gyro_from_dps(dps)` | g and °/s in the report's units | [The IMU fusion helper](#the-imu-fusion-helper) |
 | `opensc2_encode_state()`, `opensc2_decode_output()`, ... | every wire format as a pure function (`<opensc2/codec.h>`) | [Pure helpers](#pure-helpers) |
+| `opensc2_haptics_set_output(path, &out)`, `opensc2_haptics_play_cue(cue, level)`, ... | with `CONFIG_OPENSC2_HAPTICS_SYNTH`: the haptics synthesiser's outputs and its own sounds (`<opensc2/haptics.h>`) | [The haptics synthesiser](#the-haptics-synthesiser) |
 
 The callbacks your application can register are in [Outputs](#outputs).
 
@@ -449,9 +452,12 @@ targets differently again (in `0x87`, target 1 selects nothing and 4 the right g
 | `OPENSC2_HAPTIC_SWEEP` | `0x84` | `sweep.gain_db`, `duration_ms`, `start_hz`, `end_hz`, `antiphase` (targets 6 and 7) |
 | `OPENSC2_HAPTIC_SCRIPT` | `0x85` | `script.id` (the real controller's built-in scripts 1..17), `script.gain_db` |
 | `OPENSC2_HAPTIC_PCM_CONTROL` | `0x86` | `pcm_control.operation` (0 nothing, 1 stop, 2 set format), `format`, `encoding` (s16le, s8, mu-law), `rate_hz` (8000, 4000, 2000, 1000) |
-| `OPENSC2_HAPTIC_PCM_DATA` | `0x87`, `0x88` (twice: left grip, right grip), `0x89` | `pcm.data`, `pcm.len` (valid during the callback only) |
+| `OPENSC2_HAPTIC_PCM_DATA` | `0x87`, `0x88` (twice: left grip, right grip; a `0x88` with more than 31 bytes a side does nothing, as on the real controller), `0x89` | `pcm.data`, `pcm.len` (valid during the callback only) |
 
 Report `0x8A` does nothing, as on the real controller.
+
+The callbacks hand over what Steam asked for; playing it on actuators is the application's job,
+unless the library's [haptics synthesiser](#the-haptics-synthesiser) (an option) renders it.
 
 ### Power requests
 
@@ -469,6 +475,199 @@ itself where it is a reboot, and ignores the others.
 | `OPENSC2_POWER_FACTORY_RESET` | `0x86` with `0xEFC1A917` | the bonds, slot and chime level are already erased; `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)` |
 | `OPENSC2_POWER_USB_PLUGGED` | USB power appeared while wireless with the link down or STEAM held (policy auto) | `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)`: back wired |
 | `OPENSC2_POWER_USB_UNPLUGGED` | USB power gone for 0.2 s while wired (only a board with a battery or another supply still runs to see it) | power off if the board can (the real controller shuts down), or `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)`, which comes back wireless without USB power (the default, and what the blank canvas does). Ignoring it leaves the board wired with neither link until a reset or a re-plug |
+
+## The haptics synthesiser
+
+`CONFIG_OPENSC2_HAPTICS_SYNTH` (off by default; `app/haptics.conf` builds the blank canvas with it)
+makes the library play the haptic output reports itself, as the real controller's two sequencers
+do: it renders them into sample blocks for the controller's four haptic channels and hands the
+blocks to outputs the application provides, or to built-in ones. It also plays sounds of
+OpenSC2's own (the scripts of report `0x85`, the cues, the drop sounds) and sends the PCM streams'
+flow control, input report `0x44`. The `rumble` and `haptic` callbacks are still called as before.
+Everything is in `<opensc2/haptics.h>`; without the option its functions answer `-ENOTSUP`. Built;
+not yet tested on hardware: the rendering is checked by the host tests and, on a board with
+nothing wired, by the hardware test suite's `haptics` group ([testing.md](testing.md)).
+
+```c
+#include <opensc2/haptics.h>
+
+static int amp_write(const struct opensc2_haptics_output *out, const void *block, size_t frames)
+{
+	/* 64 frames of two int16_t, left grip first: queue them for 8 kHz playback, and wait while
+	 * two blocks are already queued */
+	return 0;
+}
+
+static const struct opensc2_haptics_output_api amp_api = { .write = amp_write };
+static const struct opensc2_haptics_output amp = { .api = &amp_api };
+
+opensc2_haptics_set_output(OPENSC2_HAPTICS_GRIPS, &amp);
+opensc2_haptics_play_cue(OPENSC2_HAPTICS_CUE_USB_START, opensc2_chime_level());
+```
+
+### The two paths
+
+| | Pads | Grips |
+| --- | --- | --- |
+| Channels | 0 left pad, 1 right pad | 2 left grip, 3 right grip |
+| Rate | 4000 Hz | 8000 Hz |
+| Block | 32 frames (8 ms) | 64 frames (8 ms) |
+| Samples | `uint8_t`, 128 = silence | `int16_t`, -32767..32767 |
+
+A frame is two samples, the left channel's first. Each path has its own thread: idle until
+something plays; then a first block that begins with 4 ms of silence, and block after block, one
+block ahead of what plays, until nothing plays any more, when it lets the output drain. A sound
+therefore starts about 4 ms after its report on an idle path, 8 to 16 ms after it while something
+plays. Each channel runs up to eight generators at once, one of each type (click A, click B, pulse
+train, tone, rumble, sweep, stream, clip); their samples, each scaled by its own gain, are summed,
+multiplied by the channel gain and clipped. The channel gain is the master gain (controller setting
+76, default -3 dB), negated for the left pad and the right grip as on the real controller. Every
+gain in dB goes through 10^(dB/20), from -30 to +30 dB (values beyond play at the nearest end, so a
+gain never mutes). The pads refuse the rumble generator and the grips the clicks. Each path holds 20
+commands (`CONFIG_OPENSC2_HAPTICS_QUEUE_DEPTH`); one that finds the queue full is lost.
+
+The arithmetic is in integers only, so a block comes out bit for bit the same on the board and on a
+PC (the host tests and the suite compare CRCs of blocks). Its sine is a table of OpenSC2's own, not
+the real controller's polynomial.
+
+### What each report plays
+
+| Report | Plays |
+| --- | --- |
+| `0x80` | the October rumble emulation. The right grip: a rumble generator, a 50 Hz sine started downwards in bursts of two periods, one burst every 83.5 ms (a constant 12 Hz, as the real one computes it), each burst after the first a random -4 to +3 dB, at trunc(right speed × 0.0001) - 14 dB (-20 dB below 1000). The left grip: a 50 Hz tone with a full-depth LFO (10 Hz up to a fifth of full speed, then 10 + 6 × (speed / 65535 - 0.4) Hz, so 8.8 Hz just above a fifth, as the real one plays it) at trunc(left speed × 0.00024) + 2 dB + setting 27 (default -10) + the level step (16, 60, 100, 200, 1000, 8000, 16000: +16, +12, +8, +4, -4, -8, -12 dB) - 12 dB (-18 below 1000). Each lasts 500 ms; a report over a running rumble keeps its bursts and the tone its phase. A speed of 0 stops everything on that grip, the right one first. The library's own rumble stop (`timeout`) plays nothing here: the sound ends by itself. |
+| `0x81` | on each channel, in this order: on time 0 stops everything; off time 0 plays click A at +8 dB; a count of 3 or 4 click B at +4 dB; a count of 0 nothing; otherwise a full-scale square wave, +1 for the on time and -1 for the off time, in whole samples (250 µs on a pad, 125 µs on a grip), `count` periods. Clicks on the pads only. |
+| `0x82` | 0 stops everything on the channels; 1 click A at the gain + 6 dB; 2 click B at the gain (pads only); any other command is ignored |
+| `0x83` | a sine at the gain, optionally modulated: (1 - d) + d × sin(LFO) with d = depth / 200 (100 % swings the amplitude between 0 and 1), the LFO starting at -π/4; a duration of 0 plays until stopped or replaced; a tone started over a running one keeps its phases |
+| `0x84` | an exponential sweep from the start to the end frequency, with an 80 ms fade-in and a 5 ms fade-out; targets 6 and 7 play the right channel inverted; 0 Hz at either end plays nothing, equal ends a plain tone with the fades |
+| `0x85` | built-in script 1..17 (OpenSC2's own sounds, below) on each channel at the gain; a channel whose script still runs refuses the next one |
+| `0x86`..`0x89` | PCM streams, below |
+
+### PCM streams and input report `0x44`
+
+Each channel has a 512-byte ring. `0x86` operation 2 sets a channel's format (format / 4: s16le,
+s8, mu-law; format % 4: 8, 4, 2, 1 kHz); the format stays set across stops, and a stream never
+starts before one is set. `0x87`, `0x88` and `0x89` write their bytes into the rings (the right
+channel first for two-channel targets, the right grip's bytes of `0x88` before the left's; `0x88`
+with more than 31 bytes a side is ignored). A write starts the stream once the ring already held
+more than 16 ms of audio before it (8 ms on a pad); lower rates are interpolated linearly up to the
+channel's rate, samples scaled to ±1 (s16le by 1/32767, s8 by 1/127, mu-law through its 16-bit
+G.711 value). The stream stops when it runs dry. `0x86` operation 1, and every stop of everything
+on the channel, empties its ring.
+
+The synthesiser sends `0x44` {channel, flags} (channel ids: left grip 0, right grip 1, left pad 3,
+right pad 4) on the link in use:
+
+| Flag | Sent |
+| --- | --- |
+| `0x01` | at once, by a write that did not fit (the bytes that fit are kept) |
+| `0x08` | at once, by a write that leaves less than 16 ms of room |
+| `0x04` | once, when the queued audio falls below 16 ms while playing (after an `0x08`) |
+| `0x02` | when the stream runs dry (with `0x04` as `0x06` when both fall due) |
+| `0x10` | for an 8 kHz format asked for on a pad (refused) |
+| `0x20` | when a format is set |
+| `0x40` | for a format change while the stream plays (refused) |
+
+The `0x02` the real controller also sends after every stop, streaming or not (Steam's zero pulses
+get two: [protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 19), is left to the
+library's replies to a stop and not sent by the synthesiser, so it never comes twice.
+
+### Outputs
+
+```c
+struct opensc2_haptics_output_api {
+	int (*start)(const struct opensc2_haptics_output *out);            /* optional */
+	int (*write)(const struct opensc2_haptics_output *out, const void *block, size_t frames);
+	int (*stop)(const struct opensc2_haptics_output *out, bool drop);  /* optional */
+	void (*enable)(const struct opensc2_haptics_output *out, bool on); /* optional */
+};
+```
+
+For each playback a path calls `enable(true)`, `write()` with the first block, `start()`, then
+`write()` for every block; `write()` must block until the output can take the block (an output with
+two buffers returns at once for the first two, then when one has played). When nothing plays any
+more: `stop(false)` (return once what was written has played) and `enable(false)`. `write()`
+returning `-EPIPE` reports an underrun: the path calls `stop(true)`, writes the block again and
+starts again. Controller setting 75 = 1 keeps the enable on between sounds. All calls come from the
+path's own thread. `opensc2_haptics_set_output(path, &out)` takes effect from the path's next
+playback; `NULL` removes it.
+
+For an actuator that only has an amplitude, `opensc2_haptics_set_level_output(path, fn, user)` hands
+over each block's loudness (`opensc2_haptics_block_level()`, 0..255) every 8 ms and 0 when nothing
+plays; the blocks are then paced by a timer. A path with neither renders anyway, paced by a timer.
+
+Built-in outputs, each set up from the devicetree and registered at start-up (built; not yet tested
+on hardware; `samples/haptics` has all three):
+
+| Option | Node | Plays |
+| --- | --- | --- |
+| `CONFIG_OPENSC2_HAPTICS_OUT_I2S` | `opensc2,haptics-i2s` (`i2s`, optional `enable-gpios`) | the grips on Zephyr's I2S driver as master, 16-bit stereo at 8 kHz, for an I2S amplifier per grip |
+| `CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC` | `opensc2,haptics-pwm-dac` (`pwm`, `left-gpios`, `right-gpios`, optional `enable-gpios`) | the pads as duty cycles of an nRF PWM instance through nrfx's sequence playback: 250 steps of the 16 MHz clock, each sample 16 periods, exactly 4 kHz; idle at half duty. The instance's node stays disabled |
+| `CONFIG_OPENSC2_HAPTICS_OUT_DRV2605` | the `ti,drv2605` node chosen as `opensc2,haptics-drv2605` | one ERM or LRA in the chip's real-time playback: the louder path's block level every 8 ms (no pitch) |
+
+`app/` drives its optional vibration motor (the overlay's `rumble` PWM channel) from the level
+outputs when it is built with the synthesiser.
+
+### Sounds of its own
+
+The real controller's clicks, script contents and drop-sound recordings are Valve's data and are not
+in OpenSC2. The synthesiser has sounds of its own instead:
+
+- **Clicks** A (70 samples, 17.5 ms) and B (93 samples, 23.25 ms) at 4 kHz: damped sine bursts made
+  by `tools/gen_haptics_tables.py`, at the real clicks' lengths.
+- **Scripts 1 to 17** (`opensc2_haptics_play_script()`, report `0x85`): short sequences of tones,
+  sweeps and pulses. Each step runs after its delay from the step before (at least 1 ms), at the
+  script's gain plus its own offset (added without wrapping round); pulse steps play at full scale.
+  One script per channel at a time; a stop does not stop a script.
+- **Cues** (`opensc2_haptics_play_cue(cue, level)`), always on both grips, at the chime level Steam
+  stores (`opensc2_chime_level()`: 1 quiet -18 dB, 2 normal -12 dB, anything else silent):
+
+  | Cue | | Script | Gain |
+  | --- | --- | --- | --- |
+  | 0 | USB start-up (wired) | 1 | the level |
+  | 1, 2 | Bluetooth slot 1, 2 | 1, 2 | the level |
+  | 3, 4 | the main puck, the second puck | 1, 2 | the level |
+  | 5 | turning off | 5 | the level |
+  | 6, 7 | Bluetooth pairing, paired | 8, 9 | the level - 1 dB |
+  | 8 | the factory charge window | 10 | +2 dB, even when silent |
+  | 9 | (nothing plays it on the real controller) | 3 | the level |
+  | 10 | the PC is asleep | 4 | the level |
+
+  When to play them is the application's choice, or the library's power and link rules'.
+- **The drop sounds** (`CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS`, on with the synthesiser):
+  `opensc2_haptics_free_fall()` reports a fall; 250 ms later a random byte picks script 16 (below
+  48), script 17 (48 to 127) or nothing, on the left grip at 0 dB whatever the chime level; falls
+  count again 5 s after the one taken. `opensc2_freefall_update()` is a detector for IMUs without
+  one: the acceleration below 0.35 g for 150 ms (OpenSC2's own thresholds).
+- **Lizard mode's pad feedback**: the real controller plays click A at +8 dB per tick and click B at
+  +6 dB per pad press and release; `opensc2_haptics_click()` plays them.
+
+### Functions
+
+| Function | Does |
+| --- | --- |
+| `opensc2_haptics_set_output(path, &out)` | the output of a path (NULL: none) |
+| `opensc2_haptics_set_level_output(path, fn, user)` | a path's block levels for an amplitude-only actuator |
+| `opensc2_haptics_play_cue(cue, level)` | a cue on both grips: 0, `-ENODATA` (silent at that level), `-EBUSY` (both grips' scripts run) |
+| `opensc2_haptics_play_script(channels, id, dB)` | script 1..17 on the channels (`OPENSC2_HAPTIC_*` bits): the channels it started on |
+| `opensc2_haptics_click(channels, click, dB)` | click A or B (`OPENSC2_HAPTIC_CMD_CLICK_A`, `_B`) on the pads |
+| `opensc2_haptics_stop(channels)` | stop everything on the channels |
+| `opensc2_haptics_play_clip(channel, data, samples, format, dB)` | a recording of your own in a stream format (0..11); `data` stays valid until it has played |
+| `opensc2_haptics_free_fall()` | a free fall: maybe a drop sound |
+| `opensc2_haptics_info(&info)` | what plays, blocks, underruns, lost commands, stream fill |
+| `opensc2_haptics_block_level(path, block, frames)`, `opensc2_freefall_init(&ff)`, `opensc2_freefall_update(&ff, accel, ms)` | pure helpers, with or without the synthesiser |
+
+### Settings, threads and memory
+
+- Setting 76 (master gain) applies from the next block; setting 75 (amplifier mode) at the next
+  idle check, within 100 ms, but never cuts a sound short; setting 27 at each rumble report.
+  Setting 70 ("haptics enabled") does not silence the synthesiser: on the real controller only
+  lizard mode's pad feedback reads it.
+- Two threads, `osc2_hap_pads` and `osc2_hap_grips` (priority
+  `CONFIG_OPENSC2_HAPTICS_THREAD_PRIORITY`, 6; stack `CONFIG_OPENSC2_HAPTICS_THREAD_STACK_SIZE`,
+  1536); the scripts and drop sounds run on the system work queue; one mutex guards the
+  synthesiser, never held while an output plays or a report goes out. Output reports reach it from
+  the radio or USB thread after the callbacks, and only queue commands and copy stream bytes there.
+- About 10 KB of RAM and 13 KB of flash.
 
 ## Identity
 
@@ -703,6 +902,10 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_STORAGE` | y with `CONFIG_SETTINGS` | bonds, identity and policy in Zephyr settings |
 | `CONFIG_OPENSC2_SHELL` | y with `CONFIG_SHELL` | |
 | `CONFIG_OPENSC2_FUSION` | n | the IMU fusion helper |
+| `CONFIG_OPENSC2_HAPTICS_SYNTH` | n | the [haptics synthesiser](#the-haptics-synthesiser) |
+| `CONFIG_OPENSC2_HAPTICS_THREAD_PRIORITY`, `_THREAD_STACK_SIZE`, `_QUEUE_DEPTH` | 6, 1536, 20 | its two threads and their command queues |
+| `CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS` | y with the synthesiser | the drop sounds after `opensc2_haptics_free_fall()` |
+| `CONFIG_OPENSC2_HAPTICS_OUT_I2S`, `_OUT_PWM_DAC`, `_OUT_DRV2605` | n | its built-in outputs, each with its devicetree node (untested on hardware) |
 | `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE` | n | identity through `0xEE` |
 | `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH` | 8, 6 | |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
@@ -733,6 +936,8 @@ The functions for the settings and the other state Steam sets:
 - Link loss: 10 ms on the current channel, then 13 ms on each alternate, 500 ms in all.
 - The Steam watchdog, the battery report and the rumble timeout run in the system work queue,
   whatever the link.
+- With the haptics synthesiser: two more threads, one per haptic path
+  ([its threads](#settings-threads-and-memory)).
 - A flash write (storing a bond) stalls the CPU for a few milliseconds; the radio link tolerates
   500 ms without a packet, so it should ride that out (not measured); on USB state reports pause.
 - The library needs the 32 MHz crystal while the radio is on and requests it itself; the USB driver

@@ -74,7 +74,8 @@ Steam on a Windows PC.
 | Other boards. | Not tested |
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
 | Bluetooth. The dock (pogo pads). | Not implemented |
-| Lizard mode's smoothing, glide and haptic ticks. PCM haptics playback in the samples. | Not implemented |
+| The haptics synthesiser (an option, `app/haptics.conf`): rumble, pulses, clicks, tones, sweeps, scripts and PCM streams rendered as the real controller's sequencers do, sounds of OpenSC2's own (scripts, cues, drop sounds), the streams' flow control, outputs for an I2S amplifier, a PWM DAC and a DRV2605. Its rendering is checked by the host tests and the emulator; the suite's `haptics` group is ready for a board. | Built; not yet tested on hardware |
+| Lizard mode's smoothing, glide and haptic ticks. | Not implemented |
 
 Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
 
@@ -195,6 +196,7 @@ Every function, field and option: [docs/api.md](docs/api.md).
 | [samples/imu](samples/imu) | an MPU-6050 through Zephyr's sensor API, with the fusion helper | builds; not run on hardware |
 | [samples/rumble](samples/rumble) | rumble and haptics on a PWM-driven vibration motor | builds; not run on hardware |
 | [samples/rgb_led](samples/rgb_led) | an RGB LED that follows Steam's LED colour | builds; not run on hardware |
+| [samples/haptics](samples/haptics) | the haptics synthesiser on an I2S amplifier and a PWM DAC, or a DRV2605 | builds; not run on hardware |
 
 [samples/README.md](samples/README.md) has the parts, pins and what each sample teaches.
 
