@@ -7,7 +7,9 @@
  *  - Buttons are a gpio-keys node labelled opensc2_buttons; each key's zephyr,code is a bit of
  *    the controller's button word (dt-bindings/opensc2/inputs.h). A second one labelled
  *    opensc2_buttons_polled may add keys that gpio-keys polls, for example on an I2C port
- *    expander (expander.overlay).
+ *    expander (expander.overlay); the chosen node opensc2,touch-keys may name any input device
+ *    whose key codes are such bits, for example a capacitive sensor's stick-touch and grip keys
+ *    (sensors.overlay).
  *  - Sticks and analog triggers are ADC channels named in zephyr,user's io-channel-names. An axis
  *    that is not named reads neutral.
  *
@@ -92,7 +94,7 @@ static const struct gpio_dt_spec vcc = GPIO_DT_SPEC_GET(USER, vcc_enable_gpios);
 /* ---- buttons --------------------------------------------------------------------------------- */
 
 #if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons)) || \
-	DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled))
+	DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled)) || DT_HAS_CHOSEN(opensc2_touch_keys)
 static void on_button(struct input_event *evt, void *user_data)
 {
 	uint32_t bit;
@@ -129,6 +131,13 @@ INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_NODELABEL(opensc2_buttons)), on_button, N
 #if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled))
 INPUT_CALLBACK_DEFINE_NAMED(DEVICE_DT_GET(DT_NODELABEL(opensc2_buttons_polled)), on_button, NULL,
 			    on_polled_button);
+#endif
+#if DT_HAS_CHOSEN(opensc2_touch_keys)
+/* Touch keys from a sensor that decides on its own, for example the stock CAP12xx driver's: its
+ * thresholds apply, not settings 30, 31, 34 and 35 (those apply to the raw words of
+ * opensc2_set_touch_raw()). */
+INPUT_CALLBACK_DEFINE_NAMED(DEVICE_DT_GET(DT_CHOSEN(opensc2_touch_keys)), on_button, NULL,
+			    on_touch_key);
 #endif
 
 /* ---- analog ---------------------------------------------------------------------------------- */

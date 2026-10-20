@@ -137,6 +137,11 @@ three digits: "006" is P0.06, "111" is P1.11.
   (SDA) and P0.20 (SCL), which also takes the D-pad's left and right buttons from those pins. The
   expander is polled every 16 ms and every button is debounced 16 ms; the overlay's header lists
   the expander's pins.
+- **Stick touch and grips**: any input device that the chosen node `opensc2,touch-keys` names, its
+  key codes the touch bits; the build [sensors.conf](sensors.conf) has a Microchip CAP1206
+  capacitive sensor (polled, address 0x28) for all four (untested on hardware). The sensor's own
+  thresholds decide; settings 30, 31, 34 and 35 apply to raw words given with
+  `opensc2_set_touch_raw()` ([docs/api.md](../docs/api.md#calibration-and-raw-inputs)).
 
 Unwired inputs read neutral. Analog pins that are listed but left open are held at mid-scale
 (sticks) or at their released end (triggers) by the nRF52840's own bias resistors, so they do not
