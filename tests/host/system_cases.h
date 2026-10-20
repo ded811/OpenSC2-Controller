@@ -661,6 +661,11 @@ OPENSC2_TEST(sys_sources_cues_levels)
 	CHECK_EQ(osc2_sys_level(OPENSC2_CHARGE_CHARGING, 40), 40);
 	CHECK_EQ(osc2_sys_level(OPENSC2_CHARGE_DISCHARGING | OPENSC2_CHARGE_GAVE_UP, 40), 100);
 	CHECK_EQ(osc2_sys_level(OPENSC2_CHARGE_DISCHARGING | OPENSC2_CHARGE_GAVE_UP, 0), 0);
+	/* A charger's status output. */
+	CHECK_EQ(opensc2_charge_state_of(false, false), OPENSC2_CHARGE_DISCHARGING);
+	CHECK_EQ(opensc2_charge_state_of(false, true), OPENSC2_CHARGE_DISCHARGING);
+	CHECK_EQ(opensc2_charge_state_of(true, true), OPENSC2_CHARGE_CHARGING);
+	CHECK_EQ(opensc2_charge_state_of(true, false), OPENSC2_CHARGE_DONE);
 
 	/* The settings-by-name keys of the machine. */
 	{

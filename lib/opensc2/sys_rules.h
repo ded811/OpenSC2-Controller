@@ -27,6 +27,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <opensc2/opensc2.h>
 #include "chord_rules.h"
 
 /* What powers the board, as the machine sees it. */

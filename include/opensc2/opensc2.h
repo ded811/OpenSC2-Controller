@@ -430,6 +430,10 @@ enum opensc2_power_source opensc2_power_source(void);
 /* Is the keylock (travel lock) stored? It takes effect at a power-on on battery. */
 bool opensc2_keylock(void);
 
+/* The charge state for report 0x43 from a charger's status output: without input power 1 (on
+ * battery); with it 2 while the charger charges, else 4 (done: report level 100). Pure. */
+uint8_t opensc2_charge_state_of(bool input_power, bool charging);
+
 #ifdef __cplusplus
 }
 #endif

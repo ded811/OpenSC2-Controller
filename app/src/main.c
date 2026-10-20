@@ -24,6 +24,9 @@
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/reboot.h>
+#if defined(CONFIG_POWEROFF)
+#include <zephyr/sys/poweroff.h>
+#endif
 #include <hal/nrf_power.h>
 #if defined(CONFIG_SHELL)
 #include <zephyr/shell/shell.h>
@@ -132,6 +135,7 @@ static void on_led(const struct opensc2_led *led, void *user_data)
 static void on_setting(uint8_t number, int16_t value, void *user_data)
 {
 	ARG_UNUSED(user_data);
+	status_setting(number, value);
 	if (number == OPENSC2_SETTING_LIZARD_MODE) {
 		LOG_DBG("Lizard mode %s", value ? "on" : "off");
 	} else if (number == OPENSC2_SETTING_IMU_MODE) {
@@ -145,6 +149,33 @@ static void on_host_asleep(void *user_data)
 	LOG_INF("The PC is asleep");
 }
 
+/* A cue (the power-on chime, a transport's cue, the power-off chime, ...). This board has no
+ * actuator of its own for them: a haptics renderer would start OpenSC2's sound for the cue here. */
+static void on_cue(const struct opensc2_cue_event *cue, void *user_data)
+{
+	ARG_UNUSED(user_data);
+	LOG_INF("Cue %u (the real controller's script %u, %d dB)", cue->cue, cue->script,
+		cue->gain_db);
+}
+
+/* The system state machine's shutdown has run (the link dropped, the power-off cue, STEAM let go):
+ * off, the way Zephyr's nordic system_off sample does it, with STEAM as the pin that wakes the
+ * chip (a new USB supply wakes the nRF52840 too). Only a battery build gets here: without a
+ * battery (CONFIG_OPENSC2_BATTERY off) the library asks for a reboot instead. */
+static void power_off(void)
+{
+#if defined(CONFIG_POWEROFF)
+	int pins = inputs_wake_pins();
+
+	LOG_INF("Power off: %d wake-up pin%s, or a new USB supply", pins, pins == 1 ? "" : "s");
+	status_off();
+	k_msleep(20);   /* the log */
+	sys_poweroff();
+#else
+	opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
+#endif
+}
+
 static void on_power(enum opensc2_power_request request, void *user_data)
 {
 	ARG_UNUSED(user_data);
@@ -153,12 +184,11 @@ static void on_power(enum opensc2_power_request request, void *user_data)
 		/* The library answers "disconnecting" and goes OFF once the puck stops. */
 		break;
 	case OPENSC2_POWER_TURN_OFF:
+		/* Without the system state machine only (it handles the turn-off itself). */
 		opensc2_stop();
 		break;
 	case OPENSC2_POWER_OFF:
-		/* The system state machine asks for it only on a battery build (this board has none):
-		 * a reboot stands in for it. */
-		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
+		power_off();
 		break;
 	case OPENSC2_POWER_REBOOT:
 	case OPENSC2_POWER_FACTORY_RESET:
@@ -172,10 +202,10 @@ static void on_power(enum opensc2_power_request request, void *user_data)
 		opensc2_reboot(OPENSC2_REBOOT_WIRELESS, NULL);
 		break;
 	case OPENSC2_POWER_USB_UNPLUGGED:
-		/* The cable was pulled while wired and the board still runs, on a battery or another
-		 * supply (the library waited 0.2 s for USB power to come back): come back wireless on
-		 * it. The real controller shuts down instead; this firmware has no power-off of its
-		 * own. A board on USB power alone has already gone dark. */
+		/* Without the system state machine only (it shuts down itself, then asks for
+		 * OPENSC2_POWER_OFF). The cable was pulled while wired and the board still runs, on a
+		 * battery or another supply: come back wireless on it. A board on USB power alone has
+		 * already gone dark. */
 		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
 		break;
 	case OPENSC2_POWER_BOOTLOADER:
@@ -211,6 +241,7 @@ static const struct opensc2_callbacks callbacks = {
 	.power_request = on_power,
 	.vendor_command = on_vendor,
 	.usb_changed = on_usb,
+	.cue = on_cue,
 };
 
 /* ---- buttons that control the link and the mode ---------------------------------------------- */
@@ -284,10 +315,14 @@ void app_pair_button(bool pressed)
 
 void app_button_pressed(void)
 {
-	/* After a turn-off any button brings the controller back, as STEAM does on the real one. */
+#if !defined(CONFIG_OPENSC2_SYSTEM)
+	/* After a turn-off any button brings the controller back. With the system state machine
+	 * the real controller's rules decide instead: on USB power with wireless off, STEAM
+	 * reboots (the next boot is wired); on battery STEAM wakes the board from power-off. */
 	if (opensc2_mode() == OPENSC2_MODE_WIRELESS && opensc2_link_state() == OPENSC2_LINK_OFF) {
 		opensc2_start();
 	}
+#endif
 }
 
 int main(void)
@@ -304,6 +339,7 @@ int main(void)
 	rumble_init();
 	trackpad_init();
 	imu_init();
+	battery_init();
 
 	config.boot_mode = boot_mode();
 	err = opensc2_init(&config);

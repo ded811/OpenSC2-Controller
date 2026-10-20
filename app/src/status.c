@@ -2,23 +2,26 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * status.c: the status LED (the board's led0).
- *   Wireless, the way the real controller's LED shows the 2.4 GHz link: quick double flashes
- *   while pairing, a slow pulse while searching for the puck, steady when connected. A short blink
- *   every two seconds means "no bond: pair first".
- *   Wired: off for the first half second on the bus (and while a host that configured the board has
- *   let go of it, a bus reset for example); a fast blink (100 ms on, 100 ms off) while no host has
- *   configured the board (a charger, a power bank); on with a short dark blink every two seconds
- *   once a PC has configured it. These cannot be mistaken for the radio's patterns. Dark once the
- *   pairing button has been held 3 s: releasing it then reboots into wireless mode. In the charger
- *   test build (test-charger.conf, a testing aid) the fast blink lasts until the library gives up
- *   on a host (5 s without a request from one); the board then reboots into wireless mode and the
- *   radio's patterns follow.
+ * status.c: the status LED, as the real controller shows it. The library's system state machine
+ * selects a mode (opensc2_led_status()); the library's pattern player (opensc2/led.h) turns it
+ * into a colour every 10 ms with the real controller's patterns, fades and the fully-charged
+ * display: blue for Bluetooth, white with a little blue for the puck (the searching pulse, steady
+ * when connected, breathing on USB power), green while wired, amber on USB power without a host or
+ * with wireless off, red and white flashes for the low-battery and keylock shutdowns. Steam's own
+ * colour (vendor command 0xC5) shows while Steam's override is on.
  *
- * If zephyr,user has PWM channels named "red", "green" and "blue", an RGB LED shows the same
- * patterns in the real controller's colours (the 2.4 GHz white with a little blue; green on a PC,
- * amber without a host), and Steam's own colour (vendor command 0xC5) once Steam turns its LED
- * override on.
+ *   - The board's led0 (one colour) shows the rhythm: on while the pattern is at least half as
+ *     bright as its peak. Amber, which only a colour could tell from green, adds a 100 ms dark
+ *     blink every second on a one-colour LED (OpenSC2's own, so "no host" and "wired" differ).
+ *   - PWM channels named "red", "green", "blue" (and optionally "white") in zephyr,user drive an
+ *     RGB(W) LED, each channel scaled by its trim (zephyr,user `led-trims`, percent, R G B W; the
+ *     real controller's factory values 90 35 120 80 by default) and by the brightness Steam sets
+ *     (setting 45, through the curve of setting 38). Without a white channel, white is mixed into
+ *     red, green and blue.
+ *   - A PWM channel named "ir" is the IR LED: controller setting 36 in percent, off during every
+ *     shutdown and reboot (its setting stays).
+ *   - Dark once the pairing button has been held 3 s while wired: releasing it then reboots into
+ *     wireless mode.
  */
 #include <zephyr/kernel.h>
 #include <zephyr/devicetree.h>
@@ -27,10 +30,11 @@
 #include "app.h"
 
 #define USER DT_PATH(zephyr_user)
-#define TICK_MS 50
 
 #define HAS_RGB (DT_PROP_HAS_NAME(USER, pwms, red) && DT_PROP_HAS_NAME(USER, pwms, green) && \
 		 DT_PROP_HAS_NAME(USER, pwms, blue))
+#define HAS_WHITE DT_PROP_HAS_NAME(USER, pwms, white)
+#define HAS_IR DT_PROP_HAS_NAME(USER, pwms, ir)
 
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET_OR(DT_ALIAS(led0), gpios, { 0 });
 
@@ -41,122 +45,142 @@ static const struct pwm_dt_spec rgb[3] = {
 	PWM_DT_SPEC_GET_BY_NAME(USER, blue),
 };
 #endif
+#if HAS_WHITE
+static const struct pwm_dt_spec white = PWM_DT_SPEC_GET_BY_NAME(USER, white);
+#endif
+#if HAS_IR
+static const struct pwm_dt_spec ir = PWM_DT_SPEC_GET_BY_NAME(USER, ir);
+#endif
 
-static enum opensc2_mode mode = OPENSC2_MODE_WIRELESS;
-static enum opensc2_link_state link = OPENSC2_LINK_OFF;
-static enum opensc2_usb_state usb = OPENSC2_USB_OFF;
-static struct opensc2_led steam_led = { .brightness = 50 };
-static uint32_t tick;
+#if !(HAS_RGB || HAS_WHITE)
+/* No colour LED: no trims. */
+#elif DT_NODE_HAS_PROP(USER, led_trims)
+static const uint8_t trims[4] = {
+	DT_PROP_BY_IDX(USER, led_trims, 0), DT_PROP_BY_IDX(USER, led_trims, 1),
+	DT_PROP_BY_IDX(USER, led_trims, 2), DT_PROP_BY_IDX(USER, led_trims, 3),
+};
+#else
+static const uint8_t trims[4] = { OPENSC2_LED_TRIM_RED, OPENSC2_LED_TRIM_GREEN,
+				  OPENSC2_LED_TRIM_BLUE, OPENSC2_LED_TRIM_WHITE };
+#endif
+
+static struct opensc2_led_player player;
 static volatile bool hold_cue;   /* the pairing button held 3 s while wired: dark */
+static volatile bool off;        /* powering off */
+static volatile uint8_t ir_percent;
+#if !defined(CONFIG_OPENSC2_SYSTEM)
+static enum opensc2_mode mode = OPENSC2_MODE_WIRELESS;
+static enum opensc2_usb_state usb = OPENSC2_USB_OFF;
+#endif
 
-static bool wired_pattern_on(void)
+#if HAS_RGB || HAS_WHITE || HAS_IR
+static void set_duty(const struct pwm_dt_spec *ch, uint16_t duty)
 {
-	switch (usb) {
-	case OPENSC2_USB_NO_HOST:
-		return tick % 4 < 2;                         /* 100 ms on, 100 ms off */
-	case OPENSC2_USB_CONFIGURED:
-		return tick % 40 >= 2;                       /* on, 100 ms dark every 2 s */
-	default:
-		return false;   /* the first 0.5 s, deconfigured, USB power gone, or leaving */
-	}
-}
-
-static bool link_pattern_on(void)
-{
-	switch (link) {
-	case OPENSC2_LINK_NO_BOND:
-		return tick % 40 == 0;                       /* 50 ms every 2 s */
-	case OPENSC2_LINK_PAIRING: {
-		uint32_t phase = tick % 8;                   /* two short flashes every 400 ms */
-
-		return phase == 0 || phase == 2;
-	}
-	case OPENSC2_LINK_LISTENING:
-		return tick % 20 < 4;                        /* 200 ms every second */
-	case OPENSC2_LINK_CONNECTED:
-		return true;
-	default:
-		return false;
-	}
-}
-
-#if HAS_RGB
-static void set_rgb(uint8_t r, uint8_t g, uint8_t b)
-{
-	const uint8_t pct[3] = { r, g, b };
-
-	for (int i = 0; i < 3; i++) {
-		if (pwm_is_ready_dt(&rgb[i])) {
-			pwm_set_pulse_dt(&rgb[i], rgb[i].period * MIN(pct[i], 100) / 100);
-		}
+	if (pwm_is_ready_dt(ch)) {
+		(void)pwm_set_pulse_dt(ch, (uint32_t)((uint64_t)ch->period * duty /
+						      OPENSC2_LED_FULL_SCALE));
 	}
 }
 #endif
+
+/* Without the system state machine (CONFIG_OPENSC2_SYSTEM off) the library selects no mode: a
+ * plain one from the mode and the links. */
+static void get_status(struct opensc2_led_status *st)
+{
+	opensc2_led_status(st);
+#if !defined(CONFIG_OPENSC2_SYSTEM)
+	if (mode == OPENSC2_MODE_WIRED) {
+		st->mode = usb == OPENSC2_USB_CONFIGURED ? OPENSC2_LED_MODE_WIRED :
+			   OPENSC2_LED_MODE_AMBER;
+	} else {
+		st->mode = OPENSC2_LED_MODE_PUCK;
+		st->connected = opensc2_link_state() == OPENSC2_LINK_CONNECTED;
+		st->external_power = true;
+	}
+#endif
+}
 
 static void tick_work_fn(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(tick_work, tick_work_fn);
 
 static void tick_work_fn(struct k_work *work)
 {
-	bool wired = mode == OPENSC2_MODE_WIRED;
-	bool on = !hold_cue && (wired ? wired_pattern_on() : link_pattern_on());
-	bool host = wired ? usb == OPENSC2_USB_CONFIGURED : link == OPENSC2_LINK_CONNECTED;
-	bool steam_colour = host && steam_led.override && !hold_cue;
+	struct opensc2_led_status st;
+	uint32_t now = k_uptime_get_32();
+	uint16_t c[4] = { 0 };
+	bool dark;
 
 	ARG_UNUSED(work);
-	tick++;
+	get_status(&st);
+	opensc2_led_player_step(&player, &st, now, c);
+	dark = hold_cue || off;
 	if (led.port) {
-		/* A one-colour LED shows Steam's override as on or off. */
-		gpio_pin_set_dt(&led, steam_colour ? (steam_led.red | steam_led.green |
-						      steam_led.blue | steam_led.white) != 0 : on);
+		bool on = opensc2_led_player_envelope(&player) >= 500;
+
+		if (st.mode == OPENSC2_LED_MODE_AMBER && !st.override && now % 1000 < 100) {
+			on = false;   /* a one-colour LED cannot show amber: a dark blink instead */
+		}
+		gpio_pin_set_dt(&led, on && !dark);
 	}
 #if HAS_RGB
 	{
-		uint32_t level = steam_led.brightness;   /* controller setting 45, 0..100 */
+		uint16_t w = HAS_WHITE ? 0 : opensc2_led_duty(c[3], trims[3], st.brightness);
 
-		if (steam_colour) {
-			/* Steam's colour; the white channel is mixed into all three. */
-			set_rgb((MIN(steam_led.red + steam_led.white, 100)) * level / 100,
-				(MIN(steam_led.green + steam_led.white, 100)) * level / 100,
-				(MIN(steam_led.blue + steam_led.white, 100)) * level / 100);
-		} else if (!on) {
-			set_rgb(0, 0, 0);
-		} else if (wired && usb == OPENSC2_USB_CONFIGURED) {
-			set_rgb(0, 25 * level / 50, 0);                       /* green on a PC */
-		} else if (wired) {
-			set_rgb(20 * level / 50, 20 * level / 50, 0);         /* amber, no host */
-		} else {
-			set_rgb(80 * level / 100, 80 * level / 100, 100 * level / 100);
+		for (int i = 0; i < 3; i++) {
+			uint32_t d = opensc2_led_duty(c[i], trims[i], st.brightness) + w;
+
+			set_duty(&rgb[i], dark ? 0 : (uint16_t)MIN(d, OPENSC2_LED_FULL_SCALE));
 		}
 	}
 #endif
-	k_work_schedule(&tick_work, K_MSEC(TICK_MS));
+#if HAS_WHITE
+	set_duty(&white, dark ? 0 : opensc2_led_duty(c[3], trims[3], st.brightness));
+#endif
+#if HAS_IR
+	set_duty(&ir, st.shutting_down || off ? 0 : (uint16_t)(ir_percent * 10u));
+#endif
+	if (!off) {
+		k_work_schedule(&tick_work, K_MSEC(OPENSC2_LED_STEP_MS));
+	}
 }
 
 void status_mode(enum opensc2_mode m)
 {
+#if !defined(CONFIG_OPENSC2_SYSTEM)
 	mode = m;
-	tick = 0;
+#else
+	ARG_UNUSED(m);
+#endif
 }
 
 void status_link(enum opensc2_link_state state)
 {
-	link = state;
-	tick = 0;
+	ARG_UNUSED(state);   /* the library's status has it */
 }
 
 void status_usb(enum opensc2_usb_state state)
 {
-	if (state != usb) {
-		tick = 0;
-	}
+#if !defined(CONFIG_OPENSC2_SYSTEM)
 	usb = state;
 	mode = OPENSC2_MODE_WIRED;   /* only a wired board reports USB states */
+#else
+	ARG_UNUSED(state);
+#endif
 }
 
 void status_led(const struct opensc2_led *l)
 {
-	steam_led = *l;
+	ARG_UNUSED(l);   /* the library's status has Steam's colour and brightness */
+}
+
+void status_setting(uint8_t number, int16_t value)
+{
+	if (number == OPENSC2_SETTING_IR_LED_BRIGHTNESS) {
+		ir_percent = (uint8_t)CLAMP(value, 0, 100);
+	} else if (number == OPENSC2_SETTINGS_ALL) {
+		ir_percent = (uint8_t)CLAMP(opensc2_setting_get(OPENSC2_SETTING_IR_LED_BRIGHTNESS), 0,
+					    100);
+	}
 }
 
 void status_hold_cue(bool on)
@@ -164,11 +188,34 @@ void status_hold_cue(bool on)
 	hold_cue = on;
 }
 
+void status_off(void)
+{
+	struct k_work_sync sync;
+
+	off = true;
+	(void)k_work_cancel_delayable_sync(&tick_work, &sync);
+	if (led.port) {
+		gpio_pin_set_dt(&led, 0);
+	}
+#if HAS_RGB
+	for (int i = 0; i < 3; i++) {
+		set_duty(&rgb[i], 0);
+	}
+#endif
+#if HAS_WHITE
+	set_duty(&white, 0);
+#endif
+#if HAS_IR
+	set_duty(&ir, 0);
+#endif
+}
+
 int status_init(void)
 {
 	if (led.port && gpio_is_ready_dt(&led)) {
 		gpio_pin_configure_dt(&led, GPIO_OUTPUT_INACTIVE);
 	}
-	k_work_schedule(&tick_work, K_MSEC(TICK_MS));
+	opensc2_led_player_init(&player);
+	k_work_schedule(&tick_work, K_MSEC(OPENSC2_LED_STEP_MS));
 	return 0;
 }

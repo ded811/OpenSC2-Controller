@@ -501,6 +501,14 @@ uint8_t osc2_sys_level(uint8_t charge_state, uint8_t level)
 	return (charge_state & 0x80) && level > 0 ? 100 : level;
 }
 
+uint8_t opensc2_charge_state_of(bool input_power, bool charging)
+{
+	if (!input_power) {
+		return OPENSC2_CHARGE_DISCHARGING;
+	}
+	return charging ? OPENSC2_CHARGE_CHARGING : OPENSC2_CHARGE_DONE;
+}
+
 /* ---- keys ------------------------------------------------------------------------------------- */
 
 uint8_t osc2_sys_key_id(const uint8_t *payload, uint8_t len, uint8_t *name_len)

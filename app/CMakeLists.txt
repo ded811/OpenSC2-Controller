@@ -21,4 +21,5 @@ target_sources(app PRIVATE
 	src/rumble.c
 	src/trackpad.c
 	src/imu.c
+	src/battery.c
 )
