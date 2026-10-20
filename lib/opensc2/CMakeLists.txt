@@ -34,10 +34,28 @@ zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 	usb_rules.c
 	usblog.c
 )
-# The retained area, and the CRC-32 the test hooks use too.
-if(CONFIG_OPENSC2_USB OR CONFIG_OPENSC2_TEST_HOOKS)
+# The retained area, and the CRC-32 the test hooks and the haptics synthesiser's captures use too.
+if(CONFIG_OPENSC2_USB OR CONFIG_OPENSC2_TEST_HOOKS OR CONFIG_OPENSC2_HAPTICS_SYNTH)
   zephyr_library_sources(retained.c)
 endif()
+# The haptics synthesiser (Kconfig.hap), or its API answering -ENOTSUP; the pure helpers always.
+if(CONFIG_OPENSC2_HAPTICS_SYNTH)
+  zephyr_library_sources(
+	haptics.c
+	haptics_core.c
+	haptics_dsp.c
+	haptics_rules.c
+	haptics_run.c
+	haptics_sounds.c
+	haptics_tables.c
+  )
+  zephyr_library_sources_ifdef(CONFIG_OPENSC2_HAPTICS_OUT_I2S haptics_out_i2s.c)
+  zephyr_library_sources_ifdef(CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC haptics_out_pwm.c)
+  zephyr_library_sources_ifdef(CONFIG_OPENSC2_HAPTICS_OUT_DRV2605 haptics_out_drv2605.c)
+else()
+  zephyr_library_sources(haptics_off.c)
+endif()
+zephyr_library_sources(haptics_help.c)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_SHELL shell.c)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_FUSION fusion.c)
 # The hardware test hooks (tools/hwtest).

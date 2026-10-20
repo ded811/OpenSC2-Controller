@@ -15,6 +15,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include "internal.h"
+#include "haptics_glue.h"
 #include "lizard.h"
 #include "report_rules.h"
 #include "test_hooks.h"
@@ -302,6 +303,8 @@ int osc2_output_dispatch(enum osc2_link link, const uint8_t *report, size_t len)
 			}
 		}
 	}
+	/* The haptics synthesiser (CONFIG_OPENSC2_HAPTICS_SYNTH) plays them too. */
+	osc2_haptics_outputs((uint8_t)link, out, n);
 	return n;
 }
 
