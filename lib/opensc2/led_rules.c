@@ -4,10 +4,10 @@
  *
  * led_rules.c: the status LED's pattern player, brightness curve and duty (opensc2/led.h). Pure
  * logic. The patterns, colours and timings are the protocol documentation's description of the
- * real controller's LED engine (not public yet; docs/protocol.md lists the pages); the engine was
- * read from code there, never watched on a controller. The engine plays one cycle of a pattern at
- * a time and picks the next cycle from the status when one ends; fades are linear in 10 ms steps
- * and start from the colour last shown.
+ * real controller's LED engine (not public yet; docs/protocol.md lists the pages); none of it has
+ * been compared with a real controller's LED. The engine plays one cycle of a pattern at a time
+ * and picks the next cycle from the status when one ends; fades are linear in 10 ms steps and
+ * start from the colour last shown.
  */
 #include <string.h>
 #include <opensc2/led.h>
@@ -62,7 +62,7 @@ uint16_t opensc2_led_duty(uint16_t colour, uint8_t trim, uint8_t brightness)
 	return (uint16_t)(d > OPENSC2_LED_FULL_SCALE ? OPENSC2_LED_FULL_SCALE : d);
 }
 
-/* ---- building one cycle ----------------------------------------------------------------------- */
+/* ---- building one cycle ---------------------------------------------------------------------- */
 
 static void add(struct opensc2_led_player *p, uint8_t kind, uint16_t ms, const uint16_t c[4])
 {
@@ -203,7 +203,7 @@ static void build(struct opensc2_led_player *p, const struct opensc2_led_status 
 	}
 }
 
-/* ---- playing it --------------------------------------------------------------------------------- */
+/* ---- playing it ------------------------------------------------------------------------------ */
 
 void opensc2_led_player_init(struct opensc2_led_player *player)
 {

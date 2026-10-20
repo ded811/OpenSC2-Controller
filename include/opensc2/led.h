@@ -64,7 +64,7 @@ struct opensc2_led_status {
 /* The status now (the library's own, never NULL fields). */
 void opensc2_led_status(struct opensc2_led_status *status);
 
-/* ---- the pattern player (pure; one per LED) ------------------------------------------------ */
+/* ---- the pattern player (pure; one per LED) -------------------------------------------------- */
 
 #define OPENSC2_LED_FULL_SCALE 1000   /* colours are thousandths of full duty */
 #define OPENSC2_LED_STEP_MS    10     /* call opensc2_led_player_step() this often */

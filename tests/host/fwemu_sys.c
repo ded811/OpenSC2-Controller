@@ -275,7 +275,7 @@ void emu_sys_process(void)
 	}
 }
 
-/* ---- what commands.c asks (the emulator is built with CONFIG_OPENSC2_SYSTEM) ------------------- */
+/* ---- what commands.c asks (the emulator is built with CONFIG_OPENSC2_SYSTEM) ----------------- */
 
 void osc2_sys_setting(uint8_t number)
 {
@@ -328,7 +328,7 @@ int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t *out, uint8_t
 	return 0;
 }
 
-/* ---- the test hooks' environment ---------------------------------------------------------------- */
+/* ---- the test hooks' environment ------------------------------------------------------------- */
 
 static void env_status(uint8_t out[OSC2_TEST_SYS_STATUS_LEN])
 {
@@ -394,7 +394,7 @@ static const struct osc2_test_sys_env env = {
 	.event = env_event,
 };
 
-/* ---- what fwemu.c calls ------------------------------------------------------------------------- */
+/* ---- what fwemu.c calls ---------------------------------------------------------------------- */
 
 bool emu_sys_boot_wireless(void)
 {

@@ -124,7 +124,7 @@ OPENSC2_TEST(chord_timers)
 	CHECK_EQ(o.events, 0);
 }
 
-/* ---- the idle monitor -------------------------------------------------------------------------- */
+/* ---- the idle monitor ------------------------------------------------------------------------ */
 
 OPENSC2_TEST(idle_monitor)
 {
@@ -216,7 +216,7 @@ OPENSC2_TEST(idle_monitor)
 	}
 }
 
-/* ---- the machine --------------------------------------------------------------------------------- */
+/* ---- the machine ----------------------------------------------------------------------------- */
 
 static struct osc2_sys sm;
 static struct osc2_sys_in sysin;
@@ -688,7 +688,7 @@ OPENSC2_TEST(sys_sources_cues_levels)
 	CHECK(strcmp(osc2_sys_state_name(200), "?") == 0);
 }
 
-/* ---- the status LED ----------------------------------------------------------------------------- */
+/* ---- the status LED -------------------------------------------------------------------------- */
 
 OPENSC2_TEST(led_brightness)
 {

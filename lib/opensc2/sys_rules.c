@@ -7,7 +7,7 @@
 #include <string.h>
 #include "sys_rules.h"
 
-/* ---- small helpers ---------------------------------------------------------------------------- */
+/* ---- small helpers --------------------------------------------------------------------------- */
 
 static uint8_t usable_transport(uint8_t stored)
 {
@@ -73,7 +73,7 @@ static void timer(struct osc2_sys *m, uint32_t now_ms, uint32_t ms)
 	m->timer_at = now_ms + ms;
 }
 
-/* ---- ending ----------------------------------------------------------------------------------- */
+/* ---- ending ---------------------------------------------------------------------------------- */
 
 static uint8_t end_of(const struct osc2_sys *m, const struct osc2_sys_in *in)
 {
@@ -104,7 +104,7 @@ static void finish(struct osc2_sys *m, const struct osc2_sys_in *in, struct osc2
 	o->end_cause = m->end_cause;
 }
 
-/* ---- entering a state ------------------------------------------------------------------------- */
+/* ---- entering a state ------------------------------------------------------------------------ */
 
 static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t state, uint8_t cause,
 		  uint32_t now_ms, struct osc2_sys_out *o)
@@ -191,7 +191,7 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 	}
 }
 
-/* ---- the power-on decision -------------------------------------------------------------------- */
+/* ---- the power-on decision ------------------------------------------------------------------- */
 
 void osc2_sys_boot(struct osc2_sys *m, const struct osc2_sys_in *in,
 		   const struct osc2_sys_boot_in *boot, uint32_t now_ms, struct osc2_sys_out *out)
@@ -252,7 +252,7 @@ void osc2_sys_boot(struct osc2_sys *m, const struct osc2_sys_in *in,
 	}
 }
 
-/* ---- events ----------------------------------------------------------------------------------- */
+/* ---- events ---------------------------------------------------------------------------------- */
 
 static bool is_request(uint8_t ev)
 {
@@ -467,7 +467,7 @@ int osc2_sys_source_event(uint8_t before, uint8_t after)
 	return after == OSC2_SRC_DOCK ? OSC2_SYS_EV_POWER_DOCK : OSC2_SYS_EV_POWER_USB;
 }
 
-/* ---- cues and levels -------------------------------------------------------------------------- */
+/* ---- cues and levels ------------------------------------------------------------------------- */
 
 bool osc2_cue_map(uint8_t c, uint8_t level, uint8_t *script, int8_t *gain_db)
 {
@@ -509,7 +509,7 @@ uint8_t opensc2_charge_state_of(bool input_power, bool charging)
 	return charging ? OPENSC2_CHARGE_CHARGING : OPENSC2_CHARGE_DONE;
 }
 
-/* ---- keys ------------------------------------------------------------------------------------- */
+/* ---- keys ------------------------------------------------------------------------------------ */
 
 uint8_t osc2_sys_key_id(const uint8_t *payload, uint8_t len, uint8_t *name_len)
 {
@@ -535,7 +535,7 @@ uint8_t osc2_sys_key_size(uint8_t id)
 	return id == OSC2_SYS_KEY_KEYLOCK ? 4 : id == OSC2_SYS_KEY_FULL_LED ? 1 : 0;
 }
 
-/* ---- names ------------------------------------------------------------------------------------ */
+/* ---- names ----------------------------------------------------------------------------------- */
 
 const char *osc2_sys_state_name(uint8_t state)
 {

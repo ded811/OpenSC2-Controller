@@ -27,7 +27,7 @@ static struct {
 	uint32_t release_ms;
 } sys;
 
-/* ---- pure helpers ------------------------------------------------------------------------------ */
+/* ---- pure helpers ---------------------------------------------------------------------------- */
 
 void osc2_test_sys_boot_pack(const struct osc2_test_sys_boot *b,
 			     uint32_t words[OSC2_TEST_SYS_BOOT_WORDS])
@@ -171,7 +171,7 @@ bool osc2_test_sys_fields(char *out, size_t size, size_t *at, uint8_t kind, cons
 	}
 }
 
-/* ---- the ops ------------------------------------------------------------------------------------ */
+/* ---- the ops --------------------------------------------------------------------------------- */
 
 void osc2_test_sys_stop(void)
 {
@@ -297,7 +297,7 @@ uint8_t osc2_test_sys_op(struct osc2_test_core *c, const struct osc2_test_env *e
 	}
 }
 
-/* ---- the injected inputs, for test_sys_notes.c (with the environment's lock) -------------------- */
+/* ---- the injected inputs, for test_sys_notes.c (with the environment's lock) ----------------- */
 
 void osc2_test_sys_init(void)
 {

@@ -60,7 +60,7 @@ bool osc2_test_sys_poll(uint32_t now_ms)
 	return osc2_test_sys_hold_poll(ENV, now_ms);
 }
 
-/* ---- notes (only while armed) ------------------------------------------------------------------ */
+/* ---- notes (only while armed) ---------------------------------------------------------------- */
 
 static void note(uint8_t kind, const uint8_t *d, uint8_t n)
 {

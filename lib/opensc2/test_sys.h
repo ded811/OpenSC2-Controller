@@ -110,7 +110,7 @@ struct osc2_test_sys_env {
 	void (*event)(uint8_t kind);
 };
 
-/* ---- the ops (test_core.c's dispatcher hands 0x70..0x77 over) --------------------------------- */
+/* ---- the ops (test_core.c's dispatcher hands 0x70..0x77 over) -------------------------------- */
 
 /* Run one op. `console`: the console transport (an op other than SYS_STATUS answers NOT_ARMED
  * there while unarmed). Returns the answer status; the result goes to `result`, `*rlen`. */
@@ -125,7 +125,7 @@ void osc2_test_sys_stop(void);
 
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 
-/* ---- what the glue asks (each returns at once when nothing is injected) ------------------------ */
+/* ---- what the glue asks (each returns at once when nothing is injected) ---------------------- */
 
 bool osc2_test_sys_buttons(uint32_t *buttons);
 bool osc2_test_sys_level(uint8_t *level);
@@ -139,7 +139,7 @@ int32_t osc2_test_sys_next(uint32_t now_ms);
 /* Call at that deadline. True when the injected buttons changed. */
 bool osc2_test_sys_poll(uint32_t now_ms);
 
-/* ---- notes for the ring (while armed) ------------------------------------------------------- */
+/* ---- notes for the ring (while armed) -------------------------------------------------------- */
 
 void osc2_test_sys_note_state(uint8_t from, uint8_t to, uint8_t cause, uint8_t transport,
 			      uint8_t source);
@@ -250,7 +250,7 @@ static inline void osc2_test_sys_note_idle(uint16_t history)
 
 #endif /* CONFIG_OPENSC2_TEST_HOOKS */
 
-/* ---- pure helpers (the host tests check each) -------------------------------------------------- */
+/* ---- pure helpers (the host tests check each) ------------------------------------------------ */
 
 /* SYS_BOOT's arguments <-> the retained words (a magic word, the buttons, the rest). */
 void osc2_test_sys_boot_pack(const struct osc2_test_sys_boot *b,
@@ -268,7 +268,7 @@ const char *osc2_test_sys_kind_name(uint8_t kind);
 bool osc2_test_sys_fields(char *out, size_t size, size_t *at, uint8_t kind, const uint8_t *d,
 			  uint8_t n);
 
-/* ---- the injected inputs (test_sys.c), for test_sys_notes.c ------------------------------------- */
+/* ---- the injected inputs (test_sys.c), for test_sys_notes.c ---------------------------------- */
 
 /* The glue's environment; NULL (no system state machine in this build): the ops answer DENIED. */
 extern const struct osc2_test_sys_env *osc2_test_sys_env;
