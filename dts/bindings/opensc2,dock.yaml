@@ -38,3 +38,13 @@ properties:
       The pilot sense: one ADC channel on the pin that sees the pilot, with no divider, set up
       as gain 1/6 of the internal 0.6 V reference, 12 bits (3600 mV full scale). The pilot is
       present while a reading lies inside 2000 to 3300 mV.
+
+  plus-gpios:
+    type: phandle-array
+    description: |
+      Optional: a digital input that reads active while the dock's + pad carries power (through
+      a divider or a comparator of the board's own: the + pad must never reach the chip's USB
+      supply pin). With it the library runs the dock's supply rule (the dock's power when the +
+      appears with the pilot present) and the system state machine takes the dock as its power
+      source; without it the board never counts as powered by the dock. app/dock.overlay has
+      none.

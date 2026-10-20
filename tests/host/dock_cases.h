@@ -406,6 +406,26 @@ OPENSC2_TEST(dock_link_session_errors)
 	CHECK_EQ(info.last_end, OSC2_DOCK_END_STOPPED);
 }
 
+/* The supply rule on the board's readings (dock_link.c), which the system state machine takes as
+ * its power source: the dock's power only when the + appears with the pilot, decided when the
+ * supply appears. */
+OPENSC2_TEST(dock_link_supply)
+{
+	stub_reset();
+	CHECK_EQ(osc2_dock_supply_step(false, false, false), OSC2_DOCK_SUPPLY_NONE);
+	CHECK_EQ(osc2_dock_supply_step(false, true, true), OSC2_DOCK_SUPPLY_DOCK);
+	CHECK_EQ(osc2_dock_supply_step(false, true, false), OSC2_DOCK_SUPPLY_DOCK);   /* decided */
+	CHECK_EQ(osc2_dock_supply_step(true, true, false), OSC2_DOCK_SUPPLY_DOCK);    /* and USB */
+	CHECK_EQ(osc2_dock_supply_step(false, false, false), OSC2_DOCK_SUPPLY_NONE);  /* lifted off */
+	CHECK_EQ(osc2_dock_supply_step(false, true, false), OSC2_DOCK_SUPPLY_USB);    /* no pilot */
+	CHECK_EQ(osc2_dock_supply_step(false, true, true), OSC2_DOCK_SUPPLY_USB);     /* all along */
+	CHECK_EQ(osc2_dock_supply_step(false, false, true), OSC2_DOCK_SUPPLY_NONE);
+	CHECK_EQ(osc2_dock_supply_step(true, false, true), OSC2_DOCK_SUPPLY_USB);     /* USB only */
+	osc2_dock_reset();
+	CHECK_EQ(osc2_dock_supply_step(true, true, true), OSC2_DOCK_SUPPLY_DOCK);     /* both: dock */
+	osc2_dock_reset();
+}
+
 OPENSC2_TEST(dock_link_timing)
 {
 	uint8_t req[OPENSC2_DOCK_FRAME_LEN];

@@ -21,13 +21,17 @@
 #include <zephyr/logging/log.h>
 #include "internal.h"
 #include "dock_link.h"
+#include "system.h"
 #include "test_dock.h"
 
 #if defined(CONFIG_OPENSC2_DOCK)
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/adc.h>
+#include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/uart.h>
+#include <zephyr/init.h>
+#include <zephyr/sys/atomic.h>
 #endif
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -47,6 +51,13 @@ uint32_t osc2_dock_now_us(void)
 	return (uint32_t)k_ticks_to_us_floor64((uint64_t)k_uptime_ticks());
 }
 
+#if !defined(CONFIG_OPENSC2_DOCK)
+enum osc2_dock_supply osc2_dock_supply(void)
+{
+	return OSC2_DOCK_SUPPLY_NONE;   /* no dock pins: the dock never powers the board */
+}
+#endif
+
 #if defined(CONFIG_OPENSC2_DOCK)
 
 /* ---- the UART and the pilot (CONFIG_OPENSC2_DOCK) -------------------------------------------- */
@@ -58,6 +69,12 @@ BUILD_ASSERT(DT_NODE_HAS_STATUS(DOCK_NODE, okay),
 
 static const struct device *const uart = DEVICE_DT_GET(DT_PHANDLE(DOCK_NODE, uart));
 static const struct adc_dt_spec pilot = ADC_DT_SPEC_GET(DOCK_NODE);
+/* The dock's + on a sense input of its own (optional): without one the board never counts as
+ * powered by the dock. */
+static const struct gpio_dt_spec plus = GPIO_DT_SPEC_GET_OR(DOCK_NODE, plus_gpios, { 0 });
+static bool plus_ready;
+/* The last pilot check passed (and stays so while the session it started runs). */
+static atomic_t pilot_seen;
 
 static uint8_t rx_buf[OPENSC2_DOCK_FRAME_LEN];
 static uint8_t tx_buf[OPENSC2_DOCK_FRAME_LEN];
@@ -127,7 +144,32 @@ static bool pilot_check(void)
 	if (present) {
 		osc2_test_note_dock_pilot(mv, inside, present);   /* not every failed check */
 	}
+	if (atomic_set(&pilot_seen, present ? 1 : 0) != (present ? 1 : 0)) {
+		osc2_sys_buttons_changed();   /* the system state machine looks at the supply now */
+	}
 	return present;
+}
+
+/* Before the application starts: the + sense set up and one pilot check, so that the power-on
+ * decision in opensc2_init() already knows whether the board rests on the dock. */
+static int dock_boot_check(void)
+{
+	if (plus.port != NULL && gpio_is_ready_dt(&plus) &&
+	    gpio_pin_configure_dt(&plus, GPIO_INPUT) == 0) {
+		plus_ready = true;
+	}
+	if (adc_is_ready_dt(&pilot) && adc_channel_setup_dt(&pilot) == 0) {
+		(void)pilot_check();
+	}
+	return 0;
+}
+SYS_INIT(dock_boot_check, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+
+enum osc2_dock_supply osc2_dock_supply(void)
+{
+	bool on_plus = plus_ready && gpio_pin_get_dt(&plus) > 0;
+
+	return osc2_dock_supply_step(osc2_usb_power(), on_plus, atomic_get(&pilot_seen) != 0);
 }
 
 /* Arm the receiver for one frame and wait for it, without a time limit. Returns the bytes that

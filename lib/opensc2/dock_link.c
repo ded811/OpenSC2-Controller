@@ -28,6 +28,7 @@ static struct {
 	uint32_t session_frames;
 	bool cache_valid;
 	uint8_t cache[REPORT_BODY];
+	struct osc2_dock_power_rule supply;   /* the supply rule on the board's readings */
 } dock;
 
 /* One frame at a time, from the UART or from the test hooks: the stored request and the answer
@@ -46,6 +47,7 @@ void osc2_dock_reset(void)
 	dock.sessions = dock.frames = dock.errors = dock.slowest_us = dock.session_frames = 0;
 	dock.cache_valid = false;
 	memset(dock.cache, 0, sizeof(dock.cache));
+	memset(&dock.supply, 0, sizeof(dock.supply));
 	k_spin_unlock(&dock.lock, key);
 }
 
@@ -142,6 +144,23 @@ void osc2_dock_cache_report(const uint8_t report[OPENSC2_STATE_REPORT_LEN])
 uint32_t osc2_dock_interval_us(uint32_t other)
 {
 	return osc2_dock_alone() ? OPENSC2_DOCK_INTERVAL_US : other;
+}
+
+/* ---- the supply ------------------------------------------------------------------------------ */
+
+enum osc2_dock_supply osc2_dock_supply_step(bool usb, bool plus, bool pilot)
+{
+	const struct osc2_dock_power_in in = { .usb = usb, .plus = plus, .pilot = pilot };
+	k_spinlock_key_t key = k_spin_lock(&dock.lock);
+	int ev = osc2_dock_power_step(&dock.supply, &in);
+	enum osc2_dock_supply kind = dock.supply.kind;
+
+	k_spin_unlock(&dock.lock, key);
+	if (ev >= 0) {
+		LOG_INF("Supply: %s", kind == OSC2_DOCK_SUPPLY_DOCK ? "the dock's power" :
+				      kind == OSC2_DOCK_SUPPLY_USB ? "USB power" : "none");
+	}
+	return kind;
 }
 
 /* ---- the requests, on the library ------------------------------------------------------------ */

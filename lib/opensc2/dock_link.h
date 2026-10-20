@@ -11,7 +11,9 @@
  *   - GET input: with another link up, the copy of the latest state report that report.c leaves
  *     here (the dock never takes a sequence number from that link's stream); with the dock alone,
  *     one new report per request;
- *   - attribute 11 of 0x83: 64000 µs while the dock is the only link.
+ *   - attribute 11 of 0x83: 64000 µs while the dock is the only link;
+ *   - the supply rule on the board's readings (dock power or USB power), which the system state
+ *     machine takes as its power source while the application leaves that to the library.
  * Nothing goes out on the dock but the answers: no lizard reports, no 0x43, no 0x44.
  *
  * Who feeds it frames: dock.c's UART (CONFIG_OPENSC2_DOCK) and the hardware test hooks' dock frame
@@ -81,6 +83,17 @@ void osc2_dock_cache_report(const uint8_t report[OPENSC2_STATE_REPORT_LEN]);
 /* commands.c: attribute 11 of 0x83, `other` unless the dock is the current link. */
 uint32_t osc2_dock_interval_us(uint32_t other);
 
+/* The supply rule (dock_rules.h) on one reading of the board's inputs: `usb` USB power on the USB
+ * input, `plus` the dock's + on its sense input, `pilot` the pilot check passed (the last one, or
+ * the one that started the running session). Returns the supply in effect, decided when it
+ * appeared (a change between USB and the dock with power all along changes nothing). */
+enum osc2_dock_supply osc2_dock_supply_step(bool usb, bool plus, bool pilot);
+/* The supply as the board sees it now (dock.c): the rule stepped on USB power, the dock's + sense
+ * input (`plus-gpios` of the opensc2,dock node) and the pilot. Never the dock without the dock's
+ * pins (CONFIG_OPENSC2_DOCK) or without a + sense input. system.c takes OSC2_DOCK_SUPPLY_DOCK as
+ * the power source OPENSC2_POWER_SOURCE_DOCK while the application leaves it on AUTO. */
+enum osc2_dock_supply osc2_dock_supply(void);
+
 /* Build one state report now (report.c's osc2_report_state(), which also leaves its copy here):
  * GET input with the dock alone. dock.c has it in the firmware; the host tests and the firmware
  * emulator have their own. */
@@ -108,6 +121,11 @@ static inline void osc2_dock_cache_report(const uint8_t report[OPENSC2_STATE_REP
 static inline uint32_t osc2_dock_interval_us(uint32_t other)
 {
 	return other;
+}
+
+static inline enum osc2_dock_supply osc2_dock_supply(void)
+{
+	return OSC2_DOCK_SUPPLY_NONE;   /* no dock link: the dock never powers the board */
 }
 
 #endif /* CONFIG_OPENSC2_DOCK_LINK */

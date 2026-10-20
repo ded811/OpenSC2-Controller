@@ -27,6 +27,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
+#include "dock_link.h"
 #include "keys.h"
 #include "system.h"
 
@@ -190,6 +191,10 @@ static uint8_t detect_source(void)
 		return OSC2_SRC_DOCK;
 	default:
 		break;
+	}
+	/* The dock's supply rule (dock.c): its + sensed, with the pilot when the supply appeared. */
+	if (osc2_dock_supply() == OSC2_DOCK_SUPPLY_DOCK) {
+		return OSC2_SRC_DOCK;
 	}
 	if (osc2_usb_power()) {
 		return OSC2_SRC_USB;

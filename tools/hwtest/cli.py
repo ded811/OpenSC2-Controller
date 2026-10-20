@@ -36,7 +36,8 @@ def _parse(argv):
                         "Windows made of it (docs/testing.md, Bluetooth)")
     p.add_argument("--dock", action="store_true",
                    help="also run group dock: the board's dock link fed frames through the test "
-                        "hooks (nothing wired, never the puck's pads)")
+                        "hooks (nothing wired, never the puck's pads); on the wired and wireless "
+                        "paths, not with --bluetooth")
     p.add_argument("--with-steam", action="store_true", help="also run group steam (passive)")
     p.add_argument("--steam-control", action="store_true",
                    help="let the runner close and start Steam")
@@ -97,9 +98,10 @@ def main(argv=None):
     if a.wired_only and a.wireless_only:
         print("--wired-only and --wireless-only are exclusive")
         return C.EXIT_USAGE
-    if a.bluetooth and (a.wired_only or a.wireless_only or a.through_puck or a.with_steam):
+    if a.bluetooth and (a.wired_only or a.wireless_only or a.through_puck or a.with_steam or
+                        a.dock):
         print("--bluetooth runs the Bluetooth path alone: without --wired-only, --wireless-only, "
-              "--through-puck and --with-steam")
+              "--through-puck, --with-steam and --dock")
         return C.EXIT_USAGE
     if a.bluetooth and a.fw_emu:
         print("the firmware emulator has no Bluetooth link: a --bluetooth dry run uses the "

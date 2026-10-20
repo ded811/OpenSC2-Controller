@@ -141,11 +141,11 @@ static void lizard_haptics(const struct opensc2_haptic *h, uint8_t n)
 			osc2.cb->haptic(&h[i], osc2.user_data);
 		}
 	}
-	/* The haptics synthesiser plays them as the real controller does: while lizard mode is on and
-	 * setting 70 is exactly 1 (lizard.c makes them only then), never on the dock. */
+	/* The haptics synthesiser plays them as the real controller does: while lizard mode is on,
+	 * setting 70 is exactly 1 (lizard.c makes them only then) and the current link is USB, the
+	 * puck or Bluetooth, not the dock. */
 	if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_SYNTH) && n && opensc2_lizard_mode() &&
-	    osc2.settings[OPENSC2_SETTING_HAPTICS_ENABLED] == 1 &&
-	    opensc2_power_source() != OPENSC2_POWER_SOURCE_DOCK) {
+	    osc2.settings[OPENSC2_SETTING_HAPTICS_ENABLED] == 1 && !osc2_dock_alone()) {
 		osc2_haptics_library(h, n);
 	}
 }
