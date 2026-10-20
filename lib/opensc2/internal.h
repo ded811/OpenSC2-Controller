@@ -236,6 +236,24 @@ int osc2_ble_pair(void);
 int osc2_ble_send(const uint8_t *report, size_t len, bool droppable);
 /* The Bluetooth link's state in the terms of the radio's (opensc2_link_state()). */
 void osc2_ble_info(struct opensc2_link_info *info);
+/* For the shell: what the Bluetooth link is doing. */
+struct osc2_ble_status {
+	bool enabled;          /* the stack is on */
+	bool advertising;
+	bool open;             /* advertising in pairing mode (any host), else for the bonded one */
+	bool connected;
+	bool active;           /* past the gate: reports flow */
+	bool trigger;          /* paced by the connection-event trigger (else by a timer) */
+	uint8_t slot;          /* 0 or 1 */
+	uint8_t id;            /* the identity in use */
+	uint8_t security;      /* the link's security level */
+	uint16_t mtu;
+	uint32_t interval_us;
+	uint32_t reports, dropped;
+	char name[32];
+	char address[32];      /* the identity's own address, as text */
+};
+void osc2_ble_status(struct osc2_ble_status *st);
 #else
 static inline bool osc2_ble_owns_radio(void)
 {

@@ -31,5 +31,7 @@ ENTRY 000000001202060182000103fe                         # HAPTIC command 3, gai
 ENTRY 00000000120206048503040700                         # HAPTIC script 7, gain 0, 0x85 target 3 (left grip)
 ENTRY 0000000012020905860402010501a00f                   # HAPTIC PCM control, 0x86 target 4 (right pad), operation 1, format 5: encoding 1, 4000 Hz
 ENTRY 0000000011030a00000000000000000001                 # RUMBLE all zero, timeout 1, link none (the rumble timeout)
+ENTRY 000000004004080104100000010000                     # BLE state 4 (connected), reason 16 (paired), slot 1, identity 1, Bluetooth
+ENTRY 00000000400408050143004c1d0000                     # BLE gate up, ATT MTU 67, interval 7500 us, Bluetooth
 # a hex value split into tokens: the LED entry above again
 ENTRY 00000000 13 01 06 64 00 32 0a 00 32

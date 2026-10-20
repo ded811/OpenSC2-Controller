@@ -319,6 +319,45 @@ static int cmd_transport(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+#if defined(CONFIG_OPENSC2_BLE)
+/* `ble [status]`: the Bluetooth link. The address is the board's own (the identity in use). */
+static int cmd_ble_status(const struct shell *sh, size_t argc, char **argv)
+{
+	struct osc2_ble_status st;
+
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	osc2_ble_status(&st);
+	shell_print(sh, "bluetooth: %s%s; slot %u, identity %u %s", st.enabled ? "on" : "off",
+		    !osc2_transport_is_ble(osc2_transport_running()) ? " (not the transport)" : "",
+		    st.slot + 1, st.id, st.address[0] ? st.address : "-");
+	shell_print(sh, "name:      %s", st.name[0] ? st.name : "-");
+	if (st.connected) {
+		shell_print(sh, "link:      connected%s, security %u, ATT MTU %u, interval %u us, "
+			    "paced by %s", st.active ? " and active" : " (waiting for encryption and "
+			    "an ATT MTU of 64)", st.security, st.mtu, st.interval_us,
+			    st.trigger ? "the connection events" : "a timer");
+		shell_print(sh, "traffic:   %u state reports, %u dropped", st.reports, st.dropped);
+	} else {
+		shell_print(sh, "link:      %s", st.advertising ? (st.open ? "advertising, open to any "
+			    "host (pairing mode)" : "advertising for the bonded host") : "idle");
+	}
+	return 0;
+}
+
+static int cmd_ble_pair(const struct shell *sh, size_t argc, char **argv)
+{
+	ARG_UNUSED(argc);
+	ARG_UNUSED(argv);
+	if (!osc2_transport_is_ble(osc2_transport_running())) {
+		shell_error(sh, "Bluetooth is not the transport: opensc2 transport ble");
+		return -EBUSY;
+	}
+	shell_print(sh, "Pairing mode: the slot forgets its host and is open to a new one");
+	return osc2_ble_pair();
+}
+#endif
+
 static int cmd_bonds(const struct shell *sh, size_t argc, char **argv)
 {
 	ARG_UNUSED(argc);
@@ -485,6 +524,14 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_id,
 	SHELL_CMD(clear, NULL, "Forget the stored identity (the name too)", cmd_id_clear),
 	SHELL_SUBCMD_SET_END);
 
+#if defined(CONFIG_OPENSC2_BLE)
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_ble,
+	SHELL_CMD(status, NULL, "The Bluetooth link", cmd_ble_status),
+	SHELL_CMD(pair, NULL, "Pairing mode: open the slot to a new host (its old one is forgotten)",
+		  cmd_ble_pair),
+	SHELL_SUBCMD_SET_END);
+#endif
+
 #if defined(CONFIG_OPENSC2_USB)
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_usb,
 	SHELL_CMD_ARG(log, NULL, "The USB session log of the last wired sessions: log [clear]",
@@ -509,6 +556,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_opensc2,
 	SHELL_CMD_ARG(transport, NULL,
 		      "Show or run a wireless transport: transport [puck|puck2|ble|ble2] [save]",
 		      cmd_transport, 1, 2),
+#if defined(CONFIG_OPENSC2_BLE)
+	SHELL_CMD(ble, &sub_ble, "Bluetooth LE: status, pair", cmd_ble_status),
+#endif
 	SHELL_CMD(bonds, NULL, "List the bonds", cmd_bonds),
 	SHELL_CMD_ARG(forget, NULL, "Delete a bond: forget <1|2>", cmd_forget, 2, 0),
 	SHELL_CMD(id, &sub_id, "Identity", cmd_id_show),

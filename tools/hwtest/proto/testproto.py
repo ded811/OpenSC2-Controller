@@ -298,6 +298,11 @@ def _decode_entry_data(kind, d):
         e["git_revision"] = bytes(d[14:26]).split(b"\0", 1)[0].decode("ascii", "replace")
     elif kind == C.RING_CHANNELS:
         e["channels"] = list(d[0:4])
+    elif kind == C.RING_BLE and len(d) >= 8:
+        e["event"] = d[0]
+        e["event_name"] = C.BLE_EVENT_NAMES.get(d[0], "?")
+        e["a"] = d[1]
+        e["b"], e["c"] = struct.unpack_from("<HI", d, 2)
     return e
 
 
@@ -386,6 +391,8 @@ def _encode_entry_data(e):
                 struct.pack("<I", e["board_revision"]) + git + bytes(12 - len(git)))
     if kind == C.RING_CHANNELS:
         return bytes(e["channels"][:4])
+    if kind == C.RING_BLE and "event" in e:
+        return bytes([e["event"], e["a"]]) + struct.pack("<HI", e["b"], e["c"])
     return e.get("data", b"")
 
 

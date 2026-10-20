@@ -89,6 +89,8 @@ void osc2_test_note_host_asleep(void);
 void osc2_test_note_version(uint8_t version);
 void osc2_test_note_identity(const struct opensc2_identity *id);
 void osc2_test_note_channels(const uint8_t channels[4]);
+/* A Bluetooth LE link event (enum osc2_test_ble_event). */
+void osc2_test_note_ble(uint8_t event, uint8_t a, uint16_t b, uint32_t c);
 
 /* ---- what the glue provides (test_hooks.c; the host tests have a stand-in) ----
  * test_notes.c implements everything above on the core with these. */
@@ -284,6 +286,14 @@ static inline void osc2_test_note_identity(const struct opensc2_identity *id)
 static inline void osc2_test_note_channels(const uint8_t channels[4])
 {
 	(void)channels;
+}
+
+static inline void osc2_test_note_ble(uint8_t event, uint8_t a, uint16_t b, uint32_t c)
+{
+	(void)event;
+	(void)a;
+	(void)b;
+	(void)c;
 }
 
 #endif /* CONFIG_OPENSC2_TEST_HOOKS */

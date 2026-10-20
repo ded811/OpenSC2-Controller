@@ -32,14 +32,21 @@ zephyr_library_sources(
 )
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 	usb.c
-	usb_desc.c
 	usb_rules.c
 	usblog.c
 )
+# The report descriptor: the wired device's, and Bluetooth's report map, byte for byte.
+if(CONFIG_OPENSC2_USB OR CONFIG_OPENSC2_BLE)
+  zephyr_library_sources(usb_desc.c)
+endif()
 # The retained area, and the CRC-32 the test hooks use too.
 if(CONFIG_OPENSC2_USB OR CONFIG_OPENSC2_TEST_HOOKS)
   zephyr_library_sources(retained.c)
 endif()
+zephyr_library_sources_ifdef(CONFIG_OPENSC2_BLE
+	ble.c
+	ble_rules.c
+)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_SHELL shell.c)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_FUSION fusion.c)
 # The hardware test hooks (tools/hwtest).

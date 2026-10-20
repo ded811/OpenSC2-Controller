@@ -34,7 +34,9 @@ static atomic_t counters[OSC2_TEST_CNT_COUNT];
 
 /* ---- which link this thread's command came on ------------------------------------------------- */
 
-#define CTX_SLOTS 6   /* radio, USB stack, USB report, shell, system work queue, one spare */
+/* radio, USB stack, USB report, shell, system work queue, the Bluetooth host's receive thread and
+ * report thread, one spare */
+#define CTX_SLOTS 8
 
 static struct {
 	k_tid_t thread;

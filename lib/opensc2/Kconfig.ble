@@ -1,0 +1,111 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# Bluetooth LE: the board as a Steam Controller 2 over Bluetooth. Sourced by Kconfig (inside
+# "if OPENSC2"). The SuperMini app turns it on with app/ble.conf, which also sets the Bluetooth
+# stack up the way this needs (docs/api.md, Bluetooth LE).
+
+menuconfig OPENSC2_BLE
+	bool "Bluetooth LE: a Steam Controller 2 over Bluetooth (28DE:1303) [not yet tested on hardware]"
+	depends on BT_PERIPHERAL && BT_SMP && BT_LL_SOFTDEVICE
+	select ESB_DYNAMIC_INTERRUPTS
+	select MPSL_DYNAMIC_INTERRUPTS
+	select BT_CTLR_SDC_EVENT_TRIGGER
+	help
+	  A third wireless transport next to the puck's two bonds: the board as a HID-over-GATT
+	  Steam Controller 2 (the Device Information Service's PnP ID 28DE:1303), with the same
+	  report map as on USB, the vendor commands on feature report 1, output reports, the
+	  battery service, Just Works bonding with LE Secure Connections, lizard mode, and a state
+	  report (0x45) at every connection event. Only one wireless transport runs at a time:
+	  the stored one (user/wireless_transport 0 or 1 for Bluetooth), or the one chosen with
+	  opensc2_select_transport() or "opensc2 transport ble". Needs the nRF Connect SDK's
+	  SoftDevice Controller (peripheral) and Zephyr's host with SMP; ESB and MPSL take their
+	  interrupts at run time so the radio can change hands, and MPSL stays initialised all
+	  the time (BT_UNINIT_MPSL_ON_DISABLE must stay off).
+
+if OPENSC2_BLE
+
+config OPENSC2_BLE_NAME_PREFIX
+	string "Device name before the unit serial"
+	default "Steam Ctrl (BT) "
+	help
+	  The device name is this and the 13-character unit serial: "Steam Ctrl (BT) OSC..." by
+	  default, 29 characters, the real controller's form. SDL's Android and Apple back ends
+	  find a Steam Controller 2 by this name's beginning. A name over 29 characters is sent
+	  cut (as a shortened name) in the scan response.
+
+config OPENSC2_BLE_COMPANY_ID
+	hex "Company ID of the advertised manufacturer data"
+	default 0x055D
+	range 0 0xFFFF
+	help
+	  0x055D is Valve's Bluetooth company ID, which the real controller advertises (with no
+	  payload), used here to interoperate, as the USB IDs are (NOTICE.md).
+
+config OPENSC2_BLE_PNP_VENDOR
+	hex "PnP ID vendor (USB-IF assigned)"
+	default 0x28DE
+	range 0 0xFFFF
+
+config OPENSC2_BLE_PNP_PRODUCT
+	hex "PnP ID product"
+	default 0x1303
+	range 0 0xFFFF
+	help
+	  0x1303 is the Steam Controller 2 over Bluetooth (vendor command 0x83 still reports
+	  0x1302, as the real controller does). Windows builds its HID device from this ID.
+
+config OPENSC2_BLE_PNP_VERSION
+	hex "PnP ID version"
+	default 0x0100
+	range 0 0xFFFF
+
+config OPENSC2_BLE_MODEL
+	string "Device Information: model number"
+	default "Steam Controller"
+
+config OPENSC2_BLE_MANUFACTURER
+	string "Device Information: manufacturer name"
+	default ""
+	help
+	  Empty, as in the October 2026 firmware (July's said "Valve Corporation"): the
+	  characteristic is there with a value of length 0.
+
+config OPENSC2_BLE_THREAD_PRIORITY
+	int "Bluetooth thread priority"
+	default 6
+	help
+	  The thread that does all Bluetooth work in order: start and stop, advertising, the link's
+	  events. Below the radio thread (5), which must stop first when the radio changes hands.
+
+config OPENSC2_BLE_THREAD_STACK_SIZE
+	int "Bluetooth thread stack size"
+	default 2048
+
+config OPENSC2_BLE_REPORT_THREAD_PRIORITY
+	int "Bluetooth report thread priority"
+	default 4
+	help
+	  The thread that builds a state report for every connection event and sends the other
+	  input reports.
+
+config OPENSC2_BLE_REPORT_THREAD_STACK_SIZE
+	int "Bluetooth report thread stack size"
+	default 1536
+
+config OPENSC2_BLE_TX_QUEUE_DEPTH
+	int "Input reports from other threads waiting for the report thread"
+	default 8
+	help
+	  Battery reports, the application's reports, lizard mode's release reports from the
+	  command path. State reports are built in the report thread itself.
+
+config OPENSC2_BLE_REPORT_LEAD_US
+	int "Build the state report this long before the next connection event, microseconds"
+	default 500
+	range 0 5000
+	help
+	  The real controller sets its report slot one connection interval after the start of each
+	  connection event, less 500 us, so one fresh state report is ready for every event.
+
+endif # OPENSC2_BLE

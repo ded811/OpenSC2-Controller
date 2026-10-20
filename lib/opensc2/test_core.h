@@ -153,6 +153,20 @@ enum osc2_test_kind {
 	OSC2_TEST_KIND_VERSION = 0x22,
 	OSC2_TEST_KIND_IDENTITY = 0x23,
 	OSC2_TEST_KIND_CHANNELS = 0x24,
+	OSC2_TEST_KIND_BLE = 0x40,   /* a Bluetooth LE link event (enum osc2_test_ble_event) */
+};
+
+/* BLE entries: event u8, a u8, b u16, c u32. */
+enum osc2_test_ble_event {
+	OSC2_TEST_BLE_STATE = 1,       /* a link state (enum opensc2_link_state), b the reason, c the
+					* slot (bits 0..7), identity (8..15), advertising form (16..23) */
+	OSC2_TEST_BLE_SECURITY = 2,    /* a the security level, b the error */
+	OSC2_TEST_BLE_MTU = 3,         /* b the ATT MTU */
+	OSC2_TEST_BLE_PARAMS = 4,      /* b the latency, c the interval in µs */
+	OSC2_TEST_BLE_GATE = 5,        /* a 1 up (the transport is active), 0 down */
+	OSC2_TEST_BLE_TRIGGER = 6,     /* a 1 the connection-event trigger is set, 0 it failed and a
+					* timer paces the reports; b the error */
+	OSC2_TEST_BLE_DISCONNECT = 7,  /* a the HCI reason */
 };
 
 /* LIZARD entries. */

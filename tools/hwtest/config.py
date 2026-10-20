@@ -106,7 +106,12 @@ RING_USB = 0x21
 RING_VERSION = 0x22
 RING_IDENTITY = 0x23
 RING_CHANNELS = 0x24
+RING_BLE = 0x40           # a Bluetooth LE link event (BLE_EVENT_*)
 RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none", 4: "ble", 5: "dock"}
+
+# BLE events (docs/test-protocol.md, The ring): a, b, c as each one says.
+BLE_EVENT_NAMES = {1: "state", 2: "security", 3: "mtu", 4: "params", 5: "gate", 6: "trigger",
+                   7: "disconnect"}
 
 # LIZARD "what" values (docs/test-protocol.md, The ring).
 LIZARD_LEAVE = 0

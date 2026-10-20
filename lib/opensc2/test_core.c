@@ -1559,6 +1559,7 @@ static const char *kind_name(uint8_t kind)
 	case OSC2_TEST_KIND_VERSION:     return "VERSION";
 	case OSC2_TEST_KIND_IDENTITY:    return "IDENTITY";
 	case OSC2_TEST_KIND_CHANNELS:    return "CHANNELS";
+	case OSC2_TEST_KIND_BLE:         return "BLE";
 	default:                         return NULL;
 	}
 }
@@ -1725,6 +1726,14 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 		if (n >= 4) {
 			add(out, size, at, " channels=%u,%u,%u,%u", (unsigned int)d[0],
 			    (unsigned int)d[1], (unsigned int)d[2], (unsigned int)d[3]);
+			return;
+		}
+		break;
+	case OSC2_TEST_KIND_BLE:
+		if (n >= 8) {
+			add(out, size, at, " event=%u a=%u b=%u c=%lu", (unsigned int)d[0],
+			    (unsigned int)d[1], (unsigned int)opensc2_get_le16(&d[2]),
+			    (unsigned long)opensc2_get_le32(&d[4]));
 			return;
 		}
 		break;
