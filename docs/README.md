@@ -22,7 +22,7 @@ Elsewhere in the repository:
 | Page | What it covers |
 | --- | --- |
 | [README](../README.md) | what OpenSC2 is, what works, the quick start |
-| [app/README.md](../app/README.md) | the SuperMini firmware: pins, modes, LED, shell, identity, options |
+| [app/README.md](../app/README.md) | the SuperMini firmware: pins, modes, LED, shell, identity, options, its test builds (Bluetooth, the haptics synthesiser, the dock, a battery) and what each build costs |
 | [template/README.md](../template/README.md) | the project to copy as the start of your own |
 | [samples/README.md](../samples/README.md) | the seven samples, their parts and pins |
 | [tools/hwtest/README.md](../tools/hwtest/README.md) | the test suite's code, for people changing the runner |
