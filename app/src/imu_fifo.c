@@ -8,9 +8,10 @@
  * the same buffers. One standing read from boot; for each buffer the first accelerometer,
  * gyroscope and quaternion samples (and the bias while controller setting 84 is on) become report
  * units, turned by the mounting matrix; a buffer missing one of them is dropped, and a failed
- * stream is submitted again 500 ms later. Setting 48 = 0 cancels the read and any other value
- * submits it again; while it is off the report keeps the last sample. The stored gyro bias
- * (cal/sensors/gyroscope/bias) is programmed as the fusion block's starting bias.
+ * stream is submitted again 500 ms later. Setting 48 = 0 cancels the read (not with
+ * CONFIG_APP_IMU_ALWAYS) and any other value submits it again; while it is off the report keeps
+ * the last sample. The stored gyro bias (cal/sensors/gyroscope/bias) is programmed as the fusion
+ * block's starting bias.
  *
  * The overlay gives the IMU its interrupt (int1-gpios) and its FIFO and fusion settings
  * (app/imu-stream.overlay).
@@ -47,8 +48,13 @@ static const uint32_t mounting_cells[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 #endif
 static int8_t mounting[9];
 
+/* The standing read and its id (the userdata of its completions). A cancelled read still completes
+ * once more, with the next buffer, which RTIO then frees itself: until then no new read is
+ * submitted, so the two never share the driver (it would drop the cancelled one unfinished). */
 static K_MUTEX_DEFINE(stream_lock);
 static struct rtio_sqe *stream;   /* the standing read, or NULL */
+static uintptr_t stream_id;       /* its id; ids start at 1 */
+static uintptr_t cancelled_id;    /* a cancelled read not completed yet, or 0 */
 static bool wanted = true;        /* setting 48: on from boot */
 
 static const struct sensor_chan_spec accel_chan = { SENSOR_CHAN_ACCEL_XYZ, 0 };
@@ -61,12 +67,18 @@ static float q31_value(q31_t v, int8_t shift)
 	return ldexpf((float)v, shift - 31);
 }
 
-/* Submit the standing read when it is wanted and not running. */
+/* Submit the standing read when it is wanted, not running and no cancelled one is still out. */
 static void stream_start(void)
 {
 	k_mutex_lock(&stream_lock, K_FOREVER);
-	if (wanted && stream == NULL && sensor_stream(&imu_iodev, &imu_ctx, NULL, &stream) != 0) {
-		stream = NULL;
+	if (wanted && stream == NULL && cancelled_id == 0) {
+		uintptr_t id = stream_id + 1 != 0 ? stream_id + 1 : 1;
+
+		if (sensor_stream(&imu_iodev, &imu_ctx, (void *)id, &stream) == 0) {
+			stream_id = id;
+		} else {
+			stream = NULL;
+		}
 	}
 	k_mutex_unlock(&stream_lock);
 }
@@ -77,10 +89,11 @@ void imu_setting(uint8_t number, int16_t value)
 		return;
 	}
 	k_mutex_lock(&stream_lock, K_FOREVER);
-	wanted = value != 0;
+	wanted = value != 0 || IS_ENABLED(CONFIG_APP_IMU_ALWAYS);
 	if (!wanted && stream != NULL) {
 		(void)rtio_sqe_cancel(stream);
 		stream = NULL;
+		cancelled_id = stream_id;
 	}
 	k_mutex_unlock(&stream_lock);
 	stream_start();
@@ -169,28 +182,37 @@ static void imu_thread(void *p1, void *p2, void *p3)
 	for (;;) {
 		struct rtio_cqe *cqe = rtio_cqe_consume_block(&imu_ctx);
 		int result = cqe->result;
+		uintptr_t id = (uintptr_t)cqe->userdata;
+		bool current, failed = false, cancel_done = false;
 		uint8_t *buf = NULL;
 		uint32_t len = 0;
 
-		if (result == 0 && rtio_cqe_get_mempool_buffer(&imu_ctx, cqe, &buf, &len) != 0) {
+		k_mutex_lock(&stream_lock, K_FOREVER);
+		current = stream != NULL && id == stream_id;
+		if (id != 0 && id == cancelled_id) {
+			cancelled_id = 0;   /* its last completion: RTIO has freed it and its buffer */
+			cancel_done = true;
+		} else if (current && result != 0) {
+			stream = NULL;      /* the read ended */
+			failed = true;
+		}
+		k_mutex_unlock(&stream_lock);
+		/* Only the running read's buffers are this thread's to decode and release. */
+		if (current && result == 0 &&
+		    rtio_cqe_get_mempool_buffer(&imu_ctx, cqe, &buf, &len) != 0) {
 			buf = NULL;
 		}
 		rtio_cqe_release(&imu_ctx, cqe);
-		if (result != 0) {
-			k_mutex_lock(&stream_lock, K_FOREVER);
-			stream = NULL;   /* the read ended */
-			k_mutex_unlock(&stream_lock);
-			if (result != -ECANCELED) {
-				LOG_WRN("IMU stream ended (%d); submitted again in %d ms", result,
-					RETRY_MS);
-				k_msleep(RETRY_MS);
-				stream_start();
-			}
-			continue;
-		}
 		if (buf != NULL) {
 			decode(dec, buf);
 			rtio_release_buffer(&imu_ctx, buf, len);
+		}
+		if (failed) {
+			LOG_WRN("IMU stream ended (%d); submitted again in %d ms", result, RETRY_MS);
+			k_msleep(RETRY_MS);
+		}
+		if (failed || cancel_done) {
+			stream_start();   /* if setting 48 wants it (again) */
 		}
 	}
 }

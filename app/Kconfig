@@ -80,13 +80,13 @@ config APP_IMU_STREAM
 
 config APP_IMU_BIAS
 	bool "Estimate the gyro's bias at rest and subtract it (settings 84 and 85)"
-	depends on APP_IMU
+	depends on APP_IMU && !APP_IMU_STREAM
 	help
 	  For IMUs without a bias estimate of their own (the real controller takes its IMU's): a
 	  rest-based estimate of OpenSC2's own, subtracted while controller setting 84 is not 0 (the
 	  default), with setting 85 as its rest threshold in report units (default 100, about
-	  6 deg/s). It starts from the stored cal/sensors/gyroscope/bias when there is one. Untested
-	  on hardware.
+	  6 deg/s). It starts from the stored cal/sensors/gyroscope/bias when there is one. Not with
+	  APP_IMU_STREAM, which subtracts the LSM6DSV16X's own estimate. Untested on hardware.
 
 config APP_PAD_PROCESSING
 	bool "The real controller's trackpad processing on the touch devices"
