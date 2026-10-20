@@ -206,6 +206,8 @@ def run(ctx):
                 c.true("the link went off (the window ran out)", rig.wait_link("off", 8.0))
                 st = rig.ble_link_status() or {}
                 entries = _ble_entries(rig, start)
+                # a window not taken (the pairing request failed) must not shorten a later one
+                rig.test(C.OP_BLE_WINDOW, struct.pack("<I", 0), path=rig.console_path)
                 rig.console_run("opensc2 start")
                 _wait_back(rig, c, "after opensc2 start")
             other = 1 + 2 * before.get("slot", 0) + (1 if before.get("identity") in (1, 3) else 0)
