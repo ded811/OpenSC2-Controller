@@ -686,7 +686,9 @@ summary and the gaps):
   Service (model "Steam Controller", an empty manufacturer name, PnP ID `28DE:1303` version
   `0x0100`, the unit serial, the build time as the firmware and software revision), Zephyr's
   Battery Service, and Valve's vendor service (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE`, on by default),
-  in the real controller's order (battery, device information, vendor, HID).
+  in the real controller's order after Zephyr's GATT and GAP services (battery, vendor, device
+  information, HID), which with this build's configuration also gives its handles (vendor 21 to 61,
+  device information 62 to 74, HID 75 to 140).
 - **Valve's vendor service**, for hosts that talk GATT themselves (SDL's Android and Apple back
   ends): UUIDs `100F6Cxx-1735-4313-B402-38567131E5F3`, the service `xx` = `32`, the command channel
   `34` (feature report 1, read and write), inputs `0x40` to `0x45` as `75` to `7A` (read, notify)

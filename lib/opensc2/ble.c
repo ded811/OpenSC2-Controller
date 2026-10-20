@@ -369,9 +369,12 @@ static ssize_t write_ctrl_point(struct bt_conn *conn, const struct bt_gatt_attr 
 #define PERM_RW (BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT)
 
 /* ---- the services ----------------------------------------------------------------------------
- * Static services are laid out in the order of their names: Zephyr's GAP and GATT first, then the
- * battery service ("bas"), then these three, named so that the HID service comes last, as on the
- * real controller (it registers its HID service at boot, after the fixed ones). */
+ * Static services are laid out in the order of their names: Zephyr's GATT and GAP services first,
+ * then the battery service ("bas"), then these three, named for the real controller's order: the
+ * vendor service, the device information, then the HID service (which the real controller
+ * registers at boot, after its fixed ones). With this build's Zephyr services that should give the
+ * real controller's handles too: vendor 21 to 61, device information 62 to 74, HID 75 to 140 (not
+ * yet read on a host). */
 
 /* ---- Device Information ---- */
 
@@ -398,7 +401,7 @@ static ssize_t read_pnp(struct bt_conn *conn, const struct bt_gatt_attr *attr, v
 }
 
 /* In the real controller's order; read-only, no encryption needed. */
-BT_GATT_SERVICE_DEFINE(osc2_1_dis_svc,
+BT_GATT_SERVICE_DEFINE(osc2_2_dis_svc,
 	BT_GATT_PRIMARY_SERVICE(BT_UUID_DIS),
 	BT_GATT_CHARACTERISTIC(BT_UUID_DIS_MODEL_NUMBER, BT_GATT_CHRC_READ, BT_GATT_PERM_READ,
 			       read_string, NULL, (void *)CONFIG_OPENSC2_BLE_MODEL),
@@ -438,7 +441,7 @@ BT_GATT_SERVICE_DEFINE(osc2_1_dis_svc,
 			       PERM_RW, read_output, write_output,                                 \
 			       (void *)&osc2_ble_reports[OSC2_BLE_INPUTS + (j)])
 
-BT_GATT_SERVICE_DEFINE(osc2_2_vendor_svc,
+BT_GATT_SERVICE_DEFINE(osc2_1_vendor_svc,
 	BT_GATT_PRIMARY_SERVICE(VENDOR_UUID(OSC2_BLE_VENDOR_SERVICE)),
 	BT_GATT_CHARACTERISTIC(VENDOR_UUID(OSC2_BLE_VENDOR_COMMAND),
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE, PERM_RW, read_feature,
@@ -449,12 +452,12 @@ BT_GATT_SERVICE_DEFINE(osc2_2_vendor_svc,
 	VENDOR_OUTPUT(5), VENDOR_OUTPUT(6), VENDOR_OUTPUT(7), VENDOR_OUTPUT(8), VENDOR_OUTPUT(9),
 );
 
-BUILD_ASSERT(ARRAY_SIZE(attr_osc2_2_vendor_svc) == OSC2_BLE_VENDOR_ATTRS,
+BUILD_ASSERT(ARRAY_SIZE(attr_osc2_1_vendor_svc) == OSC2_BLE_VENDOR_ATTRS,
 	     "the vendor service has 41 attributes");
 
 /* The value attribute of input i (after the service, the command channel's two, three per
  * input). */
-#define VENDOR_INPUT_ATTR(i) (&attr_osc2_2_vendor_svc[4 + 3 * (i)])
+#define VENDOR_INPUT_ATTR(i) (&attr_osc2_1_vendor_svc[4 + 3 * (i)])
 #endif
 
 /* ---- the HID service ---- */
