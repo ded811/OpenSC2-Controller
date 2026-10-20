@@ -143,6 +143,31 @@ class LizardVectors(unittest.TestCase):
         return [r for _k, r in lz.step(**kw)]
 
 
+class LizardHapticEntries(unittest.TestCase):
+    """Lizard mode's haptic events as the lizard group reads them back from the ring (HAPTIC
+    entries with report ID 0): exactly the model's fields give (kind, side); another kind,
+    command, target, channel or level comes back so that the comparison with the model fails."""
+
+    @staticmethod
+    def entry(**fields):
+        e = {"time_us": 0, "kind": C.RING_HAPTIC, "link": 1}
+        e.update(fields)
+        return T.decode_entry(T.encode_entry(e))
+
+    def test_events(self):
+        for kind, side in (("tick", 0), ("tick", 1), ("click", 0), ("click", 1)):
+            got = M.lizard_haptic_of_entry(self.entry(**M.lizard_haptic_fields(kind, side)))
+            self.assertEqual(got, (kind, side))
+        tick = M.lizard_haptic_fields("tick", 1)
+        for change in ({"gain": 14}, {"channels": M.CH_LPAD}, {"command": 0}, {"target": 2},
+                       {"haptic_kind": 4, "id": 1}):
+            got = M.lizard_haptic_of_entry(self.entry(**dict(tick, **change)))
+            self.assertIsNotNone(got, change)
+            self.assertNotEqual(got, ("tick", 1), change)
+        # an output report's entry (IDs from 0x80) is not one of the library's events
+        self.assertIsNone(M.lizard_haptic_of_entry(self.entry(**dict(tick, report_id=0x82))))
+
+
 class RingVectors(unittest.TestCase):
     def test_ring_round_trip(self):
         kinds = set()

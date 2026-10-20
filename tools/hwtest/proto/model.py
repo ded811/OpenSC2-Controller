@@ -565,14 +565,20 @@ def lizard_haptic_fields(kind, side):
 
 
 def lizard_haptic_of_entry(e):
-    """("tick" or "click", side) for a decoded HAPTIC entry the library made (report ID 0), else
-    None."""
-    if e.get("kind") != C.RING_HAPTIC or e.get("report_id") != 0 or e.get("haptic_kind") != 1:
+    """("tick" or "click", side) for a decoded HAPTIC entry the library made (report ID 0; output
+    reports have IDs from 0x80), else None. An entry of the library's that is not exactly what
+    lizard_haptic_fields() gives (another kind, command, target, channel or level) comes back as a
+    longer tuple carrying those fields, so that a comparison with the model shows it."""
+    if e.get("kind") != C.RING_HAPTIC or e.get("report_id") != 0:
         return None
     kind = "tick" if e.get("command") == 1 else "click" if e.get("command") == 2 else None
-    if kind is None or e.get("target") not in (0, 1):
-        return None
-    return kind, e["target"]
+    side = e.get("target")
+    if e.get("haptic_kind") != 1 or kind is None or side not in (0, 1):
+        return ("unexpected", e.get("haptic_kind"), e.get("command"), side)
+    want = lizard_haptic_fields(kind, side)
+    if (e.get("channels"), e.get("gain")) != (want["channels"], want["gain"]):
+        return (kind, side, e.get("channels"), e.get("gain"))
+    return kind, side
 
 
 # ---- target channels ------------------------------------------------------------------------

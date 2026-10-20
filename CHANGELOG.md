@@ -39,7 +39,7 @@ hardware.
   switched off, and follows every sequence until lizard mode goes quiet (a glide keeps the reports
   going); its model and the shared vectors cover the input rules and the processing.
 - The host tests are now 62 (5,221 checks), and 90 (7,700 checks) with the hardware test hooks;
-  the runner has 212 self-tests.
+  the runner has 213 self-tests.
 
 ## [0.2.0] - 2026-10-19
 

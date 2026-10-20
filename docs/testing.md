@@ -150,7 +150,7 @@ python -I tools\hwtest\run.py                       # the full run on the board
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
 the suite against that emulator. Today that is 62 host tests (5,221 checks); 90 (7,700 checks) with
 the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
-alike; the runner's 212 self-tests; its dry run against the library's own code in a firmware
+alike; the runner's 213 self-tests; its dry run against the library's own code in a firmware
 emulator; 9 self-tests of `tools/match_steam_version.py`. To run the emulator by hand after
 `run.ps1` built it:
 
@@ -321,7 +321,7 @@ in `report.json` (`safety.puck_writes`).
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 212 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 213 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking, every safety rule (including the
   source scan of the puck reader, and that every function that sends checks the exact bytes), the
   link lock against a racing keep-alive, the leak detector's filter and watch list, the Windows
