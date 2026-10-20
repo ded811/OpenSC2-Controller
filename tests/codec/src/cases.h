@@ -653,6 +653,11 @@ OPENSC2_TEST(output_pcm)
 	CHECK_EQ(o[1].haptic.pcm.data[0], 22);
 	CHECK_EQ(o[1].haptic.pcm.len, 3);
 	CHECK_EQ(opensc2_decode_output(dual, 20, o), -1);
+	dual[1] = 32;                                                 /* more than 31 a side: */
+	CHECK_EQ(opensc2_decode_output(dual, sizeof(dual), o), 0);   /* ignored */
+	dual[1] = 31;
+	CHECK_EQ(opensc2_decode_output(dual, sizeof(dual), o), 2);
+	CHECK_EQ(o[1].haptic.pcm.len, 31);
 
 	CHECK_EQ(opensc2_decode_output(data89, sizeof(data89), o), 1);
 	CHECK_EQ(o[0].haptic.channels, OPENSC2_HAPTIC_LEFT_GRIP | OPENSC2_HAPTIC_RIGHT_GRIP);

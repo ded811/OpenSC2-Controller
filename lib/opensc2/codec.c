@@ -330,7 +330,10 @@ int opensc2_decode_output(const uint8_t *report, size_t len, struct opensc2_outp
 		if (n < 1) {
 			return -1;
 		}
-		count = d[0] > 31 ? 31 : d[0];
+		if (d[0] > 31) {
+			return 0;   /* more than 31 bytes a side: the real controller ignores the report */
+		}
+		count = d[0];
 		if (n < (size_t)32 + count) {
 			return -1;
 		}

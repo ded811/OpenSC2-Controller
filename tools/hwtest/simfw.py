@@ -1162,8 +1162,9 @@ def decode_output_count(report):
     if rid == 0x88:
         if n < 1:
             return -1
-        count = min(report[1], 31)
-        return 2 if n >= 32 + count else -1
+        if report[1] > 31:
+            return 0          # more than 31 bytes a side: ignored, as by the real controller
+        return 2 if n >= 32 + report[1] else -1
     if rid == 0x89:
         return 1 if n >= 2 and n >= 2 + report[1] else -1
     return 0
@@ -1220,7 +1221,9 @@ def decode_outputs(report):
                             "channels": M.target_channels(rid, d[1]), "len": n,
                             "crc32": T.crc32(data)})]
     if rid == 0x88:
-        n = min(d[0], 31)
+        n = d[0]
+        if n > 31:
+            return []
         return [("haptic", {"haptic_kind": 6, "report_id": rid, "target": 0,
                             "channels": M.CH_LGRIP, "len": n, "crc32": T.crc32(bytes(d[1:1 + n]))}),
                 ("haptic", {"haptic_kind": 6, "report_id": rid, "target": 0,
