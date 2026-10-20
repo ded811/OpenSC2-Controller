@@ -289,6 +289,10 @@ int opensc2_set_touch_raw(enum opensc2_side side, int16_t stick_word, int16_t gr
 bool opensc2_cal_stick_ok(enum opensc2_side side);
 bool opensc2_cal_trigger_ok(enum opensc2_side side);
 bool opensc2_cal_pressure_ok(enum opensc2_side side);
+/* Is the factory recording of this kind running (a step 1 since it ended)? The recordings take
+ * their samples from raw inputs only: an application that keeps an uncalibrated input on finished
+ * values gives it raw while its recording runs, or the recording gets nothing to save. */
+bool opensc2_cal_recording(enum opensc2_cal_rec_kind kind);
 
 /* The stored values the library keeps for other parts (0 or the default when not stored):
  *   the LED trim of channel 0..3 (R, G, B, W) in percent: the stored one when it lies within

@@ -809,6 +809,20 @@ bool opensc2_cal_pressure_ok(enum opensc2_side side)
 	return side <= OPENSC2_RIGHT && key_ok(K_PRS_L + side);
 }
 
+bool opensc2_cal_recording(enum opensc2_cal_rec_kind kind)
+{
+	bool active;
+	k_spinlock_key_t lk;
+
+	if (kind > OPENSC2_CAL_REC_PRESSURE) {
+		return false;
+	}
+	lk = k_spin_lock(&rec_lock);
+	active = rec.active[kind];
+	k_spin_unlock(&rec_lock, lk);
+	return active;
+}
+
 uint8_t opensc2_cal_led_trim(uint8_t channel)
 {
 	uint8_t v;
@@ -971,6 +985,12 @@ bool opensc2_cal_trigger_ok(enum opensc2_side side)
 bool opensc2_cal_pressure_ok(enum opensc2_side side)
 {
 	ARG_UNUSED(side);
+	return false;
+}
+
+bool opensc2_cal_recording(enum opensc2_cal_rec_kind kind)
+{
+	ARG_UNUSED(kind);
 	return false;
 }
 

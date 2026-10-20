@@ -54,7 +54,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_set_state(&state)`, `opensc2_get_state(&state)` | the whole input state at once | [Inputs](#inputs) |
 | `opensc2_set_battery(&battery)` | the battery report | [Battery](#battery) |
 | `opensc2_set_stick_raw()`, `_trigger_raw()`, `_pressure_raw()`, `_touch_raw()`, `opensc2_set_raw(&raw)`, `opensc2_cal_raw_release(inputs)` | raw inputs, processed as the real controller does with its stored calibration | [Calibration and raw inputs](#calibration-and-raw-inputs) |
-| `opensc2_cal_stick_ok(side)`, `_trigger_ok()`, `_pressure_ok()`, `opensc2_cal_led_trim(ch)`, `opensc2_cal_volt_offset()`, `opensc2_cal_gyro_bias(b)`, `opensc2_cal_generation()` | the stored calibration | [Calibration and raw inputs](#calibration-and-raw-inputs) |
+| `opensc2_cal_stick_ok(side)`, `_trigger_ok()`, `_pressure_ok()`, `opensc2_cal_recording(kind)`, `opensc2_cal_led_trim(ch)`, `opensc2_cal_volt_offset()`, `opensc2_cal_gyro_bias(b)`, `opensc2_cal_generation()` | the stored calibration, a recording running | [Calibration and raw inputs](#calibration-and-raw-inputs) |
 | `opensc2_send_report(report, len)`, `opensc2_send_haptic_status(channel, flags)` | any other input report | [Other input reports](#other-input-reports) |
 | `opensc2_bond_get(slot, &bond)`, `opensc2_bond_set(slot, &bond)` | read or store a pairing | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_select_slot(slot)`, `opensc2_selected_slot()` | the pairing slot in use (0 or 1) | [Bonds and pairing](#bonds-and-pairing) |
@@ -455,7 +455,9 @@ is read with another gain still works: its stored calibration is in the same uni
 **Uncalibrated, a raw stick, trigger or pressure reads 0** (and a pad without pressure calibration
 never clicks), as on the real controller. A new board has no calibration: record one with the
 commands below, or keep giving finished values until it has one (`opensc2_cal_stick_ok(side)`,
-`_trigger_ok()`, `_pressure_ok()`). How each is processed:
+`_trigger_ok()`, `_pressure_ok()`), and raw ones while its recording runs
+(`opensc2_cal_recording(OPENSC2_CAL_REC_STICKS)`, `_TRIGGERS`, `_PRESSURE`): a recording takes its
+samples from raw inputs only. The blank canvas's options do both. How each is processed:
 
 - **Sticks.** Each axis split at the middle of its rest band into two halves, each scaled so that
   full deflection comes 90 % of the way to the stored extreme, truncated toward zero; no dead zone,

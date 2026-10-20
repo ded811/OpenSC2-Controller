@@ -441,7 +441,11 @@ OPENSC2_TEST(cal_store_recordings)
 
 	stub_reset();
 	/* sticks: rest, circles, save at the next frame */
+	CHECK(!opensc2_cal_recording(OPENSC2_CAL_REC_STICKS));
 	CHECK_EQ(cal_set(0xD8, (const uint8_t[]){ 0x55, 1 }, 2), 0);   /* payload[0] is not read */
+	CHECK(opensc2_cal_recording(OPENSC2_CAL_REC_STICKS));   /* what an application asks */
+	CHECK(!opensc2_cal_recording(OPENSC2_CAL_REC_TRIGGERS));
+	CHECK(!opensc2_cal_recording((enum opensc2_cal_rec_kind)3));
 	opensc2_set_stick_raw(OPENSC2_LEFT, 1986, 1924);
 	opensc2_set_stick_raw(OPENSC2_RIGHT, 2000, 2000);
 	cal_frame_state(&s);
@@ -454,7 +458,9 @@ OPENSC2_TEST(cal_store_recordings)
 	cal_frame_state(&s);
 	CHECK_EQ(cal_read("cal/joy_l", out), 0);   /* not yet */
 	CHECK_EQ(cal_set(0xD8, (const uint8_t[]){ 0, 3 }, 2), 0);
+	CHECK(opensc2_cal_recording(OPENSC2_CAL_REC_STICKS));   /* until the next frame saves */
 	cal_frame_state(&s);
+	CHECK(!opensc2_cal_recording(OPENSC2_CAL_REC_STICKS));
 	CHECK_EQ(cal_read("cal/joy_l", out), 18);
 	opensc2_cal_stick_unpack(out, &st);
 	CHECK_EQ(st.format, 2);
