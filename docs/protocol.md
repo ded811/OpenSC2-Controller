@@ -393,8 +393,9 @@ open, the library does what should work with Steam and the puck, and says so her
     buffer. The library queues up to 6 extra reports behind each state report as before, and lets
     lizard mode's and the application's reports wait in up to 8 more
     (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`) instead of dropping them, while lizard mode waits with its
-    next frame (its motion is a difference of positions, so the next frame takes it up). The
-    battery report is still dropped when the queue is full.
+    next frame (its motion is a difference of positions, so the next frame takes it up; a button
+    pressed and let go within the frames it waits is not seen, where the real controller's
+    keyboard would still send it). The battery report is still dropped when the queue is full.
 
 ## What this library adds for development boards
 

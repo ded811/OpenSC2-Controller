@@ -453,9 +453,11 @@ keyboard reports from the input state:
 ## Outputs
 
 All callbacks are in `struct opensc2_callbacks`; any may be `NULL`. Wireless, they run in the
-library's radio thread; wired, in its USB report thread (`sample`) or the USB stack's thread (output
-reports, vendor commands); `power_request`, `usb_changed` and a rumble timeout run in the system work
-queue. Return quickly: the radio link only lives while acknowledgements keep up with the puck.
+library's radio thread; wired, in its USB report thread (`sample`, and `haptic` for lizard mode's
+own events) or the USB stack's thread (output reports, vendor commands), so on the cable `haptic`
+can come from either of those two threads; `power_request`, `usb_changed` and a rumble timeout run
+in the system work queue. Return quickly: the radio link only lives while acknowledgements keep up
+with the puck.
 
 | Callback | Called for | Gets |
 | --- | --- | --- |
