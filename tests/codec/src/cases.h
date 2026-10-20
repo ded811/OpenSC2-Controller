@@ -8,7 +8,8 @@
  * a PC (tests/host). The including file defines OPENSC2_TEST(name), CHECK(cond) and
  * CHECK_EQ(a, b).
  *
- * The expected byte offsets are the published layouts (docs/protocol.md), written out by hand.
+ * The expected byte offsets are the layouts of the protocol documentation (not public yet;
+ * docs/protocol.md lists its pages), written out by hand.
  */
 #include <errno.h>
 #include <math.h>

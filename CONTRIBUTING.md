@@ -5,24 +5,29 @@ keep: for anyone who wants to help.
 
 Bug reports, hardware reports and pull requests are welcome. The
 [issue forms](https://github.com/ded811/OpenSC2-Controller/issues/new/choose) ask for what helps:
-a bug, a hardware report (what you wired and what worked in Steam), or a new board. Protocol
-questions belong to the
-[research repository](https://github.com/ded811/steam-controller-2-reverse-engineered).
+a bug, a hardware report (what you wired and what worked in Steam), or a new board. For protocol
+questions, start with [docs/protocol.md](docs/protocol.md), the protocol in brief with every gap
+the library had to fill, and for the puck's side with
+[Counterpuck](https://github.com/ded811/Counterpuck)'s
+[wire-formats.md](https://github.com/ded811/Counterpuck/blob/main/docs/wire-formats.md). If a page
+is wrong or leaves your question open, open a bug report and say so.
 
 ## Provenance
 
-OpenSC2 is original code written from the published protocol documentation, plus black-box tests
-and USB captures of Steam with a real controller ([How it was made](README.md#how-it-was-made)).
-A few facts come from the same authors' study of the controller's firmware and are not yet on the
-published pages: the ranges of seven settings, details of the report descriptor, and lizard mode's
-key-slot rule and scales ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps)
-lists each). It is not a clean-room implementation, and it says so. Contributions keep it that
-way:
+OpenSC2 is original code written from the protocol documentation the same authors wrote (to be
+published in
+[steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered),
+the research repository; not public yet), plus black-box tests and USB captures of Steam with a
+real controller ([How it was made](README.md#how-it-was-made)). A few facts come directly from the
+same authors' study of the controller's firmware, not from that documentation: the ranges of seven
+settings, details of the report descriptor, and lizard mode's key-slot rule, its scales and when
+its mouse reports go out ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps)
+lists each). It is not a clean-room implementation, and it says so. Contributions keep it that way:
 
-- Write your change yourself, from public documentation: the research repository's docs,
+- Write your change yourself, from public documentation: this repository's docs,
   [Counterpuck](https://github.com/ded811/Counterpuck)'s docs, SDL's public driver (its names and
-  declared values, not its code), the nRF Connect SDK and Zephyr. Black-box tests with Steam and
-  the puck are fine.
+  declared values, not its code), the nRF Connect SDK and Zephyr, and the research repository's
+  docs once they are public. Black-box tests with Steam and the puck are fine.
 - No code, firmware, binaries or captures from Valve, and nothing taken from Valve's firmware or
   from a reconstruction of it.
 - If you are not sure where something comes from, say so in the pull request.

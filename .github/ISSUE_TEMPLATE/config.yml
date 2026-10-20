@@ -2,5 +2,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Protocol questions
-    url: https://github.com/ded811/steam-controller-2-reverse-engineered
-    about: How the Steam Controller 2 and its puck talk is documented in the research repository.
+    url: https://github.com/ded811/OpenSC2-Controller/blob/main/docs/protocol.md
+    about: The protocol in brief and every gap the library had to fill. If it is wrong or leaves your question open, open a bug report and say so.
+  - name: The puck's side of the link
+    url: https://github.com/ded811/Counterpuck/blob/main/docs/wire-formats.md
+    about: Counterpuck, an open puck firmware, documents the wire formats from the puck's end.

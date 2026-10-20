@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: MIT
  *
  * commands.c: the vendor command channel ("feature report 1"), the same on every link:
- *   - through the puck's radio a SET record runs a command, and a GET record names the command to
- *     answer;
+ *   - through the puck's radio a SET record runs a command, and a GET record asks for the answer to
+ *     the last SET, as on USB (the record's byte is not used: Valve's puck leaves it unset);
  *   - on USB a 64-byte SET_REPORT(Feature 1) runs a command, and GET_REPORT(Feature 1) answers the
  *     request the last successful SET stored.
  * Each link keeps its own stored request (0x83, the attributes, until a SET). A refused command is

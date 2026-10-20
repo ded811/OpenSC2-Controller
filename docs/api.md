@@ -595,12 +595,13 @@ Storage keys (Zephyr settings): `opensc2/bond0`, `opensc2/bond1`, `opensc2/slot`
 
 ## Vendor commands
 
-Steam's feature report 1 reaches the controller through the puck (as records in its packets: a SET
-runs a command, a GET record names the command to answer) and on USB (a 64-byte SET runs a command
-and stores it; a GET answers the stored one). Each link keeps its own stored request, `0x83` until a
-SET. A refused command is a result code through the puck and a STALL on USB; a GET of a command that
-has no answer is `{opcode, 0}` through the puck and a STALL on USB. The library answers these
-itself:
+Steam's feature report 1 reaches the controller through the puck, as records in its packets, and on
+USB, as a 64-byte SET and a GET. Both work the same way: a SET runs a command and, if it succeeds,
+stores it; a GET answers the stored one. Each link keeps its own stored request, `0x83` until a
+SET. A GET record's one byte is not the opcode: Valve's puck leaves it unset, and drops an answer
+whose opcode is not its SET's. A refused command is a result code through the puck and a STALL on
+USB; a GET of a command that has no answer is `{opcode, 0}` through the puck and a STALL on USB.
+The library answers these itself:
 
 | Opcode | Kind | Answer / action |
 | --- | --- | --- |
@@ -663,10 +664,12 @@ most likely to act on:
 
 `0x87` clamps a value to its range where the range is known (9 and 71: 0..1; 11: 0..1000; 12:
 1..1000; 14: 0..32767; 36 and 45: 0..100; 68: 40..99; 70: 0..2; `opensc2_setting_clamp()`); other
-settings keep any value. The defaults and the ranges of 36 and 68 are on the published pages
-([controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings));
-the ranges of 9, 11, 12, 14, 45, 70 and 71 come from the same authors' study of the controller's
-firmware (not yet on the published pages). `setting_changed` is called only when a value changes.
+settings keep any value. The defaults and the ranges of 36 and 68 are in the protocol
+documentation the same authors wrote
+([controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings),
+not public yet); the ranges of 9, 11, 12, 14, 45, 70 and 71 come from the same authors' study of
+the controller's firmware (not in that documentation yet). `setting_changed` is called only when a
+value changes.
 `0x8E` and the Steam watchdog keep settings 48, 84 and 85 (the real controller passes those to its
 IMU instead of storing them).
 

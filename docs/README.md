@@ -12,10 +12,10 @@ start here if you are looking for something.
 | [Use OpenSC2 in your own project](integration.md) | developers | the three ways to bring in the library, what every project needs, Kconfig, devicetree, the code, build problems |
 | [API reference](api.md) | developers | every function, callback, field, mode rule, vendor command, setting, Kconfig option and shell command |
 | [Porting to other boards](porting.md) | people porting to other boards | what a board needs, the steps, wired mode, where the retained RAM may go, boards with more analog pins |
-| [The protocol, in brief](protocol.md) | the curious | the radio link and the cable in short, links to the full research pages, and every gap the library had to fill |
+| [The protocol, in brief](protocol.md) | the curious | the radio link, the puck's end, the cable, the vendor commands, lizard mode and the reports in short, links to the full research pages (not public yet), and every gap the library had to fill |
 | [Testing on hardware](testing.md) | people changing the library, porting it, or checking a board | the automated hardware test suite: what it covers, its safety rules, how to run it, the results so far |
 | [The test protocol](test-protocol.md) | people changing the test hooks or the runner | the test channel (vendor command `0x7E`), the ring, the counters and the console's `opensc2 test` |
-| [Releasing](releasing.md) | the maintainer | the checklist for the first push, a release, and making the repository public |
+| [Releasing](releasing.md) | the maintainer | the checklist for the push, a release, making the repository public, and the day the research repository goes public |
 
 Elsewhere in the repository:
 

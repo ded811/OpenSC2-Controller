@@ -7,17 +7,19 @@
  * profiles, the descriptors a host reads, and the framing of feature report 1.
  *
  * Where each detail of the report descriptor comes from (docs/protocol.md, gap 13, says the same):
- *  - the published research page: 372 bytes; the three collections in this order (mouse,
- *    keyboard, vendor); every report's ID, direction and size; the vendor collection's item rule
- *    (every field a byte, with a usage equal to its report ID);
+ *  - the USB page of the protocol documentation the same authors wrote (not public yet): 372 bytes;
+ *    the three collections in this order (mouse, keyboard, vendor); every report's ID, direction
+ *    and size; the vendor collection's item rule (every field a byte, with a usage equal to its
+ *    report ID);
  *  - Counterpuck's published wire-formats.md: the fields of the mouse and keyboard reports, the
  *    vendor fields' range (8 bits, 0..255) and the feature reports' usage 1;
- *  - the same authors' study of the controller's firmware (not yet on the published pages): the
- *    sizes of the mouse and keyboard collections (67 and 41 bytes), the form of the vendor items
- *    (every input and output report states its ID, logical minimum 0, a two-byte logical maximum
- *    of 255, report size 8, its count, its usage and its main item: 15 bytes; the two feature
- *    reports state only ID, count, usage 1 and main item: 8 bytes) and the order of the vendor
- *    reports.
+ *  - the same authors' study of the controller's firmware: the sizes of the mouse and keyboard
+ *    collections (67 and 41 bytes; that documentation gives them too, for the puck's slot
+ *    interfaces, whose descriptor it calls the controller's), the form of the vendor items (every
+ *    input and output report states its ID, logical minimum 0, a two-byte logical maximum of 255,
+ *    report size 8, its count, its usage and its main item: 15 bytes; the two feature reports
+ *    state only ID, count, usage 1 and main item: 8 bytes) and the order of the vendor reports
+ *    (these two not in that documentation yet).
  * No source gives every byte of the mouse and keyboard collections: they follow the usual boot
  * layouts at those sizes, and the two items marked "a guess" below are what makes the sizes fit.
  */

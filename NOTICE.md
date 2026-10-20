@@ -9,12 +9,13 @@ and the real controller's USB strings ("Valve Software", "Steam Controller"), an
 Steam's commands the way a real Steam Controller 2 does. This is for personal interoperability and
 research use.
 
-OpenSC2 is original code. It was written from the protocol documentation the same authors published
-in [steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered)
-(which they wrote by studying the controller's firmware), plus black-box tests and USB captures of
-Steam with a real controller. A few facts come from the same authors' study of the controller's
-firmware and are not yet on the published pages: the ranges of seven settings, details of the
-report descriptor, and lizard mode's key-slot rule and scales
+OpenSC2 is original code. It was written from the protocol documentation the same authors wrote by
+studying the controller's and the puck's firmware (to be published in
+[steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered);
+not public yet), plus black-box tests and USB captures of Steam with a real controller. A few facts
+come directly from the same authors' study of the controller's firmware, not from that
+documentation: the ranges of seven settings, details of the report descriptor, and lizard mode's
+key-slot rule, its scales and when its mouse reports go out
 ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps) lists each). It is not a
 clean-room implementation. It contains no Valve code or binaries.
 

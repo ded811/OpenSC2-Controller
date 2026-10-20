@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: MIT
  *
  * lizard.c: lizard mode, written from the behaviour of the real one: the key map and the mouse
- * mapping as the published documentation gives them (docs/protocol.md lists the pages), the
- * key-slot rule, the scales and when reports go out from the same authors' study of the
- * controller's firmware (not yet on the published pages):
+ * mapping as the protocol documentation gives them (not public yet; docs/protocol.md lists the
+ * pages), the key-slot rule, the scales and when reports go out from the same authors' study of
+ * the controller's firmware (not in that documentation yet):
  *   keyboard: A = Enter, B and VIEW = Escape, the D-pad = arrow keys, MENU = Tab. It reacts when
  *             one of those eight buttons changes; then every held button, in bit order, takes the
  *             next key slot (its key, or 0 when it has none), and more than six held buttons fill

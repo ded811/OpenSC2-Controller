@@ -13,8 +13,9 @@ Make an nRF52840 board act as a Steam Controller 2.
 > and the real controller's USB strings, for personal interoperability and research use. It
 > contains no Valve code or binaries. See [NOTICE.md](NOTICE.md).
 
-Original code, written from the protocol documentation its authors published and from black-box
-tests; no Valve code or binaries ([how it was made](#how-it-was-made)).
+Original code, written from the protocol documentation its authors wrote (to be published; not
+public yet) and from black-box tests; no Valve code or binaries
+([how it was made](#how-it-was-made)).
 
 ## What it is
 
@@ -233,7 +234,7 @@ right trackpad moves the pointer, A is Enter, B is Escape, the D-pad gives the a
 switches it off while it runs; about 10 seconds after Steam stops, it comes back. OpenSC2 does the
 same.
 
-The protocol in brief, with links to the full documentation: [docs/protocol.md](docs/protocol.md).
+The protocol in brief, and every gap the library had to fill: [docs/protocol.md](docs/protocol.md).
 The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
@@ -276,21 +277,29 @@ The [documentation map](docs/README.md) lists every page and has a glossary. The
 
 ## How it was made
 
-OpenSC2 is original code. It was written from the protocol documentation the same authors published
-in [steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered)
-(which they wrote by studying the controller's firmware), plus black-box tests and USB captures of
-Steam with a real controller. It is not a clean-room implementation. It contains no Valve code or
-binaries.
+OpenSC2 is original code. It was written from the protocol documentation the same authors wrote by
+studying the controller's and the puck's firmware (to be published in
+[steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered);
+not public yet), plus black-box tests and USB captures of Steam with a real controller. It is not a
+clean-room implementation. It contains no Valve code or binaries.
+
+> [!NOTE]
+> The research repository is not public yet, so the links to it in these pages do not open until
+> it is. Everything you need to build and use OpenSC2 is in this repository:
+> [docs/protocol.md](docs/protocol.md) sums up the protocol, and [docs/api.md](docs/api.md) has
+> every field, command and setting.
 
 In more detail, it was written from:
 
-- the research pages on the controller's radio link to the puck, its USB device, the wired session
-  and pairing over the cable, the reports, the vendor commands, the controller settings and lizard
-  mode ([docs/protocol.md](docs/protocol.md) links each one);
-- a few facts from the same authors' study of the controller's firmware that are not yet on the
-  published pages: the ranges of seven settings, details of the report descriptor (the sizes of
-  its mouse and keyboard collections, the form of its items, the order of its reports), and lizard
-  mode's key-slot rule, its scales and when its mouse reports go out
+- that documentation's pages on the controller's radio link to the puck, its USB device, the wired
+  session and pairing over the cable, the reports, the vendor commands, the controller settings and
+  lizard mode, and on the puck's end of the link: its slots, pairing window, connecting, channel
+  choice, suspend and what it shows Steam ([docs/protocol.md](docs/protocol.md) sums up each one
+  and links its page);
+- a few facts that come directly from the same authors' study of the controller's firmware, not
+  from that documentation: the ranges of seven settings, details of the report descriptor (the
+  sizes of its mouse and keyboard collections, the form of its items, the order of its reports),
+  and lizard mode's key-slot rule, its scales and when its mouse reports go out
   ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps) lists each);
 - the documentation and black-box tests of [Counterpuck](https://github.com/ded811/Counterpuck),
   the same authors' open firmware for the puck side of the link;

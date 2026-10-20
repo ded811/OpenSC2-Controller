@@ -1,16 +1,18 @@
 # Releasing
 
-The maintainer's checklist for the first push and for each release, step by step: what to check,
-build and publish, and in which order.
+The maintainer's checklist for the first release and for each release after it, step by step: what
+to check, build and publish, and in which order.
 
 The commands are for PowerShell on Windows, in the repository folder, with nRF Connect SDK v3.4.0
 in `C:\ncs\v3.4.0`.
 
-The first release goes out in three parts, in this order: the pages OpenSC2 cites are published
-([A](#a-before-the-first-push)), the repository is pushed and v0.2.0 released while the repository
+The first release goes out in three parts, in this order: the pages OpenSC2 cites are checked and
+the repository is pushed ([A](#a-check-commit-and-push)), v0.2.0 is released while the repository
 is still private ([B](#b-release-v020-while-the-repository-is-private)), and only then does the
-repository become public ([C](#c-make-the-repository-public)). So no reader meets a link to a page
-that is not there, or a tag that does not exist yet.
+repository become public ([C](#c-make-the-repository-public)). So no reader meets a tag that does
+not exist yet. The research repository stays private for now: OpenSC2's pages say so where they
+link to it, and [D](#d-when-the-research-repository-goes-public) says what to change when it goes
+public.
 
 ## Versions
 
@@ -22,42 +24,20 @@ that is not there, or a tag that does not exist yet.
 | The test suite's `suite_version` | its own number (0.1.0), not the release's |
 | The release asset | `opensc2-supermini-nrf52840-vX.Y.Z.uf2` (the default `app/` build, test hooks on: the tested configuration), with `SHA256SUMS.txt`, `THIRD_PARTY_LICENSES.txt`, `LICENSE` and `NOTICE.md` |
 
-## A. Before the first push
+## A. Check, commit and push
 
-1. **Publish the sources first.** The README, `NOTICE.md`, `CONTRIBUTING.md`, `docs/protocol.md`,
-   `docs/api.md` and the issue forms link to the research repository, and OpenSC2's provenance
-   rests on it ("the protocol documentation the same authors published"). Before anything else:
-   1. **The research repository `ded811/steam-controller-2-reverse-engineered` is public**, after
-      its own privacy and provenance check. If it has to stay private, OpenSC2 cannot go out as it
-      is: its research links and its provenance sentences would have to change first.
-   2. **The research repository's pending docs update is committed and pushed**, all five files of
-      it: `docs/controller/03-usb-and-hid.md`, `docs/controller/04-radio.md`,
-      `docs/controller/09-system.md`, `docs/firmware-changelog.md` and `docs/puck/04-radio.md`.
-      OpenSC2 cites what it adds to the first: the sections "The wired session as Steam runs it",
-      "Pairing a controller with a puck over the cable" and "Reboot into wireless mode", the
-      October device class `00/00/00` next to July's `EF/02/01`, and the release reports when
-      lizard mode turns off.
-   3. **Counterpuck's `docs/wire-formats.md` fix is committed and pushed**: the GET record (record
-      3) carries one byte that Valve's puck leaves unset, not the opcode, as `docs/protocol.md`
-      says.
-   4. **Check them as a stranger would.** In a private browser window, logged out, open
-      <https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it>:
-      the page must open at that section. Then check every research link against a fresh clone of
-      the published repository, not against your working tree:
-
-      ```powershell
-      git clone https://github.com/ded811/steam-controller-2-reverse-engineered C:\src\research-check
-      python -I tools\check_links.py --research C:\src\research-check
-      ```
-
-   5. **Optional: publish what the docs call "not yet on the published pages"**: the ranges of
-      settings 9, 11, 12, 14, 45, 70 and 71; the report descriptor's collection sizes (67 and 41
-      bytes), the form of its vendor items and the order of its reports; lizard mode's key-slot
-      rule, its scales and when its mouse reports go out. Then turn that phrase into links (in
-      `README.md`, `NOTICE.md`, `CONTRIBUTING.md`, `docs/protocol.md`, `docs/api.md`,
-      `include/opensc2/settings.h`, `include/opensc2/codec.h`, `lib/opensc2/settings_defaults.c`,
-      `lib/opensc2/usb_desc.c`, `lib/opensc2/lizard.c` and `tests/codec/src/cases_usb.h`) and run
-      the check of step 4 again.
+1. **The pages OpenSC2 cites.** Counterpuck is public. The research repository
+   `ded811/steam-controller-2-reverse-engineered` stays private for now: the README, `NOTICE.md`,
+   `CONTRIBUTING.md`, `docs/protocol.md` and `docs/api.md` link to it and say that it is not public
+   yet, and `docs/protocol.md` states the essentials itself, so a reader needs none of those links
+   to use OpenSC2. The links stay, so that they work the day it goes public.
+   1. **Counterpuck's docs commit with the GET-record fix is pushed**: its `docs/wire-formats.md`
+      says that the GET record (record 3) carries one byte that Valve's puck leaves unset, not the
+      opcode, as `docs/protocol.md` says. Check the page on GitHub in a private browser window,
+      logged out.
+   2. **Later, when the research repository goes public**: reword the "not public yet" notes and
+      check its links with `tools/check_links.py --research`
+      ([D](#d-when-the-research-repository-goes-public)).
 
 2. **Review.** Read the whole diff. Check that every statement about hardware in the documentation
    matches [What works](../README.md#what-works): nothing stale, nothing beyond it. Then search
@@ -111,29 +91,30 @@ that is not there, or a tag that does not exist yet.
    python -I tools\check_links.py
    ```
 
-5. **Create the GitHub repository `ded811/OpenSC2-Controller` as a private repository.** It stays
-   private until v0.2.0 is released ([C](#c-make-the-repository-public)): the documentation pins
-   the tag `v0.2.0` (`docs/integration.md`, `template/west.yml`) and the CHANGELOG links to it, so
-   the tag must exist before anyone can read them.
+5. **Push `main`.** Creating the GitHub repository is done: `ded811/OpenSC2-Controller` exists as
+   a private repository, `origin` points to it and `main` is on it. Push the commit of step 3:
+
+   ```powershell
+   git push origin main
+   ```
+
+   The repository remains private until v0.2.0 is released ([C](#c-make-the-repository-public)): the
+   documentation pins the tag `v0.2.0` (`docs/integration.md`, `template/west.yml`) and the
+   CHANGELOG links to it, so the tag must exist before anyone can read them. Check its description
+   and topics in its settings:
    - Description: "Make an nRF52840 board act as a Steam Controller 2: Zephyr module for nRF
      Connect SDK v3.4.0, SuperMini firmware, template, samples, hardware test suite. Unofficial."
    - Topics: `zephyr`, `nrf52840`, `nrf-connect-sdk`, `steam-controller`, `game-controller`,
      `enhanced-shockburst`, `usb-hid`, `supermini`.
-   - Push `main`:
-
-     ```powershell
-     git remote add origin https://github.com/ded811/OpenSC2-Controller
-     git push -u origin main
-     ```
 
 ## B. Release v0.2.0 (while the repository is private)
 
 For the first release the repository is still private during these steps; for later releases it
 is public, and the same steps apply.
 
-1. **Prepare the commit.** Set the date of the release in `CHANGELOG.md`, check that
-   `lib/opensc2/Kconfig` and `app/prj.conf` give the revision string `osc2-0.2.0`, and commit. The
-   tag and the asset both come from this commit.
+1. **Prepare the commit.** Check that the date of the release in `CHANGELOG.md` is the day you tag
+   (change it if not) and that `lib/opensc2/Kconfig` and `app/prj.conf` give the revision string
+   `osc2-0.2.0`, and commit. The tag and the asset both come from this commit.
 2. **Pin the build time.** A build reports the time it was configured, unless the build pins it.
    Use the release commit's time, which CMake's `string(TIMESTAMP)` takes from
    `SOURCE_DATE_EPOCH`:
@@ -206,13 +187,51 @@ Once, after the first release.
 2. **Make the repository public**: in its settings, General, Danger Zone, Change repository
    visibility. Then, under its security settings, enable private vulnerability reporting
    ([SECURITY.md](../SECURITY.md) points to it).
-3. **Look at it as a stranger would**, in a private browser window, logged out: the README, a research
-   link from `docs/protocol.md`, and the release with its `.uf2`.
+3. **Look at it as a stranger would**, in a private browser window, logged out: the README,
+   `docs/protocol.md` (it must read complete without the research repository, whose links do not
+   open while it is private), and the release with its `.uf2`.
 4. **Optional:** try the west workspace way once, with `template/west.yml`
    ([integration.md](integration.md#way-3-a-west-workspace)), and then remove its "Not built this
    way yet" note from `docs/integration.md`.
-5. **Cross-links.** Add a one-line link to OpenSC2 in Counterpuck's README and in the research
-   repository's `docs/README.md`.
+5. **Cross-link.** Add a one-line link to OpenSC2 in Counterpuck's README (the research
+   repository's link comes in [D](#d-when-the-research-repository-goes-public)).
+
+## D. When the research repository goes public
+
+Later, once `ded811/steam-controller-2-reverse-engineered` is public, after its own privacy and
+provenance check:
+
+1. **Optional: complete its documentation** with what OpenSC2's pages say is not in it yet: the
+   ranges of settings 9, 11, 12, 14, 45, 70 and 71; the form of the report descriptor's vendor
+   items and the order of its reports (its collection sizes are already there, on the puck's USB
+   page); lizard mode's key-slot rule, its scales and when its mouse reports go out.
+2. **Reword the notes that say it is not public.** This lists every one:
+
+   ```powershell
+   git grep -n -i -E 'not public yet|to be published|once (it is|they are) public|stays private|while it is private'
+   ```
+
+   Reword each for a public repository and keep every link: "to be published in ...; not public
+   yet" becomes "published in ...", the notes that its links do not open yet (in `README.md` and
+   `docs/protocol.md`) go, and so does "not public yet" in the comments of the code and the tests.
+   The list includes this page: bring its introduction, step A.1 and step C.3 up to date too. If
+   you did step 1, also reword the sentences that say those facts are not in that documentation,
+   with links to where they now are (in `README.md`, `NOTICE.md`, `CONTRIBUTING.md`,
+   `docs/protocol.md`, `docs/api.md`, `include/opensc2/settings.h`, `include/opensc2/codec.h`,
+   `lib/opensc2/settings_defaults.c`, `lib/opensc2/usb_desc.c`, `lib/opensc2/lizard.c` and
+   `tests/codec/src/cases_usb.h`).
+3. **Check every research link** against a fresh clone of the published repository, not against
+   your working tree:
+
+   ```powershell
+   git clone https://github.com/ded811/steam-controller-2-reverse-engineered C:\src\research-check
+   python -I tools\check_links.py --research C:\src\research-check
+   ```
+
+   Then, in a private browser window, logged out, open a research link from `docs/protocol.md`:
+   the page must open at its section.
+4. **Commit and push** the change of step 2, as a commit of its own (`git push origin main`).
+5. **Cross-link.** Add a one-line link to OpenSC2 in the research repository's `docs/README.md`.
 
 ## Release notes template
 

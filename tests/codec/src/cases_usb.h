@@ -6,11 +6,11 @@
  * framing of feature report 1, the boot-time mode rule and the marks, when the wired link sends
  * reports, the retained RAM area and the setting ranges. Written once, run as a ztest suite and on
  * a PC (see cases.h). The expected values are the real controller's descriptors and report list as
- * the published documentation gives them (docs/protocol.md lists the pages). What it does not give
- * comes from the same authors' study of the controller's firmware (not yet on the published
- * pages): the sizes of the mouse and keyboard collections, the order of the vendor reports (which
- * the vendor list below follows) and the setting ranges other than those of 36 and 68. Each is
- * written out by hand; lib/opensc2/usb_desc.c names the source of every descriptor detail.
+ * the protocol documentation the same authors wrote gives them (not public yet; docs/protocol.md
+ * lists the pages). The rest comes directly from the same authors' study of the controller's
+ * firmware: the sizes of the mouse and keyboard collections, the order of the vendor reports
+ * (which the vendor list below follows) and the setting ranges other than those of 36 and 68. Each
+ * is written out by hand; lib/opensc2/usb_desc.c names the source of every descriptor detail.
  */
 #include <errno.h>
 #include <string.h>

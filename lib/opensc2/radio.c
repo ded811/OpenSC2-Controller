@@ -14,8 +14,8 @@
  *   LISTENING  waiting on channel 2, address "ibex", for an 0xE1 request carrying our bond's IDs
  *   CONNECTED  on the puck's private pipe: keep-alives in, state reports and answers out
  *
- * Timings, packet formats and the order of replies follow the published description of the
- * controller's radio link (docs/protocol.md).
+ * Timings, packet formats and the order of replies follow the protocol documentation's description
+ * of the controller's radio link (not public yet; docs/protocol.md sums it up).
  */
 #include <errno.h>
 #include <string.h>

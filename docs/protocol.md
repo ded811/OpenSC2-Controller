@@ -1,33 +1,42 @@
 # The protocol, in brief
 
-What OpenSC2 implements, in short, with links to the full description: for the curious, and for
-anyone who wants to check the library against the documentation.
+What OpenSC2 implements, in short: for the curious, and for anyone who wants to check the library
+against the protocol documentation once it is public (until then, against this page and the API
+reference). The essentials are on this page; the [API reference](api.md) has every field, command
+and setting the library handles.
 
 The library implements the controller's end of the 2.4 GHz link to Valve's puck, and the USB device
 a Steam Controller 2 is on its cable. It was written from the protocol documentation the same
-authors published in
-[steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered),
-plus black-box tests and USB captures of Steam with a real controller
-([How it was made](../README.md#how-it-was-made)). A few facts come from the same authors' study of
-the controller's firmware and are not yet on the published pages; the gaps below say which.
+authors wrote (to be published in
+[steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered);
+not public yet), plus black-box tests and USB captures of Steam with a real controller
+([How it was made](../README.md#how-it-was-made)). A few facts come directly from the same authors'
+study of the controller's firmware, not from that documentation; the gaps below say which.
 
-| Topic | Page |
-| --- | --- |
-| The controller's end of the radio link: set-up, listening, connecting, keep-alives, records, link loss, channels, bonds, the identity packet, protocol version, turn-off | [docs/controller/04-radio.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/04-radio.md) |
-| The puck's end: slots, pairing window, connecting, channel choice, suspend | [docs/puck/04-radio.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/04-radio.md) |
-| The wired USB device: descriptors, strings, report timing | [docs/controller/03-usb-and-hid.md, The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device) |
-| The report descriptor and its collections | [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
-| Report `0x42`, the button bits, the vendor commands | [docs/controller/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md) |
-| The controller settings | [Controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings) |
-| Lizard mode | [Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode) |
-| Steam's wired session | [The wired session as Steam runs it](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it) |
-| Pairing over the cable, and the reboot into wireless mode | [Pairing a controller with a puck over the cable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable), [Reboot into wireless mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#reboot-into-wireless-mode) |
-| The July and October 2026 forms of the USB device | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
-| Wired or wireless at boot, the warm restart, the LEDs | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
-| Output reports `0x80`..`0x8A` | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
-| The dock (not implemented here) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md) |
-| What the puck shows Steam (feature report pass-through, attribute cache) | [docs/puck/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/03-usb-and-hid.md) |
-| The puck side as an open firmware | [Counterpuck](https://github.com/ded811/Counterpuck), [wire-formats.md](https://github.com/ded811/Counterpuck/blob/main/docs/wire-formats.md) |
+> [!NOTE]
+> The research repository is not public yet, so the links to it on this page do not open until it
+> is. They name where each topic is described in full; what OpenSC2 relies on is stated in the
+> sections the "In brief" column points to.
+
+| Topic | In brief | Full description (research repository) |
+| --- | --- | --- |
+| The controller's end of the radio link: set-up, listening, connecting, keep-alives, records, link loss, channels, bonds, the identity packet, protocol version, turn-off | [The radio link](#overview-the-radio-link) | [docs/controller/04-radio.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/04-radio.md) |
+| The puck's end: slots, pairing window, connecting, channel choice, suspend | [The puck's end](#overview-the-pucks-end) | [docs/puck/04-radio.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/04-radio.md) |
+| The wired USB device: descriptors, strings, report timing | [The cable](#overview-the-cable), [api.md, Wired mode](api.md#wired-mode) | [docs/controller/03-usb-and-hid.md, The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device) |
+| The report descriptor and its collections | [The cable](#overview-the-cable), [gap 13](#where-this-library-had-to-fill-gaps) | [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
+| Report `0x42`, the button bits, the vendor commands | [Reports and outputs](#overview-reports-and-outputs), [The vendor commands](#overview-the-vendor-commands), [api.md, Inputs](api.md#inputs) | [docs/controller/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md) |
+| The controller settings | [The vendor commands](#overview-the-vendor-commands), [api.md, Controller settings](api.md#controller-settings) | [Controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings) |
+| Lizard mode | [Lizard mode](#overview-lizard-mode) | [Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode) |
+| Steam's wired session | [The cable](#overview-the-cable), [The vendor commands](#overview-the-vendor-commands) | [The wired session as Steam runs it](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it) |
+| Pairing over the cable, and the reboot into wireless mode | [The cable](#overview-the-cable) | [Pairing a controller with a puck over the cable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable), [Reboot into wireless mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#reboot-into-wireless-mode) |
+| The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
+| Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
+| Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
+| The dock (not implemented here) | [The puck's end](#overview-the-pucks-end) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md) |
+| What the puck shows Steam (feature report pass-through, attribute cache) | [The puck's end](#overview-the-pucks-end) | [docs/puck/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/03-usb-and-hid.md) |
+
+The puck's side as an open firmware, public: [Counterpuck](https://github.com/ded811/Counterpuck)
+and its [wire-formats.md](https://github.com/ded811/Counterpuck/blob/main/docs/wire-formats.md).
 
 ## Overview: the radio link
 
@@ -35,18 +44,25 @@ the controller's firmware and are not yet on the published pages; the gaps below
   PHY, 16-bit CRC, +6 dBm, selective auto-acknowledgement, fast ramp-up. The puck transmits; the
   controller is the receiver and says everything in **acknowledgement payloads**, so each reply
   rides with the acknowledgement of the puck's next packet.
+- **Bonds**: a bond, one pairing, is 24 bytes: the puck ID, the controller ID and the puck's
+  serial. It is valid when both IDs are non-zero. The controller keeps two, for two pucks; the puck
+  keeps one record per slot, with the controller's serial in place of the puck's.
 - **Pairing** (channel 2): the puck's pairing window (which Steam can open with the puck's vendor
   command `0xAD`) beacons a hello to address `91 A2 A7 93`. The controller answers `0xF0 {T,
   serial}`; the puck sends `0xE0 {puck ID, puck serial}` to address T; the controller confirms with
   `0xF4 {C, serial}`; both store `{puck ID, C}`.
 - **Connecting** (channel 2, address `ibex`, prefix `0x10`): the puck broadcasts `0xE1 {puck ID,
   controller ID, channel, its address, a pipe prefix}` without acknowledgement. The controller with
-  that bond moves to the private pipe and acknowledges the hello that follows 1 ms later.
+  that bond moves to the private pipe and acknowledges the hello that follows 1 ms later. The real
+  controller listens for 60 s, then turns its radio off; the library listens until it is stopped,
+  unless `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` sets a limit.
 - **Connected**: the puck opens with `0xE7 {0, 1}` (protocol version 1); the controller answers
-  `0xF3 {1}` and once per connection its identity `0xF5` (57 bytes). Then the puck sends `0xE3`
-  keep-alives about every 3 ms, carrying records `{length, type, data}`: SET feature (1), GET feature
-  (3), output report (5). The controller answers `0xF1`: one SET result (2) or GET answer (4), the
-  state report `0x42` as an input record (6), and any queued input reports, at most 127 bytes.
+  `0xF3 {1}` and once per connection its identity `0xF5`, 57 bytes: the product ID, the application
+  and bootloader build times and the board revision (four bytes each), then the unit serial, the
+  board serial and the git revision. Then the puck sends `0xE3` keep-alives about every 3 ms,
+  carrying records `{length, type, data}`: SET feature (1), GET feature (3), output report (5). The
+  controller answers `0xF1`: one SET result (2) or GET answer (4), the state report `0x42` as an
+  input record (6), and any queued input reports, at most 127 bytes.
   A GET record is answered with the last SET's command, as on USB: its one data byte is not the
   opcode (Valve's puck leaves it unset), and the puck drops an answer whose opcode is not its SET's.
   Seen on hardware: with that byte taken as the opcode, Steam's bond read through Valve's puck
@@ -57,10 +73,53 @@ the controller's firmware and are not yet on the published pages; the gaps below
 - **The PC sleeps**: the puck sends `0xE5` (turn off); the controller answers `0xF2` to every packet
   until the puck stops. `0xE6` says the PC is asleep while the link stays up.
 
+## Overview: the puck's end
+
+What OpenSC2 counts on from Valve's puck (`28DE:1304`), which it does not implement itself:
+
+- **Slots**: the puck serves up to four controllers, one slot each. Every slot has its own USB HID
+  interface, with the same 372-byte report descriptor as the controller, and its own pairing
+  record. The puck's USB device also has a serial port with a shell, and on boards with a dock a
+  dock interface.
+- **The pairing window**: opened with the puck's vendor command `0xAD` (on its feature report 2),
+  60 s by default. The slot first forgets its old pairing, then beacons every 10 ms (the exchange:
+  [above](#overview-the-radio-link)). Steam pairs a Steam Controller 2 over the cable instead, and
+  its log shows it writing the slot's record itself (the command it uses for that was not
+  captured).
+- **Connecting**: each new connection gets a new pipe prefix and a data channel. The puck sends
+  `0xE1` every 4 ms (after 250 tries every 100 ms), each followed 1 ms later by a hello on the data
+  channel, until the controller acknowledges one.
+- **Connected**: after `0xE7` the puck exchanges packets for up to 1 s until the identity `0xF5`
+  arrives (a controller that sends none is served anyway), then makes one exchange about every
+  3 ms. It retries on its channel for 10 ms, then on the alternates too; 500 ms without an
+  acknowledgement ends the link, and the slot starts connecting again.
+- **Channel choice**: a data channel is one of the even channels 4 to 78 (2404 to 2478 MHz), scored
+  by its background noise, the slot's packet error rate on it and its distance from the current
+  channel. A link that keeps needing retries, or that answers only on an alternate, is moved to a
+  new channel with `0xE4`.
+- **Suspend**: 2 s after the PC goes to sleep the puck tells its controller to turn off (`0xE5`). A
+  controller that connects while the PC sleeps makes the puck wake the PC; if it stays asleep, the
+  puck says so with `0xE6` and keeps the link.
+- **What Steam sees**: a slot passes the controller's input reports `0x40` to `0x45` only at exactly
+  their size, and keyboard reports only with Enter, Escape, Tab or the arrows and no modifiers.
+  Output reports and feature report 1 go to the controller as records. A GET of feature report 1
+  works in two steps: the first one sends the request over the radio and fails ("try again"), and
+  a later one returns the answer once it has arrived; an answer to another command than the SET's,
+  or none within 1 s, ends the exchange. Since October 2026 the puck answers a GET after a SET of
+  `0x83` or `0xAE` itself, from the identity packet (the SET still reaches the controller). Input
+  report `0x79` gives the link state when it changes (1 no link, 2 connected, 3 just paired), and
+  `0x7B` the link quality: every 500 ms while the link is healthy, and with a reason when it
+  degrades, changes channel or drops. When a link drops, the puck sends an empty keyboard and mouse
+  report, so nothing stays held.
+- **The dock**: the puck is also a charging dock. A controller resting on it gets power through
+  three pogo pads, and the puck talks to it over a slow serial link on the same contacts. OpenSC2
+  does not implement the dock.
+
 ## Overview: the cable
 
-From the published USB page, its sections on Steam's wired session, pairing over the cable and the
-reboot into wireless mode (linked above), and this project's own tests with Steam and Valve's puck:
+From the research documentation's USB page (its sections on Steam's wired session, pairing over
+the cable and the reboot into wireless mode) and this project's own tests with Steam and Valve's
+puck:
 
 - **When**: only at a boot with USB power and without the warm-restart mark. The real controller
   then plays its chime, waits for STEAM to be released and attaches; every way out of wired mode is
@@ -97,15 +156,82 @@ reboot into wireless mode (linked above), and this project's own tests with Stea
   the mark (read and cleared at once) makes it start its radio with the stored bond although USB
   power is there, and the puck, already calling the new controller ID, connects within a second.
 
+## Overview: the vendor commands
+
+Steam's command channel is feature report 1, with the same commands on every link. A command is
+`{opcode, length, payload}`: a SET runs it, and a GET reads the answer to the last SET on the same
+link (each link keeps its own; before the first SET a GET answers `0x83`). How the cable and the
+puck's records carry them is above. What Steam was seen sending:
+
+| Opcode | Does | When Steam sends it |
+| --- | --- | --- |
+| `0x83` | reads six attributes: the product ID `0x1302`, capabilities, the bootloader and application build times, the hardware ID, the report interval | to identify the controller: on the cable, and through the puck (which since October 2026 answers it itself) |
+| `0xAE` | reads a string: tag 1 the unit serial (0 and 4 the board serial, 3 the git revision) | the same |
+| `0x81` | turns lizard mode off | on the cable, at the start of a session and again later |
+| `0x87` | writes controller settings, `{number, value}` each | on the cable in a few groups (the IMU off, both pad click thresholds to 100 %, calibrated sticks, the LED brightness to 100, ...); through the puck setting 9 = 0 every 3 s |
+| `0xDC` | stores the power-on chime level | on the cable |
+| `0xE2` | persists calibration; Steam's form (side 1, mask `0x20`) saves nothing and is acknowledged | on the cable |
+| `0xC1` | nothing: the controller does not know it and stalls it, and Steam carries on | on the cable |
+| `0xED` | reads a setting by name: `user/wireless_transport`, `esb/bond` | when it pairs the controller over the cable |
+| `0xEE`, `0xEF` | sets, then saves, `esb/bond`: the new 24-byte bond | the same |
+| `0x95` with `0xA427AF52` | reboots into wireless mode | at the end of that pairing |
+
+**Controller settings** are 86 numbered 16-bit values, in RAM only and back to their defaults at
+every boot. `0x87` writes any number of them (each clamped to its range where the range is known),
+`0x89` reads one, `0x8E` restores the defaults. Setting 9 is lizard mode, 37 the LED colour
+override, 45 the LED brightness, 48 the IMU stream and 71 the Steam watchdog.
+
+The controller also takes `0x90`, and `0x95` with `0xECAABAC0`, as a request to reboot into its
+bootloader, for Steam's firmware update; the library hands those to the application. What the
+library answers to each command, and every setting it knows: [api.md](api.md#vendor-commands).
+
+## Overview: lizard mode
+
+Until Steam takes over, a Steam Controller 2 also works as a plain mouse and keyboard, so that it is
+usable without Steam. OpenSC2 does the same, on every link:
+
+- **Mouse** (`0x40`): the right trackpad moves the pointer and the left one scrolls (up and down as
+  the wheel, left and right as horizontal pan); the right trigger or a right-pad click is the left
+  button, the left trigger the right one.
+- **Keyboard** (`0x41`): A is Enter, B and VIEW are Escape, the D-pad gives the arrow keys and MENU
+  is Tab; with more than six keys held the report carries the roll-over code. These are the only
+  keys the puck lets through.
+- **On** at every boot (setting 9 = 1). **Off** with `0x81` or with setting 9 = 0; the first `0x81`
+  sends an empty keyboard report and then an all-zero mouse report, so nothing stays held.
+- **The Steam watchdog**: unless setting 71 is 0, the host has to repeat one of those within 10 s,
+  or lizard mode comes back and the settings return to their defaults. How Steam keeps it off
+  through the puck: [the cable](#overview-the-cable).
+- Not reproduced: the real controller's smoothing, its glide after a flick and its haptic ticks
+  ([gap 11](#where-this-library-had-to-fill-gaps)). Every rule, with its scales:
+  [api.md](api.md#lizard-mode).
+
+## Overview: reports and outputs
+
+- **Input reports**, the same on every link: `0x42`, the state (53 bytes after the ID: a sequence
+  number, the button word, both triggers, both sticks, both trackpads with their pressure, and the
+  IMU's timestamp, acceleration, angular rate and orientation; [api.md](api.md#inputs) has every
+  offset and button bit); `0x43`, the battery, every 3.5 s; `0x44`, the haptic stream status;
+  `0x40` and `0x41` in lizard mode.
+- **Output reports**: `0x80` rumble (a level and a speed for each side; it lasts 500 ms, so the
+  host repeats it), `0x81` a pulse train, `0x82` a stop or one of two clicks, `0x83` a tone, `0x84`
+  a frequency sweep, `0x85` one of the built-in haptic scripts, `0x86` to `0x89` PCM streamed to
+  the actuators (`0x86` starts or stops it and sets the format, the others carry the samples);
+  `0x8A` does nothing. Most of them start with a target byte that picks the pads or the grips. The
+  library decodes each one for the application ([api.md](api.md#outputs)).
+- **The LED**: Steam sets its brightness (setting 45) and can override its colour (`0xC5`, shown
+  while setting 37 is on); the library hands both to the application. The real controller's
+  status LED shows its mode by colour: green while wired, white with a little blue on the puck's
+  link, amber on the dock.
+
 ## Where this library had to fill gaps
 
-The documentation describes one real controller firmware. Where it leaves something open, the
-library does what should work with Steam and the puck, and says so here:
+The research documentation describes one real controller firmware. Where it leaves something
+open, the library does what should work with Steam and the puck, and says so here:
 
 1. **Over-the-air pairing.** Pairing over the air (the puck's pairing window) is implemented but
    untested with Steam. Steam pairs controllers over a wired connection, and pairing over the USB-C
-   cable is the tested way
-   ([the published sequence](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable)).
+   cable is the tested way (the sequence in brief: [the cable](#overview-the-cable); in full:
+   [the documented sequence](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable)).
    The documented controller firmware contains an over-the-air pairing routine that nothing in it
    ever starts
    ([pairing is unreachable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/04-radio.md#pairing-is-unreachable)),
@@ -114,13 +240,14 @@ library does what should work with Steam and the puck, and says so here:
    if the puck repeats its offer). A wireless board answers an open window when its pairing button
    is pressed; with [Counterpuck](https://github.com/ded811/Counterpuck) as the puck, its shell
    command `pair 0` opens a window without Steam (also untested with OpenSC2).
-2. **Rumble report `0x80`** (closed). The published page and SDL's `MsgHapticRumble` agree: `[0]`
-   the type, `[1..2]` the level, `[3..4]` the left speed, `[6..7]` the right speed. The library also
-   decodes the gain bytes `[5]` and `[8]`, which the July 2026 firmware used.
+2. **Rumble report `0x80`** (closed). The research documentation and SDL's `MsgHapticRumble` agree:
+   `[0]` the type, `[1..2]` the level, `[3..4]` the left speed, `[6..7]` the right speed. The
+   library also decodes the gain bytes `[5]` and `[8]`, which the July 2026 firmware used.
 3. **Report `0x43` charge state.** The library sends the application's charge state as given, in
    SDL's `EChargeState` numbering (the type SDL gives this byte; SDL reads 1 as on battery, 2 as
-   charging, 4 as charged). The real controller can add a flag bit `0x80` to it (the published page
-   says when); the library has no charger logic of its own and never adds it.
+   charging, 4 as charged). The real controller adds a flag bit `0x80` to it while its charger has
+   given up on a supply that does not charge the battery (it tries again 60 s later); the library
+   has no charger logic of its own and never adds it.
 4. **Answer layouts not given byte for byte**: `0xF2` selector 2 (uptime u32, then the reason as a
    u32), `0xA1` (reset cause u32, device ID, zeros; the reset-cause flags are Zephyr's, not the
    original's), and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for
@@ -128,17 +255,20 @@ library does what should work with Steam and the puck, and says so here:
 5. **Which commands Steam sends through the puck** is not fully documented. The library answers the
    identity, settings, LED, user-store and settings-by-name commands and passes the rest to the
    application. On the cable the commands Steam sends are known
-   ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it)),
+   ([the vendor commands](#overview-the-vendor-commands);
+   [Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it)),
    and each gets the real answer or the real STALL (Steam's `0xC1` is stalled, as by the real
    controller).
-6. **Controller settings** have published defaults; `0x87` clamps each value to its range. The
-   published page gives the ranges of settings 36 and 68; the ranges of 9, 11, 12, 14, 45, 70 and 71
-   come from the same authors' study of the controller's firmware (not yet on the published pages).
-   These are the ranges the library knows. Other settings are stored as sent. Settings 48, 84 and
-   85 are stored too (the real controller hands them to its IMU and `0x89` answers their defaults);
-   the library answers what was written.
-7. **The quaternion's W** (offset 45): one page calls it always 0, another the quaternion's W (since
-   October). The library sends whatever the application provides; the fusion helper fills W.
+6. **Controller settings** have documented defaults; `0x87` clamps each value to its range. The
+   research documentation gives the ranges of settings 36 and 68; the ranges of 9, 11, 12, 14, 45,
+   70 and 71 come from the same authors' study of the controller's firmware (not in that
+   documentation yet). These are the ranges the library knows ([api.md](api.md#controller-settings)
+   lists them). Other settings are stored as sent. Settings 48, 84 and 85 are stored too (the real
+   controller hands them to its IMU and `0x89` answers their defaults); the library answers what
+   was written.
+7. **The quaternion's W** (offset 45): one page of the research documentation calls it always 0,
+   another the quaternion's W (since October). The library sends whatever the application
+   provides; the fusion helper fills W.
 8. **Payload limit**: the controller's payloads are "within 127 bytes", the puck accepts 128; the
    library stays at 127.
 9. **The October firmware's change to the ESB driver** (the processor, not the radio, starts each
@@ -147,11 +277,11 @@ library does what should work with Steam and the puck, and says so here:
     `0x48` (72), what a real controller reports and the value Steam has been seen working with
     ("Controller Info: HWID: 72"); `0x45` and `0x49`..`0x4B`, the other values real controllers
     accept, stay selectable.
-11. **Lizard mode** follows the published key map and mouse mapping, the release reports when it
+11. **Lizard mode** follows the documented key map and mouse mapping, the release reports when it
     turns off, and the 10 s Steam watchdog. The key-slot rule, the scales (128 pad units per pointer
     count, 1024 per scroll step, pad up scrolls with a negative wheel value) and the rule that a
     mouse report goes out every frame while anything is non-zero come from the same authors' study
-    of the controller's firmware (not yet on the published pages). Not reproduced: the touch-down
+    of the controller's firmware (not in that documentation yet). Not reproduced: the touch-down
     stabiliser, the motion average, the glide after a flick (settings 11 and 12) and the haptic
     ticks (setting 14). The keyboard is evaluated once per report frame.
 12. **A bond written with `0xA2`** takes effect at once here; the documented controller only reads
@@ -160,9 +290,9 @@ library does what should work with Steam and the puck, and says so here:
 
     | Detail | Source |
     | --- | --- |
-    | 372 bytes; the three collections in this order: mouse, keyboard, vendor; every report's ID, direction and size; the vendor collection's item rule (every field is a byte with a usage equal to its report ID) | the published page, [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
+    | 372 bytes; the three collections in this order: mouse, keyboard, vendor; every report's ID, direction and size; the vendor collection's item rule (every field is a byte with a usage equal to its report ID) | the research documentation, [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
     | the fields of the mouse and keyboard reports; the vendor fields' range (8 bits, 0..255); usage 1 for both feature reports | Counterpuck's [wire-formats.md](https://github.com/ded811/Counterpuck/blob/main/docs/wire-formats.md#usb-hid-reports) |
-    | the sizes of the mouse and keyboard collections (67 and 41 bytes); the form of the vendor items (every input and output report states its ID, logical minimum 0, a two-byte logical maximum of 255, report size 8, its count, usage and main item; the feature reports only ID, count, usage and main item); the order of the vendor reports (inputs `0x42`, `0x44`, `0x79`, `0x43`, `0x7B`, `0x45`; outputs `0x80` to `0x87`, then `0x89`, `0x88`; features `0x01`, `0x02`) | the same authors' study of the controller's firmware (not yet on the published pages) |
+    | the sizes of the mouse and keyboard collections (67 and 41 bytes); the form of the vendor items (every input and output report states its ID, logical minimum 0, a two-byte logical maximum of 255, report size 8, its count, usage and main item; the feature reports only ID, count, usage and main item); the order of the vendor reports (inputs `0x42`, `0x44`, `0x79`, `0x43`, `0x7B`, `0x45`; outputs `0x80` to `0x87`, then `0x89`, `0x88`; features `0x01`, `0x02`) | the same authors' study of the controller's firmware. The research documentation gives the two sizes too, for the puck's slot interfaces ([docs/puck/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/03-usb-and-hid.md#report-descriptors)), whose descriptor it calls the controller's byte for byte; the form of the items and the order of the reports are not in it yet |
 
     None of them gives every byte of the mouse and keyboard collections: the library builds them in
     the usual layouts at those sizes, and two item choices that give the sizes (a repeated Report
@@ -173,8 +303,9 @@ library does what should work with Steam and the puck, and says so here:
     `CONFIG_OPENSC2_USB_PROFILE_JULY` (the default), the July 2026 controller firmware's form: USB
     2.00, class `EF/02/01`, release 3.07, each GET answered with 64 bytes; and
     `CONFIG_OPENSC2_USB_PROFILE_OCTOBER`, the October 2026 firmware's form: USB 2.01 with a USB 2.0
-    extension BOS descriptor, class `00/00/00`, release 4.04, 63-byte GET replies
-    ([The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device),
+    extension BOS descriptor, class `00/00/00`, release 4.04, 63-byte GET replies (both described
+    in the research documentation:
+    [The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device),
     [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july)).
     The July form is the one Steam was seen pairing over the cable with a real controller, and the
     one tested with this library. Whether Steam treats the two differently is untested.

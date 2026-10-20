@@ -7,7 +7,7 @@ still change between minor versions.
 
 ## [Unreleased]
 
-## [0.2.0] - not yet released
+## [0.2.0] - 2026-10-19
 
 First public release.
 

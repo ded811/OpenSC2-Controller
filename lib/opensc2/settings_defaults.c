@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: MIT
  *
  * settings_defaults.c: defaults and ranges of the controller settings. The defaults and the ranges
- * of 36 and 68 are the published documentation's (docs/protocol.md lists the pages); the other
- * ranges come from the same authors' study of the controller's firmware (not yet on the published
- * pages). Numbers with no known default start at 0; numbers with no known range are not clamped.
+ * of 36 and 68 are the protocol documentation's (not public yet; docs/protocol.md lists the
+ * pages); the other ranges come from the same authors' study of the controller's firmware (not in
+ * that documentation yet). Numbers with no known default start at 0; numbers with no known range
+ * are not clamped.
  */
 #include <opensc2/settings.h>
 
@@ -45,8 +46,8 @@ static const struct setting_default defaults[] = {
 	{ OPENSC2_SETTING_IMU_THRESHOLD, 100 },
 };
 
-/* The known ranges (36 and 68 from the published documentation, the others from the same authors'
- * study of the controller's firmware, not yet on the published pages); vendor command 0x87 clamps
+/* The known ranges (36 and 68 from the protocol documentation, the others from the same authors'
+ * study of the controller's firmware, not in that documentation yet); vendor command 0x87 clamps
  * to them. */
 static const struct {
 	uint8_t number;
