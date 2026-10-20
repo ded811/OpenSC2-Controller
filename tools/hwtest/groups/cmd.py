@@ -143,7 +143,13 @@ def run(ctx):
         with ctx.check(GROUP, "cmd.by_name_read") as c:
             t = rig.read_named(TRANSPORT)
             c.eq("user/wireless_transport: n", t.n, 1)
-            c.true("user/wireless_transport: 2 + the slot", t.n == 1 and t.data[0] in (2, 3))
+            if rig.ctx.caps_ble:
+                # A Bluetooth build (caps bit 17) also stores 0 and 1, the Bluetooth slots.
+                c.true("user/wireless_transport: 0 to 3", t.n == 1 and t.data[0] <= 3)
+                c.observe(wireless_transport=t.data[0] if t.n == 1 else None)
+            else:
+                c.true("user/wireless_transport: 2 + the slot",
+                       t.n == 1 and t.data[0] in (2, 3))
             h = rig.read_named(CHIME)
             c.eq("user/haptic_boot_level: n", h.n, 1)
             u = rig.vendor(C.VC_USER_STORE_GET)
