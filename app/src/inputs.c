@@ -9,7 +9,8 @@
  *    opensc2_buttons_polled may add keys that gpio-keys polls, for example on an I2C port
  *    expander (expander.overlay); the chosen node opensc2,touch-keys may name any input device
  *    whose key codes are such bits, for example a capacitive sensor's stick-touch and grip keys
- *    (sensors.overlay).
+ *    (sensors.overlay). A touch only sets its bit: it is not a button press, so it does not
+ *    bring a turned-off controller back.
  *  - Sticks and analog triggers are ADC channels named in zephyr,user's io-channel-names. An axis
  *    that is not named reads neutral.
  *
@@ -94,7 +95,7 @@ static const struct gpio_dt_spec vcc = GPIO_DT_SPEC_GET(USER, vcc_enable_gpios);
 /* ---- buttons --------------------------------------------------------------------------------- */
 
 #if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons)) || \
-	DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled)) || DT_HAS_CHOSEN(opensc2_touch_keys)
+	DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled))
 static void on_button(struct input_event *evt, void *user_data)
 {
 	uint32_t bit;
@@ -135,9 +136,20 @@ INPUT_CALLBACK_DEFINE_NAMED(DEVICE_DT_GET(DT_NODELABEL(opensc2_buttons_polled)),
 #if DT_HAS_CHOSEN(opensc2_touch_keys)
 /* Touch keys from a sensor that decides on its own, for example the stock CAP12xx driver's: its
  * thresholds apply, not settings 30, 31, 34 and 35 (those apply to the raw words of
- * opensc2_set_touch_raw()). */
-INPUT_CALLBACK_DEFINE_NAMED(DEVICE_DT_GET(DT_CHOSEN(opensc2_touch_keys)), on_button, NULL,
-			    on_touch_key);
+ * opensc2_set_touch_raw()). Only their bits: a touch is not a button press (on_button() would
+ * bring a turned-off controller back whenever a hand closed on a grip). */
+static void on_touch_key(struct input_event *evt, void *user_data)
+{
+	uint32_t bit;
+
+	ARG_UNUSED(user_data);
+	if (evt->type != INPUT_EV_KEY || evt->code >= 32) {
+		return;
+	}
+	bit = BIT(evt->code);
+	opensc2_set_buttons(bit, evt->value ? bit : 0);
+}
+INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_CHOSEN(opensc2_touch_keys)), on_touch_key, NULL);
 #endif
 
 /* ---- analog ---------------------------------------------------------------------------------- */

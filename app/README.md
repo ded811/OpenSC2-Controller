@@ -141,7 +141,8 @@ three digits: "006" is P0.06, "111" is P1.11.
   key codes the touch bits; the build [sensors.conf](sensors.conf) has a Microchip CAP1206
   capacitive sensor (polled, address 0x28) for all four (untested on hardware). The sensor's own
   thresholds decide; settings 30, 31, 34 and 35 apply to raw words given with
-  `opensc2_set_touch_raw()` ([docs/api.md](../docs/api.md#calibration-and-raw-inputs)).
+  `opensc2_set_touch_raw()` ([docs/api.md](../docs/api.md#calibration-and-raw-inputs)). A touch
+  only sets its bit: unlike a button, it does not bring a turned-off board back.
 
 Unwired inputs read neutral. Analog pins that are listed but left open are held at mid-scale
 (sticks) or at their released end (triggers) by the nRF52840's own bias resistors, so they do not
