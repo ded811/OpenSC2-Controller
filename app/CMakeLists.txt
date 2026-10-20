@@ -11,6 +11,18 @@ if(EXISTS ${CMAKE_CURRENT_LIST_DIR}/../zephyr/module.yml AND
   list(APPEND ZEPHYR_EXTRA_MODULES ${CMAKE_CURRENT_LIST_DIR}/..)
 endif()
 
+# The dock build (dock.conf, built but untested on hardware) brings its pins with it. The fragment
+# reaches this file as EXTRA_CONF_FILE (west build --no-sysbuild) or in sysbuild's cache file for
+# this image (the default build).
+set(opensc2_fragments "${EXTRA_CONF_FILE}")
+if(DEFINED SYSBUILD_CACHE AND EXISTS "${SYSBUILD_CACHE}")
+  file(STRINGS "${SYSBUILD_CACHE}" opensc2_sysbuild_fragments REGEX "^EXTRA_CONF_FILE:")
+  string(APPEND opensc2_fragments ";${opensc2_sysbuild_fragments}")
+endif()
+if(opensc2_fragments MATCHES "(^|[;=/\\\\])dock\\.conf(;|$)")
+  list(APPEND EXTRA_DTC_OVERLAY_FILE ${CMAKE_CURRENT_LIST_DIR}/dock.overlay)
+endif()
+
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(opensc2_app LANGUAGES C)
 
