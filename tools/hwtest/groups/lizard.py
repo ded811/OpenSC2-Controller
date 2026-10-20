@@ -395,31 +395,34 @@ def _flick(x0=-28000, step=8000, hold=3, touch=RPAD_TOUCH, axis=0):
 
 
 def _start_glide(rig, rules):
-    """A flick with setting 12 = 100 (about 0.4 s of glide), run until a few frames after the
-    sequence ended: whether glide reports came after its end (the glide is still on)."""
+    """A flick with setting 12 = 1000 (about 4 s of glide on the cable), run to its end: whether
+    the glide is still going then (lizard mode makes a report in nearly every frame after it).
+    The ring is not read while the glide runs: the glide adds an entry every frame and a reader
+    gets two a request, so on a board it would only catch up, and the 0x81 or ARM that follows
+    arrive, once a short glide is over. STATUS and the lizard_made counter tell instead."""
     rig.arm()
     if rules is not None and rules != rig.rules()[0]:
         rig.rules_set(rules)
-    rig.write_settings([(11, 200), (12, 100)])
+    rig.write_settings([(11, 200), (12, 1000)])
     rig.ready_to_inject()
     steps = _flick()
     for i, (state, hold) in enumerate(steps):
         if rig.seq_load(i, hold, state)["status"] != C.ST_OK:
             return False
     rig.read_stream(count=2)
-    start = rig.ring_next()
     if rig.seq_run(len(steps), C.SEQ_FLAG_LIZARD)["status"] != C.ST_OK:
         return False
     rig.read_stream(count=sum(h for _s, h in steps) + 6)
-    rig.ring_wait(start, lambda e: bool(base.of_kind(e, C.RING_SEQ_END)), timeout=1.0)
-    rig.read_stream(count=3)
+    for _ in range(50):
+        st = rig.status()
+        if st is None or not st["sequence"]:
+            break
+        rig.sleep(0.01)
     rig.inject_active = False
-    entries = rig.ring_all(start)[2]
-    ends = base.of_kind(entries, C.RING_SEQ_END)
-    if not ends:
-        return False
-    return any(e["frame"] >= ends[0]["frame"] and e["report"] != MOUSE_ZERO
-               for e in base.of_kind(entries, C.RING_LIZARD_RPT))
+    made = rig.cnt_read()["lizard_made"]
+    rig.read_stream(count=6)
+    # a glide: a report in each of these frames; without one at most the lift-off's zero report
+    return rig.cnt_read()["lizard_made"] >= made + 4
 
 
 def _processing(ctx, rig, snap):
