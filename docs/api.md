@@ -490,8 +490,10 @@ uses with the by-name commands:
 | `cal/volt_offset` | 2 | battery voltage offset, s16 mV: `opensc2_cal_volt_offset()` |
 | `cal/sensors/gyroscope/bias` | 12 | three floats (rad/s), a starting gyro bias: `opensc2_cal_gyro_bias(bias)` |
 
-`opensc2_cal_generation()` changes whenever a stored calibration changes in RAM, for an application
-that processes its own inputs with the [calibration helpers](#calibration-helpers).
+`opensc2_cal_generation()` changes whenever a stick, trigger or pressure key changes in RAM, for an
+application that processes its own inputs with the [calibration helpers](#calibration-helpers); the
+LED trims, the battery offset and the gyro bias do not change it (their functions read the RAM
+value each time).
 
 **The commands** (on every link, as on the real controller; the [test suite](testing.md) never
 sends them):

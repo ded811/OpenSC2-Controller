@@ -303,9 +303,10 @@ uint8_t opensc2_cal_led_trim(uint8_t channel);
 int16_t opensc2_cal_volt_offset(void);
 int opensc2_cal_gyro_bias(float bias[3]);
 
-/* Changes whenever a stored calibration changes in RAM (a load, the by-name commands, a factory
- * recording, 0xFE's next boot): an application that processes its own inputs with the helpers
- * above can poll it and set up again. */
+/* Changes whenever a stick, trigger or pressure key changes in RAM (a load at boot, the by-name
+ * commands, a finished factory recording; not the LED trims, the battery offset or the gyro bias,
+ * which the functions above read afresh each time): an application that processes its own inputs
+ * with the helpers above can poll it and set up again. */
 uint32_t opensc2_cal_generation(void);
 
 /* The raw stick and trigger mode of setting 46 / 62 for a raw value: 1 the millivolts, 2 the counts
