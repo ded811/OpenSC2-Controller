@@ -34,6 +34,8 @@
  *                       reports that fall due and the reports the application sent, in order
  *   RADIO OFF|ON        "opensc2 stop" / "opensc2 start" (wireless)
  *   STATE               "MODE W|R", "LINK <state>", "ARMED <0|1>", "GUARD <0|1>"
+ *   REBOOT PLAIN|WIRELESS|WIRED   "opensc2 reboot [wireless|wired]": the mode the emulator decides
+ *                       (a boot-time injection of the test hooks' system ops can make it wireless)
  *   QUIT
  * Reports sent outside FRAMES come as "RPT <hex>" lines in that command's reply. A reboot (a power
  * request falling due) prints "EVENT BOOT W|R" where it happens.
@@ -50,6 +52,7 @@
 #include "proto_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
+#include "fwemu_sys.h"
 
 #define FRAME_US       4028u     /* the USB report interval, 4.0283 ms */
 #define BATTERY_US     3500000u  /* CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS */
@@ -204,13 +207,14 @@ static void set_clock(void)
 	hk.extra_us = (uint32_t)((now_us - boot_us) % 1000u);
 }
 
-static void boot(bool to_wireless);
+static void boot(bool to_wireless, bool warm);
 
 static void battery_report(void)
 {
 	uint8_t report[OPENSC2_BATTERY_REPORT_LEN];
 	struct opensc2_battery b = osc2.battery;
 
+	emu_sys_battery(&b);   /* the system state machine sees the application's level */
 	osc2_test_battery(&b);
 	opensc2_encode_battery(&b, report);
 	osc2_test_count(input_send(report, sizeof(report)) == 0 ? OSC2_TEST_CNT_BATTERY_SENT :
@@ -246,9 +250,34 @@ static void radio_off(void)
 	hk.link_state = OPENSC2_LINK_OFF;
 	osc2.last_disconnect_reason = OPENSC2_REASON_DISABLED;
 	osc2_test_note_link(OPENSC2_LINK_OFF, OPENSC2_REASON_DISABLED, osc2.slot, 0, 0);
+	emu_sys_link(OPENSC2_LINK_OFF, OPENSC2_REASON_DISABLED);
 	if (rumble_active) {
 		rumble_off();   /* osc2_output_link_down() */
 	}
+}
+
+/* A reboot: the zero report on the way out while wired, then the next boot by the boot rule
+ * (wired on the emulator's USB power), or wireless as `to_wireless` asks or a boot-time injection
+ * of the test hooks' system ops makes it. */
+static void reboot_now(bool to_wireless, bool warm)
+{
+	bool to_r = to_wireless || osc2.policy == OPENSC2_POLICY_WIRELESS || emu_sys_boot_wireless();
+
+	if (!wireless) {
+		/* osc2_usb_detach(): one all-zero state report, sequence 0 too */
+		static const uint8_t neutral[OPENSC2_STATE_REPORT_LEN] = { OPENSC2_RPT_STATE };
+
+		printf("RPT ");
+		put_hex(neutral, sizeof(neutral));
+		printf("\n");
+	}
+	printf("EVENT BOOT %c\n", to_r ? 'R' : 'W');
+	boot(to_r, warm && to_r);
+}
+
+void emu_reboot(void)
+{
+	reboot_now(false, false);
 }
 
 /* A power request falls due: noted as core.c does, then what the blank canvas does with it. */
@@ -258,6 +287,9 @@ static void power_now(void)
 
 	power_pending = false;
 	osc2_test_note_power((uint8_t)request, stub.power_why);
+	if (emu_sys_power(request)) {
+		return;   /* the system state machine took it (the turn-off) */
+	}
 	switch (request) {
 	case OPENSC2_POWER_TURN_OFF:
 		if (wireless && hk.radio_connected) {
@@ -266,22 +298,10 @@ static void power_now(void)
 		break;
 	case OPENSC2_POWER_REBOOT:
 	case OPENSC2_POWER_FACTORY_RESET:
-	case OPENSC2_POWER_REBOOT_KEEP_LINK: {
-		bool to_r = request == OPENSC2_POWER_REBOOT_KEEP_LINK ||
-			    osc2.policy == OPENSC2_POLICY_WIRELESS;
-
-		if (!wireless) {
-			/* osc2_usb_detach(): one all-zero state report, sequence 0 too */
-			static const uint8_t neutral[OPENSC2_STATE_REPORT_LEN] = { OPENSC2_RPT_STATE };
-
-			printf("RPT ");
-			put_hex(neutral, sizeof(neutral));
-			printf("\n");
-		}
-		printf("EVENT BOOT %c\n", to_r ? 'R' : 'W');
-		boot(to_r);
+	case OPENSC2_POWER_REBOOT_KEEP_LINK:
+		reboot_now(request == OPENSC2_POWER_REBOOT_KEEP_LINK,
+			   request == OPENSC2_POWER_REBOOT_KEEP_LINK);
 		break;
-	}
 	default:
 		break;   /* the bootloader request: ignored by the blank canvas */
 	}
@@ -324,6 +344,7 @@ static void after_request(void)
 			osc2_test_count(OSC2_TEST_CNT_APP_REPORTS_SENT);
 		}
 	}
+	emu_sys_process();   /* what the request injected into the system rules */
 }
 
 /* The deadlines of the hooks (the lease, the end of a disarm) as the work item runs them. */
@@ -349,6 +370,7 @@ static void advance_us(uint64_t us)
 		now_us += step;
 		set_clock();
 		deadlines();
+		emu_sys_process();
 		if (power_pending && now_us >= power_due_us) {
 			power_now();
 		}
@@ -369,7 +391,7 @@ static void advance_us(uint64_t us)
 
 /* ---- boot --------------------------------------------------------------------------------------- */
 
-static void boot(bool to_wireless)
+static void boot(bool to_wireless, bool warm)
 {
 	struct opensc2_bond bond = { .puck_id = 0x11111111u, .controller_id = 0x22222222u };
 	struct cal_host_record flash = cal_host;   /* the stored calibration survives a reboot */
@@ -391,7 +413,8 @@ static void boot(bool to_wireless)
 	wireless = to_wireless;
 	if (wireless) {
 		osc2.mode = OPENSC2_MODE_WIRELESS;
-		osc2.mode_reason = OPENSC2_MODE_WARM_RESTART;
+		/* a boot-time injection of a battery boots wireless without the warm mark */
+		osc2.mode_reason = warm ? OPENSC2_MODE_WARM_RESTART : OPENSC2_MODE_NO_USB_POWER;
 		stub.link_active[OSC2_LINK_USB] = false;
 		stub.link_active[OSC2_LINK_RADIO] = true;
 		hk.radio_connected = true;
@@ -420,6 +443,7 @@ static void boot(bool to_wireless)
 	watchdog_due_us = now_us + WATCHDOG_US;
 	next_battery_us = now_us + BATTERY_US;
 	set_clock();
+	emu_sys_boot(warm);   /* the system state machine's power-on decision */
 }
 
 /* ---- the frame path: report.c's osc2_report_state() and osc2_report_lizard() ------------------ */
@@ -547,7 +571,13 @@ static void radio(bool on)
 		osc2_test_note_link(OPENSC2_LINK_CONNECTED, OPENSC2_REASON_NONE, osc2.slot, 27, 2);
 		osc2_test_note_identity(&osc2.identity);
 		osc2_test_note_version(1);
+		emu_sys_link(OPENSC2_LINK_CONNECTED, OPENSC2_REASON_NONE);
 	}
+}
+
+void emu_radio(bool on)
+{
+	radio(on);
 }
 
 int main(void)
@@ -556,7 +586,7 @@ int main(void)
 
 	setvbuf(stdout, NULL, _IOFBF, 1 << 16);
 	now_us = 1000000u;   /* a board up for a second */
-	boot(false);
+	boot(false, false);
 	while (fgets(line, sizeof(line), stdin)) {
 		char *nl = strpbrk(line, "\r\n");
 		char *arg;
@@ -576,7 +606,14 @@ int main(void)
 		if (strcmp(line, "QUIT") == 0) {
 			break;
 		} else if (strcmp(line, "BOOT") == 0) {
-			boot(arg[0] == 'R');
+			boot(arg[0] == 'R', arg[0] == 'R');
+		} else if (strcmp(line, "REBOOT") == 0) {
+			if (strcmp(arg, "WIRED") == 0) {
+				printf("EVENT BOOT W\n");
+				boot(false, false);
+			} else {
+				reboot_now(strcmp(arg, "WIRELESS") == 0, strcmp(arg, "WIRELESS") == 0);
+			}
 		} else if (strcmp(line, "TIME") == 0) {
 			printf("TIME %llu\n", (unsigned long long)now_us);
 		} else if (strcmp(line, "ADVANCE") == 0) {

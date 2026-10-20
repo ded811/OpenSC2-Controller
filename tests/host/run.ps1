@@ -40,15 +40,19 @@ $libSources += @("$lib\transport_rules.c", "$lib\ble_rules.c")
 # calibration and the sensor helpers
 $libSources += @("$lib\cal.c", "$lib\sensor_helpers.c", "$lib\gauge.c", "$lib\cal_store.c",
     (Join-Path $PSScriptRoot 'cal_host.c'))
+# the system state machine: power, chords, the status LED, cues
+$libSources += @("$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c",
+    "$lib\led_rules.c", "$lib\test_sys.c")
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',
-    '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c",
+    '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c", "$lib\test_sys_notes.c",
     (Join-Path $PSScriptRoot 'hooks_stub.c'))
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
-$emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_TEST_HOOKS=1',
+$emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_SYSTEM=1',
+    '-DCONFIG_OPENSC2_TEST_HOOKS=1',
     '-DCONFIG_OPENSC2_TEST_RING_SIZE=2048', '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8',
-    "$lib\test_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
-    (Join-Path $PSScriptRoot 'fwemu.c'))
+    "$lib\test_notes.c", "$lib\test_sys_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
+    (Join-Path $PSScriptRoot 'fwemu.c'), (Join-Path $PSScriptRoot 'fwemu_sys.c'))
 
 $plain = Join-Path $tmp 'opensc2_host_tests_plain.exe'
 $withHooks = Join-Path $tmp 'opensc2_host_tests_hooks.exe'

@@ -77,6 +77,12 @@ OP_BLE_WINDOW = 0x62        # the next advertising window's length, ms
 OP_RAW_INJECT = 0xA0
 OP_RAW_OFF = 0xA1
 OP_CAL_STATUS = 0xA2
+# the system state machine's ops (0x70..0x77; proto/sysproto.py)
+OP_SYS_INJECT = 0x70
+OP_SYS_INJECT_OFF = 0x71
+OP_SYS_STATUS = 0x72
+OP_SYS_BOOT = 0x73
+OP_SYS_EVENT = 0x74
 OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: "INJECT",
             OP_INJECT_OFF: "INJECT_OFF", OP_BATTERY: "BATTERY", OP_BATTERY_OFF: "BATTERY_OFF",
             OP_SEQ_LOAD: "SEQ_LOAD", OP_SEQ_RUN: "SEQ_RUN", OP_SEQ_STOP: "SEQ_STOP",
@@ -86,7 +92,9 @@ OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: 
             OP_HOST_OUT: "HOST_OUT", OP_HOST_SET: "HOST_SET", OP_HOST_GET: "HOST_GET",
             OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF", OP_BLE_STATUS: "BLE_STATUS",
             OP_BLE_DROP: "BLE_DROP", OP_BLE_WINDOW: "BLE_WINDOW", OP_RAW_INJECT: "RAW_INJECT",
-            OP_RAW_OFF: "RAW_OFF", OP_CAL_STATUS: "CAL_STATUS"}
+            OP_RAW_OFF: "RAW_OFF", OP_CAL_STATUS: "CAL_STATUS",
+            OP_SYS_INJECT: "SYS_INJECT", OP_SYS_INJECT_OFF: "SYS_INJECT_OFF",
+            OP_SYS_STATUS: "SYS_STATUS", OP_SYS_BOOT: "SYS_BOOT", OP_SYS_EVENT: "SYS_EVENT"}
 BLE_STATUS_LEN = 28
 BLE_WINDOW_MIN_MS = 100
 BLE_WINDOW_MAX_MS = 600000
@@ -145,6 +153,14 @@ RING_CHANNELS = 0x24
 RING_STOP_STATUS = 0x30      # a 0x44 the library sent as the reply to a stop
 RING_BLE = 0x40           # a Bluetooth LE link event (BLE_EVENT_*)
 
+# the system state machine's entries (0x50..0x57; proto/sysproto.py)
+RING_SYS_STATE = 0x50
+RING_LED_MODE = 0x51
+RING_CUE = 0x52
+RING_SYS_END = 0x53
+RING_CHORD = 0x54
+RING_SOURCE = 0x55
+RING_IDLE = 0x56
 # BLE events (docs/test-protocol.md, The ring): a, b, c as each one says.
 BLE_EVENT_NAMES = {1: "state", 2: "security", 3: "mtu", 4: "params", 5: "gate", 6: "trigger",
                    7: "disconnect", 8: "adv", 9: "adv_end", 10: "identity", 11: "bond",
@@ -311,6 +327,7 @@ CAP_RULES = 15                 # the rule word (ops RULES, RULES_SET): the input
                                # mode's processing; without it, OpenSC2 0.2.0's rules
 CAP_HAPTIC_STOP_STATUS = 16    # a stop's 0x44 replies (CONFIG_OPENSC2_HAPTIC_STOP_STATUS)
 CAP_BLE = 17                   # Bluetooth LE (CONFIG_OPENSC2_BLE)
+CAP_SYSTEM = 18                # CONFIG_OPENSC2_SYSTEM: the system state machine and its ops
 CAP_CAL = 21                   # CONFIG_OPENSC2_CAL: the cal/ keys, raw inputs, RAW_INJECT
 
 # ---- timings and thresholds -----------------------------------------------------------------

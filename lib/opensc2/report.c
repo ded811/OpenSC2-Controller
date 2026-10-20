@@ -23,6 +23,7 @@
 #include "input_rules.h"
 #include "lizard.h"
 #include "proto_rules.h"
+#include "system.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -109,6 +110,9 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 	}
 	opensc2_get_state(s);
 	osc2_cal_frame(s);   /* raw inputs, processed as the real controller does (cal_store.c) */
+	/* The application's sticks, triggers and touches (raw ones processed) for the idle monitor,
+	 * never the injected ones below: the report injection does not reach the system rules. */
+	osc2_sys_frame(s);
 	/* The hardware test hooks' injected inputs take the application's place here, after its state
 	 * was read and never above: there they would be stored as the application's own (and reach
 	 * the STEAM, plug-in and wakeup rules). */
@@ -266,6 +270,9 @@ static void battery_fn(struct k_work *work)
 	ARG_UNUSED(work);
 	b = osc2.battery;
 	k_spin_unlock(&osc2.lock, key);
+	/* The level reaches the power rules (the application's, or the test hooks' system
+	 * injection; never the report injection below). */
+	osc2_sys_battery_report(&b);
 	osc2_test_battery(&b);
 	opensc2_encode_battery(&b, report);
 	osc2_test_count(osc2_input_send(report, sizeof(report), true) == 0 ?

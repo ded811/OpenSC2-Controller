@@ -48,11 +48,12 @@ tools/hwtest/
   fwemu.py          the backend for the firmware emulator (tests/host/fwemu.c: the library's own
                     code on the PC, --dry-run --fw-emu EXE)
   proto/            the wire formats, pure: reports, model (the expected-report and lizard
-                    models), vendor, testproto (the 0x7E channel), console (parsers), shellfmt
-                    (shell.c's line formats), steamlog
+                    models), vendor, testproto (the 0x7E channel), sysproto (the system ops and
+                    their ring entries), console (parsers), shellfmt (shell.c's line formats),
+                    steamlog
   groups/           one module per test group (hooks, desc, cmd, inputs, battery, stream,
                     reports, outputs, settings, flash, lizard, wireless, puck, ble, steam, modes,
-                    restore, cal) and base.py (checks, results, what ends a group)
+                    system, restore, cal) and base.py (checks, results, what ends a group)
   win/              Windows access through ctypes, imported lazily: backend (WinBackend),
                     devices (listing without opening; the Bluetooth HID nodes too), hid (the
                     board, on USB or over Bluetooth), serial (its console),
@@ -75,7 +76,7 @@ Comments in the code name the safety rules by label. Each rule is code with its 
 | S4 | never feature report 2 (the puck's own commands) to the puck |
 | S5 | the vendor-command denylist and the one-shot tokens of `--flash`; a `cal/` key is never written, saved or deleted, not even with a token |
 | S6 | the console's allowlist of commands |
-| S7 | the conditions for every injection (armed, the guard canary passed, Steam closed, the only reader, lizard mode off) |
+| S7 | the conditions for every injection (armed, the guard canary passed, Steam closed, the only reader, lizard mode off; for the system injection, which reaches no report: armed with the guard, the canary passed, Steam closed) |
 | S8 | Steam appearing during a group stops its injection |
 | S9 | everything printed or written is masked (Bluetooth addresses too) |
 | S10 | leaving: the restore always runs, and the lease ends arming within 15 s |

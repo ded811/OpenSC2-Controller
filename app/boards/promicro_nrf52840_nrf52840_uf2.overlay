@@ -114,8 +114,9 @@
 		vcc-enable-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
 
 		/* ---- Optional outputs (take their pins from buttons above) ----------------------
-		 * A vibration motor ("rumble", samples/rumble) and an RGB LED that follows
-		 * Steam's colour ("red", "green", "blue", samples/rgb_led) are PWM channels in a
+		 * A vibration motor ("rumble", samples/rumble), an RGB status LED in the real
+		 * controller's colours ("red", "green", "blue", and "white" for an RGBW LED; wiring:
+		 * samples/rgb_led) and an IR LED ("ir", controller setting 36) are PWM channels in a
 		 * single pwms list, found by pwm-names. All channels of one nRF PWM instance share
 		 * one period, so the motor (200 us) and the LED (1000 us) take two instances:
 		 *   pwms = <&pwm1 0 PWM_USEC(200) PWM_POLARITY_NORMAL>,
@@ -124,6 +125,11 @@
 		 *          <&pwm2 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
 		 *   pwm-names = "rumble", "red", "green", "blue";
 		 * and enable &pwm1 and &pwm2 with a pinctrl group each (samples/rumble, rgb_led).
+		 * The LED channels' trims, percent R G B W (the real controller's when not set):
+		 *   led-trims = <90 35 120 80>;
+		 * A charger module's status output (TP4056-style CHRG, active while charging) gives
+		 * report 0x43 its charge state (src/battery.c; untested):
+		 *   charger-status-gpios = <&gpio0 x (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 		 * A mode switch to GND, closed at power-up: wireless, as if pairing were held:
 		 *   mode-wireless-gpios = <&gpio0 x (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>; */
 	};

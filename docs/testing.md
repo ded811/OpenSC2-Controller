@@ -50,18 +50,21 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `wireless` | R | which of the puck's slots carries the board (an injected signature), the puck's link status and link quality reports, the identity sent on connect, reconnecting after `opensc2 stop`/`start`, a lost link (the radio made deaf for 800 ms), the turn-off requests |
 | `ble` | B | the Bluetooth link: connected and past its gate (encrypted, ATT MTU 64 or more), the identity in use and its bond, the connection interval, the name and address the console shows; the state report cut to `0x45` (no quaternion); a lost link (the board drops it with reason `0x08`): the same identity advertises again 500 ms later, directed to its host, and Windows connects it again; the host ending the link (`0x13`): wireless off and the `WIRELESS_OFF` power request, and `opensc2 start` brings it back; with `--flash` the 60 s advertising window, shortened to 3 s, running out in pairing mode on the slot's other identity while the slot's host keeps its bond |
 | `cal` | W R | builds with `CONFIG_OPENSC2_CAL` (caps bit 21): raw inputs given with the `RAW_INJECT` test op and processed by the library as an application's would be: uncalibrated sticks, triggers and pad pressure read 0, settings 46, 62 and 60 give millivolts or counts, the stick-touch and grip bits follow the means of their words with the hysteresis of settings 30, 31, 34 and 35, a change of setting 34 starts them over; on injected pads the rotation (settings 2 and 24) and the touch stabiliser (setting 80 = 2); `RAW_OFF`. It writes no calibration (safety rule S5): a board that holds a calibration skips the uncalibrated checks |
-| `restore` | all | always last and always whole (whatever `--test` selects), also after a failure or Ctrl-C: outputs and injection off, settings and LED colour written back, disarmed, every link's stored request as after a boot, and the board **as found** (mode, bonds, identity, slot, chime level, mode policy, the settings and the LED colour) |
+| `system` | W R | the [system state machine](api.md#power-and-the-system-state-machine), through the hooks' system injection (buttons, a battery level and a power source that reach the firmware's rules, never a report), Steam closed: the power-on state and its cue; battery operation with the link kept and back on USB power; the turn-off command, a link that gave up and STEAM held 7 s (its 20 ms and 7 s timings) switching wireless off on USB power, and `opensc2 start` back on; a STEAM press then rebooting into wired; the PC-asleep cue, once; the idle monitor on USB power (nothing acts on it); on an injected battery with setting 77 = 1, so that each shutdown reboots where the suite can see it: STEAM held 7 s, the idle timeout (its 16 to 17 periods), 0 % (the low-battery shutdown), the power-on chord with and without its 4 s pairing hold (a boot-time injection), the keylock (`--flash`); wired, the cable pulled (an injected battery). Each shutdown's end is read back after the reboot. Built, not yet run on hardware |
+| `restore` | all | always last and always whole (whatever `--test` selects), also after a failure or Ctrl-C: outputs and injection off (the system injection too, and no boot-time injection left for the board's next boot), settings and LED colour written back, disarmed, every link's stored request as after a boot, and the board **as found** (mode, bonds, identity, slot, chime level, mode policy, the settings and the LED colour) |
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, the kept keys `user/keylock`, `mte/charge_level` and `debug/resetreason` saved as they read, restating the mode policy); see [the note below](#what---flash-writes) |
-| `lizard` | W R B | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, also from the click by pressure switched on for the test, thumb on the stick by its sensor's bit or the stick-touch fallback, lizard mode off and back, with its processing switched off), then its processing part by part (the touch stabilisers with setting 80 at 0, 1 and 2, the 8-frame average, the glide after a flick and what ends it: a new touch, `0x81`, an `ARM`, and the haptic ticks and clicks) and all together as the build has it, each sequence followed until lizard mode goes quiet, with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path, and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
+| `lizard` | W R B | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, also from the click by pressure switched on for the test, thumb on the stick by its sensor's bit or the stick-touch fallback, lizard mode off and back, with its processing switched off), then its processing part by part (the touch stabilisers with setting 80 at 0, 1 and 2, the 8-frame average, the glide after a flick and what ends it: a new touch, `0x81`, an `ARM`, and the haptic ticks and clicks) and all together as the build has it, each sequence followed until lizard mode goes quiet, with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path (before the `system` group, whose reboots come at the very end), and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
 | `puck` | P | opt-in `--through-puck`: rumble, haptics, vendor commands and the test channel through the puck ([below](#the---through-puck-opt-in)) |
 | `steam` | S | opt-in `--with-steam`: what Steam sends to the board through the puck (the vendor commands, and `steam.session` counts the output reports by ID, rumble, haptic commands by kind, PCM bytes and stops, and checks the `0x44` reply to each stop; the counts go into `report.json`), the lines it logs on a reconnect (masked), the wired stream with Steam open; passive |
 
 Because nothing is wired, the board's own inputs read neutral; the inputs come from the test
 channel, and the outputs (rumble, haptics, LED) show up in the hooks' ring, entry by entry, with the
 fields the library decoded. Not covered: the physical inputs and outputs of a board that has them
-(the samples' drivers), the USB cable rules (unplugging, plugging in) and the dock. Bluetooth is a
-run of its own, `--bluetooth` ([Bluetooth](#bluetooth)); of it the suite does not cover Valve's vendor
-GATT service, other hosts (phones, SDL) or Steam over Bluetooth, which are checked by hand.
+(the samples' drivers), the USB cable rules on a real cable (unplugging, plugging in: the `system`
+group injects the power source instead), a real power-off (the board has no battery, so every
+shutdown reboots) and the dock. Bluetooth is a run of its own, `--bluetooth`
+([Bluetooth](#bluetooth)); of it the suite does not cover Valve's vendor GATT service, other hosts
+(phones, SDL) or Steam over Bluetooth, which are checked by hand.
 
 ## What it needs
 
@@ -123,7 +126,11 @@ They are rules in code, each with its own self-test, not conventions:
   `leak_ignored`). If the detector cannot see both collections of a path listed as raw-input
   devices, it is off there, and `--lizard` is refused on that path. If the canary fails, the
   firmware takes an injection it should refuse or does not stop one when lizard mode comes on, or
-  the leak detector fires, nothing is injected for the rest of the run (exit code 2).
+  the leak detector fires, nothing is injected for the rest of the run (exit code 2). The system
+  injection of the `system` group reaches only the firmware's rules, never a report, so the reader
+  and lizard-mode conditions do not apply to it; it still needs the hooks armed with the guard on,
+  this arming's canary passed and Steam closed (the shutdowns and reboots it causes would disturb a
+  Steam session), and while the hooks are armed the firmware turns every power-off into a reboot.
 - **It never touches what it cannot put back.** Never the bootloader (`0x90`, `0x95` with the
   bootloader key, the shell's `uf2`), never a factory reset (`0x86`), never a calibration recording
   or erase (`0xD8`, `0xC0`, `0xC3`, `0xFE`; `0xE2` only in forms that save nothing), never a write,
@@ -279,6 +286,11 @@ Steam stores the chime level and the bond itself when it pairs the controller, b
 state can differ afterwards; `restore.as_found` compares the values in effect and does not see
 it. Each of these rows says so in its note, and every write counts in `report.json`
 (`safety.flash_writes`).
+
+`system.keylock` also needs `--flash`: the keylock chord stores `user/keylock`, the next power-on
+(on an injected battery) shows the keylock shutdown, and the following power-on on USB power
+deletes the key again, as on the real controller (two writes; a board that had no keylock has none
+afterwards).
 
 ## How to read the report
 
@@ -443,9 +455,9 @@ in `report.json` (`safety.puck_writes`).
   pad clicks).
 - **The firmware emulator** (`--fw-emu`): the same groups against the library's own code
   (commands, test channel, ring, injection, lizard mode, the battery and state reports, the
-  calibration's raw inputs and pad rules), so the runner and the firmware cannot drift apart
-  unnoticed. The simulator has no calibration (no caps bit 21), so group `cal` runs against the
-  emulator only.
+  calibration's raw inputs and pad rules, and the system state machine's rules with their test ops
+  and reboots), so the runner and the firmware cannot drift apart unnoticed. The simulator has no
+  calibration (no caps bit 21), so group `cal` runs against the emulator only.
 - **The shared vectors** in `tests/vectors/hwtest/`: the C host tests and the runner's self-tests
   read the same files (the state report rules with every rule word, lizard mode with its processing
   and haptic events, ring entries, the test channel, the settings), so both sides agree on every

@@ -127,6 +127,31 @@ hardware.
   same name.
 - The test hooks' raw injection (`RAW_INJECT`, `RAW_OFF`, `CAL_STATUS`, caps bit 21) and the
   hardware test suite's group `cal`, checked against the firmware emulator.
+- The real controller's system state machine (`CONFIG_OPENSC2_SYSTEM`, on by default): the power-on
+  decision on USB power, on the dock and on a battery; STEAM pressed, and held 7 s; the transport
+  chords and their 4 s pairing hold; the keylock (`user/keylock`); the idle timeout (setting 50);
+  low battery; the turn-off command, a link that gives up and the puck's turn-off; the cable pulled;
+  setting 77 (reboot instead of power-off); what powers the board (`opensc2_set_power_source()`,
+  `opensc2_power_source()`, `opensc2_keylock()`); the shell's `opensc2 power`.
+- A battery build: `CONFIG_OPENSC2_BATTERY` and `app/battery.conf`. Its shutdowns end in
+  `OPENSC2_POWER_OFF` (the blank canvas: System OFF, woken by STEAM or USB power), and the radio
+  gives up as the real controller does (60 s of listening; `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S`, 10 s
+  with an empty slot, link reason `OPENSC2_REASON_NO_BOND_TIMEOUT`). Without the option a board
+  never switches itself off: every shutdown reboots.
+- The status LED: the library selects the real controller's modes (the `led_status` callback,
+  `opensc2_led_status()`), and `<opensc2/led.h>` has its patterns as a pure player, the brightness
+  curve (setting 38), the channel trims, the fully-charged display
+  (`user/fully_charged_led_intensity`) and the IR LED (setting 36). The blank canvas shows them on
+  its one-colour LED, an optional RGB or RGBW LED and an optional IR LED.
+- Cue events (the `cue` callback, `enum opensc2_cue`): the power-on and power-off chimes, the
+  transport cues, pairing and paired, the PC asleep, each with the built-in script it stands for
+  and its gain from the chime level. Playing them is the application's.
+- `OPENSC2_CHARGE_GAVE_UP` (the charge state's `0x80` flag) and `opensc2_charge_state_of()`; an
+  optional charger status pin in the blank canvas (`charger-status-gpios`).
+- The test hooks' system injection (ops `0x70` to `0x74`: buttons, a battery level and a power
+  source that reach the rules, a boot-time injection, the machine's status, simulated link events),
+  its ring entries (`0x50` to `0x56`) and caps build flag 18; the hardware test suite's `system`
+  group; host tests of every pure rule; the firmware emulator runs the machine.
 
 ### Changed
 
@@ -167,6 +192,25 @@ hardware.
   the stick, trigger and pressure keys still with length 0 until one is stored.
 - The hardware test suite never writes, saves or deletes a `cal/` key (safety rule S5), and
   `cmd.save_refusals` checks a refused `0xEF` on `cal/joy_l` instead of `0xF0`.
+- With the system state machine, `opensc2_init()` leaves starting the link to it (still only when
+  `config.start` is set); the turn-off command and the cable pulled are its events, and the
+  application gets `OPENSC2_POWER_OFF` or a reboot at the end of a shutdown; a host's reboot and
+  bootloader requests reach `power_request` only in the states that act on them.
+- Wireless on USB power, STEAM held 7 s, the turn-off command, a link that gave up and the puck's
+  turn-off now switch wireless off (the amber LED), and a STEAM press then reboots the board, which
+  comes back wired, as on the real controller; `opensc2 start` turns wireless on again. In v0.2.0
+  the blank canvas only stopped the radio, and any button started it again.
+- The blank canvas's LED shows the real controller's patterns (on its one-colour LED: on once set
+  up or connected, a slow blink while it looks for the puck, two quick flashes while it pairs over
+  the air, a short dark blink every second for amber).
+- `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` defaults to 60 s in a battery build.
+- The retained RAM area's layout is version 2 (the test hooks' system words), so the first boot of
+  this firmware starts with an empty USB session log.
+
+### Not proven
+
+- Everything above is built, host-tested and run by the test suite against the firmware emulator;
+  none of it has run on hardware yet.
 
 ## [0.2.0] - 2026-10-19
 

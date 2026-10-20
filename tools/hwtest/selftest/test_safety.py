@@ -681,5 +681,48 @@ class Injection(unittest.TestCase):
         safety.check_injection(ctx)
 
 
+class SystemInjection(unittest.TestCase):
+    """The system ops (SYS_INJECT, SYS_BOOT, SYS_EVENT) reach only the firmware's rules: armed with
+    the guard, the canary passed, Steam closed; neither the sole reader nor lizard mode counts."""
+
+    @staticmethod
+    def _ctx():
+        ctx = safety.Context()
+        ctx.armed = ctx.guard = ctx.canary_passed = True
+        return ctx
+
+    def test_preconditions(self):
+        safety.check_system_injection(self._ctx())       # no sole reader, lizard mode on: fine
+        for attr in ("armed", "guard", "canary_passed"):
+            ctx = self._ctx()
+            setattr(ctx, attr, False)
+            with self.assertRaises(safety.SafetyError):
+                safety.check_system_injection(ctx)
+        ctx = self._ctx()
+        ctx.steam_running = True
+        with self.assertRaises(safety.SafetyError):
+            safety.check_system_injection(ctx)
+
+    def test_at_the_send(self):
+        for op, args in ((C.OP_SYS_INJECT, bytes(8)), (C.OP_SYS_BOOT, bytes([4]) + bytes(7)),
+                         (C.OP_SYS_BOOT, bytes(7) + bytes([1])), (C.OP_SYS_EVENT, bytes(1))):
+            req = T.build_request(op, args)
+            with self.assertRaises(safety.SafetyError):
+                safety.check_test_request(req, "console", safety.Context())
+            safety.check_test_request(req, "console", self._ctx())
+            safety.check_test_request(req, "usb", self._ctx())
+            with self.assertRaises(safety.SafetyError):
+                safety.check_test_request(req, "puck", self._ctx())   # not a reading op
+        # the reading and stopping ones need nothing, nor SYS_BOOT's clear (all eight bytes 0),
+        # which the restore sends: it injects nothing
+        for op, args in ((C.OP_SYS_STATUS, b""), (C.OP_SYS_INJECT_OFF, b""),
+                         (C.OP_SYS_BOOT, bytes(8))):
+            safety.check_test_request(T.build_request(op, args), "console", safety.Context())
+            safety.check_test_request(T.build_request(op, args), "usb", safety.Context())
+        self.assertTrue(safety.system_clear(C.OP_SYS_BOOT, bytes(8)))
+        self.assertFalse(safety.system_clear(C.OP_SYS_BOOT, bytes(7)))
+        self.assertFalse(safety.system_clear(C.OP_SYS_INJECT, bytes(8)))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,9 @@ library into a project: [integration.md](integration.md).
 - [Calibration and raw inputs](#calibration-and-raw-inputs): the real controller's processing and
   its stored calibration
 - [Outputs](#outputs): callbacks and what is in them
+- [Power and the system state machine](#power-and-the-system-state-machine): power-on, STEAM, the
+  chords, the keylock, the idle timeout, low battery, shutdown and power-off, the cues
+- [Status LED](#status-led): the modes the library selects, and the pattern player that shows them
 - [Identity](#identity)
 - [Bonds and pairing](#bonds-and-pairing)
 - [Wireless transports and Bluetooth LE](#wireless-transports-and-bluetooth-le): the puck or
@@ -66,6 +69,12 @@ is not documented here and has not been checked against this library.
 | `opensc2_identity_get(&id)`, `opensc2_identity_store(&id)`, `opensc2_identity_clear()` | who the controller says it is | [Identity](#identity) |
 | `opensc2_setting_get(n)`, `opensc2_lizard_mode()`, `opensc2_led_get(&led)`, `opensc2_chime_level()` | the controller settings and the other state Steam sets | [Controller settings](#controller-settings) |
 | `opensc2_setting_default(n)`, `opensc2_setting_clamp(n, v)` | a setting's default and range (pure) | [Controller settings](#controller-settings) |
+| `opensc2_set_power_source(s)`, `opensc2_power_source()` | what powers the board: a battery, USB or the dock | [Power and the system state machine](#power-and-the-system-state-machine) |
+| `opensc2_keylock()` | whether the keylock (travel lock) is stored | [The keylock](#the-keylock) |
+| `opensc2_charge_state_of(power, charging)` | report `0x43`'s charge state from a charger's status output (pure) | [Battery](#battery) |
+| `opensc2_led_status(&st)` | the status LED's mode and everything its pattern depends on | [Status LED](#status-led) |
+| `opensc2_led_player_init(&p)`, `opensc2_led_player_step(&p, &st, now, rgbw)`, `opensc2_led_player_envelope(&p)` | the real controller's LED patterns as colours every 10 ms (pure) | [Status LED](#status-led) |
+| `opensc2_led_brightness(s45, s38)`, `opensc2_led_duty(c, trim, b)` | the brightness curve and a channel's duty (pure) | [Status LED](#status-led) |
 | `opensc2_fusion_init(&f)`, `opensc2_fusion_update(&f, a, g, dt)`, `opensc2_fusion_quat(&f, q)` | the orientation quaternion from an IMU without its own fusion | [The IMU fusion helper](#the-imu-fusion-helper) |
 | `opensc2_accel_from_g(g)`, `opensc2_gyro_from_dps(dps)` | g and °/s in the report's units | [The IMU fusion helper](#the-imu-fusion-helper) |
 | `opensc2_encode_state()`, `opensc2_decode_output()`, ... | every wire format as a pure function (`<opensc2/codec.h>`) | [Pure helpers](#pure-helpers) |
@@ -105,7 +114,7 @@ int main(void)
 
 | Function | Does |
 | --- | --- |
-| `opensc2_init(&config)` | Loads the bonds, the wireless transport, the stored identity and the mode policy from Zephyr settings, checks the identity, decides this boot's mode, then starts the USB device (wired) or the stored wireless transport (wireless: the radio thread, or Bluetooth). Once. `-EINVAL` for an invalid identity. A wired boot whose USB device cannot be set up goes on wireless (`OPENSC2_MODE_USB_FAILED`, the transport started if `start` is set). After an error the debug console (`CONFIG_OPENSC2_USB_CONSOLE`) still starts, so the log can be read. |
+| `opensc2_init(&config)` | Loads the bonds, the wireless transport, the stored identity and the mode policy from Zephyr settings, checks the identity, decides this boot's mode, then starts the USB device (wired) or the stored wireless transport (wireless: the radio thread, or Bluetooth). Once. `-EINVAL` for an invalid identity. A wired boot whose USB device cannot be set up goes on wireless (`OPENSC2_MODE_USB_FAILED`, the transport started if `start` is set). After an error the debug console (`CONFIG_OPENSC2_USB_CONSOLE`) still starts, so the log can be read. With `CONFIG_OPENSC2_SYSTEM` (the default) the [system state machine](#power-and-the-system-state-machine) then makes its power-on decision and starts the transport when its rules say so (on battery after its 1 s wait), and only if `start` is set. |
 | `opensc2_start()` | The wireless transport on. The radio: listen for the bonded puck, or wait in `OPENSC2_LINK_NO_BOND` when the slot is empty. Bluetooth: advertise ([below](#the-bluetooth-build)), also after "wireless off". `-EBUSY` while wired. |
 | `opensc2_stop()` | The wireless transport off. The radio: like the real controller, nothing is sent; the puck notices the silence. Bluetooth: an all-zero `0x45`, 100 ms, a disconnect, no advertising. |
 | `opensc2_pair_start(seconds)` | Pair over the air with a puck whose pairing window is open. `0` = `CONFIG_OPENSC2_PAIRING_TIMEOUT_S` (60). Starts the radio if needed. With Bluetooth as the transport: pairing mode instead (the slot's other identity, reset, advertises open to a new host; the slot's old host keeps its bond until a new one has paired). `-EBUSY` while wired (Steam pairs a wired board itself). |
@@ -127,7 +136,7 @@ Link states and reasons (`link_changed` gets both):
 
 | State | Means |
 | --- | --- |
-| `OPENSC2_LINK_OFF` | Radio off: before `opensc2_start()`, after `opensc2_stop()`, after the puck turned the controller off, after `CONFIG_OPENSC2_LISTEN_TIMEOUT_S`, or wired. |
+| `OPENSC2_LINK_OFF` | Radio off: before `opensc2_start()`, after `opensc2_stop()`, after the puck turned the controller off, after `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` or `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S`, or wired. |
 | `OPENSC2_LINK_NO_BOND` | Radio on, but the selected slot has no bond: pair first. |
 | `OPENSC2_LINK_PAIRING` | Answering a puck's pairing beacon. |
 | `OPENSC2_LINK_LISTENING` | Waiting on channel 2 for the bonded puck's connection request. |
@@ -150,6 +159,7 @@ once the link is encrypted and its ATT MTU is 64 or more). The reasons `LINK_LOS
 | `LISTEN_TIMEOUT` | `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` passed without the puck; Bluetooth: its advertising window ended without a host (wireless off). |
 | `BOND_CHANGED` | A bond or the slot selection changed. |
 | `HOST_DISCONNECTED` | Bluetooth: the host ended the link (HCI `0x13`) or powered off (`0x15`): wireless off. |
+| `NO_BOND_TIMEOUT` | `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` passed with the selected slot still empty. |
 
 Reasons 0 to 4 are the controller's own disconnect reasons; the last one is what vendor command
 `0xF2` selector 2 reports.
@@ -199,7 +209,11 @@ With `CONFIG_OPENSC2_USB_PLUG_IN_REBOOT`, a wireless board that sees USB power a
 is down, or with STEAM held, asks for `OPENSC2_POWER_USB_PLUGGED` (the real controller reboots and
 comes back wired); with the link up it stays wireless and only charges. Only while the policy is
 auto: the policy at the moment USB power appears counts, so `opensc2_policy_set()` applies to it at
-once. Not when the application chose the mode at boot, nor after a failed wired start.
+once. Not when the application chose the mode at boot, nor after a failed wired start. In a battery
+build (`CONFIG_OPENSC2_BATTERY`) the [system state machine](#power-and-the-system-state-machine)
+applies this rule in its battery state, from its own look at the power source; otherwise the
+library checks USB power every 100 ms, as before (also with the machine, while the power source in
+effect is USB, so a board with a battery that was built without the option keeps the rule).
 
 ### Test builds only: no host, then wireless
 
@@ -259,9 +273,9 @@ full-speed USB device with the real controller's descriptors:
 | Input reports | the state report `0x42` every 132 ticks of the 32,768 Hz clock (a 4000 µs timer, 4.03 ms) from the moment the host configures the device; the battery report `0x43` every 3.5 s; lizard-mode reports; `opensc2_send_report()`. Eight IN buffers: a state report that finds none free is dropped, so nothing waits for the host; lizard and application reports wait for a free buffer |
 | Suspend | nothing changes (as the October 2026 controller), but reports are dropped while the bus is suspended. `CONFIG_OPENSC2_USB_REMOTE_WAKEUP`: STEAM held about 20 ms wakes the PC, as the July 2026 controller did |
 | Leaving | only on the way to a reboot: one all-zero `0x42` (sequence 0), 10 ms, USB off. Steam's `0x95` with `0xA427AF52` is acknowledged and acted on 20 ms later |
-| Turn-off | `0x9F` and `0x95` with `0xABDF9710` are acknowledged and ignored while wired |
+| Turn-off | `0x9F` and `0x95` with `0xABDF9710` are acknowledged and ignored while wired (the real controller's wired state does not act on them either) |
 | While waiting for the host | `OPENSC2_USB_ATTACHED` for 0.5 s, then `OPENSC2_USB_NO_HOST`; STEAM pressed asks for `OPENSC2_POWER_REBOOT_KEEP_LINK` (back to wireless, as the real controller). In a charger test build only, no request from a host within `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS` asks for it too ([above](#test-builds-only-no-host-then-wireless)) |
-| Cable pulled | matters only to a board that keeps running (a battery). USB power gone for 0.2 s: the reports stop, the state goes `OFF`, and the library asks for `OPENSC2_POWER_USB_UNPLUGGED` (without a callback: a plain reboot, which comes back wireless). A shorter dip changes nothing. The real controller shuts down |
+| Cable pulled | matters only to a board that keeps running (a battery). USB power gone for 0.2 s: the reports stop, the state goes `OFF`, and the library asks for `OPENSC2_POWER_USB_UNPLUGGED` (without a callback: a plain reboot, which comes back wireless). A shorter dip changes nothing. The real controller shuts down, and so does the library with `CONFIG_OPENSC2_SYSTEM` (the default): the device leaves the bus, then the [shutdown](#shutdown-and-power-off) runs and ends in `OPENSC2_POWER_OFF` on a battery build, a reboot otherwise |
 
 `opensc2_usb_state()` and `opensc2_usb_info(&info)` give the state (`OFF`, `ATTACHED`, `NO_HOST`,
 `CONFIGURED`), whether the bus is suspended, and counters. When the host deconfigures the device (a
@@ -418,6 +432,20 @@ from boot on whatever link is up (dropped while there is none), and answered to 
 level, then 1 while `charge_state` is `OPENSC2_CHARGE_CHARGING` (else 0) and `charge_state` without
 a `0x80` flag. `0x43` sends `charge_state` as given (the real controller adds `0x80` while its
 supply check has given up; [protocol.md, gap 3](protocol.md#where-this-library-had-to-fill-gaps)).
+
+`OPENSC2_CHARGE_GAVE_UP` (`0x80`) may be added to `charge_state`: the real controller sets it while
+its charger has given up on a supply that does not charge the battery (it tries again 60 s later).
+Report `0x43` carries it as given; while it is set and the level is above 0, the
+[system state machine](#low-battery) and the [status LED](#status-led) are told 100 %, and the
+report keeps the measured level. The library never adds it itself (it has no charger logic).
+
+`opensc2_charge_state_of(input_power, charging)` (pure) gives the state for a charger with a status
+output, such as a TP4056 module's CHRG pin: without input power 1 (on battery), with it 2 while the
+charger charges and 4 (done; report a level of 100) otherwise. The blank canvas uses it for an
+optional charger status pin ([app/README.md](../app/README.md#optional-parts); untested).
+
+With the system state machine the level also counts for the power rules ([Low battery](#low-battery)),
+from the first `opensc2_set_battery()` on: a board that never sets a battery is never low.
 
 ### Other input reports
 
@@ -589,9 +617,9 @@ touch levels (72, 73) belong to the trackpad's own processing: [sensor helpers](
 All callbacks are in `struct opensc2_callbacks`; any may be `NULL`. Wireless, they run in the
 library's radio thread; wired, in its USB report thread (`sample`, and `haptic` for lizard mode's
 own events) or the USB stack's thread (output reports, vendor commands), so on the cable `haptic`
-can come from either of those two threads; `power_request`, `usb_changed` and a rumble timeout run
-in the system work queue. Return quickly: the radio link only lives while acknowledgements keep up
-with the puck.
+can come from either of those two threads; `power_request`, `usb_changed`, `led_status`, `cue` and
+a rumble timeout run in the system work queue. Return quickly: the radio link only lives while
+acknowledgements keep up with the puck.
 
 | Callback | Called for | Gets |
 | --- | --- | --- |
@@ -602,10 +630,12 @@ with the puck.
 | `output_report(report, len)` | any output report, raw | ID first |
 | `led(led)` | vendor command `0xC5`, settings 37 and 45 | `red`, `green`, `blue`, `white` percent; `override` (setting 37: show this instead of the status pattern); `brightness` (setting 45, 0..100, default 50) |
 | `setting_changed(number, value)` | a setting changed value (vendor command `0x87`, `0x81` for setting 9), or all of them went back to their defaults (`0x8E`, the Steam watchdog: `OPENSC2_SETTINGS_ALL`) | |
-| `host_asleep()` | the puck says the PC is asleep (the link stays up) | the real controller plays a short cue |
+| `host_asleep()` | the puck says the PC is asleep (the link stays up) | the real controller plays a short cue: with the system state machine the library raises it (`cue` 10, once per boot) |
 | `power_request(req)` | see below | |
 | `vendor_command(cmd, answer, answer_len)` | vendor commands the library does not answer itself | see [Vendor commands](#vendor-commands) |
 | `usb_changed(info)` | wired: the USB device's state changed | `struct opensc2_usb_info` |
+| `led_status(status)` | `CONFIG_OPENSC2_SYSTEM`: the status LED's mode, its flags (`external_power`, `steady`, `shutting_down`) or the battery level it is told changed. The other fields can change without a call | `struct opensc2_led_status` ([Status LED](#status-led)); `opensc2_led_status()` gives all of it at any time |
+| `cue(cue)` | `CONFIG_OPENSC2_SYSTEM`: a cue to play; only cues that are not silent at the chime level come here | `struct opensc2_cue_event`: `cue`, the built-in `script` it stands for, `gain_db` ([Cues](#cues)) |
 
 Haptic channels: `OPENSC2_HAPTIC_LEFT_PAD`, `_RIGHT_PAD`, `_LEFT_GRIP`, `_RIGHT_GRIP` (the real
 controller's four actuators). `channels` is the target byte decoded the way the real controller
@@ -636,19 +666,322 @@ lizard mode off.
 
 `power_request(req)`, in the system work queue; vendor commands are acted on about 20 ms after they
 arrive, so their answer still goes out. Without the callback the library does the suggested action
-itself where it is a reboot, and ignores the others.
+itself where it is a reboot, and ignores the others. With `CONFIG_OPENSC2_SYSTEM` (the default) the
+[system state machine](#power-and-the-system-state-machine) takes the turn-off command and the
+cable pulled itself, and a host's reboot or bootloader request reaches the application only in a
+state that acts on it (in the others it is logged and ignored, as on the real controller); at the
+end of a shutdown the application gets `OPENSC2_POWER_OFF` or a reboot.
 
 | Request | From | Suggested action |
 | --- | --- | --- |
-| `OPENSC2_POWER_TURN_OFF_PUCK` | the puck's "turn off" (the PC sleeps) | power down if on battery; the link goes `OFF` by itself once the puck stops. A button press can then `opensc2_start()` again, which also lets the puck wake the PC. |
-| `OPENSC2_POWER_TURN_OFF` | `0x9F`, or `0x95` with `0xABDF9710` (never while wired) | `opensc2_stop()` or power down |
+| `OPENSC2_POWER_TURN_OFF_PUCK` | the puck's "turn off" (the PC sleeps) | power down if on battery; the link goes `OFF` by itself once the puck stops. A button press can then `opensc2_start()` again, which also lets the puck wake the PC. With the system state machine, for information only: the link going `OFF` is its "wireless off" |
+| `OPENSC2_POWER_TURN_OFF` | `0x9F`, or `0x95` with `0xABDF9710` (never while wired) | `opensc2_stop()` or power down. Not sent with the system state machine, which handles it |
+| `OPENSC2_POWER_OFF` | the system state machine: the end of a shutdown on a battery build (the link dropped, the power-off cue played, STEAM let go) | turn the board off with a wake-up pin, as the blank canvas does ([Shutdown and power-off](#shutdown-and-power-off)); without a callback the library calls `sys_poweroff()`, and only a new USB supply or a reset wakes the chip |
 | `OPENSC2_POWER_REBOOT` | `0x95` with another value | `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)` |
 | `OPENSC2_POWER_REBOOT_KEEP_LINK` | `0x95` with `0xA427AF52` (Steam's "reboot into wireless mode", after it paired the board over the cable); STEAM pressed while no host configured the wired device; in a charger test build only, no host within `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS` | `opensc2_reboot(OPENSC2_REBOOT_WIRELESS, NULL)` |
 | `OPENSC2_POWER_BOOTLOADER` | `0x90`, or `0x95` with `0xECAABAC0`: Steam's firmware update | your bootloader cannot take Steam's update; ignoring it is usually right (Steam's update then fails, and the firmware stays as it is) |
 | `OPENSC2_POWER_FACTORY_RESET` | `0x86` with `0xEFC1A917` | the bonds, slot and chime level are already erased; `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)` |
 | `OPENSC2_POWER_USB_PLUGGED` | USB power appeared while wireless with the link down or STEAM held (policy auto) | `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)`: back wired |
 | `OPENSC2_POWER_WIRELESS_OFF` | Bluetooth gave up: its advertising window (`CONFIG_OPENSC2_BLE_ADV_WINDOW_S`, 60 s) ended without a host, or the host ended the link (`0x13`) or powered off (`0x15`); the link is `OFF` with reason `LISTEN_TIMEOUT` or `HOST_DISCONNECTED` | the library has already stopped advertising. Power down if on battery (the real controller turns off); on USB power nothing more (the real controller stays on with wireless off). A button can `opensc2_start()` again, as the blank canvas does |
-| `OPENSC2_POWER_USB_UNPLUGGED` | USB power gone for 0.2 s while wired (only a board with a battery or another supply still runs to see it) | power off if the board can (the real controller shuts down), or `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)`, which comes back wireless without USB power (the default, and what the blank canvas does). Ignoring it leaves the board wired with neither link until a reset or a re-plug |
+| `OPENSC2_POWER_USB_UNPLUGGED` | USB power gone for 0.2 s while wired (only a board with a battery or another supply still runs to see it) | power off if the board can (the real controller shuts down), or `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)`, which comes back wireless without USB power (the default, and what the blank canvas does). Ignoring it leaves the board wired with neither link until a reset or a re-plug. Not sent with the system state machine, which runs its shutdown instead |
+
+## Power and the system state machine
+
+> [!NOTE]
+> Built; not yet tested on hardware. The rules are host-tested, and the hardware test suite's
+> `system` group runs them against the firmware emulator ([testing.md](testing.md)); none of this
+> section has run on a board yet.
+
+`CONFIG_OPENSC2_SYSTEM` (on by default) runs the real controller's system state machine, as the
+protocol documentation describes it (not public yet; [protocol.md](protocol.md#where-this-library-had-to-fill-gaps)
+lists where OpenSC2 differs): what a power-on does on USB power, on the dock and on a battery;
+STEAM pressed, and held for 7 s; the transport chords and their 4 s pairing hold; the keylock; the
+idle timeout; low battery; the turn-off command, a link that gives up and the puck's turn-off; the
+cable pulled; the status LED's mode; and the cues. It all runs in the system work queue.
+
+What the application does for it:
+
+- **The buttons**, as always (`opensc2_set_buttons()`, `opensc2_set_state()`): the machine reads
+  the same button word for STEAM, the chords and the idle timeout. The test hooks' report injection
+  never reaches it; their system injection does ([Hardware test hooks](#hardware-test-hooks)).
+- **The battery** (`opensc2_set_battery()`), before `opensc2_init()` for the power-on checks. The
+  level counts from the first call on ([Low battery](#low-battery)).
+- **The power source**, optionally (`opensc2_set_power_source()`, below).
+- **The outputs**: it shows the LED (the `led_status` callback, [Status LED](#status-led)), plays the
+  cues (the `cue` callback, [Cues](#cues)) and turns the board off on `OPENSC2_POWER_OFF`
+  ([Shutdown and power-off](#shutdown-and-power-off)). The blank canvas does all of it
+  ([app/README.md](../app/README.md#led)).
+
+**A board without a battery is never switched off.** Without `CONFIG_OPENSC2_BATTERY` (the default)
+a board that runs without USB power is taken to be on an external supply, which counts as USB
+power, and every shutdown that would turn the board off reboots it instead. On USB power the machine
+changes only what the real controller changes there: STEAM held 7 s, the turn-off command, a link
+that gave up and the puck's turn-off (the PC went to sleep) switch wireless off and show the amber
+LED; a STEAM press then reboots the board, which comes back wired, and `opensc2 start` (or the
+application's `opensc2_start()`) turns wireless on again. A battery build (`app/battery.conf`, or
+`CONFIG_OPENSC2_BATTERY=y`) runs on its battery without USB power, with every rule below.
+
+With `CONFIG_OPENSC2_SYSTEM=n` the library behaves as v0.2.0 did: `opensc2_init()` starts the link,
+every power request goes to the application, `opensc2_led_status()` selects no mode and
+`opensc2_keylock()` is false.
+
+### What powers the board
+
+| `enum opensc2_power_source` | Means |
+| --- | --- |
+| `OPENSC2_POWER_SOURCE_AUTO` | the default: the library's own view. USB power while the chip's VBUS detection sees it; otherwise a battery with `CONFIG_OPENSC2_BATTERY`, or else an external supply (USB power, for the rules) |
+| `OPENSC2_POWER_SOURCE_BATTERY` | no input power: running on the battery |
+| `OPENSC2_POWER_SOURCE_USB` | USB power, or another supply that is not the dock |
+| `OPENSC2_POWER_SOURCE_DOCK` | the puck's dock contacts (OpenSC2 does not implement the dock; an application that senses its power can name it) |
+
+`opensc2_set_power_source(s)` sets it (`-EINVAL` for another value), for example from a charger's
+input type; `opensc2_power_source()` returns the source in effect. The library looks at it every
+`CONFIG_OPENSC2_POWER_POLL_MS` (50 ms, as often as the real controller polls its USB power
+detection). Power that goes away counts once it has stayed away 0.2 s; power that comes counts at
+once. Only a change of "power present" is an event: USB to the dock with power all along changes
+nothing. Set it before `opensc2_init()` for the power-on decision: a boot with VBUS whose source is
+the battery or the dock is not wired (`OPENSC2_MODE_NO_USB_POWER`).
+
+### The power-on decision
+
+Once `opensc2_init()` has decided the mode ([Modes](#modes)), in this order:
+
+| At power-on | State | What happens |
+| --- | --- | --- |
+| a wired boot | `wired-wait` | cue 0 (the power-on chime); the LED stays as it is for 0.5 s, then amber until a host configures the device (`wired`, green). The keylock is deleted |
+| wireless on USB power (the warm restart, the policy, the application's choice) | `usb-link-on` | the stored transport's cue; its link starts. The keylock is deleted |
+| on the dock, right after the warm restart | `dock-on` | the stored transport's link starts, without a cue. The keylock is deleted |
+| on the dock otherwise | `dock-off` | the radio stays off; amber. The keylock is deleted |
+| on battery, level 0 % | `shutdown-silent` | off, without a cue |
+| on battery, the keylock stored | `shutdown-locked` | the keylock pattern for 0.5 s, then off |
+| on battery, level 2 % or less | `shutdown-low` | the power-off cue and the low-battery pattern for 0.5 s, then off |
+| on battery, STEAM alone or a transport chord held | `chord` | its transport, its cue, its colour steady, 4 s ([Chords](#chords)), then `battery` |
+| on battery otherwise | `battery-wait` | the stored transport's cue, then 1 s for USB power (a reboot, which comes back wired) or the dock (`dock-off`); then its link starts: `battery` |
+
+The stored transport is the selected bond slot (`user/wireless_transport` 2, the main puck, cue 3;
+3, the second puck, cue 4). Starting a link selects that slot when it differs and starts the
+radio, and only if `config.start` is set. The Bluetooth transports (0 and 1, cues 1 and 2) need a
+build with Bluetooth; without one the main puck stands in.
+
+### The states while it runs
+
+| State | LED mode | Acts on |
+| --- | --- | --- |
+| `wired-wait`, `wired` | amber after 0.5 s without a host; 3 (green) once configured | USB power gone (the cable pulled, 0.2 s): `shutdown`. A host's reboot and bootloader requests reach the application while `wired` |
+| `usb-link-on` | the transport's, shown as on external power | STEAM held 7 s, the turn-off command, a link that gave up or the puck's turn-off: `usb-link-off`; USB power gone: `battery`, the link kept; a host's requests reach the application |
+| `usb-link-off` | 4 (amber) | STEAM pressed: a reboot, which comes back wired; USB power gone: `shutdown-silent`; the link started from outside (`opensc2 start`, `opensc2_start()`, pairing): `usb-link-on` |
+| `battery` | the transport's | STEAM held 7 s, the idle timeout, the turn-off command, a link that gave up or the puck's turn-off: `shutdown`; 0 %: `shutdown-low`; the keylock chord held 3 s: the keylock stored, then `shutdown`; USB power: with STEAM held or the link down a reboot that comes back wired (policy auto, `CONFIG_OPENSC2_USB_PLUG_IN_REBOOT`), with the link up `usb-link-on`; dock power: `dock-on`; a host's requests reach the application |
+| `dock-off` | 4 (amber) | a transport chord: `dock-chord`; lifted off (power gone): `lifted`; Steam's "reboot into wireless mode" reaches the application |
+| `lifted` | 5 (off) | 5 s: `shutdown-silent`; back on the dock: `dock-off`; USB power: a reboot; a transport chord: `chord` |
+| `dock-chord` | the chord's transport, steady | as `chord`, then `dock-on` |
+| `dock-on` | the transport's, shown as on external power | STEAM held 7 s, the turn-off command, a link that gave up or the puck's turn-off: the power-off cue, `dock-off`; power gone: `battery`, the link kept; a host's requests reach the application |
+| `shutdown`, `shutdown-silent`, `shutdown-low`, `shutdown-locked`, `reboot` | 5, 5, 6, 7, 5 | nothing else: [Shutdown and power-off](#shutdown-and-power-off) |
+
+"A link that gave up" is the radio going `OFF` after `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` (60 s in a
+battery build), after `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` with the selected slot empty (10 s in a
+battery build), or for a protocol version it does not speak; the puck's turn-off counts the same. A
+radio stopped on the board (`opensc2_stop()`, the shell's `opensc2 stop`) is not "wireless off".
+The turn-off command is `0x9F`, or `0x95` with `0xABDF9710`; wired, it is acknowledged and ignored,
+as before. A host's other requests (`0x95` reboots, the bootloader requests) reach `power_request`
+only in the states the table names; elsewhere they are logged and ignored. Requests of the library's
+own (STEAM before a host, the shell's reboots) are never held back.
+
+### Chords
+
+| Chord | The buttons, exactly | Does |
+| --- | --- | --- |
+| STEAM alone | STEAM | the stored transport; pressed (20 ms): "STEAM pressed", the reboot out of `usb-link-off`; held (7 s): "STEAM held", the shutdown or wireless off above |
+| the main puck | A + right bumper, with or without STEAM | bond slot 1 (transport 2), cue 3 |
+| the second puck | A + left bumper, with or without STEAM | bond slot 2 (transport 3), cue 4 |
+| Bluetooth 1 | B + right bumper, with or without STEAM | Bluetooth slot 1 (transport 0), cue 1: only in a build with Bluetooth |
+| Bluetooth 2 | B + left bumper, with or without STEAM | Bluetooth slot 2 (transport 1), cue 2: only in a build with Bluetooth |
+| the keylock | STEAM + L4 + L5 + R4 + R5 | 5 ms: deletes the keylock (in any state); 3 s on battery: stores it, then `shutdown` ([The keylock](#the-keylock)) |
+
+A chord matches when the button word, with the stick-touch, trigger-click and grip-touch bits left
+out, equals its buttons exactly, and releases when it stops matching; the trackpad touch and click
+bits stay in, so a thumb resting on a pad spoils a chord. One chord matches at a time.
+
+The transport chords count when the board powers up on battery with one held, and on the dock
+with the radio off (`dock-off`, `lifted`): the chord's transport becomes the choice, its cue plays
+and its colour shows steady. Released within 4 s, its link starts; held 4 s, it starts with the
+pairing flag (Bluetooth then opens pairing mode; the puck's radio ignores the flag). For 500 ms
+after the chord was recognised the machine takes no other event. STEAM alone held at a battery
+power-on is the stored transport's chord.
+
+### The keylock
+
+A travel lock. Held 3 s on battery, the keylock chord stores the lock and shuts the board down. It
+counts from the next power-on: on battery the board then turns straight off again, showing the
+keylock pattern. A power-on on USB power or the dock deletes it, and so does a 5 ms tap of the
+chord. `opensc2_keylock()` says whether it is stored (as read at boot or written since; the chord's
+own store counts from the next boot).
+
+It is the settings-by-name key `user/keylock`, 4 bytes, `0x41FB0AC3` while locked (Zephyr settings
+`opensc2/sys/keylock`): `0xED` reads it, `0xEE` sets the value in RAM, `0xEF` saves it and `0xF0`
+deletes it; a factory reset (`0x86`) deletes it too.
+
+### The idle timeout
+
+Controller setting 50, in seconds (900, 15 minutes, by default; 0 or more than 9998: never). Only
+battery operation acts on it: the board shuts down. The timeout is cut into 16 periods; a period
+with input in it leaves a mark in a 16-bit history, and the idle event comes when all 16 are empty.
+Input is a button pressed (a change that leaves a button down), a stick beyond 4000 of 32767, a
+trigger above 0, or a touched pad or stick (a touch still there when a period ends counts too).
+Sticks and triggers are seen in the state reports, so only while a link is up, as on the real
+controller. A new value of setting 50 (the defaults coming back included) starts the monitor again,
+and an idle history fires again at the end of every further idle period, so a board that stayed idle
+on USB power turns off within one period of being unplugged. The status LED's "input recent" comes
+from it.
+
+### Low battery
+
+Each battery report (`0x43`, every 3.5 s) also tells the machine the level: the application's, or
+100 while the charge state has `OPENSC2_CHARGE_GAVE_UP` and the level is above 0. On battery, 0 %
+starts the low-battery shutdown; at a battery power-on 0 % turns the board off silently and 2 % or
+less with the low-battery signal. At 5 % or less the status LED shows red ([Status LED](#status-led)).
+Only a level the application set counts: until its first `opensc2_set_battery()` there is none, so
+a board that measures nothing (and reports the default 100 %) is never low.
+
+### Shutdown and power-off
+
+| State | Shows | Ends |
+| --- | --- | --- |
+| `shutdown` | LED off, the power-off cue | after 0.5 s, once STEAM is up: off, or a reboot while controller setting 77 is not 0 |
+| `shutdown-silent` | LED off | off, once STEAM is up |
+| `shutdown-low` | the low-battery pattern, the power-off cue | after 0.5 s, once STEAM is up: off |
+| `shutdown-locked` | the keylock pattern | after 0.5 s, once STEAM is up: off |
+| `reboot` | LED off | a reboot at once, by the boot rule (wired on USB power) |
+
+Each of them drops the link first (wired: one all-zero `0x42`, 10 ms, USB off; wireless: the radio
+stops, and the puck notices the silence) and turns the IR LED off. Waiting for STEAM to be up holds
+everything else, so the press that turned the board off cannot wake it again. "Off" is:
+
+- in a battery build (`CONFIG_OPENSC2_BATTERY`): `OPENSC2_POWER_OFF` to the application, which turns
+  the board off; without a `power_request` callback the library calls `sys_poweroff()` itself;
+- without a battery: a plain reboot (`OPENSC2_POWER_REBOOT`), so a board that could not be woken
+  again is never switched off;
+- while the test hooks are armed, or in a boot their boot-time injection started: a reboot too.
+
+Setting 77 (default 0; SDL's name for it is `THUMB_TOUCH_THRESH`) makes the ordinary shutdown
+reboot instead, read when the shutdown ends. Settings return to their defaults at every boot, so one
+write covers one shutdown. The blank canvas turns the board off the way Zephyr's `system_off` sample
+does: the STEAM key's pin (without one, every key's) as a level-sensing wake-up input
+(`GPIO_INT_LEVEL_ACTIVE`), then `sys_poweroff()` (`CONFIG_POWEROFF`, which the battery option
+selects). A new USB supply, or a reset, also wakes the nRF52840.
+
+```c
+static void on_power(enum opensc2_power_request request, void *user)
+{
+    if (request == OPENSC2_POWER_OFF) {
+        gpio_pin_interrupt_configure_dt(&steam_pin, GPIO_INT_LEVEL_ACTIVE);   /* STEAM wakes */
+        my_leds_off();
+        sys_poweroff();
+    }
+    /* ... the reboots, as before */
+}
+```
+
+### Cues
+
+| Cue | `enum opensc2_cue` | Raised | Script |
+| --- | --- | --- | --- |
+| 0 | `OPENSC2_CUE_POWER_ON` | the wired start; a remote wakeup (`CONFIG_OPENSC2_USB_REMOTE_WAKEUP`) | 1 |
+| 1, 2 | `OPENSC2_CUE_BT_1`, `_BT_2` | Bluetooth slot 1 or 2 chosen, at power-on or by a chord | 1, 2 |
+| 3, 4 | `OPENSC2_CUE_PUCK_1`, `_PUCK_2` | the main or the second puck chosen, at power-on or by a chord | 1, 2 |
+| 5 | `OPENSC2_CUE_POWER_OFF` | `shutdown`, `shutdown-low`; wireless switched off on USB power or the dock | 5 |
+| 6 | `OPENSC2_CUE_PAIRING` | pairing starts (over the air: the link enters `PAIRING`) | 8 |
+| 7 | `OPENSC2_CUE_PAIRED` | a puck (or a Bluetooth host) has paired | 9 |
+| 8 | `OPENSC2_CUE_CHARGE_WINDOW` | the real controller's factory charge window: never raised here | 10 |
+| 9 | `OPENSC2_CUE_UNUSED` | nothing raises it | 3 |
+| 10 | `OPENSC2_CUE_HOST_ASLEEP` | the puck says the PC is asleep (`0xE6`), once per boot | 4 |
+
+The `cue` callback gets `struct opensc2_cue_event`: the cue, the real controller's built-in script
+it stands for (the `0x85` script numbers) and a gain from the chime level Steam stores
+(`opensc2_chime_level()`, `user/haptic_boot_level`): 1 (quiet) −18 dB, 2 (normal, the default)
+−12 dB, one dB less for cues 6 and 7; any other level is silent, and the callback is not called.
+Cue 8 would play at +2 dB whatever the level. The sound is the application's: OpenSC2 has no copy
+of the real controller's scripts, so a renderer plays sounds of its own for each cue. The blank
+canvas logs each cue.
+
+## Status LED
+
+> [!NOTE]
+> Built; not yet tested on hardware. The patterns follow the protocol documentation's description
+> of the real controller's LED; none of them has been compared with a real controller.
+
+With `CONFIG_OPENSC2_SYSTEM` the library selects the status LED's mode and the application shows
+it. `opensc2_led_status(&st)` gives everything a pattern depends on, at any time. The `led_status`
+callback comes when the mode, its flags or the battery level change; the link, pairing, recent
+input, the brightness, Steam's colour and the fully-charged level change without one, so read the
+status at every step, as below. `<opensc2/led.h>` also has the real controller's patterns as a
+pure **pattern player**, so an application only drives its LED:
+
+```c
+static struct opensc2_led_player player;     /* opensc2_led_player_init(&player) once */
+
+static void every_10_ms(void)                /* OPENSC2_LED_STEP_MS */
+{
+    struct opensc2_led_status st;
+    uint16_t rgbw[4];                        /* R, G, B, W in thousandths */
+
+    opensc2_led_status(&st);
+    opensc2_led_player_step(&player, &st, k_uptime_get_32(), rgbw);
+    for (int i = 0; i < 4; i++) {
+        set_my_pwm(i, opensc2_led_duty(rgbw[i], my_trim[i], st.brightness));   /* thousandths */
+    }
+}
+```
+
+| `struct opensc2_led_status` | |
+| --- | --- |
+| `mode` | `enum opensc2_led_mode`, below |
+| `external_power` | modes 1 and 2: shown as on USB power or the dock |
+| `steady` | a chord state: the transport's colour, steady as if connected |
+| `connected`, `pairing` | a wireless link is connected; pairing: Bluetooth advertises in pairing mode, or the radio pairs over the air (`opensc2_pair_start()`, OpenSC2's own: the real controller has no such pairing) |
+| `input_recent` | the idle monitor saw input within its timeout |
+| `shutting_down` | a shutdown or reboot runs (the IR LED is off too) |
+| `level`, `below_full_ms` | the battery level the LED was told (255: none yet, which counts as full); the uptime when it last read below 100 % |
+| `full_level` | `user/fully_charged_led_intensity`: 0 off, 1 dim, 2 medium, 3 (the default) full |
+| `brightness` | percent: setting 45 through the curve of setting 38 |
+| `override`, `override_rgbw[4]` | setting 37: show Steam's `0xC5` colour (percent) instead |
+
+| Mode | `enum opensc2_led_mode` | Colour (R, G, B, W in thousandths) | Pattern |
+| --- | --- | --- | --- |
+| 0 | `NONE` | dark | nothing selected yet |
+| 1 | `BLUETOOTH` | blue (0, 0, 200, 0) | connected on battery, or a chord state: steady (red at 5 % or less). Connected on external power: a breath, 1.8 s up and 1.8 s down, or at 100 % the fully-charged display. Pairing: 75 ms on, 75 ms off, 75 ms on, 300 ms off. Otherwise (searching): 100 ms up, 900 ms on, 100 ms down, 900 ms dark, cut short when the link comes up |
+| 2 | `PUCK` | white with a little blue (0, 0, 50, 500) | as mode 1 |
+| 3 | `WIRED` | green (0, 250, 0, 0) | the breath; at 100 % the fully-charged display |
+| 4 | `AMBER` | amber (200, 200, 0, 0) | 200 ms to a dim amber (15, 20, 0, 0), 1.6 s up to amber, 1.6 s down, 200 ms to dark; at 100 % the fully-charged display. USB power without a host or with wireless off, the dock with the radio off |
+| 5 | `OFF` | dark | shutdowns, reboots, lifted off the dock |
+| 6 | `LOW_BATTERY` | red (100, 0, 0, 0) | at 5 % or less 75 ms on, 75 ms off, 75 ms on, 1,075 ms off; above 5 % it keeps what it showed |
+| 7 | `KEYLOCK` | white (0, 0, 0, 200) | 75 ms on, 75 ms off, 75 ms on, 10,075 ms off |
+
+**The fully-charged display** (modes 1 and 2 connected on external power, 3 and 4, at 100 %): a 2 s
+fade to one of four levels, chosen again every 2 s: full for 15 s after the level last read below
+100 %, full while there was recent input (modes 1 to 3), otherwise the stored
+`user/fully_charged_led_intensity`. The levels in thousandths, full, medium and dim: blue 200, 100,
+40 (B); the puck's 50 B + 500 W, then 100 and 40 W; green 250, 100, 50 (G); amber (200, 200),
+(80, 100), (30, 40) (R, G). The key is one byte (Zephyr settings `opensc2/sys/fullled`): `0xED`
+reads it, `0xEE`, `0xEF` and `0xF0` set, save and delete it (a deletion brings back 3 at once),
+and a factory reset deletes it.
+
+**Steam's colour**: while setting 37 is on, `0xC5`'s colour shows steady instead of any pattern.
+
+**How the player plays**: one cycle of a pattern at a time; when it ends, the next cycle comes from
+the status as it is then, so a new status shows within 0.1 s from the steady and dark displays and
+up to 10.3 s from the keylock pattern. Fades are linear in 10 ms steps and start from the colour
+shown last.
+
+| Function | Does |
+| --- | --- |
+| `opensc2_led_player_init(&p)` | a player at rest (dark) |
+| `opensc2_led_player_step(&p, &st, now_ms, rgbw)` | the colour to show at `now_ms`: R, G, B, W in thousandths of full duty, before trims and brightness |
+| `opensc2_led_player_envelope(&p)` | for a one-colour LED: how bright the pattern is against the cycle's peak, 0 to 1000; switch the LED on from 500 |
+| `opensc2_led_brightness(s45, s38)` | the brightness in percent: with setting 38 not 0 (the default 1) the curve b = 100 × (6^(s/100) − 1) / 5, cut to a whole number (setting 45's default 50 gives 28); with 0, b = s |
+| `opensc2_led_duty(colour, trim, brightness)` | a channel's duty in thousandths: colour × trim / 100 × brightness / 100, at most 1000. The real controller's factory trims are `OPENSC2_LED_TRIM_RED` 90, `_GREEN` 35, `_BLUE` 120 and `_WHITE` 80 (percent) |
+
+**The IR LED**: controller setting 36 (percent; 0 by default), off during every shutdown and reboot
+(`st.shutting_down`; its setting stays). The blank canvas drives one from a PWM channel named `ir`.
 
 ## Identity
 
@@ -942,11 +1275,11 @@ over Bluetooth. The library answers these itself:
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate) |
-| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`: with `CONFIG_OPENSC2_CAL` the library's, [Calibration and raw inputs](#calibration-and-raw-inputs); without it the application's). `0xED` answers length 0 for an empty bond, an analog calibration key whose format word is 0, an LED trim outside 1..199 and the gyro bias; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond, an analog calibration key whose format word is 0 and the gyro bias; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
+| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock` and `user/fully_charged_led_intensity`, which the system state machine acts on: [The keylock](#the-keylock), [Status LED](#status-led); `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`: with `CONFIG_OPENSC2_CAL` the library's, [Calibration and raw inputs](#calibration-and-raw-inputs); without it the application's). `0xED` answers length 0 for an empty bond, an analog calibration key whose format word is 0, an LED trim outside 1..199 and the gyro bias; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond, an analog calibration key whose format word is 0 and the gyro bias; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
 | `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 |
 | `0xD8`, `0xC0`, `0xC3`, `0xFE` | set | with `CONFIG_OPENSC2_CAL`: the stick, trigger and pressure recordings and the calibration erase ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
 | `0xA2` | set | write the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes (an ID of zero deletes it) |
-| `0x86`, `0x90`, `0x95`, `0x9F` | set | factory reset, bootloader, reboot, turn off: `power_request`; turn-off is ignored while wired |
+| `0x86`, `0x90`, `0x95`, `0x9F` | set | factory reset, bootloader, reboot, turn off: `power_request`; turn-off is ignored while wired. With the system state machine the turn-off is its event, and the bootloader and reboot requests reach `power_request` in the states that act on them ([The states while it runs](#the-states-while-it-runs)) |
 
 Everything else (anything new, and without `CONFIG_OPENSC2_CAL` the calibration commands `0xD8`,
 `0xC0`, `0xC3` and `0xFE`) goes to `vendor_command`; a command nobody knows is refused (on USB a
@@ -1009,16 +1342,19 @@ most likely to act on:
 | 11, 12 | `OPENSC2_SETTING_MOMENTUM_MIN_VEL`, `_DECAY` | 200, 100 | lizard mode's glide: the flick speed it needs (pad units per frame), its length in frames (used by the library) |
 | 14 | `OPENSC2_SETTING_HAPTIC_INCREMENT` | 5500 | lizard mode's tick spacing (used by the library) |
 | 27 | `OPENSC2_SETTING_RUMBLE_GAIN_DB` | -10 | rumble gain offset, dB |
+| 36 | `OPENSC2_SETTING_IR_LED_BRIGHTNESS` | 0 | the IR LED, percent ([Status LED](#status-led)) |
 | 37 | `OPENSC2_SETTING_LED_OVERRIDE` | 0 | show `0xC5`'s colour |
+| 38 | `OPENSC2_SETTING_LED_CURVE` | 1 | not 0: setting 45 goes through the brightness curve ([Status LED](#status-led)) |
 | 45 | `OPENSC2_SETTING_LED_BRIGHTNESS` | 50 | status LED brightness, percent |
 | 46 | `OPENSC2_SETTING_RAW_STICKS` | 0 | raw stick output: 1 millivolts, 2 ADC counts (the application's to give; the blank canvas does; the library's stick-touch fallback is off meanwhile) |
 | 48 | `OPENSC2_SETTING_IMU_MODE` | 0 | IMU stream: `OPENSC2_IMU_MODE_SEND_RAW_ACCEL` \| `_SEND_RAW_GYRO` from SDL when sensors are on |
-| 50 | `OPENSC2_SETTING_SLEEP_TIMEOUT_S` | 900 | idle power-off on battery |
+| 50 | `OPENSC2_SETTING_SLEEP_TIMEOUT_S` | 900 | idle power-off on battery, seconds (used by the [system state machine](#the-idle-timeout)) |
 | 52, 53 | `OPENSC2_SETTING_LEFT/RIGHT_CLICK_PRESSURE` | 40 | pad click threshold, percent (-1: 100 %), with `CONFIG_OPENSC2_PAD_CLICK_AUTO`; -1 also silences lizard mode's click sound (used by the library) |
 | 60, 62 | `OPENSC2_SETTING_RAW_PRESSURE`, `_RAW_TRIGGERS` | 0 | raw pad pressure; raw triggers (1 millivolts, 2 counts): both the application's to give, and no trigger bit while 62 is not 0 (used by the library) |
 | 68 | `OPENSC2_SETTING_TRIGGER_THRESHOLD` | 90 | trigger digital threshold, percent (used by the library) |
 | 70, 76 | `OPENSC2_SETTING_HAPTICS_ENABLED`, `_HAPTIC_GAIN_DB` | 1, -3 | 70: lizard mode's ticks and clicks only while it is exactly 1 (used by the library); 76: the master gain |
 | 71 | `OPENSC2_SETTING_STEAM_WATCHDOG` | 1 | the 10 s lizard watchdog (used by the library) |
+| 77 | `OPENSC2_SETTING_REBOOT_ON_OFF` | 0 | not 0: the ordinary shutdown reboots instead of turning off ([Shutdown and power-off](#shutdown-and-power-off)) |
 | 80 | `OPENSC2_SETTING_PAD_STABILIZER` | 1 | 1: lizard mode's right pad has the touch stabiliser (used by the library); 2 belongs to the pad processing of the reported position, not implemented |
 | 82 | `OPENSC2_SETTING_PAD_IGNORE_ON_STICK` | 3 | ignore a pad while its stick is touched, in report `0x42` and lizard mode (used by the library) |
 
@@ -1061,7 +1397,11 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_THREAD_PRIORITY`, `_STACK_SIZE` | 5, 2048 | the radio thread |
 | `CONFIG_OPENSC2_TX_POWER_DBM` | 6 | as the real controller |
 | `CONFIG_OPENSC2_REPORT_DELAY_US` | 2000 | sample a state report this long after a keep-alive |
-| `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` | 0 (never) | the real controller gives up after 60 s |
+| `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` | 0 (never); 60 with `CONFIG_OPENSC2_BATTERY` | the real controller gives up after 60 s |
+| `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` | 0 (never); 10 with `CONFIG_OPENSC2_BATTERY` | with the selected slot empty, the radio goes `OFF` after this long (the real controller waits 10 s for a bond); 0 to 3600 |
+| `CONFIG_OPENSC2_SYSTEM` | y | the [system state machine](#power-and-the-system-state-machine): power, chords, the status LED's mode, cues; off: as v0.2.0 |
+| `CONFIG_OPENSC2_BATTERY` | n | the board runs on a battery without USB power: shutdowns turn it off (`OPENSC2_POWER_OFF`; selects `CONFIG_POWEROFF`); off, every shutdown reboots |
+| `CONFIG_OPENSC2_POWER_POLL_MS` | 50 | how often the system state machine looks at the power source; 10 to 1000 |
 | `CONFIG_OPENSC2_PAIRING_TIMEOUT_S` | 60 | |
 | `CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS` | 500 | |
 | `CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS` | 3500 | 0: never |
@@ -1121,7 +1461,9 @@ The functions for the settings and the other state Steam sets:
   puck's next packet. State reports are sampled `CONFIG_OPENSC2_REPORT_DELAY_US` after a keep-alive.
 - Link loss: 10 ms on the current channel, then 13 ms on each alternate, 500 ms in all.
 - The Steam watchdog, the battery report and the rumble timeout run in the system work queue,
-  whatever the link.
+  whatever the link, and so does the system state machine: it looks at the buttons when they
+  change, at the power source every `CONFIG_OPENSC2_POWER_POLL_MS`, and at its own timers when they
+  are due; the events of the rest of the library wait in a queue of ten.
 - Lizard mode runs one frame after each state report, in the thread that built it; through the puck
   a frame waits while reports wait for room in the radio's queue.
 - A flash write (storing a bond) stalls the CPU for a few milliseconds; the radio link tolerates
@@ -1224,6 +1566,7 @@ With `CONFIG_SHELL` (on the SuperMini: the USB serial port, in wireless mode):
 | `opensc2 id`, `opensc2 id set <unit\|board\|git\|pid\|rev\|build\|blbuild\|name> <value> [force]`, `opensc2 id clear` | identity: `set` stores that one field as given (0 too); numbers in hex with `0x`, or `0`; a name with spaces in double quotes; `force` for a build time at or before `0x6A18D057` ([Identity](#identity)) |
 | `opensc2 state` | the current input state |
 | `opensc2 cal`, `opensc2 cal sticks\|triggers\|pressure <0-3>`, `opensc2 cal save <0\|1> <mask>`, `opensc2 cal erase <key>` | with `CONFIG_OPENSC2_CAL`: what is stored and in use; a recording's step, as `0xD8`, `0xC0` and `0xC3` give it; one side's RAM values saved, as `0xE2` (mask 1 the trigger, 2 the stick, 4 the pressure); every `cal/` key deleted from flash with the key in hex, as `0xFE` ([Calibration and raw inputs](#calibration-and-raw-inputs)). The hardware test suite never sends it |
+| `opensc2 power` | with the system state machine: the power source, the state, the transport, the LED mode, the battery level it was told, the keylock, the fully-charged LED level and the idle monitor |
 | `opensc2 test [<id>] <verb> ...` | with `CONFIG_OPENSC2_TEST_HOOKS`: the [hardware test hooks](test-protocol.md#the-console-opensc2-test) |
 
 The shell numbers the two pairing slots 1 and 2; the API numbers them 0 and 1. `opensc2 bonds` shows
@@ -1254,6 +1597,14 @@ board with nothing wired to it. While the PC has the hooks **armed**:
   as if by the host with a given reason (`BLE_DROP`), a shorter advertising window once
   (`BLE_WINDOW`), and ring entries for advertising, its end, identities, bonds, disconnects and
   wireless off.
+- **system injection** (with `CONFIG_OPENSC2_SYSTEM`): buttons, a battery level and a power source
+  that reach the [system state machine](#power-and-the-system-state-machine)'s rules (the chords,
+  STEAM, the idle timeout, low battery, the power source) and never a report; a **boot-time
+  injection** kept in the retained RAM area for the next boot, so the power-on decision itself can
+  be tested; the machine's status; and ring entries for its states, the LED mode, the cues, the
+  chords, the power source and how a shutdown ended (which survives the reboot it causes). While
+  the hooks are armed, or in a boot a boot-time injection started, a shutdown never turns the board
+  off: it reboots.
 
 Unarmed, the board behaves exactly as without the option, byte for byte, including the STALL of every
 unknown opcode (the host tests compare the two builds request by request). Arming is RAM only: it ends

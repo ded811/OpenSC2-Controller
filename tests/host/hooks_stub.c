@@ -146,6 +146,9 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB | OSC2_TEST_FLAG_RULES |
 			    OSC2_TEST_FLAG_CAL |
 			    OSC2_TEST_FLAG_HAPTIC_STOP_STATUS;   /* the emulator sends them (fwemu.c) */
+#if defined(OSC2_HOST_FWEMU)
+	caps->build_flags |= OSC2_TEST_FLAG_SYSTEM;   /* fwemu_sys.c: the system state machine */
+#endif
 	caps->battery_interval_ms = 3500;
 	caps->rumble_timeout_ms = 500;
 	caps->report_delay_us = 2000;

@@ -426,6 +426,31 @@ def _injection_op(op, args):
     return op == C.OP_APP_SEND and len(args) >= 2 and args[0] == 0 and args[1] == C.RPT_BT_STATE
 
 
+# The system state machine's ops that inject (proto/sysproto.py): their buttons, battery level and
+# power source reach only the firmware's own rules, never a report.
+SYSTEM_INJECTION_OPS = {C.OP_SYS_INJECT, C.OP_SYS_BOOT, C.OP_SYS_EVENT}
+
+
+def system_clear(op, args):
+    """SYS_BOOT with all eight argument bytes 0 only clears a boot-time injection left for the
+    next boot: it injects nothing, so S7 does not apply (the restore sends it)."""
+    return op == C.OP_SYS_BOOT and bytes(args) == bytes(8)
+
+
+def check_system_injection(ctx):
+    """S7 for the system ops (SYS_INJECT, SYS_BOOT, SYS_EVENT): what they inject reaches only the
+    firmware's chords, power and battery rules, never a report, so neither the sole reader nor
+    lizard mode matters; the board must be armed with the guard on and this ARM's canary passed,
+    and Steam closed (the shutdowns and reboots they can cause would disturb a Steam session).
+    The firmware turns every power-off into a reboot while it is armed."""
+    if not (ctx.armed and ctx.guard):
+        raise SafetyError("system injection before arming / guard")
+    if not ctx.canary_passed:
+        raise SafetyError("system injection before the guard canary passed")
+    if ctx.steam_running:
+        raise SafetyError("system injection while Steam is running")
+
+
 def check_test_request(payload, transport, ctx=None):
     """A test-channel request (the payload of a 0x7E SET, or a console `raw` line) about to go
     out. `transport`: "usb" (the board's feature report 1), "puck" (through the puck) or
@@ -446,6 +471,8 @@ def check_test_request(payload, transport, ctx=None):
         raise SafetyError("only reading test-channel ops go through the puck")
     if op == C.OP_HOST_SET and len(args) >= 2:
         check_host_set(args[0], bytes(args[2:2 + args[1]]))
+    if op in SYSTEM_INJECTION_OPS and not system_clear(op, args):
+        check_system_injection(ctx if ctx is not None else Context())
     if _injection_op(op, args):
         ctx = ctx if ctx is not None else Context()
         lizard_flag = (op == C.OP_INJECT and len(args) >= 1 and args[0] & C.INJECT_FLAG_LIZARD) \

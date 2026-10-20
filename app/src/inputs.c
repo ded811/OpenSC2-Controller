@@ -5,12 +5,14 @@
  * inputs.c: buttons, sticks and triggers, all described in the board overlay.
  *
  *  - Buttons are a gpio-keys node labelled opensc2_buttons; each key's zephyr,code is a bit of
- *    the controller's button word (dt-bindings/opensc2/inputs.h). A second one labelled
- *    opensc2_buttons_polled may add keys that gpio-keys polls, for example on an I2C port
- *    expander (expander.overlay); the chosen node opensc2,touch-keys may name any input device
- *    whose key codes are such bits, for example a capacitive sensor's stick-touch and grip keys
- *    (sensors.overlay). A touch only sets its bit: it is not a button press, so it does not
- *    bring a turned-off controller back.
+ *    the controller's button word (dt-bindings/opensc2/inputs.h). The keys already held at
+ *    power-up are read once before the library starts, so a chord held while the board wakes
+ *    counts for its power-on decision (gpio-keys reports only changes), and STEAM is the pin that
+ *    wakes a battery board that powered off. A second one labelled opensc2_buttons_polled may
+ *    add keys that gpio-keys polls, for example on an I2C port expander (expander.overlay); the
+ *    chosen node opensc2,touch-keys may name any input device whose key codes are such bits, for
+ *    example a capacitive sensor's stick-touch and grip keys (sensors.overlay). A touch only sets
+ *    its bit: it is not a button press, so it does not bring a turned-off controller back.
  *  - Sticks and analog triggers are ADC channels named in zephyr,user's io-channel-names. An axis
  *    that is not named reads neutral.
  *
@@ -96,6 +98,57 @@ static const struct gpio_dt_spec vcc = GPIO_DT_SPEC_GET(USER, vcc_enable_gpios);
 #endif
 
 /* ---- buttons --------------------------------------------------------------------------------- */
+
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons))
+#define KEY_ENTRY(node) { GPIO_DT_SPEC_GET(node, gpios), DT_PROP(node, zephyr_code) },
+
+static const struct {
+	struct gpio_dt_spec pin;
+	uint16_t code;
+} keys[] = { DT_FOREACH_CHILD(DT_NODELABEL(opensc2_buttons), KEY_ENTRY) };
+
+/* The buttons held now (gpio-keys has set the pins up), into the library's button word. */
+static void initial_buttons(void)
+{
+	uint32_t word = 0;
+
+	for (size_t i = 0; i < ARRAY_SIZE(keys); i++) {
+		if (keys[i].code < 32 && gpio_is_ready_dt(&keys[i].pin) &&
+		    gpio_pin_get_dt(&keys[i].pin) == 1) {
+			word |= BIT(keys[i].code);
+		}
+	}
+	if (word) {
+		opensc2_set_buttons(word, word);
+		LOG_INF("Buttons held at power-up: 0x%08x", word);
+	}
+}
+
+int inputs_wake_pins(void)
+{
+	int armed = 0;
+
+	/* STEAM wakes the real controller. A board without a STEAM key: any key. */
+	for (int pass = 0; pass < 2 && armed == 0; pass++) {
+		for (size_t i = 0; i < ARRAY_SIZE(keys); i++) {
+			if ((pass == 0 && keys[i].code != OPENSC2_KEY_STEAM) ||
+			    !gpio_is_ready_dt(&keys[i].pin)) {
+				continue;
+			}
+			if (gpio_pin_configure_dt(&keys[i].pin, GPIO_INPUT) == 0 &&
+			    gpio_pin_interrupt_configure_dt(&keys[i].pin, GPIO_INT_LEVEL_ACTIVE) == 0) {
+				armed++;
+			}
+		}
+	}
+	return armed;
+}
+#else
+int inputs_wake_pins(void)
+{
+	return 0;
+}
+#endif
 
 #if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons)) || \
 	DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled))
@@ -489,6 +542,9 @@ int inputs_init(void)
 	sensor_supply(true);
 	setup_axes();
 	sensor_supply(false);
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons))
+	initial_buttons();
+#endif
 	return 0;
 }
 
@@ -552,6 +608,9 @@ int inputs_init(void)
 	if (any) {
 		k_thread_start(analog_tid);
 	}
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons))
+	initial_buttons();
+#endif
 	return 0;
 }
 

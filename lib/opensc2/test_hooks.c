@@ -186,6 +186,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= IS_ENABLED(CONFIG_OPENSC2_HAPTIC_STOP_STATUS) ? OSC2_TEST_FLAG_HAPTIC_STOP_STATUS : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_BLE) ? OSC2_TEST_FLAG_BLE : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_CAL) ? OSC2_TEST_FLAG_CAL : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_SYSTEM) ? OSC2_TEST_FLAG_SYSTEM : 0;
 
 	opensc2_identity_get(&id);
 	caps->mode = osc2_wired() ? 1 : 0;

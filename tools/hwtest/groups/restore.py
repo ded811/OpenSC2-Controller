@@ -5,8 +5,10 @@
 # "restore"), always last, also after a failure or Ctrl-C. The snapshot records how the board was
 # found: its mode, the 86 settings, the LED colour, a CRC-32 per bond slot, a hash of its identity,
 # the selected slot, the chime level and the stored mode policy. The restore stops every output
-# and injection, writes the settings and the colour back, disarms, leaves every link's stored
-# request at 0x83 as after a boot, and compares with the snapshot: any difference is exit code 6.
+# and injection (with the system state machine its injection too, and a boot-time injection left
+# for the next boot is cleared), writes the settings and the colour back, disarms, leaves every
+# link's stored request at 0x83 as after a boot, and compares with the snapshot: any difference
+# is exit code 6.
 #
 # [R7] The settings: a DISARM first, so that the firmware writes back the snapshot of the armed
 # period that is ending (it does that at every end of arming), then an ARM WITHOUT the restore
@@ -154,6 +156,14 @@ def run(ctx, start_mode):
             st = rig.status()
             c.true("STATUS: no injection, no battery, no sequence",
                    st and not st["inject"] and not st["battery"] and not st["sequence"])
+            if rig.caps and T.cap_flag(rig.caps, C.CAP_SYSTEM):
+                # The system injection off, and no boot-time injection left behind: a system
+                # test that stopped before its reboot would leave one for the board's next boot.
+                rig.sys_inject_off()
+                rig.sys_boot_clear()
+                sst = rig.sys_status()
+                c.true("SYS_STATUS: nothing injected into the system rules",
+                       sst is not None and not sst["flags"] & 0x1E)
 
     # [R31, I8] the through-puck 0x83 before the DISARM below (restore.disarm reports it)
     puck_reset = None

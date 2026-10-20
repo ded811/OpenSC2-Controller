@@ -296,6 +296,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_BLE: Bluetooth LE. */
 #define OSC2_TEST_FLAG_BLE                    (1u << 17)
 #define OSC2_TEST_FLAG_CAL                    (1u << 21)   /* CONFIG_OPENSC2_CAL: RAW_INJECT */
+/* CONFIG_OPENSC2_SYSTEM: the system state machine, with its ops and ring kinds (test_sys.h). */
+#define OSC2_TEST_FLAG_SYSTEM                 (1u << 18)
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)

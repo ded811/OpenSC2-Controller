@@ -24,6 +24,7 @@
 #include "crash.h"
 #include "keys.h"
 #include "proto_rules.h"
+#include "system.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -372,6 +373,7 @@ static void write_setting(uint8_t number, int16_t value, bool *led)
 		break;
 	}
 	if (old != v) {
+		osc2_sys_setting(number);   /* setting 50, 77, the LED's */
 		/* After any lizard mode reports the write caused. */
 		osc2_test_note_setting(number, v);
 		if (osc2.cb && osc2.cb->setting_changed) {

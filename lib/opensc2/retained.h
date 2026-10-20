@@ -7,6 +7,7 @@
  *   - a header with a CRC, so a boot can tell a kept area from random power-on RAM;
  *   - the summary of the last wired session (counters and why it ended);
  *   - the warm-restart mark (outside the CRC: it carries its own complement);
+ *   - the system machine's test words (outside the CRC, each with a magic word of its own);
  *   - a ring of text lines, the USB session log.
  * Pure logic on a caller's buffer; the host tests build it.
  */
@@ -18,7 +19,9 @@
 #include <stdint.h>
 
 #define OSC2_RET_MAGIC    0x3243534Fu   /* "OSC2" */
-#define OSC2_RET_VERSION  1
+#define OSC2_RET_VERSION  2
+#define OSC2_RET_SYS_WORDS 6
+#define OSC2_RET_SYS_BOOT_WORDS 3   /* the first of them: the boot-time injection */
 #define OSC2_RET_END_LEN  32           /* "host: reboot into wireless" and the like */
 
 struct osc2_session {
@@ -43,6 +46,9 @@ struct osc2_retained {
 	uint32_t crc;            /* CRC-32 of everything above */
 	uint32_t mark;           /* warm-restart mark word ... */
 	uint32_t mark_inv;       /* ... and its complement */
+	/* The test hooks' words for the system machine (test_sys.h): a boot-time injection for the
+	 * next boot (read and cleared at boot, like the mark), then the last shutdown's end. */
+	uint32_t sys[OSC2_RET_SYS_WORDS];
 };
 
 /* The ring follows the header in the same area. */

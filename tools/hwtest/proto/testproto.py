@@ -9,6 +9,7 @@ import binascii
 import struct
 
 from .. import config as C
+from . import sysproto as S
 
 
 def crc32(data):
@@ -339,6 +340,11 @@ def _decode_entry_data(kind, d):
         e["event_name"] = C.BLE_EVENT_NAMES.get(d[0], "?")
         e["a"] = d[1]
         e["b"], e["c"] = struct.unpack_from("<HI", d, 2)
+    elif kind in S.KINDS:
+        typed = S.decode_entry_data(kind, d)
+        if typed is not None:
+            e.update(typed)
+            e["sys_typed"] = True
     return e
 
 
@@ -431,6 +437,8 @@ def _encode_entry_data(e):
         return bytes([e["channel"]]) + struct.pack("<I", e["flags"])
     if kind == C.RING_BLE and "event" in e:
         return bytes([e["event"], e["a"]]) + struct.pack("<HI", e["b"], e["c"])
+    if kind in S.KINDS and e.get("sys_typed"):
+        return S.encode_entry_data(e)
     return e.get("data", b"")
 
 

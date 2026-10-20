@@ -14,8 +14,12 @@
 int inputs_init(void);
 /* CONFIG_APP_ANALOG_SAMPLE: the sticks and triggers, read in the library's `sample` callback. */
 void inputs_sample(struct opensc2_state *state);
+/* Before powering off: STEAM (without a STEAM key, every key) as the pin that wakes the chip.
+ * Returns how many pins were set up. */
+int inputs_wake_pins(void);
 
-/* status.c: the status LED, and an RGB LED that follows Steam's colour if one is wired. */
+/* status.c: the status LED (the library's LED status through its pattern player), an RGB(W) LED
+ * and an IR LED if they are wired. */
 int status_init(void);
 void status_mode(enum opensc2_mode mode);
 void status_link(enum opensc2_link_state state);
@@ -23,8 +27,12 @@ void status_link(enum opensc2_link_state state);
 void status_bluetooth(bool on);
 void status_usb(enum opensc2_usb_state state);
 void status_led(const struct opensc2_led *led);
+/* A controller setting changed (36 is the IR LED's brightness). */
+void status_setting(uint8_t number, int16_t value);
 /* Wired, the pairing button held 3 s: the LED stays dark ("release now") while `on`. */
 void status_hold_cue(bool on);
+/* Everything dark, right before the board powers off. */
+void status_off(void);
 
 /* rumble.c: a vibration motor or LRA driver on a PWM channel, if one is wired. */
 int rumble_init(void);
@@ -39,7 +47,9 @@ int trackpad_init(void);
 int imu_init(void);
 void imu_setting(uint8_t number, int16_t value);
 
-/* battery.c: the battery level of report 0x43 (CONFIG_APP_BATTERY). */
+
+/* battery.c: report 0x43's battery: the level (CONFIG_APP_BATTERY) and a charger's status pin
+ * (zephyr,user charger-status-gpios), as far as the board has them. */
 int battery_init(void);
 
 /* main.c */

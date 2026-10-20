@@ -17,6 +17,7 @@
 #include <hal/nrf_power.h>
 #include "internal.h"
 #include "mode_rules.h"
+#include "system.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
@@ -55,7 +56,9 @@ void osc2_mode_boot(enum opensc2_boot_mode app)
 {
 	struct osc2_mode_inputs in = {
 		.usb_supported = IS_ENABLED(CONFIG_OPENSC2_USB),
-		.usb_power = osc2_usb_power(),
+		/* VBUS, unless the power source in effect is a battery or the dock (the system
+		 * state machine's; the test hooks' boot-time injection among them). */
+		.usb_power = osc2_sys_wired_power(),
 		.mark = OSC2_MARK_NONE,
 		.policy = osc2.policy,
 		.app = app,
@@ -77,7 +80,13 @@ void osc2_mode_boot(enum opensc2_boot_mode app)
 #endif
 }
 
-#if defined(CONFIG_OPENSC2_USB) && defined(CONFIG_OPENSC2_USB_PLUG_IN_REBOOT)
+/* USB power that appears while wireless. A battery build of the system state machine
+ * (CONFIG_OPENSC2_BATTERY) applies this rule itself, from its own look at the power source.
+ * Without a battery the machine takes a board that runs without USB power to be on an external
+ * supply, so this poll keeps the rule (as v0.2.0) for a board that has a battery all the same. */
+#if defined(CONFIG_OPENSC2_USB) && defined(CONFIG_OPENSC2_USB_PLUG_IN_REBOOT) && \
+	!defined(CONFIG_OPENSC2_BATTERY)
+#define PLUG_IN_POLL 1
 static bool vbus_last;
 
 static void vbus_fn(struct k_work *work);
@@ -89,14 +98,15 @@ static void vbus_fn(struct k_work *work)
 	bool now = osc2_usb_power();
 
 	ARG_UNUSED(work);
-	if (now && !vbus_last) {
-		struct opensc2_state s;
+	/* With the machine: not while the application has named another source (it decides). */
+	if (now && !vbus_last &&
+	    (!IS_ENABLED(CONFIG_OPENSC2_SYSTEM) ||
+	     opensc2_power_source() == OPENSC2_POWER_SOURCE_USB)) {
 		enum osc2_plug_in rule;
 
-		opensc2_get_state(&s);
 		/* The link counts on either transport: the puck's radio or Bluetooth. */
 		rule = osc2_plug_in_rule(osc2.policy, osc2_wireless_up(),
-					 (s.buttons & OPENSC2_BTN_STEAM) != 0);
+					 (osc2_sys_buttons() & OPENSC2_BTN_STEAM) != 0);
 		if (rule == OSC2_PLUG_IN_LINK_DOWN || rule == OSC2_PLUG_IN_STEAM) {
 			const char *why = rule == OSC2_PLUG_IN_LINK_DOWN ? "USB power, link down" :
 									    "USB power, STEAM held";
@@ -135,7 +145,7 @@ void osc2_mode_start(bool start_radio)
 		}
 	}
 	(void)osc2_usb_console_start();
-#if defined(CONFIG_OPENSC2_USB_PLUG_IN_REBOOT)
+#if defined(PLUG_IN_POLL)
 	/* Every wireless boot whose mode the application did not choose; the policy counts when USB
 	 * power appears. Not after a failed wired start: coming back wired would fail again. */
 	if (osc2.mode_reason != OPENSC2_MODE_APP && osc2.mode_reason != OPENSC2_MODE_USB_FAILED) {

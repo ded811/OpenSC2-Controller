@@ -8,6 +8,7 @@ flashes or adds a board.
 | Steam says the controller needs an update | [Steam asks to update the controller](#steam-asks-to-update-the-controller) |
 | Steam does not see the board on the cable | [Steam does not see the board](#steam-does-not-see-the-board) |
 | The LED blinks slowly and never stays on | [The LED blinks slowly](#the-led-blinks-slowly-and-never-stays-on) |
+| The LED is on with a short dark blink every second | [Wireless is off, or no PC](#the-led-is-on-with-a-short-dark-blink-every-second) |
 | The pointer moves or keys are typed while Steam is closed | [Lizard mode](#the-board-types-or-moves-the-pointer-when-steam-is-closed) |
 | No COM port, no shell | [I cannot find the console](#i-cannot-find-the-console) |
 | No USB drive after shorting RST | [The UF2 drive does not appear](#the-uf2-drive-does-not-appear) |
@@ -53,7 +54,8 @@ Some numbers, for reference:
 2. **The mode.** The board is wired only at a power-up with USB power, unless something sends it
    wireless: the pairing button held while plugging in, or Steam's reboot into wireless mode right
    before. Unplug it, check that nothing holds P0.31 against GND, and plug it in again. Wired, the
-   LED is dark for half a second, then on with a short dark blink every 2 seconds. A stored policy
+   LED turns on once the PC has set the board up (until then it shows a short dark blink every
+   second; the v0.2.0 image blinks fast instead). A stored policy
    can keep it wireless for good: `opensc2 mode` in the shell shows it, `opensc2 mode auto` restores
    the normal rule.
 3. **Windows.** In Device Manager the board shows up under Human Interface Devices. In its
@@ -70,10 +72,22 @@ The board is wireless and looks for its puck, but the puck does not connect it.
 - **The board is not paired with this puck.** Add it in Steam again
   ([Add it in Steam](getting-started.md#add-it-in-steam)).
 - **The pairing is not there.** In the shell, `opensc2 bonds` lists the two pairing slots (1 and
-  2) and which one is in use; an empty slot in use means "pair first" (the LED then gives a short
-  blink every 2 seconds instead).
+  2) and which one is in use; an empty slot in use means "pair first" (the LED then blinks the same
+  way; the v0.2.0 image gives a short blink every 2 seconds instead).
 
 `opensc2 bonds` shows your puck's serial: mask it before you post the output.
+
+## The LED is on with a short dark blink every second
+
+That is the real controller's amber mode, on the SuperMini's one-colour LED (built; not yet tested
+on hardware; the v0.2.0 image does not have it):
+
+- **Wired, but no PC has set the board up**: a USB charger or a power bank. STEAM or the pairing
+  button sends it wireless.
+- **Wireless switched off on USB power**: the PC went to sleep (the puck turned the board off),
+  Steam turned the controller off, or STEAM was held 7 s. A STEAM press reboots the board, which
+  comes back wired on a PC; `opensc2 start` in the shell turns wireless on again
+  ([api.md](api.md#the-states-while-it-runs)).
 
 ## The board types or moves the pointer when Steam is closed
 

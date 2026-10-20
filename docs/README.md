@@ -10,11 +10,11 @@ start here if you are looking for something.
 | [Getting started](getting-started.md) | first-time users | what you need, getting the code, installing the SDK, building on each OS, flashing, adding the board in Steam, the shell |
 | [Troubleshooting](troubleshooting.md) | everyone | the update prompt, a board Steam does not see, a board that does not connect, lizard mode, the console, the UF2 drive, build errors, the test suite's refusals, what to share |
 | [Use OpenSC2 in your own project](integration.md) | developers | the three ways to bring in the library, what every project needs, Kconfig, devicetree, the code, build problems |
-| [API reference](api.md) | developers | every function, callback, field, mode rule, vendor command, setting, Kconfig option and shell command |
+| [API reference](api.md) | developers | every function, callback, field, mode rule, vendor command, setting, Kconfig option and shell command; power, chords, the status LED and cues |
 | [Porting to other boards](porting.md) | people porting to other boards | what a board needs, the steps, wired mode, where the retained RAM may go, boards with more analog pins |
-| [The protocol, in brief](protocol.md) | the curious | the radio link, the puck's end, the cable, the vendor commands, lizard mode and the reports in short, links to the full research pages (not public yet), and every gap the library had to fill |
+| [The protocol, in brief](protocol.md) | the curious | the radio link, the puck's end, the cable, the vendor commands, lizard mode, the reports, power and the status LED in short, links to the full research pages (not public yet), and every gap the library had to fill |
 | [Testing on hardware](testing.md) | people changing the library, porting it, or checking a board | the automated hardware test suite: what it covers, its safety rules, how to run it, the results so far; [the Bluetooth build's procedure](testing.md#bluetooth) |
-| [The test protocol](test-protocol.md) | people changing the test hooks or the runner | the test channel (vendor command `0x7E`), the ring, the counters and the console's `opensc2 test` |
+| [The test protocol](test-protocol.md) | people changing the test hooks or the runner | the test channel (vendor command `0x7E`), the system injection, the ring, the counters and the console's `opensc2 test` |
 | [Releasing](releasing.md) | the maintainer | the checklist for the push, a release, making the repository public, and the day the research repository goes public |
 
 Elsewhere in the repository:
@@ -85,6 +85,22 @@ reboot (not a power loss). In wireless mode, `opensc2 usb log` prints it.
 
 **Mode policy.** The stored rule for boots with USB power: `auto` (the real controller's rule: USB
 power at power-up means wired) or `wireless` (never wired). `opensc2 mode` shows and sets it.
+
+**System state machine.** The real controller's rules for power and the status LED, which the
+library runs (on by default): what a power-on does, STEAM held 7 s, the button chords that choose a
+link, the keylock, the idle timeout, low battery and shutdown, the LED's mode and the cues
+([api.md](api.md#power-and-the-system-state-machine)).
+
+**Transport.** Where the controller's reports go when it is not wired: the puck with its first or
+second pairing, or (on the real controller) a Bluetooth host. Chords such as A + right bumper
+choose one.
+
+**Keylock.** A travel lock: STEAM + L4 + L5 + R4 + R5 held 3 s on battery makes the next power-on on
+battery turn straight off, and every one after it, until the board powers up on USB or the dock,
+or the chord is tapped.
+
+**Cue.** A short chime the real controller plays on its haptics (power on, power off, a transport,
+pairing). The library raises cue events; the sounds are the application's.
 
 **The blank canvas.** The firmware in `app/`: every input of a Steam Controller 2 set up in one
 devicetree overlay, so you wire only what you have. The SuperMini's pins carry the buttons, the
