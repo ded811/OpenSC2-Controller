@@ -832,10 +832,13 @@ uint8_t opensc2_cal_led_trim(uint8_t channel)
 	if (channel > 3) {
 		return 0;
 	}
+	/* Whatever byte RAM holds, as the real controller uses it: 0 leaves the channel dark (also
+	 * after 0xF0, until the next boot brings the default back), above 100 it is brighter, up to
+	 * full duty. Only 0xED limits what it shows to 1..199 (has_value_locked()). */
 	lk = k_spin_lock(&lock);
 	v = ram[K_RGBW_R + channel][0];
 	k_spin_unlock(&lock, lk);
-	return v >= 1 && v <= 199 ? v : trim_default[channel];
+	return v;
 }
 
 int16_t opensc2_cal_volt_offset(void)

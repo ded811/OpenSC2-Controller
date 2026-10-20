@@ -135,18 +135,26 @@ OPENSC2_TEST(cal_store_by_name)
 	CHECK(cal_host_flash_get("cal/joy_l", value, &len) < 0);
 	CHECK(!opensc2_cal_stick_ok(OPENSC2_LEFT));
 
-	/* the LED trims: shown while within 1..199, the default used otherwise */
+	/* the LED trims: any value is used (0 dark, above 100 brighter); 0xED shows them only while
+	 * they lie within 1..199 */
 	CHECK_EQ(cal_named(0xEE, "cal/rgbw_r", (const uint8_t[]){ 150 }, 1), 0);
 	CHECK_EQ(opensc2_cal_led_trim(0), 150);
+	CHECK_EQ(cal_read("cal/rgbw_r", out), 1);
 	CHECK_EQ(cal_named(0xEE, "cal/rgbw_r", (const uint8_t[]){ 0 }, 1), 0);
 	CHECK_EQ(cal_read("cal/rgbw_r", out), 0);
-	CHECK_EQ(opensc2_cal_led_trim(0), 90);
+	CHECK_EQ(opensc2_cal_led_trim(0), 0);      /* the red channel dark */
 	CHECK_EQ(cal_named(0xEE, "cal/rgbw_b", (const uint8_t[]){ 200 }, 1), 0);
-	CHECK_EQ(opensc2_cal_led_trim(2), 120);
-	CHECK_EQ(cal_named(0xF0, "cal/rgbw_w", NULL, 0), 0);   /* RAM 0: the default is used */
+	CHECK_EQ(cal_read("cal/rgbw_b", out), 0);
+	CHECK_EQ(opensc2_cal_led_trim(2), 200);
+	CHECK_EQ(cal_named(0xF0, "cal/rgbw_w", NULL, 0), 0);   /* RAM 0 at once: dark */
 	CHECK_EQ(cal_read("cal/rgbw_w", out), 0);
-	CHECK_EQ(opensc2_cal_led_trim(3), 80);
+	CHECK_EQ(opensc2_cal_led_trim(3), 0);
 	CHECK_EQ(opensc2_cal_led_trim(4), 0);
+	/* the next boot, with no trim stored: the defaults again */
+	cal_host_boot();
+	CHECK_EQ(opensc2_cal_led_trim(0), 90);
+	CHECK_EQ(opensc2_cal_led_trim(2), 120);
+	CHECK_EQ(opensc2_cal_led_trim(3), 80);
 
 	/* the battery offset */
 	CHECK_EQ(cal_named(0xEE, "cal/volt_offset", (const uint8_t[]){ 0xF1, 0xFF }, 2), 0);

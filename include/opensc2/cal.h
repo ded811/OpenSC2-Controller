@@ -295,8 +295,10 @@ bool opensc2_cal_pressure_ok(enum opensc2_side side);
 bool opensc2_cal_recording(enum opensc2_cal_rec_kind kind);
 
 /* The stored values the library keeps for other parts (0 or the default when not stored):
- *   the LED trim of channel 0..3 (R, G, B, W) in percent: the stored one when it lies within
- *   1..199, else the default 90, 35, 120 or 80;
+ *   the LED trim of channel 0..3 (R, G, B, W) in percent, as the real controller uses it: the
+ *   RAM value whatever it is (0 leaves the channel dark, above 100 is brighter up to full duty),
+ *   the default 90, 35, 120 or 80 from a boot without a stored one, 0 after a 0xF0 until the
+ *   next boot;
  *   the battery voltage offset in mV (cal/volt_offset);
  *   the gyro bias, three floats (rad/s), -ENOENT when none is stored or one is not finite. */
 uint8_t opensc2_cal_led_trim(uint8_t channel);

@@ -586,7 +586,7 @@ uses with the by-name commands:
 | `cal/trg_l`, `cal/trg_r` | 7 | format u16, A (the higher mV) u16, B (the lower) u16, direction u8 (0: rises when pulled) |
 | `cal/prs_l`, `cal/prs_r` | 8 | format u16 (1: range A..B; `0x80`: 0..B−A), A s16, B s16 (a firm press), gain u16 (2000 = 1) |
 | `cal/touch_l`, `cal/touch_r` | 10 | format u16 first (the rest of the layout is unknown); kept, and readable while the format word is not 0; nothing uses them |
-| `cal/rgbw_r`, `_g`, `_b`, `_w` | 1 each | LED colour trims, percent (1..199; 90, 35, 120, 80 when missing): `opensc2_cal_led_trim(channel)` |
+| `cal/rgbw_r`, `_g`, `_b`, `_w` | 1 each | LED colour trims, percent, used whatever their value as on the real controller (0 leaves the channel dark, above 100 is brighter up to full duty; `0xED` reads one only while it lies within 1..199); 90, 35, 120, 80 from a boot with none stored, 0 after `0xF0` until the next boot: `opensc2_cal_led_trim(channel)` |
 | `cal/volt_offset` | 2 | battery voltage offset, s16 mV: `opensc2_cal_volt_offset()` |
 | `cal/sensors/gyroscope/bias` | 12 | three floats (rad/s), a starting gyro bias: `opensc2_cal_gyro_bias(bias)` |
 

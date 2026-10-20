@@ -616,8 +616,8 @@ open, the library does what should work with Steam and the puck, and says so her
       stick, trigger, pressure or touch key (`cal/touch_l`, `cal/touch_r`: 10 bytes, used by
       nothing) while its format word is not 0, and never the gyro bias, as the documentation
       says; `0xEF` refuses an analog key whose format word is 0, and the gyro bias (the real
-      controller fails it too), and saves an LED trim whatever its value (one outside 1..199
-      then reads as its default, as at boot);
+      controller fails it too), and saves an LED trim whatever its value (the LED uses any
+      trim, 0 leaving the channel dark, as the real controller does);
     - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
       queue, in the order they were asked for (`0xFE` drops the saves still waiting from before
       it); `0xEF` writes before it answers, as for the bonds;
