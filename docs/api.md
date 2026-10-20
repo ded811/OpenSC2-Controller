@@ -696,7 +696,9 @@ Bonds can also arrive through `0xA2` (the first slot, API slot 0). Treat the sto
 they identify the puck.
 
 Storage keys (Zephyr settings): `opensc2/bond0`, `opensc2/bond1`, `opensc2/slot`, `opensc2/chime`,
-`opensc2/id`, `opensc2/name`, `opensc2/mode`.
+`opensc2/id`, `opensc2/name`, `opensc2/mode`, and with `CONFIG_OPENSC2_CAL` the calibration keys
+under `opensc2/cal/` (`opensc2/cal/joy_l` for `cal/joy_l`, and so on), which a factory reset keeps
+([Calibration and raw inputs](#calibration-and-raw-inputs)).
 
 ## Vendor commands
 
