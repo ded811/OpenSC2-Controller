@@ -239,8 +239,8 @@ rule, state and timing is in [api.md](api.md#power-and-the-system-state-machine)
   then plays the stored transport's cue and waits 1 s for USB power or the dock before it starts
   the link.
 - **STEAM**: pressed 20 ms it is a press, held 7 s it turns the board off on battery, or switches
-  wireless off on USB power or the dock (the amber LED); a press then reboots the board, which comes
-  back wired.
+  wireless off on USB power or the dock (the amber LED); on USB power a press then reboots the
+  board, which comes back wired (on the dock the chords choose a link again instead).
 - **The transport chords**: A + right bumper the main puck, A + left bumper the second, B + right
   or left bumper Bluetooth slot 1 or 2, STEAM alone the stored transport. Held at a battery power-on
   (or pressed on the dock with the radio off) a chord chooses its transport; held 4 s it also asks

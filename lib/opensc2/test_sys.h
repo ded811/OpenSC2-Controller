@@ -88,7 +88,7 @@ struct osc2_test_sys_boot {
 	uint8_t level;
 	uint8_t source;          /* enum osc2_sys_source */
 	uint8_t hold;            /* the buttons stay held this many 100 ms after boot (0: until
-				  * SYS_INJECT_OFF) */
+				  * the next ARM or SYS_INJECT_OFF) */
 };
 
 /* The last end, kept across the reboot it caused. */

@@ -74,7 +74,7 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x70` | SYS_INJECT | flags u8 (bit 0 buttons, 1 level, 2 power source), buttons u32, level u8, source u8 (0 battery, 1 USB, 2 the dock), zero u8 | | [system injection](#system-injection): what the flags name reaches the system state machine's rules from now on (the others stay as they are); BAD_ARG for another flag bit, a source above 2 or a last byte that is not 0 |
 | `0x71` | SYS_INJECT_OFF | | | ends every system injection, the boot-time one too |
 | `0x72` | SYS_STATUS | | the machine's status, 30 bytes | [below](#system-injection); also unarmed on the console |
-| `0x73` | SYS_BOOT | flags u8, buttons u32, level u8, source u8, hold u8 (× 100 ms; 0: until `SYS_INJECT_OFF`) | | keeps a boot-time injection for the next boot, in the retained RAM area (flags 0 clears it); DENIED without that area; BAD_ARG for another flag bit or a source above 2 |
+| `0x73` | SYS_BOOT | flags u8, buttons u32, level u8, source u8, hold u8 (× 100 ms; 0: until the next `ARM` or `SYS_INJECT_OFF`) | | keeps a boot-time injection for the next boot, in the retained RAM area (flags 0 clears it); DENIED without that area; BAD_ARG for another flag bit or a source above 2 |
 | `0x74` | SYS_EVENT | kind u8: 1 a link that gave up, 2 the puck's "PC asleep" | | as the radio would report it: 1 posts "wireless off" (with the listen timeout as its reason), 2 runs the `0xE6` path (the `host_asleep` callback, a `HOST_ASLEEP` entry, the once-per-boot cue); BAD_ARG for another kind |
 
 Ops `0x70` to `0x74` answer DENIED in a build without the system state machine
@@ -130,7 +130,7 @@ next boot reads and clears them first thing and injects them from the start, so 
 decision itself sees them: a source of 0 (battery) or 2 (the dock) makes a boot with USB power a
 battery or dock power-on, not a wired one. They outlive the end of arming: the source and the
 level stay for that boot, the buttons until their hold time ends (then every injected button is
-up); `SYS_INJECT_OFF` ends them all. While the hooks are armed, and in a boot a boot-time
+up; with a hold of 0, until the next `ARM`); `SYS_INJECT_OFF` ends them all. While the hooks are armed, and in a boot a boot-time
 injection started, a shutdown never turns the board off: it reboots (how 4 below).
 
 **The last end.** When the machine ends (a power-off or a reboot) it keeps how in the retained RAM
