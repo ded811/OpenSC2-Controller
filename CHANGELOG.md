@@ -46,8 +46,8 @@ still change between minor versions.
   comes back wired, as on the real controller; `opensc2 start` turns wireless on again. In v0.2.0
   the blank canvas only stopped the radio, and any button started it again.
 - The blank canvas's LED shows the real controller's patterns (on its one-colour LED: on once set
-  up or connected, a slow blink while it looks for the puck, a short dark blink every second for
-  amber).
+  up or connected, a slow blink while it looks for the puck, two quick flashes while it pairs over
+  the air, a short dark blink every second for amber).
 - `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` defaults to 60 s in a battery build.
 - The retained RAM area's layout is version 2 (the test hooks' system words), so the first boot of
   this firmware starts with an empty USB session log.
