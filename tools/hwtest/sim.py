@@ -30,7 +30,7 @@ FAULTS = ("guard_leak", "seq_gap", "trigger_bit", "stall_missing", "no_reconnect
           "lease_ignored", "not_as_found", "steam_appears", "lizard_ignored", "second_reader",
           "share_not_enforced", "leak_event", "board_reset", "wrong_mode", "puck_reset",
           "com_renumbered", "console_busy", "keepalive_race", "answer_dropped",
-          "pad_blank_ignored", "glide_ignored")
+          "pad_blank_ignored", "glide_ignored", "ticks_ignored")
 
 
 class VirtualClock:

@@ -293,6 +293,15 @@ class Faults(unittest.TestCase):
         self.assertEqual(r.statuses("lizard.stabiliser")[0], PASS)   # (R4 skips the next path)
         self.assertOnly(r, {"lizard.glide", "lizard.glide_stops", "lizard.default"})
 
+    def test_ticks_ignored(self):
+        # the library's haptic events are compared as ring entries: missing ones must fail
+        r = Run("ticks_ignored", lizard=True)
+        self.assertEqual(r.code, 1)
+        self.assertIn(FAIL, r.statuses("lizard.ticks"))
+        self.assertIn(FAIL, r.statuses("lizard.default"))
+        self.assertEqual(r.statuses("lizard.glide")[0], PASS)
+        self.assertOnly(r, {"lizard.ticks", "lizard.default"})
+
     def test_second_reader(self):
         r = Run("second_reader")
         self.assertEqual(r.code, 2)

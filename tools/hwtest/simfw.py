@@ -584,6 +584,8 @@ class SimBoard:
         self.lizard.rules = rules
         if self.fault == "glide_ignored":
             self.lizard.rules &= ~M.RULE_LIZARD_GLIDE   # lizard mode never glides
+        if self.fault == "ticks_ignored":
+            self.lizard.rules &= ~M.RULE_LIZARD_TICKS   # no ticks and no pad clicks
 
     def app_state(self):
         """The blank canvas on a bare board: all zero, but for the left stick's raw output

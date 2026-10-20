@@ -28,7 +28,7 @@ hardware.
   the end of arming). The hardware test suite: `inputs.stick_touch`, `inputs.pad_blank`,
   `inputs.raw_trigger_bits`, `inputs.pad_click`, `inputs.raw_sticks`, `lizard.stabiliser`,
   `lizard.smoothing`, `lizard.glide`, `lizard.glide_stops`, `lizard.ticks`, `lizard.default`; the
-  simulator faults `pad_blank_ignored` and `glide_ignored`.
+  simulator faults `pad_blank_ignored`, `glide_ignored` and `ticks_ignored`.
 
 ### Changed
 
@@ -39,7 +39,7 @@ hardware.
   switched off, and follows every sequence until lizard mode goes quiet (a glide keeps the reports
   going); its model and the shared vectors cover the input rules and the processing.
 - The host tests are now 62 (5,221 checks), and 90 (7,700 checks) with the hardware test hooks;
-  the runner has 211 self-tests.
+  the runner has 212 self-tests.
 
 ## [0.2.0] - 2026-10-19
 
