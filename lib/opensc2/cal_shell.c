@@ -19,7 +19,9 @@
 #include "internal.h"
 #include "cal_store.h"
 
-static const char *const step_text[4] = { "end (0)", "1", "2", "save (3)" };
+/* A running recording's step: step 0 ends a stick or trigger recording, so only a paused pressure
+ * recording shows 0. */
+static const char *const step_text[4] = { "paused (0)", "1", "2", "save (3)" };
 
 static void show(const struct shell *sh)
 {
