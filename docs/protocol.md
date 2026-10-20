@@ -402,6 +402,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | LED patterns | blue: the pairing double flash, the searching fade, connected steady or fading on external power | the blank canvas shows them in blue on an RGB LED; a one-colour LED shows connected steady |
     | The ATT MTU | the last value is remembered across connections | per connection, as the specification has it (hosts raise it at every connection) |
     | Reading feature report 1 | 64 bytes, the answer then left-overs; a read blob gets the start again | the 63 bytes the report map declares; a read blob gets the rest of the same answer |
+    | Feature report 1's stored request | kept from one connection to the next: a new connection's first read answers what the last SET of an earlier one selected (`0x83` until the first SET after boot) | starts again at `0x83` at every connection, as the radio's does; a host that sends a SET before its GET, as Steam and SDL do, sees no difference |
     | No connection-event trigger | no state reports (inferred) | a timer at the connection interval paces them |
     | Report pacing | the slot less the worst processing time of the last 65 frames | the slot less a fixed 500 µs (`CONFIG_OPENSC2_BLE_REPORT_LEAD_US`) |
     | A report that cannot be sent | logged as an error with its ID | logged at debug level (at the default MTU every state report would be) |
