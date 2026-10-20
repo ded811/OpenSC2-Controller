@@ -361,7 +361,8 @@ class Rig:
             last = states[-1]
             if any(s != last for s in states):
                 notes.append("the application's state changed within the second")
-            if last != R.APP_IDLE52:
+            idle = R.ble_cut(R.APP_IDLE52) if self.path == "B" else R.APP_IDLE52
+            if last != idle:     # over Bluetooth (0x45) the quaternion is cut: zeros
                 notes.append("the application's state is not all zero, with the identity "
                              "quaternion (an input picks up noise?)")
             self._baseline = last

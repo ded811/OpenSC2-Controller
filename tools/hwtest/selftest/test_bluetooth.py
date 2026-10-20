@@ -242,6 +242,8 @@ class DryRuns(unittest.TestCase):
                     "restore.as_found"):
             self.assertEqual(r.statuses(tid), [PASS], tid)
         self.assertEqual(r.statuses("ble.window"), [SKIP])
+        # an unwired board's state over Bluetooth (0x45, the quaternion cut) is no baseline WARN
+        self.assertEqual(r.statuses("env.baseline"), [])
         # nothing of the wired or puck paths, and never 0x9F over Bluetooth
         for tid in ("cmd.turn_off_ignored", "cmd.framing", "wireless.slot", "modes.to_wired"):
             self.assertEqual(r.statuses(tid), [], tid)
