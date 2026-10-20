@@ -373,11 +373,12 @@ static uint16_t counts12(int i, int32_t raw)
 }
 
 /* With CONFIG_APP_ANALOG_RAW, a calibrated stick or trigger goes to the library as raw counts
- * (true); otherwise it is given back to the finished values (false). */
+ * (true), and so does one whose recording runs (0xD8, 0xC0, "opensc2 cal"), which takes its
+ * samples from raw inputs only; otherwise it is given back to the finished values (false). */
 static bool raw_stick(enum opensc2_side side, uint16_t x, uint16_t y)
 {
 #if defined(CONFIG_APP_ANALOG_RAW)
-	if (opensc2_cal_stick_ok(side)) {
+	if (opensc2_cal_stick_ok(side) || opensc2_cal_recording(OPENSC2_CAL_REC_STICKS)) {
 		return opensc2_set_stick_raw(side, x, y) == 0;
 	}
 	(void)opensc2_cal_raw_release((uint8_t)(OPENSC2_RAW_STICK_L << side));
@@ -392,7 +393,7 @@ static bool raw_stick(enum opensc2_side side, uint16_t x, uint16_t y)
 static bool raw_trigger(enum opensc2_side side, uint16_t counts)
 {
 #if defined(CONFIG_APP_ANALOG_RAW)
-	if (opensc2_cal_trigger_ok(side)) {
+	if (opensc2_cal_trigger_ok(side) || opensc2_cal_recording(OPENSC2_CAL_REC_TRIGGERS)) {
 		return opensc2_set_trigger_raw(side, counts) == 0;
 	}
 	(void)opensc2_cal_raw_release((uint8_t)(OPENSC2_RAW_TRIGGER_L << side));

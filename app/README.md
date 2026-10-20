@@ -162,9 +162,10 @@ library's processing takes over (the real controller's two halves and bands, set
 Record one on the console with the parts connected and a link up (the recordings take one sample per
 state report): `opensc2 cal sticks 1` with the sticks released, `opensc2 cal sticks 2` while
 circling them fully, `opensc2 cal sticks 3` to save; the same with `triggers` (released, pulled).
-`opensc2 cal` shows what is stored. The vendor commands `0xD8` and `0xC0` do the same from a host
-tool (Steam does not send them in its sessions). The calibration is kept in the board's storage,
-through a `.uf2` reflash and a factory reset
+While a recording runs its axes go to the library raw, so an axis without a calibration reads 0
+until step 3 saves one. `opensc2 cal` shows what is stored. The vendor commands `0xD8` and `0xC0`
+do the same from a host tool (Steam does not send them in its sessions). The calibration is kept
+in the board's storage, through a `.uf2` reflash and a factory reset
 ([docs/api.md](../docs/api.md#calibration-and-raw-inputs)).
 
 ## Wired and wireless modes

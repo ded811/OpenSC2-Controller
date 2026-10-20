@@ -64,11 +64,12 @@ static int16_t scale(int32_t v, int32_t size)
 #define STRENGTH_SCALE DT_PROP_OR(USER, trackpad_strength_scale, 40)
 
 /* The level as the raw pressure word while the pad has a usable pressure calibration (the library
- * then gives the pressure and the click); otherwise the pad's own pressure stays. */
+ * then gives the pressure and the click) or the pressure recording runs (0xC3, "opensc2 cal
+ * pressure": it takes its samples from raw pressure only); otherwise the pad's own pressure stays. */
 static void raw_pressure(enum opensc2_side side, int32_t level)
 {
 #if defined(CONFIG_OPENSC2_CAL)
-	if (opensc2_cal_pressure_ok(side)) {
+	if (opensc2_cal_pressure_ok(side) || opensc2_cal_recording(OPENSC2_CAL_REC_PRESSURE)) {
 		(void)opensc2_set_pressure_raw(side, (int16_t)CLAMP(level, 0, INT16_MAX));
 		return;
 	}
