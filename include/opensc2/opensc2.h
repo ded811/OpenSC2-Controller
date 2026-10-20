@@ -283,9 +283,11 @@ struct opensc2_callbacks {
 	 * system work queue. */
 	void (*usb_changed)(const struct opensc2_usb_info *info, void *user_data);
 
-	/* CONFIG_OPENSC2_SYSTEM: the status LED's mode or a fact its pattern depends on changed
-	 * (opensc2/led.h; opensc2_led_status() gives the same at any time). In the system work
-	 * queue. */
+	/* CONFIG_OPENSC2_SYSTEM: the status LED's mode, its flags (external power, steady, shutting
+	 * down) or the battery level the LED is told changed (opensc2/led.h). The other fields
+	 * (connected, pairing, input_recent, the brightness, the override, the fully-charged level)
+	 * change without a call: read opensc2_led_status() at every step, as the pattern player
+	 * does. In the system work queue. */
 	void (*led_status)(const struct opensc2_led_status *status, void *user_data);
 
 	/* CONFIG_OPENSC2_SYSTEM: play a cue. Only cues that are not silent at the chime level come

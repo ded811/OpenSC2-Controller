@@ -464,7 +464,7 @@ up with the puck.
 | `power_request(req)` | see below | |
 | `vendor_command(cmd, answer, answer_len)` | vendor commands the library does not answer itself | see [Vendor commands](#vendor-commands) |
 | `usb_changed(info)` | wired: the USB device's state changed | `struct opensc2_usb_info` |
-| `led_status(status)` | `CONFIG_OPENSC2_SYSTEM`: the status LED's mode, or a fact its pattern depends on, changed (the battery level, the shutdown) | `struct opensc2_led_status` ([Status LED](#status-led)); `opensc2_led_status()` gives the same at any time |
+| `led_status(status)` | `CONFIG_OPENSC2_SYSTEM`: the status LED's mode, its flags (`external_power`, `steady`, `shutting_down`) or the battery level it is told changed. The other fields can change without a call | `struct opensc2_led_status` ([Status LED](#status-led)); `opensc2_led_status()` gives all of it at any time |
 | `cue(cue)` | `CONFIG_OPENSC2_SYSTEM`: a cue to play; only cues that are not silent at the chime level come here | `struct opensc2_cue_event`: `cue`, the built-in `script` it stands for, `gain_db` ([Cues](#cues)) |
 
 Haptic channels: `OPENSC2_HAPTIC_LEFT_PAD`, `_RIGHT_PAD`, `_LEFT_GRIP`, `_RIGHT_GRIP` (the real
@@ -731,9 +731,11 @@ canvas logs each cue.
 > of the real controller's LED; none of them has been compared with a real controller.
 
 With `CONFIG_OPENSC2_SYSTEM` the library selects the status LED's mode and the application shows
-it. `opensc2_led_status(&st)` gives everything a pattern depends on, at any time; the `led_status`
-callback says when it changed. `<opensc2/led.h>` also has the real controller's patterns as a pure
-**pattern player**, so an application only drives its LED:
+it. `opensc2_led_status(&st)` gives everything a pattern depends on, at any time. The `led_status`
+callback comes when the mode, its flags or the battery level change; the link, pairing, recent
+input, the brightness, Steam's colour and the fully-charged level change without one, so read the
+status at every step, as below. `<opensc2/led.h>` also has the real controller's patterns as a
+pure **pattern player**, so an application only drives its LED:
 
 ```c
 static struct opensc2_led_player player;     /* opensc2_led_player_init(&player) once */
