@@ -68,6 +68,10 @@ static struct {
 	 * done (the radio, reboots and the LED stay as they are), it is recorded in the ring */
 	struct osc2_dock_sm sm;
 	struct osc2_dock_power_rule power;
+	/* DOCK_RUN's working copies: here rather than on the stack, which the frame's way down to a
+	 * vendor command and its log line needs (every op runs under the request lock) */
+	uint8_t run_ans[OPENSC2_DOCK_FRAME_LEN];
+	uint8_t run_hidden[OPENSC2_DOCK_FRAME_LEN];
 } t;
 
 /* ---- the ring -------------------------------------------------------------------------------- */
@@ -205,16 +209,16 @@ static uint8_t op_run(const uint8_t *args, uint8_t *result, uint8_t *rlen)
 	}
 	memset(result, 0, RUN_RESULT_LEN);
 	if (len > 0) {
-		uint8_t ans[OPENSC2_DOCK_FRAME_LEN];
+		uint8_t *ans = t.run_ans;
 		uint32_t us = 0;
 		enum osc2_dock_outcome o = osc2_dock_receive(t.frame, len, ans, &us);
 
 		if (o == OSC2_DOCK_ANSWERED) {
 			int32_t rc = (int32_t)opensc2_get_le32(&ans[OPENSC2_DOCK_RESULT_OFF]);
-			uint8_t hidden[OPENSC2_DOCK_FRAME_LEN];
+			uint8_t *hidden = t.run_hidden;
 			uint8_t nh = 0;
 
-			memcpy(t.answer, ans, sizeof(ans));
+			memcpy(t.answer, ans, OPENSC2_DOCK_FRAME_LEN);
 			t.have_answer = true;
 			mask_answer(rc);
 			for (int i = 0; i < OPENSC2_DOCK_FRAME_LEN; i++) {
@@ -226,9 +230,9 @@ static uint8_t op_run(const uint8_t *args, uint8_t *result, uint8_t *rlen)
 			result[2] = ans[0];
 			result[3] = ans[OPENSC2_DOCK_TYPE_OFF];
 			opensc2_put_le32(&result[4], (uint32_t)rc);
-			result[8] = (opensc2_dock_frame_check(ans, sizeof(ans)) == OPENSC2_DOCK_FRAME_OK ?
-				     ANS_CRC_OK : 0) | (nh ? ANS_MASKED : 0);
-			opensc2_put_le32(&result[9], osc2_crc32(0, ans, sizeof(ans)));
+			result[8] = (opensc2_dock_frame_check(ans, OPENSC2_DOCK_FRAME_LEN) ==
+				     OPENSC2_DOCK_FRAME_OK ? ANS_CRC_OK : 0) | (nh ? ANS_MASKED : 0);
+			opensc2_put_le32(&result[9], osc2_crc32(0, ans, OPENSC2_DOCK_FRAME_LEN));
 			opensc2_put_le32(&result[13], nh ? osc2_crc32(0, hidden, nh) : 0);
 		} else {
 			outcome = o == OSC2_DOCK_BAD_SIZE ? RUN_SHORT : RUN_BAD_CRC;

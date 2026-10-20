@@ -163,7 +163,16 @@ static struct {
 } setups[SETUP_FIFO];
 static atomic_t setup_head, setup_tail, setup_lost;
 
-static void drain_setups(void)
+static bool setups_waiting(void)
+{
+	return atomic_get(&setup_tail) != atomic_get(&setup_head) || atomic_get(&setup_lost) != 0;
+}
+
+/* Out of line, and called only while setups_waiting(): its two line buffers (about 220 bytes) then
+ * sit on the stack only when there is something to write, not under every osc2_usblog() call. A
+ * log line can come from deep in a thread (a dock op of the test hooks run from the shell, the USB
+ * stack or the radio thread, down to lizard mode's own line), where those bytes are not there. */
+static __noinline void drain_setups(void)
 {
 	for (;;) {
 		char line[OSC2_LINE + 2];
@@ -254,7 +263,9 @@ void osc2_usblog(const char *fmt, ...)
 	if (k_is_in_isr()) {
 		return;
 	}
-	drain_setups();
+	if (setups_waiting()) {
+		drain_setups();
+	}
 #if defined(CONFIG_OPENSC2_USB_LOG_ZEPHYR)
 	write_zlost(line);
 #endif
@@ -339,7 +350,9 @@ void osc2_usblog_lines(void (*cb)(const char *line, size_t len, void *ctx), void
 {
 	static char line[OSC2_LINE + 8];
 
-	drain_setups();
+	if (setups_waiting()) {
+		drain_setups();
+	}
 	osc2_ret_lines(RET, line, sizeof(line), cb, ctx);
 }
 

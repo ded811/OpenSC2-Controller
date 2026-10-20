@@ -392,13 +392,21 @@ void osc2_test_deadline_changed(void)
 
 /* ---- the console ------------------------------------------------------------------------------ */
 
+/* One console command at a time, whichever shell runs it: the console's raw verb keeps its buffers
+ * in static memory (test_core.c). Taken before the request lock, never inside it. */
+static K_MUTEX_DEFINE(console_lock);
+
 int osc2_test_console_run(int argc, const char *const *argv, osc2_test_emit emit, void *ctx)
 {
-	/* Everything the console causes counts as the test link's. */
-	uint8_t previous = osc2_test_ctx_set(OSC2_TEST_LINK_TEST);
-	int rc = osc2_test_console(&osc2_test_core_obj, &osc2_test_env_obj, argc, argv, emit, ctx);
+	uint8_t previous;
+	int rc;
 
+	(void)k_mutex_lock(&console_lock, K_FOREVER);
+	/* Everything the console causes counts as the test link's. */
+	previous = osc2_test_ctx_set(OSC2_TEST_LINK_TEST);
+	rc = osc2_test_console(&osc2_test_core_obj, &osc2_test_env_obj, argc, argv, emit, ctx);
 	osc2_test_ctx_restore(previous);
+	(void)k_mutex_unlock(&console_lock);
 	osc2_test_deadline_changed();
 	return rc;
 }

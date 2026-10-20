@@ -100,6 +100,10 @@ static struct {
 
 static struct esb_payload isr_payload;
 static struct rx_item isr_item;
+/* The packet the radio thread works on, in whichever state: static, so that its 140 bytes stay off
+ * the thread's stack, which a vendor command's way down (a test op of the hooks, a dock op, a log
+ * line) needs. Only the radio thread uses it. */
+static struct rx_item rx_it;
 
 static void esb_handler(const struct esb_evt *evt)
 {
@@ -533,7 +537,7 @@ static int queue_pairing_packet(uint8_t type, uint32_t id, const char *serial)
 static enum opensc2_link_state do_pairing(uint32_t *ctrl)
 {
 	struct opensc2_identity id;
-	struct rx_item it;
+	struct rx_item *it = &rx_it;
 	enum opensc2_link_state next;
 	uint8_t temp_address[4];
 	uint32_t temp_id = random_address_word();
@@ -553,7 +557,7 @@ static enum opensc2_link_state do_pairing(uint32_t *ctrl)
 		listen_on(OPENSC2_COMMON_CHANNEL, opensc2_pairing_address, OPENSC2_PIPE0_PREFIX);
 		queue_pairing_packet(OPENSC2_PKT_PAIRING_REQUEST, temp_id, id.unit_serial);
 		while (!beacon && k_uptime_get() < deadline) {
-			int got = next_packet(&it, MIN(deadline, k_uptime_get() + LISTEN_POLL_MS), ctrl);
+			int got = next_packet(it, MIN(deadline, k_uptime_get() + LISTEN_POLL_MS), ctrl);
 
 			if (*ctrl) {
 				if ((*ctrl & OSC2_EV_PAIR) && !(*ctrl & (OSC2_EV_STOP | OSC2_EV_CANCEL))) {
@@ -563,7 +567,7 @@ static enum opensc2_link_state do_pairing(uint32_t *ctrl)
 					return next;
 				}
 			}
-			beacon = got && it.len >= 1 && it.data[0] == OPENSC2_PKT_HELLO;
+			beacon = got && it->len >= 1 && it->data[0] == OPENSC2_PKT_HELLO;
 		}
 		if (!beacon) {
 			break;
@@ -577,12 +581,12 @@ static enum opensc2_link_state do_pairing(uint32_t *ctrl)
 		int64_t until = k_uptime_get() + 50 + (sys_rand32_get() % 256);
 
 		while (k_uptime_get() < until) {
-			int got = next_packet(&it, until, ctrl);
+			int got = next_packet(it, until, ctrl);
 
 			if (*ctrl && control(ctrl, OPENSC2_LINK_PAIRING, &next)) {
 				return next;
 			}
-			if (got && opensc2_parse_pairing_offer(it.data, it.len, &puck_id, puck_serial)) {
+			if (got && opensc2_parse_pairing_offer(it->data, it->len, &puck_id, puck_serial)) {
 				/* Our confirmation went with this acknowledgement. Keep a copy queued in
 				 * case the puck missed it and repeats its offer. */
 				queue_pairing_packet(OPENSC2_PKT_PAIRING_CONFIRM, controller_id,
@@ -621,7 +625,7 @@ static enum opensc2_link_state do_pairing(uint32_t *ctrl)
 static enum opensc2_link_state do_listen(uint32_t *ctrl)
 {
 	struct opensc2_bond bond;
-	struct rx_item it;
+	struct rx_item *it = &rx_it;
 	enum opensc2_link_state next;
 	int64_t deadline = CONFIG_OPENSC2_LISTEN_TIMEOUT_S ?
 			   k_uptime_get() + (int64_t)CONFIG_OPENSC2_LISTEN_TIMEOUT_S * 1000 : INT64_MAX;
@@ -640,12 +644,12 @@ static enum opensc2_link_state do_listen(uint32_t *ctrl)
 	}
 
 	for (;;) {
-		int got = next_packet(&it, MIN(deadline, k_uptime_get() + LISTEN_POLL_MS), ctrl);
+		int got = next_packet(it, MIN(deadline, k_uptime_get() + LISTEN_POLL_MS), ctrl);
 
 		if (*ctrl && control(ctrl, OPENSC2_LINK_LISTENING, &next)) {
 			return next;
 		}
-		if (got && opensc2_parse_connect_request(it.data, it.len, &request) &&
+		if (got && opensc2_parse_connect_request(it->data, it->len, &request) &&
 		    request.puck_id == bond.puck_id && request.controller_id == bond.controller_id) {
 			conn.slot = osc2.slot;
 			return OPENSC2_LINK_CONNECTED;
@@ -881,7 +885,7 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 {
 	enum opensc2_link_state next = OPENSC2_LINK_LISTENING;
 	enum opensc2_reason reason = OPENSC2_REASON_NONE;
-	struct rx_item it;
+	struct rx_item *it = &rx_it;
 	int index = 0;   /* which entry of the channel list we listen on */
 	int64_t last_rx;
 	k_spinlock_key_t key;
@@ -922,7 +926,7 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 		now = k_uptime_get();
 		int64_t window = now + (index == 0 ? PRIMARY_WINDOW_MS : ALTERNATE_WINDOW_MS);
 		int64_t lost_at = last_rx + LINK_LOST_MS;
-		int got = next_packet(&it, MIN(window, lost_at), ctrl);
+		int got = next_packet(it, MIN(window, lost_at), ctrl);
 
 		if (*ctrl) {
 			if (control(ctrl, OPENSC2_LINK_CONNECTED, &next)) {
@@ -937,7 +941,7 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 				index = 0;   /* back to the current channel after any packet */
 				move_channel(conn.channels[0]);
 			}
-			handle_packet(&it);
+			handle_packet(it);
 		} else if (k_uptime_get() >= lost_at) {
 			if (conn.disconnecting) {
 				/* The puck stopped after our 0xF2: turned off (or refused). */

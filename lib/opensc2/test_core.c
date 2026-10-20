@@ -2208,8 +2208,11 @@ static bool parse_decimal(const char *text, unsigned int digits, uint32_t *value
 
 static int verb_raw(struct console *k, int argc, const char *const *argv)
 {
-	uint8_t req[OSC2_TEST_REQUEST_MAX], answer[OSC2_TEST_ANSWER_MAX];
-	char hex[2 * OSC2_TEST_ANSWER_MAX + 1];
+	/* Static: a raw request can run a dock op down to a vendor command and its log line, deeper
+	 * than the shell's stack would hold with these 245 bytes on it as well. The console runs one
+	 * command at a time (osc2_test_console_run() holds a lock of its own). */
+	static uint8_t req[OSC2_TEST_REQUEST_MAX], answer[OSC2_TEST_ANSWER_MAX];
+	static char hex[2 * OSC2_TEST_ANSWER_MAX + 1];
 	uint8_t m = 0;
 	int n;
 
