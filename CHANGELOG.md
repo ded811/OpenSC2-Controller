@@ -46,6 +46,10 @@ still change between minor versions.
   `CONFIG_OPENSC2_CAL`, `0xD8`, `0xC0`, `0xC3` and `0xFE` are answered by the library instead of
   the application's `vendor_command`, `0xEE`, `0xEF` and `0xF0` accept the `cal/` keys, and `0xE2`
   reads its side and mask whatever its length byte says, as the real controller does.
+- `0xED` answers the `cal/` keys as the real controller does even on a board without
+  calibration, where 0.2.0 answered them all with length 0: the LED trims with their defaults (90,
+  35, 120, 80), `cal/volt_offset` (2 bytes) and `cal/touch_l`, `cal/touch_r` (10 bytes) always;
+  the stick, trigger and pressure keys still with length 0 until one is stored.
 - The hardware test suite never writes, saves or deletes a `cal/` key (safety rule S5), and
   `cmd.save_refusals` checks a refused `0xEF` on `cal/joy_l` instead of `0xF0`.
 
