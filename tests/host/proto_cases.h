@@ -91,6 +91,10 @@ OPENSC2_TEST(proto_stop_status)
 		/* Steam's zero pulses: target 0 is the right pad for 0x81, target 1 the left */
 		{ { 0x81, 0, 0, 0, 0, 0, 0, 0 }, 8, 5 },
 		{ { 0x81, 1, 0, 0, 0, 0, 0, 0 }, 8, 4 },
+		/* only the exact values swap: 0x80 is the left pad, 0x81 the right one (44 03 02 and
+		 * 44 04 02) */
+		{ { 0x81, 0x80, 0, 0, 0, 0, 0, 0 }, 8, 4 },
+		{ { 0x81, 0x81, 0, 0, 0, 0, 0, 0 }, 8, 5 },
 		/* on time 0 is a stop whatever else is there; two channels: the left first */
 		{ { 0x81, 2, 0, 0, 0xFF, 0xFF, 3, 0 }, 8, 45 },
 		{ { 0x81, 7, 0, 0, 0, 0, 0, 0 }, 8, 12 },

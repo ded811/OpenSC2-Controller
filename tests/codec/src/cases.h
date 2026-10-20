@@ -608,6 +608,12 @@ OPENSC2_TEST(output_haptics)
 	CHECK_EQ(opensc2_decode_output(pulse, sizeof(pulse), o), 1);
 	CHECK_EQ(o[0].haptic.kind, OPENSC2_HAPTIC_PULSE);
 	CHECK_EQ(o[0].haptic.channels, OPENSC2_HAPTIC_RIGHT_PAD);   /* 0x81 swaps the pads */
+	/* ... the exact values 0 and 1 only: 0x80 and 0x81 take the table with bit 7 cleared */
+	CHECK_EQ(opensc2_target_channels(0x81, 1), OPENSC2_HAPTIC_LEFT_PAD);
+	CHECK_EQ(opensc2_target_channels(0x81, 0x80), OPENSC2_HAPTIC_LEFT_PAD);
+	CHECK_EQ(opensc2_target_channels(0x81, 0x81), OPENSC2_HAPTIC_RIGHT_PAD);
+	CHECK_EQ(opensc2_target_channels(0x82, 0x80), OPENSC2_HAPTIC_LEFT_PAD);
+	CHECK_EQ(opensc2_target_channels(0x83, 0x81), OPENSC2_HAPTIC_RIGHT_PAD);
 	CHECK_EQ(o[0].haptic.pulse.on_us, 10000);
 	CHECK_EQ(o[0].haptic.pulse.off_us, 20000);
 	CHECK_EQ(o[0].haptic.pulse.count, 3);

@@ -210,9 +210,12 @@ uint8_t opensc2_target_channels(uint8_t report_id, uint8_t target)
 		break;
 	}
 
+	/* The pulse report 0x81 swaps the exact values 0 and 1 (0 is the right pad there); 0x80 and
+	 * 0x81 go through the table with bit 7 cleared, so for it too 0x80 is the left pad and 0x81
+	 * the right one. */
 	switch (target & 0x7F) {
-	case 0: return report_id == 0x81 ? rp : lp;   /* the pulse report swaps the two pads */
-	case 1: return report_id == 0x81 ? lp : rp;
+	case 0: return report_id == 0x81 && target == 0 ? rp : lp;
+	case 1: return report_id == 0x81 && target == 1 ? lp : rp;
 	case 2: case 6: return lp | rp;
 	case 3: return lg;
 	case 4: return rg;

@@ -102,7 +102,9 @@ size_t opensc2_encode_haptic_status(uint8_t channel_id, uint32_t flags,
  * into `report`. */
 int opensc2_decode_output(const uint8_t *report, size_t len, struct opensc2_output out[2]);
 
-/* Channels (OPENSC2_HAPTIC_*) a target byte selects in output report `report_id`. */
+/* Channels (OPENSC2_HAPTIC_*) a target byte selects in output report `report_id`, the real
+ * controller's way: 0x81 swaps the exact targets 0 and 1 (0 is the right pad there), while 0x80
+ * and 0x81 go through the common table with bit 7 cleared (the left, the right pad). */
 uint8_t opensc2_target_channels(uint8_t report_id, uint8_t target);
 
 /* ---- Identity -------------------------------------------------------------------------------- */

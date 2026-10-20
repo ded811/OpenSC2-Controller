@@ -633,10 +633,11 @@ def target_channels(report_id, target):
     if report_id == 0x88:
         return lg | rg   # it becomes two entries; the caller splits them
     t = target & 0x7F
+    # 0x81 swaps the exact values 0 and 1; 0x80 and 0x81 take the table with bit 7 cleared
     if t == 0:
-        return rp if report_id == 0x81 else lp
+        return rp if report_id == 0x81 and target == 0 else lp
     if t == 1:
-        return lp if report_id == 0x81 else rp
+        return lp if report_id == 0x81 and target == 1 else rp
     if t in (2, 6):
         return lp | rp
     if t == 3:

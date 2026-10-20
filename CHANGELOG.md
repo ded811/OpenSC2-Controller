@@ -236,6 +236,8 @@ simulator); none of it has been tested on hardware yet.
   was clamped to 31).
 - Lizard mode coming back on sends its empty keyboard report `0x41` before the all-zero mouse
   report `0x40`, the real controller's order (0.2.0 sent the mouse report first).
+- Report `0x81` swaps the two pads only for the exact targets 0 and 1, as the real controller does:
+  targets `0x80` and `0x81` are the left and the right pad there too (0.2.0 swapped them as well).
 - A transport or puck slot chosen at run time (`opensc2_select_slot()`, the shell's `opensc2 slot`)
   is stored once its link is up, as the October 2026 firmware does, instead of at once. It is
   stored as `opensc2/transport`, with `opensc2/slot` still written for a puck transport.

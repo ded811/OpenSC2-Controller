@@ -652,8 +652,10 @@ acknowledgements keep up with the puck.
 
 Haptic channels: `OPENSC2_HAPTIC_LEFT_PAD`, `_RIGHT_PAD`, `_LEFT_GRIP`, `_RIGHT_GRIP` (the real
 controller's four actuators). `channels` is the target byte decoded the way the real controller
-decodes it, including its quirks: report `0x81` swaps the two pads, and the PCM reports number their
-targets differently again (in `0x87`, target 1 selects nothing and 4 the right grip).
+decodes it, including its quirks: report `0x81` swaps the two pads for the exact targets 0 and 1
+(while `0x80` and `0x81` there are the left and the right pad, as in the other reports), and the PCM
+reports number their targets differently again (in `0x87`, target 1 selects nothing and 4 the right
+grip).
 
 | `kind` | Report | Fields |
 | --- | --- | --- |
