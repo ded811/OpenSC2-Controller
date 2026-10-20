@@ -26,7 +26,13 @@ to its folder (for example `C:\ncs\v3.4.0`); each one was checked in that releas
 | libgcc, GCC's runtime library (from the toolchain) | GPL-3.0 with the GCC Runtime Library Exception 3.1 | the toolchain; not in the SDK's repositories |
 
 The samples and your own builds may link more of Zephyr and the SDK (sensor and input drivers, PWM,
-I2C). Each of those files names its licence in its header (`SPDX-License-Identifier`).
+I2C). Each of those files names its licence in its header (`SPDX-License-Identifier`). The opt-in
+builds of `app/` link more too, and the table above and `tools/collect_licenses.py` cover only the
+default image: the Bluetooth build (`app/ble.conf`, `app/all.conf`) adds Zephyr's Bluetooth host
+(Apache-2.0), Nordic's SoftDevice Controller, a binary library under LicenseRef-Nordic-5-Clause
+(`nrfxlib/softdevice_controller/license.txt`), and the SDK's crypto (`nrf_security` with Mbed TLS,
+Apache-2.0, and Nordic's binary `nrf_oberon` library, LicenseRef-Nordic-5-Clause,
+`nrfxlib/crypto/nrf_oberon/license.txt`). Check those before you pass such a build on.
 
 What the licences ask of copies in binary form, in short (the licence texts decide; this is not
 legal advice):
