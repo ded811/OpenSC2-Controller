@@ -470,7 +470,9 @@ commands below, or keep giving finished values until it has one (`opensc2_cal_st
   −1 counting as 100.
 - **Stick touch and grip.** The mean of the last two words against setting 30 (on, default 500)
   and 31 (held, 400), and against (setting 34 / 2 + 12.5) % of 1800 (on, 1125) and setting 35 % of
-  that (held, 900). A change of settings 30, 31, 33, 34, 35, 52, 53, 66, 72 or 73 starts them over.
+  that (held, 900). A change of settings 30, 31, 33, 34, 35, 52, 53, 66, 72 or 73 starts both pads
+  over (these means, the pad's click and its stabiliser of the pad rules below), and a load of a
+  pad's pressure key starts that pad over.
 
 **The stored calibration** lives under `opensc2/cal/` in Zephyr settings (the storage partition,
 which a `.uf2` reflash keeps); a factory reset (`0x86`) keeps it. The keys, by the real names a host
@@ -503,7 +505,8 @@ sends them):
 
 A recording takes the samples of the raw inputs, one per state report, so only while a link is up,
 and saves only the sides that gave samples. Its flash writes, and those of `0xE2` and `0xFE`, run
-from the system work queue. Steps above 3 do nothing; a step 2 or 3 without a step 1 does nothing.
+from the system work queue in the order they were asked for (`0xFE` drops the saves still waiting
+from before it). Steps above 3 do nothing; a step 2 or 3 without a step 1 does nothing.
 
 **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default) act on the reported pads, raw or not,
 after the hardware test hooks' injection, so report `0x42` and lizard mode both see them: with
@@ -712,7 +715,7 @@ The library answers these itself:
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link |
-| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | `esb/bond`, `esb/bond_2`, `user/wireless_transport` (2 = the first slot, 3 = the second), `user/haptic_boot_level`, and with `CONFIG_OPENSC2_CAL` the calibration keys ([Calibration and raw inputs](#calibration-and-raw-inputs)). `0xED` answers length 0 for an empty bond, an analog calibration key whose format word is 0, an LED trim outside 1..199 and the gyro bias; `0xEE` refuses an empty value, a bond that is not 24 bytes and a calibration key of another size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond, a calibration key without a value and the gyro bias; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
+| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | `esb/bond`, `esb/bond_2`, `user/wireless_transport` (2 = the first slot, 3 = the second), `user/haptic_boot_level`, and with `CONFIG_OPENSC2_CAL` the calibration keys ([Calibration and raw inputs](#calibration-and-raw-inputs)). `0xED` answers length 0 for an empty bond, an analog calibration key whose format word is 0, an LED trim outside 1..199 and the gyro bias; `0xEE` refuses an empty value, a bond that is not 24 bytes and a calibration key of another size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond, an analog calibration key whose format word is 0 and the gyro bias; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
 | `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 |
 | `0xD8`, `0xC0`, `0xC3`, `0xFE` | set | with `CONFIG_OPENSC2_CAL`: the stick, trigger and pressure recordings and the calibration erase ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
 | `0xA2` | set | write the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes (an ID of zero deletes it) |

@@ -25,12 +25,14 @@ study of the controller's firmware, not from that documentation; the gaps below 
 | The wired USB device: descriptors, strings, report timing | [The cable](#overview-the-cable), [api.md, Wired mode](api.md#wired-mode) | [docs/controller/03-usb-and-hid.md, The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device) |
 | The report descriptor and its collections | [The cable](#overview-the-cable), [gap 13](#where-this-library-had-to-fill-gaps) | [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
 | Report `0x42`, the button bits, the vendor commands | [Reports and outputs](#overview-reports-and-outputs), [The vendor commands](#overview-the-vendor-commands), [api.md, Inputs](api.md#inputs) | [docs/controller/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md) |
+| The inputs from sensor to report: sticks, triggers, trackpads, stick touch and grips, the IMU; the calibration keys and commands | [gaps 22 to 24](#where-this-library-had-to-fill-gaps), [api.md, Calibration and raw inputs](api.md#calibration-and-raw-inputs) | [docs/controller/07-input-and-sensors.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md) |
 | The controller settings | [The vendor commands](#overview-the-vendor-commands), [api.md, Controller settings](api.md#controller-settings) | [Controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings) |
 | Lizard mode | [Lizard mode](#overview-lizard-mode) | [Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode) |
 | Steam's wired session | [The cable](#overview-the-cable), [The vendor commands](#overview-the-vendor-commands) | [The wired session as Steam runs it](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it) |
 | Pairing over the cable, and the reboot into wireless mode | [The cable](#overview-the-cable) | [Pairing a controller with a puck over the cable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable), [Reboot into wireless mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#reboot-into-wireless-mode) |
 | The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
 | Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
+| The battery voltage and charge level, what erases the stored settings | [api.md, Battery helpers](api.md#battery-helpers), [gap 22](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
 | Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
 | The dock (not implemented here) | [The puck's end](#overview-the-pucks-end) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md) |
 | What the puck shows Steam (feature report pass-through, attribute cache) | [The puck's end](#overview-the-pucks-end) | [docs/puck/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/03-usb-and-hid.md) |
@@ -361,9 +363,15 @@ open, the library does what should work with Steam and the puck, and says so her
     - `0xED` always answers `cal/touch_l`, `cal/touch_r` (10 bytes, used by nothing) and
       `cal/volt_offset`, the LED trims while they lie within 1..199, a stick, trigger or pressure
       key while its format word is not 0, and never the gyro bias; `0xEF` refuses an analog key
-      whose format word is 0, and the gyro bias (the real controller fails it too);
+      whose format word is 0, and the gyro bias (the real controller fails it too), and saves an
+      LED trim whatever its value (one outside 1..199 then reads as its default, as at boot);
     - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
-      queue; `0xEF` writes before it answers, as for the bonds;
+      queue, in the order they were asked for (`0xFE` drops the saves still waiting from before
+      it); `0xEF` writes before it answers, as for the bonds;
+    - a settings partition with every sector occupied at boot: the real controller erases all of
+      it, calibration included, and starts over; OpenSC2 leaves it alone (Zephyr's NVS then does
+      not start, and the board runs on its built-in values with nothing loaded; a build with
+      `CONFIG_NVS_INIT_BAD_MEMORY_REGION=y` erases it as the real controller does);
     - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
       does, so an empty request reads the report's zero padding;
     - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
@@ -384,7 +392,10 @@ open, the library does what should work with Steam and the puck, and says so her
     (the documentation leaves open whether the previous input is meant).
 24. **Setting 85.** The real controller hands it to its IMU's fusion block, where its role is not
     known. OpenSC2's rest-based gyro-bias estimate (`<opensc2/sensor_helpers.h>`, for IMUs
-    without one of their own) takes it as its rest threshold in report units.
+    without one of their own) takes it as its rest threshold in report units. The blank canvas's
+    LSM6DSV16X stream option (`app/imu-stream.conf`) starts its stream at boot even when the stored
+    gyro bias is not a finite number or cannot be programmed (it then starts without it); the
+    real controller waits for a host to write setting 48 in that case.
 
 ## What this library adds for development boards
 
