@@ -178,6 +178,13 @@ class SimBoard:
         if self.ble:
             self.ble.timer("ble_drop")
 
+    def _timer_ble_off_power(self, t):
+        """Bluetooth's wireless off: its power request on a work item of its own (ble.c), so
+        the pending host request (_timer_power) stays."""
+        if self.ble:
+            why = self.ble.off_why.encode("ascii")[:32]
+            self.hooks.note(C.RING_POWER, LINK_NONE, bytes([simble.POWER_WIRELESS_OFF]) + why)
+
     def _timer_power(self, t):
         request, why = self.power_pending
         self.power_pending = None

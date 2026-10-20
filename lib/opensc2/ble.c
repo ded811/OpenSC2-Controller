@@ -1434,6 +1434,18 @@ static void interval_update(void)
 
 /* ---- the Bluetooth thread ------------------------------------------------------------------------ */
 
+/* The power request of a wireless off, through a work item of its own (as usb.c's unplug): the
+ * library's single pending power request may hold a host's reboot, bootloader, turn-off or
+ * factory reset, asked for just before the host left, which it must not replace. */
+static const char *volatile off_why;
+
+static void off_power_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	osc2_power_now(OPENSC2_POWER_WIRELESS_OFF, off_why);
+}
+static K_WORK_DEFINE(off_power_work, off_power_fn);
+
 /* "Wireless off": the window ran out, or the host ended the link (0x13) or powered off (0x15). The
  * stack stays enabled and nothing advertises until Bluetooth is started again; the application
  * decides the rest (the real controller turns off on battery). */
@@ -1455,8 +1467,9 @@ static void wireless_off(enum osc2_ble_off_cause cause, uint8_t reason)
 	if (osc2_transport_is_ble(osc2_transport_running())) {
 		osc2_sys_bt_event(OSC2_SYS_BT_GAVE_UP);
 	}
-	osc2_schedule_power(OPENSC2_POWER_WIRELESS_OFF, 0, cause == OSC2_BLE_OFF_WINDOW ?
-			    "bluetooth: no host within the window" : "bluetooth: the host left");
+	off_why = cause == OSC2_BLE_OFF_WINDOW ? "bluetooth: no host within the window" :
+						 "bluetooth: the host left";
+	(void)k_work_submit(&off_power_work);
 }
 
 /* Bluetooth on for `transport` (with a pairing request: the slot opens for a new host). A host

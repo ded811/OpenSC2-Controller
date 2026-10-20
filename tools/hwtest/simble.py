@@ -46,6 +46,7 @@ class BleLink:
         self.drop_reason = 0
         self.want = True
         self.round = 0
+        self.off_why = ""
 
     # ---- what the board shows ----
     @property
@@ -191,8 +192,11 @@ class BleLink:
         self.adv_stop(2 if cause == 0 else 3)
         self.note(C.BLE_EV_OFF, cause, reason, 0)
         self.set_state(REASON_LISTEN_TIMEOUT if cause == 0 else REASON_HOST_DISCONNECTED)
-        self.b.schedule_power(POWER_WIRELESS_OFF, "bluetooth: no host within the window"
-                              if cause == 0 else "bluetooth: the host left", 0)
+        # The power request through a work item of its own (ble.c off_power_work): a host's
+        # request still pending (a reboot, a factory reset) is not replaced.
+        self.off_why = ("bluetooth: no host within the window" if cause == 0 else
+                        "bluetooth: the host left")
+        self.b.timers["ble_off_power"] = self.b.now()
         # The system state machine of the Bluetooth build answers the give-up with its drop: a
         # stop that keeps the stack, which finds Bluetooth off already and changes nothing, so the
         # flag and the reason stay (ble.c do_stop()).

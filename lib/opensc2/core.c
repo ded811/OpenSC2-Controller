@@ -314,18 +314,32 @@ void osc2_power_now(enum opensc2_power_request request, const char *why)
 	running_why = NULL;
 }
 
+/* The pending request and its cause, written by several threads (the links' command threads, the
+ * USB stack, the Bluetooth thread): always as a pair. */
+static struct k_spinlock pending_lock;
+
 static void power_work_fn(struct k_work *work)
 {
+	enum opensc2_power_request request;
+	const char *why;
+	k_spinlock_key_t key = k_spin_lock(&pending_lock);
+
 	ARG_UNUSED(work);
-	osc2_power_now(pending_power, pending_why);
+	request = pending_power;
+	why = pending_why;
+	k_spin_unlock(&pending_lock, key);
+	osc2_power_now(request, why);
 }
 static K_WORK_DELAYABLE_DEFINE(power_work, power_work_fn);
 
 void osc2_schedule_power(enum opensc2_power_request request, uint32_t delay_ms, const char *why)
 {
+	k_spinlock_key_t key = k_spin_lock(&pending_lock);
+
 	pending_power = request;
 	pending_why = why;
-	k_work_reschedule(&power_work, K_MSEC(delay_ms));
+	(void)k_work_reschedule(&power_work, K_MSEC(delay_ms));
+	k_spin_unlock(&pending_lock, key);
 }
 
 const char *osc2_power_reason(void)
