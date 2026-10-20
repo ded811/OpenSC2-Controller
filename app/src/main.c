@@ -114,7 +114,7 @@ static void on_link(const struct opensc2_link_info *info, void *user_data)
 	if (info->reason == OPENSC2_REASON_PAIRED) {
 		LOG_INF("Paired (slot %u)", info->slot + 1);
 	} else if (info->reason == OPENSC2_REASON_PAIRING_FAILED) {
-		LOG_INF("Pairing failed: open the puck's pairing window in Steam, then press pair");
+		LOG_INF("Not paired: open the puck's pairing window in Steam, then press pair");
 	}
 	if (info->state == OPENSC2_LINK_OFF && info->reason == OPENSC2_REASON_PUCK_TURN_OFF) {
 		LOG_INF("Turned off by the puck (the PC sleeps). %s",

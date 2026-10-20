@@ -635,7 +635,7 @@ static enum opensc2_link_state do_pairing(uint32_t *ctrl)
 		}
 		/* No offer in time: offer ourselves to the beacon again. */
 	}
-	LOG_INF("Pairing failed: no puck answered");
+	LOG_INF("No pairing: no puck answered");
 	entry_reason = OPENSC2_REASON_PAIRING_FAILED;
 	return with_bond_or_not();
 }
@@ -884,7 +884,7 @@ static void handle_packet(const struct rx_item *it)
 		int v = opensc2_protocol_version(it->data, it->len);
 
 		if (v < 0) {
-			LOG_WRN("Unrecognized protocol version %u.%u",
+			LOG_WRN("The puck speaks protocol version %u.%u, unknown here",
 				it->len > 1 ? it->data[1] : 0, it->len > 2 ? it->data[2] : 0);
 			if (!conn.disconnecting) {
 				conn.disconnecting = true;
@@ -972,7 +972,7 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 				reason = conn.disconnect_reason;
 				next = OPENSC2_LINK_OFF;
 			} else {
-				LOG_INF("Lost connection");
+				LOG_INF("Link lost: 500 ms without a packet from the puck");
 				reason = OPENSC2_REASON_LINK_LOST;
 				next = OPENSC2_LINK_LISTENING;
 			}
