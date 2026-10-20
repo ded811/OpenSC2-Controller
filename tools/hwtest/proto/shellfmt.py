@@ -53,7 +53,33 @@ FORMATS = {
     "state_imu": ("imu       t %u  a %d %d %d  g %d %d %d  q %d %d %d %d",
                   "imu       t %d  a %d %d %d  g %d %d %d  q %d %d %d %d"),
     "reboot": ("rebooting%s", "rebooting%s"),
+    # the wireless transports and Bluetooth (a build with CONFIG_OPENSC2_BLE)
+    "status_transport": ("transport: %s (stored: %s)", "transport: %s (stored: %s)"),
+    "status_ble_link": ("link:      Bluetooth %s (last reason %d), slot %u",
+                        "link:      Bluetooth %s (last reason %d), slot %d"),
+    "transport": ("running %s (%s), chosen %s, stored %s", "running %s (%s), chosen %s, stored %s"),
+    "ble_status": ("bluetooth: %s%s; slot %u, identity %u %s",
+                   "bluetooth: %s%s; slot %d, identity %d %s"),
+    "ble_name": ("name:      %s", "name:      %s"),
+    "ble_bonds": ("bonds:     identity 1 %s, 2 %s (slot 1); 3 %s, 4 %s (slot 2)",
+                  "bonds:     identity 1 %s, 2 %s (slot 1); 3 %s, 4 %s (slot 2)"),
+    "ble_connected": ("link:      connected%s, security %u, ATT MTU %u, interval %u us, "
+                      "paced by %s",
+                      "link:      connected%s, security %d, ATT MTU %d, interval %d us, "
+                      "paced by %s"),
+    "ble_traffic": ("traffic:   %u state reports, %u dropped",
+                    "traffic:   %d state reports, %d dropped"),
+    "ble_advertising": ("link:      advertising %s; %u s left of the window",
+                        "link:      advertising %s; %d s left of the window"),
+    "ble_link": ("link:      %s", "link:      %s"),
+    "ble_last": ("last disconnect: reason 0x%02x", "last disconnect: reason 0x%02x"),
 }
+
+# `opensc2 ble status`: the advertising forms' words and the idle texts (shell.c)
+BLE_FORM_TEXT = {0: "open to any host (pairing mode)", 1: "for the bonded host only",
+                 2: "directed to the bonded host"}
+BLE_IDLE_TEXT = {"idle": "idle", "window": "wireless off: no host within the advertising window",
+                 "host": "wireless off: the host ended the link"}
 
 # the texts shell.c prints for the enums (mode_reason_text, the state names)
 MODE_REASON_TEXT = {0: "no USB power", 1: "USB power", 2: "warm restart", 3: "restart into wired",
@@ -71,17 +97,23 @@ def line(name, *values):
 
 
 def status_lines(mode_wired, reason, policy, lizard_on, imu_mode, ident, usb=None, link=None,
-                 last=None):
+                 last=None, transport=None, ble_link=None):
     """`opensc2 status`. `usb`: (state, suspended, reports, dropped, requests, stalls); `link`:
     (state, last reason, slot 0/1, channel, alternates (3), protocol, rssi, packets, reports,
     dropped, up s); `last`: (boot, requests, stalls, outputs, reports, dropped, end text) or None;
-    `ident`: dict unit, board, pid, rev, build, git."""
+    `ident`: dict unit, board, pid, rev, build, git. `transport`: (running name, stored name) for
+    the transport line; `ble_link`: (state, last reason, slot 0/1) when Bluetooth runs."""
     out = [line("status_mode", "wired" if mode_wired else "wireless",
                 MODE_REASON_TEXT.get(reason, "?"), policy)]
+    if transport is not None:
+        out.append(line("status_transport", transport[0], transport[1]))
     if mode_wired:
         state, suspended, reports, dropped, requests, stalls = usb
         out.append(line("status_usb", USB_STATE_TEXT[state], " (suspended)" if suspended else "",
                         reports, dropped, requests, stalls))
+    elif ble_link is not None:
+        state, reason_l, slot = ble_link
+        out.append(line("status_ble_link", LINK_STATE_TEXT[state], reason_l, slot + 1))
     else:
         (state, reason_l, slot, channel, alternates, protocol, rssi, packets, reports, dropped,
          up_s) = link
@@ -110,6 +142,33 @@ def id_lines(ident):
             line("id_git", ident["git"]), line("id_pid", ident["pid"]),
             line("id_rev", ident["rev"]), line("id_build", ident["build"]),
             line("id_blbuild", ident["blbuild"]), line("id_name", ident["name"])]
+
+
+def ble_status_lines(st):
+    """`opensc2 ble status` from a dict: enabled, running, slot (0/1), identity, address (text
+    or None), name, bonded (four bools), connected, active, security, mtu, interval_us, trigger,
+    reports, dropped, advertising, form (0..2), window_left_s, idle ("idle", "window", "host"),
+    last_reason."""
+    yes = ["yes" if b else "no" for b in st.get("bonded", [False] * 4)]
+    out = [line("ble_status", "on" if st.get("enabled") else "off",
+                "" if st.get("running", True) else " (not the transport)", st.get("slot", 0) + 1,
+                st.get("identity", 1), st.get("address") or "-"),
+           line("ble_name", st.get("name") or "-"),
+           line("ble_bonds", *yes)]
+    if st.get("connected"):
+        out.append(line("ble_connected", " and active" if st.get("active") else
+                        " (waiting for encryption and an ATT MTU of 64)", st.get("security", 0),
+                        st.get("mtu", 23), st.get("interval_us", 0),
+                        "the connection events" if st.get("trigger", True) else "a timer"))
+        out.append(line("ble_traffic", st.get("reports", 0), st.get("dropped", 0)))
+    elif st.get("advertising"):
+        out.append(line("ble_advertising", BLE_FORM_TEXT[st.get("form", 0)],
+                        st.get("window_left_s", 0)))
+    else:
+        out.append(line("ble_link", BLE_IDLE_TEXT[st.get("idle", "idle")]))
+    if st.get("last_reason"):
+        out.append(line("ble_last", st["last_reason"]))
+    return out
 
 
 def bond_lines(bonds, selected):

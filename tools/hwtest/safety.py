@@ -100,6 +100,82 @@ def assert_board_write(node, open_serial):
         raise SafetyError("HID serial string does not match the instance ID: closing unused")
 
 
+# ---- the board over Bluetooth (--bluetooth, path B) --------------------------------------------
+#
+# Windows builds a paired Bluetooth controller's HID device from its PnP ID: 28DE:1303 for the
+# board and for the real controller alike, and neither has a USB serial. classify() therefore
+# calls every such node FORBIDDEN ("unrecognised device"); only classify_ble() can make one the
+# board's, by what the board itself reports: its console (a BOARD_CONSOLE, the board's own USB
+# device) gives the address of the identity it advertises on and its unit serial, and the node must
+# carry that address and the name "Steam Ctrl (BT) " + that OSC serial.
+
+BOARD_BLE = "BOARD_BLE"
+
+# HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02<vid>_PID&<pid>_REV&<rev>_<address>&COL0n\...
+_BLE_HID = re.compile(r"^HID\\\{00001812-0000-1000-8000-00805F9B34FB\}_DEV_VID&02([0-9A-F]{4})"
+                      r"_PID&([0-9A-F]{4})_REV&([0-9A-F]{4})_([0-9A-F]{12})&(COL0[1-9])\\",
+                      re.IGNORECASE)
+
+
+def ble_node_fields(node):
+    """A Bluetooth HID node's own instance ID read: (vid, pid, address as 12 upper-case hex
+    digits, collection "COL0n"), or None for any other node."""
+    m = _BLE_HID.match(node.get("own_instance_id") or "")
+    if node.get("kind") != "hid" or not m:
+        return None
+    return int(m.group(1), 16), int(m.group(2), 16), m.group(4).upper(), m.group(5).upper()
+
+
+class BleExpect:
+    """What the board's console said about its Bluetooth side: the address of the identity in
+    use (12 hex digits, upper case) and the unit serial. Kept in memory only (both are masked)."""
+
+    __slots__ = ("address", "serial")
+
+    def __init__(self, address, serial):
+        self.address = (address or "").upper() or None
+        self.serial = serial
+
+
+def classify_ble(node, expect):
+    """S1 for the Bluetooth path: BOARD_BLE only for the vendor collection (COL03) of the
+    Bluetooth device with the address the board's console reported for its identity in use and
+    the name "Steam Ctrl (BT) " + the board's OSC unit serial. Anything else (the real controller
+    paired with this PC above all, or the board under a name the PC was told to use instead) is
+    FORBIDDEN. Returns (class, reason)."""
+    if expect is None or not expect.address or not serial_ok(expect.serial):
+        return FORBIDDEN, "no Bluetooth identity of the board to check against"
+    f = ble_node_fields(node)
+    if f is None:
+        return FORBIDDEN, "not a Bluetooth HID node"
+    vid, pid, address, col = f
+    if (vid, pid) != (C.BOARD_VID, C.BLE_PID):
+        return FORBIDDEN, "another Bluetooth HID device"
+    if address != expect.address:
+        return FORBIDDEN, "a Bluetooth 28DE:1303 at another address (not the board)"
+    parent = (node.get("ble_address") or "").upper()
+    if parent and parent != address:
+        return FORBIDDEN, "the node's Bluetooth device has another address"
+    if C.BLE_NAME_PREFIX + expect.serial not in (node.get("ble_names") or []):
+        return FORBIDDEN, "the Bluetooth device's name is not the board's (renamed in Windows?)"
+    if col != "COL03":
+        return FORBIDDEN, "mouse/keyboard collection"
+    return BOARD_BLE, "the board over Bluetooth"
+
+
+def assert_ble_write(node, open_serial, expect):
+    """R1 for Bluetooth, before the first write: the node is still the board's (classify_ble), and
+    the HID serial string Windows gives after opening (over Bluetooth often empty, or the
+    device's address) names nothing else."""
+    cls, why = classify_ble(node, expect)
+    if cls != BOARD_BLE:
+        raise SafetyError("write attempted on a Bluetooth node that is not the board's (%s)"
+                          % why)
+    hexes = re.sub(r"[^0-9A-Fa-f]", "", open_serial or "").upper()
+    if open_serial and open_serial != expect.serial and hexes != expect.address:
+        raise SafetyError("the Bluetooth HID serial string names another device: closing unused")
+
+
 # ---- the vendor denylist (S5) ---------------------------------------------------------------
 
 _HARD_REFUSE = {C.VC_BOOTLOADER, C.VC_FACTORY_RESET, 0xFE, 0xC0, 0xC3, 0xD8}
@@ -132,6 +208,9 @@ class Context:
         self.empty_slots = set()     # key names whose 0xED read empty this session
         self.caps_identity_write = False
         self.caps_ble = False        # a Bluetooth build (caps bit 17): transport 0 and 1 are real
+        # --bluetooth: the board's Bluetooth address and unit serial from its console
+        # (BleExpect), which classify_ble() checks a Bluetooth node against (S1)
+        self.ble_expect = None
         self.flash_allowed = False
         self.tokens = []             # FlashToken list
         # S7 live state
@@ -316,7 +395,7 @@ def check_test_request(payload, transport, ctx=None):
     it: fail closed)."""
     payload = bytes(payload)
     if not _tp.is_request(payload):
-        if transport != "usb":
+        if transport not in ("usb", "ble"):
             raise SafetyError("only test-channel requests (the key, version 1) go %s"
                               % ("through the puck" if transport == "puck" else
                                  "to the console"))
@@ -426,7 +505,8 @@ def check_shell(command, flash_allowed=False, policy_token=None, policy_in_use=N
     embedded CR or LF would start a second command), no stray white space, an id of 1..65535, a
     `raw` request that is a test request (S7 and the HOST_SET allowlist on its op, with the live
     Context `ctx`). One exception with --flash and a token: `opensc2 mode auto|wireless`,
-    whichever `opensc2 mode` showed to be in use; `consume` spends the token (False: a pre-check)."""
+    whichever `opensc2 mode` showed to be in use; `consume` spends the token (False: a pre-check).
+    With --flash also `opensc2 ble pair` (ble.window)."""
     if not isinstance(command, str):
         raise SafetyError("a console line must be text")
     if _CONTROL_CHARS.search(command):
@@ -437,6 +517,10 @@ def check_shell(command, flash_allowed=False, policy_token=None, policy_in_use=N
                           % command[:40])
     cmd = command
     if cmd in _console.EXISTING_COMMANDS:
+        return
+    if cmd == "opensc2 ble pair" and (flash_allowed or (ctx is not None and ctx.flash_allowed)):
+        # ble.window, --flash only: a pairing request resets the slot's other identity (a
+        # settings write); the slot's bonded host keeps its bond
         return
     m = _TEST_LINE.match(cmd)
     if m:

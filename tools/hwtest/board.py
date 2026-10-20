@@ -158,6 +158,7 @@ class Rig:
         self.ctx.lizard_group = False
         self.path = "W"
         self.unit_serial = None      # the board's unit serial, in memory only
+        self.ble_status = None       # B: `opensc2 ble status` at discovery (address in memory)
         self.puck_present = False    # Valve's puck's slots were listed at the last discovery
         self.identity_r = None       # `opensc2 id` of the wireless phase, in memory only
         self.hooks = None            # the firmware has the hooks (hooks.present)
@@ -397,13 +398,87 @@ class Rig:
             if slot.get("serial"):
                 self.puck_serials.add(slot["serial"])
         self.puck_present = bool(d.get("puck_slots"))
+        self._use_path()
         if self.path == "R":
             self._open_console()
+            if self.opt.get("bluetooth"):
+                d = self._find_ble()
         return d
 
+    def _use_path(self):
+        fn = getattr(self.backend, "use_path", None)
+        if fn:
+            fn(self.path)
+
+    def _find_ble(self):
+        """--bluetooth: the board is wireless (its console is open). Its console must show
+        Bluetooth as the running transport and the address of the identity it advertises on;
+        then Windows' HID device of exactly that address and the board's name is the board over
+        Bluetooth (safety.classify_ble, S1), waited for while Windows connects it. Path B."""
+        lines = self.console_run("opensc2 ble status")
+        st = cproto.parse_ble_status(lines)
+        if "on" not in st:
+            raise RigError("--bluetooth: this firmware has no Bluetooth (build app\\ble.conf, "
+                           "docs/testing.md, Bluetooth)")
+        if not st.get("transport"):
+            raise RigError("--bluetooth: the board's transport is not Bluetooth: `opensc2 "
+                           "transport ble` on its console, then pair it in Windows (docs/testing.md,"
+                           " Bluetooth)")
+        address = cproto.address_hex(st.get("address"))
+        if not address:
+            raise RigError("--bluetooth: the board's console shows no Bluetooth address")
+        self.mask.add_ble_address(address)
+        self.ble_status = st
+        self.ctx.ble_expect = safety.BleExpect(address, self.unit_serial)
+        deadline = self.clock.monotonic() + self.t(C.BLE_RECONNECT_TIMEOUT_S)
+        while True:
+            d = self.backend.discover()
+            node = d.get("ble_board")
+            if node is not None:
+                cls, why = safety.classify_ble(node, self.ctx.ble_expect)
+                if cls != safety.BOARD_BLE:
+                    raise RigError("the Bluetooth device is not the board (%s)" % why)
+                self.path = "B"
+                self._use_path()
+                return d
+            if self.clock.monotonic() >= deadline:
+                break
+            self.sleep(0.5)
+        nodes = getattr(self.backend, "ble_nodes", lambda: [])()
+        if not nodes:
+            why = ("Windows lists no Bluetooth 28DE:1303 device: pair the board in Settings, "
+                   "Bluetooth & devices, Add device (docs/testing.md, Bluetooth), and keep it "
+                   "connected")
+        else:
+            why = "; ".join(sorted(set(w for _mine, w in nodes)))
+        raise RigError("--bluetooth: the board's Bluetooth HID device is not there (%s)" % why)
+
+    @property
+    def own_hid(self):
+        """The board's own HID device carries the reports, feature report 1 and the output
+        reports: on USB (W) and over Bluetooth (B); through the puck (R) the test link does."""
+        return self.path in ("W", "B")
+
+    @property
+    def wireless(self):
+        """A wireless boot: the puck's radio (R) or Bluetooth (B); the console is there."""
+        return self.path in ("R", "B")
+
+    @property
+    def console_path(self):
+        """The path of test-channel requests that must work with the link down: the console on
+        B (the Bluetooth HID device is gone then), else the path itself."""
+        return "R" if self.path == "B" else self.path
+
+    @property
+    def reconnect_s(self):
+        """How long the link may take to come back after `opensc2 start`: over Bluetooth Windows
+        connects the board again itself."""
+        return C.BLE_RECONNECT_TIMEOUT_S if self.path == "B" else C.RECONNECT_TIMEOUT_S
+
     def reopen_console(self):
-        """R: open the console again (after you closed the program that held it)."""
-        if self.path == "R" and self.console is None:
+        """R, B: open the console again (after you closed the program that held it)."""
+        if self.wireless and self.console is None:
             self._open_console()
 
     def _open_console(self):
@@ -430,15 +505,18 @@ class Rig:
         self.identity_r = ident
 
     def identity_git(self):
-        """The git revision of the identity in use (0xAE 3 wired, `opensc2 id` wireless)."""
-        if self.path == "W":
+        """The git revision of the identity in use (0xAE 3 on the board's own HID, `opensc2 id`
+        through the puck)."""
+        if self.own_hid:
             a = self.vendor(C.VC_STRING_ATTR, b"\x03")
             return a.data[1:20].split(b"\0", 1)[0].decode("ascii", "replace")
         return (self.identity_r or {}).get("git")
 
     # ---- the test channel ----
     def _channel(self, op, args, rid, path):
-        if path == "W":
+        # W and B: feature report 1 of the board's own HID device (USB, or Bluetooth); R: the
+        # console; P: through the puck
+        if path in ("W", "B"):
             self.stats["usb_requests"] += 2
             try:
                 return transport.UsbTestChannel(self._usb_set, self._usb_get).request(op, args,
@@ -616,7 +694,7 @@ class Rig:
         self.block_injection("the leak detector fired (S13)")
         for op in (C.OP_SEQ_STOP, C.OP_INJECT_OFF, C.OP_DISARM):
             try:
-                self._channel(op, b"", self._next_id(), self.path)
+                self._channel(op, b"", self._next_id(), self.console_path)
             except Exception:
                 pass
         self.inject_active = False
@@ -628,7 +706,8 @@ class Rig:
             self.leak_stop()
             return
         try:
-            self._channel(C.OP_STATUS, b"", self._next_id(), self.path)
+            # B: through the console, which keeps the lease while the Bluetooth link is down
+            self._channel(C.OP_STATUS, b"", self._next_id(), self.console_path)
         except Exception:
             return
         # lizard mode's keep-off runs for every group but lizard, whose sequences need lizard
@@ -726,7 +805,7 @@ class Rig:
             ok, _info = self.guard_canary()
             if not ok:
                 raise safety.SafetyError("the guard canary failed: no injection in this run")
-        st = self.status() if (self.path == "R" or not self.ctx.lizard_group) else None
+        st = self.status() if (self.wireless or not self.ctx.lizard_group) else None
         if self.path == "R" and st is not None and st["link_state"] != LINK_CONNECTED:
             # no injection without the link (after a boot into wireless it may take a
             # moment); one stop and start inside wait_link, then "no link"
@@ -734,6 +813,9 @@ class Rig:
                 raise NoLink("the board's radio link is not connected (link state %d)"
                              % st["link_state"])
             st = self.status()
+        if self.path == "B" and st is not None and st["link_state"] != LINK_CONNECTED:
+            raise NoLink("the board's Bluetooth link is not connected (link state %d)"
+                         % st["link_state"])
         if not self.ctx.lizard_group:
             if st is None or st["lizard"] or \
                     self.clock.monotonic() - self._last_lizard_off > 5.0:
@@ -831,8 +913,8 @@ class Rig:
         return (got[1] if got else None), n
 
     # ---- ring, counters, settings ----
-    def ring_read(self, frm, max_entries=0):
-        a = self.test(C.OP_RING_READ, struct.pack("<IB", frm, max_entries))
+    def ring_read(self, frm, max_entries=0, path=None):
+        a = self.test(C.OP_RING_READ, struct.pack("<IB", frm, max_entries), path=path)
         if a["status"] != C.ST_OK:
             raise T.ProtocolError("RING_READ status %s" % C.STATUS_NAMES.get(a["status"]))
         first, nxt, entries = T.parse_ring_read(a["result"])
@@ -842,14 +924,15 @@ class Rig:
             seq += 1
         return first, nxt, entries
 
-    def ring_all(self, frm=0):
+    def ring_all(self, frm=0, path=None):
         """Every entry from sequence `frm` on: (first, next, entries). `first` > `frm` means
-        entries were evicted before they were read."""
+        entries were evicted before they were read. `path`: another way to the test channel
+        (rig.console_path while the Bluetooth link is down)."""
         out = []
         first = nxt = 0
         cur = frm
         for _ in range(1024):
-            first, nxt, entries = self.ring_read(cur)
+            first, nxt, entries = self.ring_read(cur, path=path)
             out.extend(entries)
             cur = max(cur, first) + len(entries)
             if not entries or cur >= nxt:
@@ -1078,7 +1161,8 @@ class Rig:
         return self.vendor_set(C.VC_SETTINGS_SET, V.settings_triplets(pairs))
 
     def output(self, report):
-        """An output report from the host: W WriteFile on interrupt OUT, R HOST_OUT."""
+        """An output report from the host: W WriteFile on interrupt OUT, B WriteFile on the
+        Bluetooth HID device (Windows writes the report's characteristic), R HOST_OUT."""
         if self.path == "R":
             return self.host_out(report)
         safety.check_output_report(report)       # again where it is written (win/hid.py)
@@ -1088,7 +1172,7 @@ class Rig:
 
     # ---- lizard mode off (the third layer of S7) ----
     def _lizard_off_now(self):
-        if self.path == "W":
+        if self.own_hid:
             buf = V.build_set(C.VC_LIZARD_OFF, b"")
             safety.check_feature_buffer(buf, "usb", self.ctx, consume=False)
             self.stats["usb_requests"] += 1
@@ -1148,19 +1232,56 @@ class Rig:
                 self.console_retries += 1
                 return self._console(lambda: self.console.test(words, self.t(timeout)))
 
+    def link_status(self):
+        """STATUS for the waits on the link: on B through the console, since the Bluetooth HID
+        device that carries the test channel there is gone while the link is down."""
+        if self.path != "B":
+            return self.status()
+        try:
+            a = self.test(C.OP_STATUS, stall_ok=True, path="R")
+        except (transport.ConsoleError, T.ProtocolError):
+            return None
+        if a is None or a["status"] != C.ST_OK:
+            return None
+        return T.decode_status(a["result"])
+
+    def ble_link_status(self):
+        """B: BLE_STATUS through the console (it works with the link down): a dict, or None."""
+        try:
+            a = self.test(C.OP_BLE_STATUS, path="R")
+        except (transport.ConsoleError, T.ProtocolError):
+            return None
+        if a is None or a["status"] != C.ST_OK:
+            return None
+        return T.decode_ble_status(a["result"])
+
     def wait_link(self, name, timeout):
-        """R: poll STATUS until the link state is `name` (off, listening, connected...)."""
+        """R, B: poll STATUS until the link state is `name` (off, listening, connected...)."""
         want = {"off": 0, "no-bond": 1, "pairing": 2, "listening": 3, "connected": 4}[name]
         deadline = self.clock.monotonic() + self.t(timeout)
         while True:
-            st = self.status()
+            st = self.link_status()
             if st and st["link_state"] == want:
+                if name == "connected" and self.path == "B":
+                    return self._wait_ble_device(deadline)
                 return True
             if self.clock.monotonic() >= deadline:
                 if name == "connected" and not self.link_stuck:
                     self._unstick_link()
                 return False
             self.sleep(0.05)
+
+    def _wait_ble_device(self, deadline):
+        """B: the link is up again; Windows names the board's Bluetooth HID device again a little
+        later (the handle of the last one is gone)."""
+        while True:
+            node = self.backend.discover().get("ble_board")
+            if node is not None and \
+                    safety.classify_ble(node, self.ctx.ble_expect)[0] == safety.BOARD_BLE:
+                return True
+            if self.clock.monotonic() >= deadline:
+                return False
+            self.sleep(0.2)
 
     def link_up(self):
         """R: the radio link connected, waited for up to the reconnect time and, failing that,
@@ -1182,46 +1303,66 @@ class Rig:
             self.console_run("opensc2 stop")
             self.sleep(0.5)
             self.console_run("opensc2 start")
-            deadline = self.clock.monotonic() + self.t(C.RECONNECT_TIMEOUT_S)
+            deadline = self.clock.monotonic() + self.t(
+                C.BLE_RECONNECT_TIMEOUT_S if self.path == "B" else C.RECONNECT_TIMEOUT_S)
             while self.clock.monotonic() < deadline:
-                st = self.status()
+                st = self.link_status()
                 if st and st["link_state"] == LINK_CONNECTED:
-                    return
+                    if self.path != "B" or self._wait_ble_device(deadline):
+                        return
                 self.sleep(0.1)
         self.link_stuck = True
 
     # ---- the stream ----
-    def read_stream(self, duration_s=None, count=None, path=None):
-        """Input reports from the board's Col03 (W) or its proven slot (R): [(perf_ns, report)].
-        In a dry run the keep-alive is driven between chunks of at most 2 s."""
+    @staticmethod
+    def ble_as_state(report):
+        """B: a state report as it arrives over Bluetooth, 0x45 (its sequence byte and the first
+        44 bytes of the state; the quaternion is cut), read as the 0x42 every group reads: the
+        same bytes under ID 0x42, the quaternion zero (Windows pads the report with zeros)."""
+        if report and report[0] == C.RPT_BT_STATE and len(report) >= 2 + C.BLE_STATE52_KEPT:
+            out = bytes([C.RPT_STATE]) + bytes(report[1:2 + C.BLE_STATE52_KEPT])
+            return out + bytes(max(C.STATE_REPORT_LEN, len(report)) - len(out))
+        return report
+
+    def _backend_read(self, path, raw=False, **kw):
+        reps = self.backend.read_stream(path, **kw)
+        if path == "B" and not raw:
+            reps = [(ts, self.ble_as_state(r)) for ts, r in reps]
+        return reps
+
+    def read_stream(self, duration_s=None, count=None, path=None, raw=False):
+        """Input reports from the board's Col03 (W), its Bluetooth HID device (B: 0x45 read as
+        0x42, see ble_as_state; `raw` keeps them as they came) or its proven slot (R):
+        [(perf_ns, report)]. In a dry run the keep-alive is driven between chunks of at most
+        2 s."""
         path = path or self.path
         if not self.virtual:
-            return self.backend.read_stream(path, duration_s=duration_s, count=count)
+            return self._backend_read(path, raw, duration_s=duration_s, count=count)
         got = []
         if duration_s is not None:
             left = duration_s
             while left > 1e-9:
                 step = min(left, 2.0)
-                got += self.backend.read_stream(path, duration_s=step)
+                got += self._backend_read(path, raw, duration_s=step)
                 left -= step
                 self._virtual_tick()
             return got
         left = count or 0
         while left > 0:
             step = min(left, 400)
-            got += self.backend.read_stream(path, count=step)
+            got += self._backend_read(path, raw, count=step)
             left -= step
             self._virtual_tick()
         return got
 
-    def wait_report(self, want, timeout, path=None):
+    def wait_report(self, want, timeout, path=None, raw=False):
         """Read until a report satisfies `want(report)`: (perf_ns, report, the reports read before
         it) or None."""
         deadline = self.clock.monotonic() + self.t(timeout)
         seen = []
         while True:
-            chunk = self.read_stream(count=4, path=path) if self.virtual else \
-                self.backend.read_stream(path or self.path, duration_s=0.02)
+            chunk = self.read_stream(count=4, path=path, raw=raw) if self.virtual else \
+                self._backend_read(path or self.path, raw, duration_s=0.02)
             for ts, rep in chunk:
                 if rep and want(rep):
                     return ts, rep, seen
@@ -1387,7 +1528,7 @@ class Rig:
             raise DeviceError(str(e)) from e
         self._after_boot()
         try:
-            if self.path == "W":
+            if self.own_hid:
                 info = V.decode_reset_info(self.vendor(C.VC_RESET_INFO, b"\x01").data + bytes(21))
                 return "reset cause: %s" % V.reset_cause_text(info["reset_cause"])
             st = cproto.parse_status(self.console_run("opensc2 usb log"))
@@ -1429,16 +1570,20 @@ class Rig:
         return self.path
 
     def warm_wireless(self):
+        """`opensc2 reboot wireless` (R, B): back on the stored transport (Bluetooth comes back
+        as B once Windows has connected it again)."""
         self._stop_keepalive()
+        was = self.path
         self.console_run("opensc2 reboot wireless")
-        self.wait_back("R", "R", self.t(C.REENUM_TIMEOUT_S))
+        self.wait_back(was, was, self.t(C.REENUM_TIMEOUT_S))
         self._after_boot()
         return self.path
 
     def to_wired(self):
         self._stop_keepalive()
+        was = self.path
         self.console_run("opensc2 reboot wired")
-        self.wait_back("R", "W", self.t(C.REENUM_TIMEOUT_S))
+        self.wait_back(was, "W", self.t(C.REENUM_TIMEOUT_S))
         self._after_boot()
         return self.path
 

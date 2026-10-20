@@ -30,6 +30,10 @@ def _parse(argv):
     p.add_argument("--lizard", action="store_true",
                    help="also run group lizard: lizard mode on injected inputs, the guard alone "
                         "holding its reports back")
+    p.add_argument("--bluetooth", action="store_true",
+                   help="the Bluetooth path only (B): a board of the Bluetooth build, wireless on "
+                        "its Bluetooth transport and paired with Windows, through the HID device "
+                        "Windows made of it (docs/testing.md, Bluetooth)")
     p.add_argument("--with-steam", action="store_true", help="also run group steam (passive)")
     p.add_argument("--steam-control", action="store_true",
                    help="let the runner close and start Steam")
@@ -58,7 +62,7 @@ def _options(a):
         "dry_run": a.dry_run, "fault": a.sim_fault, "fw_emu": a.fw_emu,
         "groups": set(g for g in a.group.split(",") if g) or None,
         "tests": set(t for t in a.test.split(",") if t) or None,
-        "wired_only": a.wired_only, "wireless_only": a.wireless_only,
+        "wired_only": a.wired_only, "wireless_only": a.wireless_only, "bluetooth": a.bluetooth,
         "through_puck": a.through_puck, "flash": a.flash, "lizard": a.lizard,
         "with_steam": a.with_steam, "steam_control": a.steam_control, "soak": a.soak,
         "board": a.board, "timeout_scale": a.timeout_scale, "max_minutes": a.max_minutes,
@@ -90,6 +94,14 @@ def main(argv=None):
     if a.wired_only and a.wireless_only:
         print("--wired-only and --wireless-only are exclusive")
         return C.EXIT_USAGE
+    if a.bluetooth and (a.wired_only or a.wireless_only or a.through_puck or a.with_steam):
+        print("--bluetooth runs the Bluetooth path alone: without --wired-only, --wireless-only, "
+              "--through-puck and --with-steam")
+        return C.EXIT_USAGE
+    if a.bluetooth and a.fw_emu:
+        print("the firmware emulator has no Bluetooth link: a --bluetooth dry run uses the "
+              "simulator (--dry-run --bluetooth)")
+        return C.EXIT_USAGE
     if (a.sim_fault or a.fw_emu) and not a.dry_run:
         print("--sim-fault and --fw-emu need --dry-run")
         return C.EXIT_USAGE
@@ -106,7 +118,7 @@ def main(argv=None):
     from . import runner as runner_mod
     masker = mask_mod.Masker()
 
-    start_mode = "R" if a.wireless_only else "W"
+    start_mode = "B" if a.bluetooth else ("R" if a.wireless_only else "W")
     if a.dry_run and a.fw_emu:
         from . import fwemu
         if not os.path.isfile(a.fw_emu):

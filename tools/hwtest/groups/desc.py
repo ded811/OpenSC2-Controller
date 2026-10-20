@@ -7,15 +7,21 @@
 # vendor collection, against the real controller's descriptors. The product string is the board's
 # configured name ("Steam Controller" unless one is stored): the CRC-32 the caps carry, and the
 # name `opensc2 id` showed when the run has read the console.
+#
+# B: the HID device Windows made of the board over Bluetooth: its IDs from the Device Information
+# Service's PnP ID (28DE:1303, version 0x0100), the same three collections and capabilities (the
+# same report map); the strings are what Windows takes from the Device Information Service, which
+# is not documented (BLE-31), so they are reported, and only checked not to name another device.
 import re
 
 from . import base
 from .. import config as C
+from ..proto import console as cproto
 from ..proto import testproto as T
 
 GROUP = "desc"
-TESTS = [("desc.ids", "W", []), ("desc.strings", "W", []), ("desc.collections", "W", []),
-         ("desc.caps", "W", [])]
+TESTS = [("desc.ids", "WB", []), ("desc.strings", "WB", []), ("desc.collections", "WB", []),
+         ("desc.caps", "WB", [])]
 
 VALUE_CAPS = {
     "input": {0x42: 53, 0x44: 5, 0x79: 1, 0x43: 14, 0x7B: 12, 0x45: 45},
@@ -55,6 +61,16 @@ def check_product(c, rig, product):
            % len(product))
 
 
+def _shown(text):
+    """How a Bluetooth string is reported: the default ones by name, anything else by length
+    (a name may be personal)."""
+    if not text:
+        return "empty"
+    if text in (C.DEFAULT_PRODUCT_NAME, "Valve Software", "Valve Corporation"):
+        return '"%s"' % text
+    return "%d characters" % len(text)
+
+
 def run(ctx):
     rig = ctx.rig
     info = None
@@ -64,7 +80,12 @@ def run(ctx):
     october = bool(caps.get("build_flags", 0) & (1 << C.CAP_USB_PROFILE_OCTOBER))
     wired_console = bool(caps.get("build_flags", 0) & (1 << C.CAP_USB_WIRED_CONSOLE))
 
-    if ctx.want("desc.ids"):
+    if ctx.want("desc.ids") and rig.path == "B":
+        with ctx.check(GROUP, "desc.ids") as c:
+            base.need(rig, "desc")
+            c.eq("VID:PID (the PnP ID)", (info["vid"], info["pid"]), (C.BOARD_VID, C.BLE_PID))
+            c.eq("version (the PnP ID's)", info["version"], 0x0100)
+    elif ctx.want("desc.ids"):
         with ctx.check(GROUP, "desc.ids") as c:
             base.need(rig, "desc")
             c.eq("VID:PID", (info["vid"], info["pid"]), (0x28DE, 0x1302))
@@ -75,7 +96,18 @@ def run(ctx):
                      0x0404 if october else 0x0307)
             c.note("%s USB form" % ("October" if info["version"] == 0x0404 else "July"))
 
-    if ctx.want("desc.strings"):
+    if ctx.want("desc.strings") and rig.path == "B":
+        with ctx.check(GROUP, "desc.strings") as c:
+            base.need(rig, "desc")
+            serial = info["serial"] or ""
+            c.true("the serial string names no other device (empty, the board's address or its "
+                   "unit serial)", not serial or serial == rig.unit_serial or
+                   cproto.address_hex(serial) == getattr(rig.ctx.ble_expect, "address", None))
+            c.note("Windows' strings over Bluetooth: manufacturer %s, product %s, serial %s"
+                   % (_shown(info["manufacturer"]), _shown(info["product"]),
+                      "empty" if not serial else "the unit serial" if serial == rig.unit_serial
+                      else "the address"))
+    elif ctx.want("desc.strings"):
         with ctx.check(GROUP, "desc.strings") as c:
             base.need(rig, "desc")
             c.eq("manufacturer", info["manufacturer"], "Valve Software")
@@ -88,8 +120,10 @@ def run(ctx):
         with ctx.check(GROUP, "desc.collections") as c:
             base.need(rig, "desc")
             want = ["COL01", "COL02", "COL03"]
-            c.eq("collections under the board's USB device", sorted(info["collections"]), want)
-            c.eq("composite (MI_00)", info["composite"], wired_console)
+            c.eq("collections under the board's %s device" % ("Bluetooth" if rig.path == "B"
+                                                               else "USB"),
+                 sorted(info["collections"]), want)
+            c.eq("composite (MI_00)", info["composite"], wired_console and rig.path == "W")
 
     if ctx.want("desc.caps"):
         with ctx.check(GROUP, "desc.caps") as c:

@@ -57,6 +57,7 @@ EXISTING_COMMANDS = {
     "opensc2 status", "opensc2 id", "opensc2 bonds", "opensc2 slot", "opensc2 mode",
     "opensc2 usb", "opensc2 usb log", "opensc2 state", "opensc2 start", "opensc2 stop",
     "opensc2 reboot", "opensc2 reboot wireless", "opensc2 reboot wired",
+    "opensc2 transport", "opensc2 ble status",
     "shell echo on", "shell echo off", "shell colors on", "shell colors off",
     "shell prompt on", "shell prompt off",
 }
@@ -102,6 +103,18 @@ def parse_status(lines):
             out["link"] = m.group(1).strip()
             out["link_reason"] = int(m.group(2))
             out["slot"] = int(m.group(3))
+            continue
+        m = re.match(r"link:\s+Bluetooth ([\w -]+?) \(last reason (-?\d+)\), slot (\d+)", s)
+        if m:
+            out["link"] = m.group(1).strip()
+            out["link_reason"] = int(m.group(2))
+            out["slot"] = int(m.group(3))
+            out["bluetooth"] = True
+            continue
+        m = re.match(r"transport:\s+(.+?) \(stored: (.+)\)$", s)
+        if m:
+            out["transport"] = m.group(1)
+            out["transport_stored"] = m.group(2)
             continue
         m = re.match(r"usb:\s+([\w ]+?)(?: \(suspended\))?, (\d+) reports", s)
         if m:
@@ -178,3 +191,71 @@ def parse_mode(lines):
         if m:
             return {"mode": m.group(1), "mode_reason": m.group(2), "policy": m.group(3)}
     return {}
+
+
+def parse_transport(lines):
+    """`opensc2 transport` (no args): 'running <word> (<name>), chosen <word>, stored <word>'."""
+    for ln in lines:
+        m = re.match(r"\s*running (\w+) \(([^)]*)\), chosen (\w+), stored (\w+)", ln)
+        if m:
+            return {"running": m.group(1), "name": m.group(2), "chosen": m.group(3),
+                    "stored": m.group(4)}
+    return {}
+
+
+# a Bluetooth address as Zephyr prints one: C3:4F:12:AB:CD:EF (random)
+_BT_ADDR = r"([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})(?: \((\w+)\))?"
+
+
+def parse_ble_status(lines):
+    """`opensc2 ble status` (a Bluetooth build): whether the stack is on and Bluetooth is the
+    transport, the slot, the identity in use and its address (kept in memory only: the runner
+    names the board's Windows nodes by it, and masks it everywhere), the name, the bonds of the
+    four identities, the link."""
+    out = {}
+    for ln in lines:
+        s = ln.strip()
+        m = re.match(r"bluetooth: (on|off)( \(not the transport\))?; slot (\d+), identity (\d+) "
+                     r"(?:%s|-)$" % _BT_ADDR, s)
+        if m:
+            out.update(on=m.group(1) == "on", transport=not m.group(2), slot=int(m.group(3)),
+                       identity=int(m.group(4)), address=m.group(5), address_type=m.group(6))
+            continue
+        m = re.match(r"name:\s+(.+)$", s)
+        if m:
+            out["name"] = None if m.group(1) == "-" else m.group(1)
+            continue
+        m = re.match(r"bonds:\s+identity 1 (yes|no), 2 (yes|no) \(slot 1\); 3 (yes|no), "
+                     r"4 (yes|no) \(slot 2\)$", s)
+        if m:
+            out["bonded"] = [m.group(i) == "yes" for i in (1, 2, 3, 4)]
+            continue
+        m = re.match(r"link:\s+connected( and active)?", s)
+        if m:
+            out.update(connected=True, active=bool(m.group(1)))
+            continue
+        m = re.match(r"link:\s+advertising (directed to the bonded host|for the bonded host "
+                     r"only|open to any host \(pairing mode\)); (\d+) s left", s)
+        if m:
+            out.update(connected=False, active=False, advertising=True,
+                       form={"directed to the bonded host": "directed",
+                             "for the bonded host only": "allow-listed"}.get(m.group(1),
+                                                                             "pairing"),
+                       window_left_s=int(m.group(2)))
+            continue
+        m = re.match(r"link:\s+(idle|wireless off: .+)$", s)
+        if m:
+            out.update(connected=False, active=False, advertising=False,
+                       wireless_off=m.group(1) != "idle")
+            continue
+        m = re.match(r"last disconnect: reason 0x([0-9a-fA-F]{2})$", s)
+        if m:
+            out["last_reason"] = int(m.group(1), 16)
+    return out
+
+
+def address_hex(address):
+    """A Bluetooth address as Windows writes it in a device's node names: 12 hex digits, most
+    significant first, upper case ("C3:4F:12:AB:CD:EF" -> "C34F12ABCDEF")."""
+    hexes = re.sub(r"[^0-9A-Fa-f]", "", address or "")
+    return hexes.upper() if len(hexes) == 12 else None

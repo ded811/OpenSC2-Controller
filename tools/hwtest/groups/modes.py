@@ -15,8 +15,8 @@ from ..proto import vendor as V
 
 GROUP = "modes"
 TESTS = [("modes.plain_reboot", "W", []), ("modes.to_wireless", "W", []),
-         ("modes.session_log", "R", []), ("modes.warm_wireless", "R", []),
-         ("modes.to_wired", "R", []), ("modes.identity", "WR", []), ("modes.return", "", [])]
+         ("modes.session_log", "R", []), ("modes.warm_wireless", "RB", []),
+         ("modes.to_wired", "R", []), ("modes.identity", "WRB", []), ("modes.return", "", [])]
 
 
 def _last_reports(rig, seconds=0.3):
@@ -148,6 +148,9 @@ def warm_wireless(ctx):
     rig = ctx.rig
     if not ctx.want("modes.warm_wireless"):
         return
+    if rig.path == "B":
+        _warm_bluetooth(ctx)
+        return
     with ctx.check(GROUP, "modes.warm_wireless") as c:
         base.need(rig, "reboot")
         rig.warm_wireless()
@@ -175,6 +178,26 @@ def warm_wireless(ctx):
     ctx.path = rig.path
 
 
+def _warm_bluetooth(ctx):
+    """B: `opensc2 reboot wireless` comes back on the stored transport, Bluetooth, and Windows
+    connects the board again (directed advertising to its bonded host): its reports flow."""
+    rig = ctx.rig
+    with ctx.check(GROUP, "modes.warm_wireless") as c:
+        base.need(rig, "reboot")
+        t0 = rig.clock.monotonic()
+        rig.warm_wireless()
+        c.eq("came back wireless over Bluetooth", rig.path, "B")
+        if rig.path == "B":
+            st = cproto.parse_status(rig.console_run("opensc2 status"))
+            c.eq("opensc2 status", (st.get("mode"), st.get("mode_reason"), st.get("bluetooth")),
+                 ("wireless", "warm restart", True))
+            c.true("the board streams again",
+                   rig.wait_report(lambda r: r[0] == C.RPT_STATE, rig.t(5.0)) is not None)
+            c.note("Windows had the board back after %.1f s" % (rig.clock.monotonic() - t0))
+            _rearm(rig)
+    ctx.path = rig.path
+
+
 def to_wired(ctx):
     rig = ctx.rig
     with ctx.check(GROUP, "modes.to_wired") as c:
@@ -192,8 +215,9 @@ def to_wired(ctx):
 
 
 def identity(ctx):
-    """modes.identity, after a W phase that followed an R one (or the other way round): the
-    identity the board shows wired equals what its console shows; compared in memory."""
+    """modes.identity, after a W phase that followed an R one (or the other way round), or on
+    B: the identity the board shows on its own HID device (wired, or over Bluetooth) equals what
+    its console shows; compared in memory."""
     rig = ctx.rig
     if not ctx.want("modes.identity"):
         return
@@ -201,8 +225,8 @@ def identity(ctx):
         ident = getattr(rig, "identity_r", None)
         if not ident:
             c.skip("no wireless phase in this run")
-        if rig.path != "W":
-            c.skip("the board is not wired")
+        if not rig.own_hid:
+            c.skip("the board is not on its own HID device (wired or Bluetooth)")
         attrs = dict(V.decode_attributes(rig.vendor(C.VC_ATTRIBUTES).data))
         c.eq("0x83 = opensc2 id", (attrs.get(1), attrs.get(10), attrs.get(4), attrs.get(9)),
              (ident.get("pid"), ident.get("blbuild"), ident.get("build"), ident.get("rev")))
@@ -213,8 +237,9 @@ def identity(ctx):
         c.true("0xAE 1 = opensc2 id's unit serial", texts[1] == ident.get("unit"))
         c.true("0xAE 0 = opensc2 id's board serial", texts[0] == ident.get("board"))
         c.eq("0xAE 3 = opensc2 id's git revision", texts[3], ident.get("git"))
-        c.true("the HID serial string = 0xAE 1", texts[1] == rig.unit_serial)
-        if rig.models("desc") and ident.get("name") is not None:
+        if rig.path == "W":
+            c.true("the HID serial string = 0xAE 1", texts[1] == rig.unit_serial)
+        if rig.models("desc") and ident.get("name") is not None and rig.path == "W":
             c.true("the HID product string = opensc2 id's name",
                    (rig.backend.hid_info() or {}).get("product") == ident.get("name"))
         c.note("equal (compared in memory)")
@@ -226,8 +251,10 @@ def mode_return(ctx, start_mode):
         if rig.path != start_mode:
             if start_mode == "W":
                 rig.to_wired()
+            elif rig.path == "W":
+                rig.to_wireless()      # back on the stored transport: Bluetooth comes back as B
             else:
-                rig.to_wireless()
+                rig.warm_wireless()
             _rearm(rig)
         c.eq("the starting mode", rig.path, start_mode)
     ctx.path = rig.path

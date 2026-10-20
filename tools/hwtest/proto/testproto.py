@@ -169,6 +169,39 @@ def encode_status(s):
     return bytes(out)
 
 
+# ---- BLE_STATUS (0x60, a Bluetooth build: 28 bytes) ------------------------------------------
+
+_BLE_FLAGS = ("enabled", "advertising", "connected", "active", "trigger", "running",
+              "pair_request", "wireless_off")
+
+
+def decode_ble_status(data):
+    """The Bluetooth link's state: no name and no address (those only on the console)."""
+    if len(data) < C.BLE_STATUS_LEN:
+        raise ValueError("short BLE_STATUS")
+    out = {name: bool(data[0] & (1 << i)) for i, name in enumerate(_BLE_FLAGS)}
+    out.update(form=data[1], form_name=C.BLE_FORM_NAMES.get(data[1], "?"), slot=data[2],
+               identity=data[3], bonded=data[4], identities=data[5], security=data[6],
+               last_reason=data[7], link_state=data[8], reason=data[9])
+    out["mtu"], out["interval_us"], out["window_left_ms"], out["reports"], out["dropped"] = \
+        struct.unpack_from("<HIIII", data, 10)
+    return out
+
+
+def encode_ble_status(s):
+    out = bytearray(C.BLE_STATUS_LEN)
+    for i, name in enumerate(_BLE_FLAGS):
+        if s.get(name):
+            out[0] |= 1 << i
+    for at, name, default in ((1, "form", 0xFF), (2, "slot", 0), (3, "identity", 1),
+                              (4, "bonded", 0), (5, "identities", 5), (6, "security", 0),
+                              (7, "last_reason", 0), (8, "link_state", 0), (9, "reason", 0)):
+        out[at] = s.get(name, default) & 0xFF
+    struct.pack_into("<HIIII", out, 10, s.get("mtu", 23), s.get("interval_us", 0),
+                     s.get("window_left_ms", 0), s.get("reports", 0), s.get("dropped", 0))
+    return bytes(out)
+
+
 # ---- counters, settings ---------------------------------------------------------------------
 
 def decode_counters(data):

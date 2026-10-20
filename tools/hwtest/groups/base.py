@@ -46,7 +46,7 @@ class GroupCtx:
         if self.selected is not None and test_id not in self.selected:
             return False
         paths = self.paths_map.get(test_id, "")
-        if paths and not set(paths) & set("WR"):
+        if paths and not set(paths) & set("WRB"):
             return True
         if paths and self.path not in paths:
             return False
@@ -240,8 +240,9 @@ def of_kind(entries, *kinds):
 
 def without_vendor(entries):
     """The entries a test compares exactly: the VENDOR records of the runner's own requests and
-    its lizard keep-off requests left out."""
-    return [e for e in entries if e["kind"] != C.RING_VENDOR]
+    its lizard keep-off requests left out, and over Bluetooth the link's own events (a host's
+    parameter update, say), which are never what such a test is about."""
+    return [e for e in entries if e["kind"] not in (C.RING_VENDOR, C.RING_BLE)]
 
 
 def kinds(entries):

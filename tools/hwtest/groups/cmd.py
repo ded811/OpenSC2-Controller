@@ -5,7 +5,9 @@
 # closed: every request a SET then its GET, as Steam sends them. "Refused" is a STALL. Answers that
 # hold serials, bonds or the chip ID are compared in memory only; the results say "equal" or give a
 # CRC-32. Only the refusal forms safety.py allows are sent: the firmware refuses each before it
-# writes anything.
+# writes anything. B: the same over Bluetooth, feature report 1 of the HID device Windows made of
+# the board (a refusal is an ATT error there, which Windows turns into a failed request); not the
+# USB framing, and never 0x9F, which turns a wireless controller's link off.
 import struct
 
 from . import base
@@ -13,13 +15,14 @@ from .. import config as C
 from ..proto import vendor as V
 
 GROUP = "cmd"
-TESTS = [("cmd.attributes", "W", []), ("cmd.strings", "W", []), ("cmd.device_info", "W", []),
-         ("cmd.reset_info", "W", []), ("cmd.user_store", "W", []),
-         ("cmd.by_name_read", "W", []), ("cmd.by_name_refusals", "W", []),
-         ("cmd.by_name_harmless", "W", []), ("cmd.save_refusals", "W", []),
-         ("cmd.calibration", "W", []), ("cmd.unknown", "W", []), ("cmd.framing", "W", []),
-         ("cmd.stored_request", "W", []), ("cmd.turn_off_ignored", "W", []),
-         ("cmd.first_get", "W", []), ("cmd.no_link", "R", [])]
+TESTS = [("cmd.attributes", "WB", []), ("cmd.strings", "WB", []),
+         ("cmd.device_info", "WB", []), ("cmd.reset_info", "WB", []),
+         ("cmd.user_store", "WB", []), ("cmd.by_name_read", "WB", []),
+         ("cmd.by_name_refusals", "WB", []), ("cmd.by_name_harmless", "WB", []),
+         ("cmd.save_refusals", "WB", []), ("cmd.calibration", "WB", []),
+         ("cmd.unknown", "WB", []), ("cmd.framing", "W", []), ("cmd.stored_request", "WB", []),
+         ("cmd.turn_off_ignored", "W", []), ("cmd.first_get", "W", []),
+         ("cmd.no_link", "R", [])]
 
 STEAM_C1 = bytes.fromhex("FFFFFFFF030905") + bytes([0xFF] * 9)
 TRANSPORT = b"user/wireless_transport\0"
@@ -55,7 +58,13 @@ def run(ctx):
             d = dict(pairs)
             c.eq("attribute 1 (product ID)", d.get(1), 0x1302)
             c.eq("attribute 2", d.get(2), 0)
-            c.eq("attribute 11", d.get(11), 4000)
+            if rig.path == "B":
+                st = rig.ble_link_status() or {}
+                c.eq("attribute 11 = the connection interval in us (BLE_STATUS)", d.get(11),
+                     st.get("interval_us"))
+                c.observe(interval_us=d.get(11))
+            else:
+                c.eq("attribute 11", d.get(11), 4000)
             c.true("attribute 4 (build time) after 0x6A18D057", (d.get(4) or 0) > 0x6A18D057)
             if d.get(9) not in (0x45, 0x48, 0x49, 0x4A, 0x4B):
                 c.warn("board revision 0x%x is none Steam knows (0x45, 0x48..0x4B)" % d.get(9, 0))

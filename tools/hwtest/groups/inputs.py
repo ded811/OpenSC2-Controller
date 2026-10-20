@@ -1,12 +1,13 @@
 # Copyright (c) 2026 the OpenSC2-Controller authors
 # SPDX-License-Identifier: MIT
 #
-# inputs: every input field, injected and read back from the board's own state reports (W) or its
-# slot on the puck (R) (docs/testing.md, group "inputs"). Each injected state carries a fresh
-# nonce in the IMU timestamp, so the runner knows which reports carry which state; each report is
-# compared with the expected-report model (proto/model.py), which the shared vectors hold to the
-# library's own rules. Lizard mode is off (0x81 first); the firmware refuses an injection while it
-# is on, which inputs.lizard_lock checks.
+# inputs: every input field, injected and read back from the board's own state reports (W, and B
+# over Bluetooth, where 0x42 goes out as 0x45 without the quaternion: the model's quaternion is
+# cut too) or its slot on the puck (R) (docs/testing.md, group "inputs"). Each injected state
+# carries a fresh nonce in the IMU timestamp, so the runner knows which reports carry which state;
+# each report is compared with the expected-report model (proto/model.py), which the shared vectors
+# hold to the library's own rules. Lizard mode is off (0x81 first); the firmware refuses an
+# injection while it is on, which inputs.lizard_lock checks.
 import random
 import struct
 
@@ -16,10 +17,14 @@ from ..proto import model as M
 from ..proto import reports as R
 
 GROUP = "inputs"
-TESTS = [("inputs.buttons", "WR", []), ("inputs.sticks", "WR", []), ("inputs.triggers", "WR", []),
-         ("inputs.trigger_bits", "WR", []), ("inputs.pads", "WR", []), ("inputs.imu", "WR", []),
-         ("inputs.full", "WR", []), ("inputs.latency", "WR", []),
-         ("inputs.lizard_lock", "WR", []), ("inputs.decoupled", "WR", [])]
+TESTS = [("inputs.buttons", "WRB", []), ("inputs.sticks", "WRB", []),
+         ("inputs.triggers", "WRB", []), ("inputs.trigger_bits", "WRB", []),
+         ("inputs.pads", "WRB", []), ("inputs.imu", "WRB", []), ("inputs.full", "WRB", []),
+         ("inputs.latency", "WRB", []), ("inputs.lizard_lock", "WRB", []),
+         ("inputs.decoupled", "WRB", [])]
+
+# inputs.latency: frames and ms between the INJECT answer and the first report with its nonce
+LATENCY = {"W": (3, 20.0), "R": (10, 60.0), "B": (10, 100.0)}
 
 LT_BIT = 1 << R.BIT["LTRIGGER_DIGITAL"]
 RT_BIT = 1 << R.BIT["RTRIGGER_DIGITAL"]
@@ -81,6 +86,8 @@ class Tracker:
         injected = bytes(state52) if keep_timestamp else R.set_field(state52, "imu_timestamp", n)
         want, _l, _r = M.expected_report(injected, self.prev[0], self.prev[1],
                                          setting68=self.s68, trigger_click_auto=self.auto)
+        if self.rig.path == "B":
+            want = R.ble_cut(want)     # 0x45: the quaternion does not go over Bluetooth
         got = R.state52_of_report(rep)
         b = R.decode_state52(got)["buttons"]
         self.prev = [bool(b & LT_BIT), bool(b & RT_BIT)]
@@ -258,8 +265,7 @@ def run(ctx):
 
     if ctx.want("inputs.latency"):
         with ctx.check(GROUP, "inputs.latency") as c:
-            limit_frames = 3 if rig.path == "W" else 10
-            limit_ms = 20.0 if rig.path == "W" else 60.0
+            limit_frames, limit_ms = LATENCY.get(rig.path, LATENCY["R"])
             # S7's round trips (the Steam check, STATUS, a 0x81) first, so that they are not
             # counted: the row counts from the INJECT's answer
             rig.ready_to_inject()
@@ -312,7 +318,7 @@ def run(ctx):
             c.eq("POWER entries", len(base.of_kind(entries, C.RING_POWER)), 0)
             c.true("no mode change and no reboot", st1 and st1["mode"] == st0["mode"] and
                    st1["uptime_ms"] > st0["uptime_ms"])
-            if rig.path == "R":
+            if rig.wireless:
                 lines = rig.console_run("opensc2 state")
                 c.true("opensc2 state shows the application's buttons, not the injected",
                        any(ln.strip() == "buttons   0x00000000" for ln in lines))

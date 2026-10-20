@@ -3,7 +3,9 @@
 #
 # outputs: rumble and the haptic output reports (docs/testing.md, group "outputs"). The runner
 # sends each report as a host does (W: WriteFile on interrupt OUT, which Windows pads to 64 bytes;
-# R: HOST_OUT on the test link) and checks, byte for byte, the ring entries the library made: an
+# B: WriteFile on the Bluetooth HID device, which writes the report's characteristic and the
+# library hands its whole declared size on; R: HOST_OUT on the test link) and checks, byte for
+# byte, the ring entries the library made: an
 # OUTPUT entry with the decode result, then the RUMBLE or HAPTIC entries with the decoded fields and
 # the channels the target selects. Nothing is wired, so the ring is the only place these show.
 import struct
@@ -14,10 +16,10 @@ from ..proto import model as M
 from ..proto import testproto as T
 
 GROUP = "outputs"
-TESTS = [("outputs.rumble", "WR", []), ("outputs.rumble_timeout", "WR", []),
-         ("outputs.rumble_linkdown", "R", []), ("outputs.haptics", "WR", []),
-         ("outputs.pcm", "WR", []), ("outputs.ignored", "WR", []), ("outputs.short", "WR", []),
-         ("outputs.exact_length", "WR", [])]
+TESTS = [("outputs.rumble", "WRB", []), ("outputs.rumble_timeout", "WRB", []),
+         ("outputs.rumble_linkdown", "RB", []), ("outputs.haptics", "WRB", []),
+         ("outputs.pcm", "WRB", []), ("outputs.ignored", "WRB", []),
+         ("outputs.short", "WRB", []), ("outputs.exact_length", "WRB", [])]
 
 RUMBLE_A = bytes.fromhex("8000E80310270020" "4E00")
 RUMBLE_B = bytes.fromhex("8007E8031027FD20" "4E04")
@@ -35,10 +37,13 @@ HAPTIC_VECTORS = {
     0x85: (bytes([7, 0xFF]), dict(haptic_kind=4, id=7, gain=-1)),
 }
 MIN_LEN = {0x80: 9, 0x81: 7, 0x82: 3, 0x83: 9, 0x84: 8, 0x85: 3, 0x86: 2, 0x87: 1}
+# the output reports' sizes after the ID, as the report map declares them (B: each characteristic)
+DECLARED = {0x80: 9, 0x81: 7, 0x82: 3, 0x83: 9, 0x84: 8, 0x85: 3, 0x86: 3, 0x87: 63, 0x88: 63,
+            0x89: 63}
 
 
 def _link(rig):
-    return 1 if rig.path == "W" else 2
+    return {"W": 1, "B": 4}.get(rig.path, 2)
 
 
 def _send(rig, report):
@@ -58,7 +63,12 @@ def _entries_after(rig, start, report_count, timeout=0.5):
 def _check_output(c, what, rig, e, report, decoded):
     c.eq("%s: OUTPUT id and result" % what, (e["report_id"], e["decode_result"]),
          (report[0], decoded))
-    lens = (len(report), 64) if rig.path == "W" else (len(report),)
+    if rig.path == "W":
+        lens = (len(report), 64)
+    elif rig.path == "B":
+        lens = (1 + DECLARED.get(report[0], 63),)
+    else:
+        lens = (len(report),)
     c.true("%s: OUTPUT length %d (%s)" % (what, e["total_len"], "/".join(map(str, lens))),
            e["total_len"] in lens)
     c.eq("%s: OUTPUT link" % what, e["link"], _link(rig))
@@ -149,12 +159,12 @@ def run(ctx):
             with rig.own_link_drop():       # the puck's empty reports at the drop: no leak
                 rig.console_run("opensc2 stop")
                 rig.wait_link("off", 2.0)
-                _f, _n, entries = rig.ring_all(start)
+                _f, _n, entries = rig.ring_all(start, path=rig.console_path)
                 rums = base.of_kind(entries, C.RING_RUMBLE)
                 c.true("a zero RUMBLE with timeout 1 when the link goes down",
                        len(rums) >= 2 and rums[-1]["timeout"] == 1 and rums[-1]["left"] == 0)
                 rig.console_run("opensc2 start")
-                c.true("the link came back", rig.wait_link("connected", 5.0))
+                c.true("the link came back", rig.wait_link("connected", rig.reconnect_s))
 
     if ctx.want("outputs.haptics"):
         with ctx.check(GROUP, "outputs.haptics") as c:
@@ -224,7 +234,7 @@ def run(ctx):
                         continue
                     h = haps[0]
                     if rid == 0x87:
-                        padded = rig.path == "W"
+                        padded = rig.own_hid
                         data = samples + (bytes(64 - 2 - len(samples)) if padded else b"")
                     else:
                         data = samples
@@ -232,7 +242,7 @@ def run(ctx):
                                                  h["channels"]),
                          (6, len(data), T.crc32(data), M.target_channels(rid, target)))
             # HOST_OUT carries at most 54 bytes: on R the right grip's samples are cut to n
-            for n in ((4, 31) if rig.path == "W" else (4, 21)):
+            for n in ((4, 31) if rig.own_hid else (4, 21)):
                 start = rig.ring_next()
                 left = bytes(range(1, 32))
                 right = bytes(range(101, 101 + n))
@@ -257,7 +267,7 @@ def run(ctx):
             c.eq("only an OUTPUT entry", base.kinds(entries), [C.RING_OUTPUT])
             if entries:
                 c.eq("OUTPUT", (entries[0]["report_id"], entries[0]["decode_result"]), (0x8A, 0))
-            if rig.path == "W":
+            if rig.own_hid:
                 try:
                     rig.output(bytes([0x8A, 0x00]))   # through the Rig: checked, under the lock
                     c.note("Windows sent an undeclared 0x8A (informational)")

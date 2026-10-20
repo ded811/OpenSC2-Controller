@@ -20,6 +20,20 @@ PRODUCT_NAME_MAX = 31
 UF2_VID = 0x239A            # the Adafruit UF2 bootloader (S11): must never appear during a run
 REAL_CONTROLLER_PID = 0x1303  # another Valve controller form, always FORBIDDEN
 
+# ---- Bluetooth LE (the opt-in Bluetooth build, --bluetooth) ---------------------------------
+# Windows builds a Bluetooth controller's HID device from its Device Information Service's PnP ID
+# (USB-IF vendor source 02, 28DE:1303), and names its nodes by its address, e.g.
+#   HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&0228DE_PID&1303_REV&0100_<12 hex>&COL03\...
+#   BTHLEDEVICE\{00001812-...}_DEV_VID&0228DE_PID&1303_REV&0100_<12 hex>\...
+#   BTHLE\DEV_<12 hex>\...   (the device, whose name is the advertised one)
+# The real controller looks the same: only the board's own address (read from its console) and
+# its name with an OSC serial make a node the board's (safety.classify_ble, S1).
+BLE_PID = 0x1303
+BLE_NAME_PREFIX = "Steam Ctrl (BT) "
+# the state report over Bluetooth: 0x45, the first 45 bytes of 0x42 (the quaternion is cut)
+BLE_STATE_LEN = 45
+BLE_STATE52_KEPT = 44       # state52 bytes a 0x45 carries (after the sequence byte)
+
 # The board's serial: 13 characters of 0-9A-Z beginning with OSC (R1). Hex-only was wrong: it
 # refused the Kconfig default and any serial stored with `opensc2 id set unit`.
 SERIAL_RE = r"^OSC[0-9A-Z]{10}$"
@@ -54,13 +68,20 @@ OP_HOST_SET = 0x41
 OP_HOST_GET = 0x42
 OP_APP_SEND = 0x43
 OP_RADIO_DEAF = 0x44
+OP_BLE_STATUS = 0x60        # Bluetooth (a build with CONFIG_OPENSC2_BLE): the link's state
+OP_BLE_DROP = 0x61          # end the link as if the host had, with this HCI reason
+OP_BLE_WINDOW = 0x62        # the next advertising window's length, ms
 OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: "INJECT",
             OP_INJECT_OFF: "INJECT_OFF", OP_BATTERY: "BATTERY", OP_BATTERY_OFF: "BATTERY_OFF",
             OP_SEQ_LOAD: "SEQ_LOAD", OP_SEQ_RUN: "SEQ_RUN", OP_SEQ_STOP: "SEQ_STOP",
             OP_RING_READ: "RING_READ", OP_RING_CLEAR: "RING_CLEAR", OP_CNT_READ: "CNT_READ",
             OP_CNT_RESET: "CNT_RESET", OP_MARK: "MARK", OP_SETTINGS_READ: "SETTINGS_READ",
             OP_HOST_OUT: "HOST_OUT", OP_HOST_SET: "HOST_SET", OP_HOST_GET: "HOST_GET",
-            OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF"}
+            OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF", OP_BLE_STATUS: "BLE_STATUS",
+            OP_BLE_DROP: "BLE_DROP", OP_BLE_WINDOW: "BLE_WINDOW"}
+BLE_STATUS_LEN = 28
+BLE_WINDOW_MIN_MS = 100
+BLE_WINDOW_MAX_MS = 600000
 
 # Answer status codes (docs/test-protocol.md).
 ST_OK = 0
@@ -111,7 +132,24 @@ RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none", 4: "ble", 5: "doc
 
 # BLE events (docs/test-protocol.md, The ring): a, b, c as each one says.
 BLE_EVENT_NAMES = {1: "state", 2: "security", 3: "mtu", 4: "params", 5: "gate", 6: "trigger",
-                   7: "disconnect"}
+                   7: "disconnect", 8: "adv", 9: "adv_end", 10: "identity", 11: "bond",
+                   12: "off"}
+BLE_EV_STATE = 1
+BLE_EV_SECURITY = 2
+BLE_EV_MTU = 3
+BLE_EV_PARAMS = 4
+BLE_EV_GATE = 5
+BLE_EV_TRIGGER = 6
+BLE_EV_DISCONNECT = 7
+BLE_EV_ADV = 8
+BLE_EV_ADV_END = 9
+BLE_EV_IDENTITY = 10
+BLE_EV_BOND = 11
+BLE_EV_OFF = 12
+# advertising forms (BLE adv entries, BLE_STATUS)
+BLE_FORM_NAMES = {0: "pairing", 1: "allow-listed", 2: "directed", 0xFF: "none"}
+# what follows a disconnect (BLE disconnect entries)
+BLE_AFTER_NAMES = {0: "advertise again", 1: "wireless off", 2: "nothing"}
 
 # LIZARD "what" values (docs/test-protocol.md, The ring).
 LIZARD_LEAVE = 0
@@ -221,11 +259,16 @@ BATTERY_INTERVAL_MS = 3500
 WATCHDOG_MS = 10000
 RUMBLE_TIMEOUT_MS = 500
 
-# per-path first-report deadline after a new nonce
-NONCE_DEADLINE_MS = {"W": 200.0, "R": 500.0}
+# per-path first-report deadline after a new nonce (B: Bluetooth, a Windows host's connection
+# interval of up to 30 ms or so, and the HID-over-GATT driver in between)
+NONCE_DEADLINE_MS = {"W": 200.0, "R": 500.0, "B": 500.0}
 # per-path state cadence gap thresholds
-CADENCE_GAP_WARN_MS = {"W": 15.0, "R": 50.0}
-CADENCE_GAP_FAIL_MS = {"W": None, "R": 200.0}
+CADENCE_GAP_WARN_MS = {"W": 15.0, "R": 50.0, "B": 100.0}
+CADENCE_GAP_FAIL_MS = {"W": None, "R": 200.0, "B": 500.0}
+# B: the state report rate must be within this share of 1 s / the connection interval
+BLE_RATE_TOL = 0.05
+# B: Windows reconnects a paired controller when it advertises again (a reboot, a drop)
+BLE_RECONNECT_TIMEOUT_S = 20.0
 
 LEASE_DEFAULT_S = 15
 LEASE_KEEPALIVE_S = 3

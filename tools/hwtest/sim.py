@@ -7,13 +7,16 @@
 # the USB session log), the devices Windows would list (the board, its console, the puck's four
 # slots with a second controller streaming on one of them, and a real controller of yours, which
 # raises if anything opens it), the puck's own reports, Steam, and the console with shell.c's
-# lines. `--sim-fault NAME` makes exactly one thing misbehave, to show the suite can fail.
+# lines. `--sim-fault NAME` makes exactly one thing misbehave, to show the suite can fail. A
+# --bluetooth dry run (start_mode "B") boots the board on its Bluetooth transport, with a Windows
+# host bonded to it and a real controller's Bluetooth device next to it (simble.py).
 import random
 import struct
 import threading
 
 from . import config as C
 from . import safety
+from . import simble
 from . import simfw
 from .proto import reports as R
 from .proto import shellfmt as SF
@@ -101,12 +104,27 @@ class _Port:
         elif cmd == "opensc2 id":
             self._say(SF.id_lines(w.identity.as_dict()))
         elif cmd == "opensc2 status":
+            ble = (b.ble.link_state(), b.reason_link, b.ble.slot) if b.ble else None
             self._say(SF.status_lines(False, b.reason, "wireless" if w.policy else "auto",
                                       b.lizard_on(), b.settings[48] & 0xFF,
                                       w.identity.as_dict(),
                                       link=(b.link_state, b.last_reason, b.slot, w.channel,
                                             (47, 63, 11), 2, -40, 1000, 900, 0, 30),
-                                      last=w.last_session))
+                                      last=w.last_session, transport=w.transport_names(),
+                                      ble_link=ble))
+        elif cmd == "opensc2 transport":
+            word = "ble" if w.transport == "ble" else "puck"
+            self._say([SF.line("transport", word, w.transport_names()[0], word, word)])
+        elif cmd == "opensc2 ble status":
+            if not w.ble_build:
+                self._say(["ble: command not found"])
+            elif b.ble is None:
+                self._say(SF.ble_status_lines({"enabled": False, "running": False,
+                                               "name": None, "address": None}))
+            else:
+                self._say(SF.ble_status_lines(b.ble.shell_status()))
+        elif cmd == "opensc2 ble pair" and b.ble is not None:
+            b.ble.start(pair=True)
         elif cmd == "opensc2 mode":
             self._say([SF.mode_line(False, b.reason, "wireless" if w.policy else "auto")])
         elif cmd.startswith("opensc2 mode "):
@@ -244,6 +262,15 @@ class SimBackend:
 
     def __init__(self, start_mode="W", fault=None, clock=None, seed=1, hooks=True):
         self.hooks_built = hooks      # False: a firmware built without CONFIG_OPENSC2_TEST_HOOKS
+        # --bluetooth (start_mode "B"): a Bluetooth build on its Bluetooth transport, bonded to
+        # the PC (identity 1 of slot 1), which connects it whenever it advertises for it
+        self.ble_build = start_mode == "B"
+        self.transport = "ble" if start_mode == "B" else "puck"
+        self.ble_slot = 0
+        self.ble_bonded = 1 << 1
+        self.ble_host_on = True
+        self.ble_seen_connected = False
+        self._path = start_mode
         self.safety_ctx = None        # the Rig's live safety.Context (bound by the Rig)
         if fault is not None and fault not in FAULTS:
             raise ValueError("unknown --sim-fault %r (one of: %s)" % (fault, ", ".join(FAULTS)))
@@ -294,7 +321,34 @@ class SimBackend:
         self.writes = 0
         self.reboots_requested = 0
         self._reboots_seen = 0
-        self.board = simfw.SimBoard(self, start_mode, 1 if start_mode == "W" else 2)
+        if self.ble_build:
+            self.extra_build_flags |= 1 << C.CAP_BLE
+        self.board = simfw.SimBoard(self, "W" if start_mode == "W" else "R",
+                                    1 if start_mode == "W" else 2)
+
+    def transport_names(self):
+        """`opensc2 status`'s transport line: (the running one, the stored one)."""
+        name = "Bluetooth 1" if self.transport == "ble" else "puck %d" % (self.slot + 1)
+        return name, name
+
+    def board_ble_connected(self):
+        b = self.board
+        return not b.dead and b.mode == "R" and b.ble is not None and b.ble.connected
+
+    def use_path(self, path):
+        self._path = path
+
+    def ble_nodes(self):
+        """As WinBackend.ble_nodes(): the Bluetooth 28DE:1303 vendor collections listed, as
+        (the board's, why)."""
+        expect = getattr(self.safety_ctx, "ble_expect", None)
+        out = []
+        for n in simble.hid_nodes(self):
+            f = safety.ble_node_fields(n)
+            if f and f[3] == "COL03":
+                cls, why = safety.classify_ble(n, expect)
+                out.append((cls == safety.BOARD_BLE, why))
+        return out
 
     # ---- time ----
     def now_ms(self):
@@ -348,14 +402,21 @@ class SimBackend:
                        "instance_id": "USB\\VID_2FE3&PID_0004\\SIMCONSOLE001",
                        "interface_id": "\\\\?\\usb#vid_2fe3&pid_0004&mi_00#sim#{guid}",
                        "usb_product": C.CONSOLE_PRODUCT}
+        ble_nodes = simble.hid_nodes(self) if up else []
+        ble_board = None
+        expect = getattr(self.safety_ctx, "ble_expect", None)
+        if self.ble_build and console and expect is not None:
+            mine = [n for n in ble_nodes if safety.classify_ble(n, expect)[0] == safety.BOARD_BLE]
+            ble_board = mine[0] if len(mine) == 1 else None
         slots = []
         if self.puck_present and not self._puck_gone():
             for mi in range(2, 6):
                 slots.append({"kind": "hid", "serial": SIM_PUCK_SERIAL, "slot": mi,
                               "instance_id": "USB\\VID_28DE&PID_1304\\" + SIM_PUCK_SERIAL,
                               "interface_id": "\\\\?\\hid#vid_28de&pid_1304&mi_0%d&col03#sim" % mi})
-        return {"board": nodes_board, "console": console, "puck_slots": slots,
-                "mode": b.mode if up else None, "extra_boards": 0, "uf2": False,
+        mode = ("B" if ble_board else b.mode) if up else None
+        return {"board": nodes_board, "console": console, "ble_board": ble_board,
+                "puck_slots": slots, "mode": mode, "extra_boards": 0, "uf2": False,
                 "others": [{"kind": "hid", "serial": SIM_REAL_CONTROLLER,
                             "instance_id": "USB\\VID_28DE&PID_1302\\" + SIM_REAL_CONTROLLER,
                             "interface_id": "\\\\?\\hid#vid_28de&pid_1302&col03#real"}]}
@@ -444,9 +505,13 @@ class SimBackend:
     def start_leak_detector(self):
         return True
 
-    # ---- the board's HID (W) ----
+    # ---- the board's HID (W; B over Bluetooth) ----
     def _board_up(self):
         b = self.board
+        if self._path == "B":
+            if not self.board_ble_connected():
+                raise Stall(1167, "the board's Bluetooth device is not there")
+            return b
         if b.dead or b.mode != "W":
             raise Stall(1167, "the board is not there")
         return b
@@ -469,7 +534,16 @@ class SimBackend:
     def feature_set(self, buf):
         b = self._board_up()
         # S5/S7 where the bytes go out, with the live Context, as win/hid.py does
-        safety.check_feature_buffer(bytes(buf), "usb", self.safety_ctx)
+        safety.check_feature_buffer(bytes(buf), "ble" if self._path == "B" else "usb",
+                                    self.safety_ctx)
+        if self._path == "B":
+            # Windows writes the 63-byte value (no report ID) to the feature characteristic; a
+            # refusal is an ATT error, which Windows turns into a failed request
+            rc = b.ble_feature_set(bytes(buf[1:64]))
+            self.after_request()
+            if rc:
+                raise Stall(31, "ATT error (%d)" % rc)
+            return
         if self.fault == "keepalive_race" and self._race_tick and self._races < 25 and \
                 threading.current_thread().name != "sim-race" and buf[1] == C.TEST_OPCODE and \
                 b.hooks.armed:
@@ -492,6 +566,12 @@ class SimBackend:
 
     def feature_get(self):
         b = self._board_up()
+        if self._path == "B":
+            rc, buf = b.ble_feature_get()
+            self.after_request()
+            if rc:
+                raise Stall(31, "ATT error (%d)" % rc)
+            return buf
         rc, buf = b.usb_feature_get()
         self.after_request()
         if rc:
@@ -515,7 +595,14 @@ class SimBackend:
         safety.check_output_report(report)
         if report[0] not in (0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89):
             raise OSError(87, "Windows refuses an undeclared output report ID")
-        b.output("usb", bytes(report) + bytes(64 - len(report)))
+        if self._path == "B":
+            # Windows writes the report's characteristic; the library hands on its whole
+            # declared size (the bytes after a shorter write keep their value: zero here)
+            size = BLE_OUTPUT_SIZE[report[0]]
+            body = (bytes(report[1:]) + bytes(size))[:size]
+            b.output("ble", bytes([report[0]]) + body)
+        else:
+            b.output("usb", bytes(report) + bytes(64 - len(report)))
         self.after_request()
 
     def usb_product(self):
@@ -524,6 +611,14 @@ class SimBackend:
         return self.hid_product if self.hid_product is not None else self.identity.name
 
     def hid_info(self):
+        if self._path == "B":
+            info = self._hid_info_usb()
+            info.update(vid=C.BOARD_VID, pid=C.BLE_PID, version=0x0100, manufacturer="",
+                        product=C.DEFAULT_PRODUCT_NAME, serial="")
+            return info
+        return self._hid_info_usb()
+
+    def _hid_info_usb(self):
         return {"vid": 0x28DE, "pid": 0x1302, "version": 0x0307,
                 "manufacturer": "Valve Software", "product": self.usb_product(),
                 "serial": self.unit_serial, "usage_page": 0xFF00, "usage": 1, "input_len": 54,
@@ -548,6 +643,9 @@ class SimBackend:
 
     # ---- the radio as the puck sees it ----
     def radio_stop(self, b):
+        if b.ble is not None:
+            b.ble.stop()
+            return
         if b.mode != "R" or b.link_state == 0:
             return
         b.link_state = 0
@@ -557,6 +655,9 @@ class SimBackend:
         self._puck_reports.append((self.clock.monotonic() + 0.3, bytes([C.RPT_LINK_STATUS, 1])))
 
     def radio_start(self, b):
+        if b.ble is not None:
+            b.ble.start()
+            return
         if b.mode != "R" or b.link_state == 4:
             return
         if self._no_reconnect or not self.puck_present:
@@ -614,6 +715,8 @@ class SimBackend:
         if path == "R" and not getattr(self, "_reading_slots", False) and \
                 self.proven_slot != self.board_slot:
             raise Stall(1167, "the board's slot on the puck is not proven")
+        if path == "B":
+            return self._read_ble(duration_s, count)
         out = []
         period = C.STATE_PERIOD_MS / 1000.0 if path == "W" else 0.0033
         end = self.clock.monotonic() + (duration_s if duration_s is not None else 3600.0)
@@ -663,6 +766,34 @@ class SimBackend:
                 out.append((ts, R.pad_input(q)))
                 if q[0] == C.RPT_STATE:
                     states += 1
+            b.queue = []
+        return out
+
+    def _read_ble(self, duration_s, count):
+        """B: one state report per connection event (7.5 ms), sent as 0x45 (cut after the angular
+        rate), the battery and the application's reports as they are, all padded as Windows
+        pads them; nothing while the link is down."""
+        out = []
+        period = simble.INTERVAL_US / 1e6
+        end = self.clock.monotonic() + (duration_s if duration_s is not None else 3600.0)
+        states = 0
+        first_board = self.board
+        while self.clock.monotonic() < end and (count is None or states < count):
+            self.clock.sleep(period)
+            b = self.board
+            if b is not first_board or b.dead:
+                break
+            if not self.board_ble_connected():
+                b.queue = []
+                if duration_s is None:
+                    break
+                continue
+            b.frame()
+            for ts, q in b.queue:
+                if q[0] == C.RPT_STATE:
+                    q = bytes([C.RPT_BT_STATE]) + q[1:1 + C.BLE_STATE_LEN]
+                    states += 1
+                out.append((ts, R.pad_input(q)))
             b.queue = []
         return out
 
@@ -721,6 +852,11 @@ class SimBackend:
                 return self.board.mode
             self.clock.sleep(0.05)
         raise TimeoutError("the board did not come back within %.0f s" % timeout)
+
+
+# the output reports' declared sizes (the Bluetooth characteristics)
+BLE_OUTPUT_SIZE = {0x80: 9, 0x81: 7, 0x82: 3, 0x83: 9, 0x84: 8, 0x85: 3, 0x86: 3, 0x87: 63,
+                   0x88: 63, 0x89: 63}
 
 
 def _puck_passes(report):

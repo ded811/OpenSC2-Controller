@@ -7,12 +7,14 @@
 # or a GET without an answer, the test channel's claiming rule and held answers, the lease and the
 # end of arming, the ring as bytes (2048 of them, oldest entries evicted), the counters, the
 # settings and their side effects, input injection and sequences, the trigger rule, the battery
-# report, output reports, the rumble timeout and the Steam watchdog. The firmware emulator
+# report, output reports, the rumble timeout and the Steam watchdog; with Bluetooth as the
+# transport (a --bluetooth dry run) the Bluetooth link of simble.py. The firmware emulator
 # (fwemu.py) runs the real C code for the same purpose; the self-tests run the groups against
 # both.
 import struct
 
 from . import config as C
+from . import simble
 from .proto import model as M
 from .proto import reports as R
 from .proto import testproto as T
@@ -20,7 +22,7 @@ from .proto import testproto as T
 ENOTSUP, EINVAL, ENOENT, EMSGSIZE, EBADMSG, E2BIG = -134, -22, -2, -122, -74, -7
 KEY_FACTORY_RESET, KEY_BOOTLOADER = 0xEFC1A917, 0xECAABAC0
 KEY_KEEP_LINK, KEY_TURN_OFF = 0xA427AF52, 0xABDF9710
-LINKS = {"radio": 0, "usb": 1, "test": 2}
+LINKS = {"radio": 0, "usb": 1, "test": 2, "ble": 4}
 LINK_NONE = 3
 NAMED = ["esb/bond", "esb/bond_2", "user/wireless_transport", "user/haptic_boot_level"]
 HOST_SET_ALLOW = {0x81, 0x83, 0x85, 0x87, 0x89, 0x8E, 0x9F, 0xA1, 0xAE, 0xBE, 0xC5, 0xDB, 0xE9,
@@ -35,6 +37,7 @@ OPS = {   # op: (min args, max args, runs unarmed)
     C.OP_SETTINGS_READ: (2, 2, False), C.OP_HOST_OUT: (1, 54, False),
     C.OP_HOST_SET: (2, 54, False), C.OP_HOST_GET: (0, 0, False),
     C.OP_APP_SEND: (1, 54, False), C.OP_RADIO_DEAF: (2, 2, False),
+    C.OP_BLE_STATUS: (0, 0, False), C.OP_BLE_DROP: (1, 1, False), C.OP_BLE_WINDOW: (4, 4, False),
 }
 
 
@@ -75,9 +78,15 @@ class SimBoard:
         self.trig = [False, False]
         self.lizard = M.LizardModel()          # on at boot (setting 9 = 1)
         self.slot = world.slot
-        # wireless: connected through the puck at once, or listening when there is no puck
+        # wireless: connected through the puck at once, or listening when there is no puck; on
+        # Bluetooth advertising for the bonded host, which connects a moment later
+        self.transport = getattr(world, "transport", "puck")
         self.link_state = (4 if world.puck_present else 3) if mode == "R" else 0
         self.last_reason = 0
+        self.reason_link = 0
+        self.ble = None
+        if mode == "R" and self.transport == "ble":
+            self.link_state = 3
         self.usb = {"requests": 0, "stalls": 0, "outputs": 0, "reports": 0, "dropped": 0}
         self.log = []                          # the wired session's log lines (text only)
         self.queue = []                        # reports the application sent, for the stream
@@ -92,6 +101,9 @@ class SimBoard:
         self.timers["watchdog"] = self.now() + C.WATCHDOG_MS
         if mode == "W":
             self.log.append("configured: state reports every 132 ticks (4.03 ms)")
+        if mode == "R" and self.transport == "ble":
+            self.ble = simble.BleLink(self)
+            self.ble.adv_start(0)
 
     # ---- time ----
     def now(self):
@@ -141,6 +153,23 @@ class SimBoard:
         if self.rumble_active:
             self.rumble_off()
 
+    # the Bluetooth link's timers (simble.BleLink)
+    def _timer_ble_connect(self, t):
+        if self.ble:
+            self.ble.timer("ble_connect")
+
+    def _timer_ble_window(self, t):
+        if self.ble:
+            self.ble.timer("ble_window")
+
+    def _timer_ble_readvertise(self, t):
+        if self.ble:
+            self.ble.timer("ble_readvertise")
+
+    def _timer_ble_drop(self, t):
+        if self.ble:
+            self.ble.timer("ble_drop")
+
     def _timer_power(self, t):
         request, why = self.power_pending
         self.power_pending = None
@@ -188,10 +217,12 @@ class SimBoard:
     # ---- the links ----
     def link_active(self, link):
         if link == "test":
-            link = "usb" if self.mode == "W" else "radio"
+            link = "usb" if self.mode == "W" else ("ble" if self.ble else "radio")
         if link == "usb":
             return self.mode == "W"
-        return self.mode == "R" and self.link_state == 4
+        if link == "ble":
+            return self.ble is not None and self.ble.gate
+        return self.mode == "R" and self.link_state == 4 and self.ble is None
 
     def input_send(self, report):
         """osc2_input_send(): the guard first, then the link of this mode."""
@@ -408,8 +439,12 @@ class SimBoard:
         ident = self.world.identity
         if opcode == 0x83:
             out = b""
+            # attribute 11: the link's report interval (commands.c): Bluetooth's connection
+            # interval while it is active, else 4000 us
+            via = ("ble" if self.ble else link) if link == "test" else link
+            interval = (simble.INTERVAL_US if self.ble and self.ble.gate else 0)                 if via == "ble" else 4000
             for tag, val in ((1, ident.pid), (2, 0), (10, ident.blbuild), (4, ident.build),
-                             (9, ident.rev), (11, 4000)):
+                             (9, ident.rev), (11, interval)):
                 out += bytes([tag]) + struct.pack("<I", val)
             return 0, out
         if opcode == 0xAE:
@@ -538,6 +573,23 @@ class SimBoard:
         buf[3:3 + min(len(data), 61)] = data[:61]
         return 0, bytes(buf)
 
+    # ---- Bluetooth: feature report 1 as a characteristic (ble.c) ----
+    def ble_feature_set(self, value):
+        """A write of the feature characteristic: a SET of its first 63 bytes; a refusal is an
+        ATT error."""
+        return self.command_set("ble", bytes(value[:63]))
+
+    def ble_feature_get(self):
+        """A read: the stored request's GET; a command without one, or a failed one, is an ATT
+        error. (rc, the 64 bytes Windows hands over: report ID, then the value)."""
+        rc, opcode, data = self.command_get("ble")
+        if rc:
+            return rc, None
+        buf = bytearray(64)
+        buf[0], buf[1], buf[2] = 1, opcode, min(len(data), 61)
+        buf[3:3 + min(len(data), 61)] = data[:61]
+        return 0, bytes(buf)
+
     # ---- output reports (report.c) ----
     def output(self, link, report):
         report = bytes(report)
@@ -593,6 +645,11 @@ class SimBoard:
             if rc == 0:
                 self.usb["reports"] += 1
                 self.hooks.count("usb_sent")
+        elif self.ble is not None:
+            if rc == 0:
+                self.ble.reports += 1
+            else:
+                self.ble.dropped += 1
         elif rc == 0:
             self.hooks.count("radio_sent")
         # lizard mode: never on a frame injected without the lizard test
@@ -841,7 +898,9 @@ class Hooks:
                   bytes([how]))
 
     def _mode_link(self):
-        return 1 if self.b.mode == "W" else 0
+        if self.b.mode == "W":
+            return 1
+        return 4 if self.b.ble is not None else 0
 
     def battery(self, b):
         if self.armed and self.battery_on:
@@ -1077,6 +1136,20 @@ class Hooks:
         if rc == 0:
             self.counters["app_reports_sent"] += 1
         return C.ST_OK, struct.pack("<i", rc)
+
+    def _op_60(self, link, a):            # BLE_STATUS
+        return self._ble_op(C.OP_BLE_STATUS, a)
+
+    def _op_61(self, link, a):            # BLE_DROP
+        return self._ble_op(C.OP_BLE_DROP, a)
+
+    def _op_62(self, link, a):            # BLE_WINDOW
+        return self._ble_op(C.OP_BLE_WINDOW, a)
+
+    def _ble_op(self, op, a):
+        if self.b.ble is None:
+            return C.ST_BAD_OP, b""      # a build without Bluetooth, or the puck's transport
+        return self.b.ble.op(op, a)
 
     def _op_44(self, link, a):            # RADIO_DEAF
         ms = struct.unpack_from("<H", a, 0)[0]

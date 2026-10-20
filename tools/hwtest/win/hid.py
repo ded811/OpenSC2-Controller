@@ -124,12 +124,19 @@ def _bind():
 
 class BoardHid:
     """The board's Col03. `writable`: read/write and sharing 0 (Steam closed); else read-only
-    and shared."""
+    and shared. `ble_expect` (a safety.BleExpect): the board over Bluetooth (path B), whose node
+    safety.classify_ble() must call the board's, by the address and serial its console gave."""
 
-    def __init__(self, node, writable, retry_s=2.0):
-        cls, _why = safety.classify(node)
-        if cls != safety.BOARD_HID:
-            raise safety.SafetyError("BoardHid on a %s node" % cls)
+    def __init__(self, node, writable, retry_s=2.0, ble_expect=None):
+        if ble_expect is not None:
+            cls, _why = safety.classify_ble(node, ble_expect)
+            if cls != safety.BOARD_BLE:
+                raise safety.SafetyError("BoardHid on a Bluetooth %s node" % cls)
+        else:
+            cls, _why = safety.classify(node)
+            if cls != safety.BOARD_HID:
+                raise safety.SafetyError("BoardHid on a %s node" % cls)
+        self._ble_expect = ble_expect
         self._node = node
         self._k, self._h = _bind()
         self.writable = writable
@@ -171,7 +178,10 @@ class BoardHid:
         """R1: the HID serial string must equal the instance ID's serial before the first write;
         if it does not, the handle is closed unused."""
         try:
-            safety.assert_board_write(self._node, self.serial)
+            if self._ble_expect is not None:
+                safety.assert_ble_write(self._node, self.serial, self._ble_expect)
+            else:
+                safety.assert_board_write(self._node, self.serial)
         except safety.SafetyError:
             self.close()
             raise
@@ -307,7 +317,7 @@ class BoardHid:
         write and every injection), right before it goes out."""
         if len(buf) != C.FEATURE_LEN or buf[0] != C.FEATURE_ID:
             raise safety.SafetyError("only 64-byte feature report 1 buffers")
-        safety.check_feature_buffer(bytes(buf), "usb", ctx)
+        safety.check_feature_buffer(bytes(buf), "ble" if self._ble_expect else "usb", ctx)
         self._ioctl(C.IOCTL_HID_SET_FEATURE, buf)
 
     def feature_get(self, request=None):
