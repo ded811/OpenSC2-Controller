@@ -79,8 +79,12 @@ static uint32_t level_from_db(int8_t db)
 }
 
 #if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
-/* The synthesiser's paths call this from their two threads: each keeps its own level. */
+/* The synthesiser's paths call this from their two threads: each keeps its own level, and one
+ * thread at a time sets the motor, only when its duty changes (Zephyr's nRF PWM driver must not
+ * run twice at once: a start racing a stop can leave it waiting for a stop that never comes). */
 static atomic_t path_level[2];
+static K_MUTEX_DEFINE(motor_lock);
+static uint32_t motor_level = UINT32_MAX;   /* 0..255 last set; none yet */
 
 static void on_level(enum opensc2_haptics_path path, uint8_t level, void *user_data)
 {
@@ -88,10 +92,13 @@ static void on_level(enum opensc2_haptics_path path, uint8_t level, void *user_d
 
 	ARG_UNUSED(user_data);
 	atomic_set(&path_level[path], level);
+	(void)k_mutex_lock(&motor_lock, K_FOREVER);
 	louder = MAX((uint32_t)atomic_get(&path_level[0]), (uint32_t)atomic_get(&path_level[1]));
-	if (pwm_is_ready_dt(&motor)) {
-		pwm_set_pulse_dt(&motor, (uint32_t)((uint64_t)motor.period * louder / 255));
+	if (louder != motor_level && pwm_is_ready_dt(&motor) &&
+	    pwm_set_pulse_dt(&motor, (uint32_t)((uint64_t)motor.period * louder / 255)) == 0) {
+		motor_level = louder;
 	}
+	(void)k_mutex_unlock(&motor_lock);
 }
 #endif
 

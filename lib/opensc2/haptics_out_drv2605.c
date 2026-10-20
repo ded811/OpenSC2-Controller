@@ -29,6 +29,11 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 static const struct device *const drv = DEVICE_DT_GET(DRV_NODE);
 static const struct i2c_dt_spec drv_bus = I2C_DT_SPEC_GET(DRV_NODE);
 static atomic_t path_level[2];
+/* Both paths' threads call on_level(): one at a time works out the louder level and writes it, so
+ * the last write always has both paths' latest levels (otherwise, when both fall quiet at once, an
+ * older non-zero amplitude could land last and keep the actuator running). */
+static K_MUTEX_DEFINE(rtp_lock);
+static int16_t rtp_value = -1;              /* the real-time input last written; none yet */
 
 static void on_level(enum opensc2_haptics_path path, uint8_t level, void *user_data)
 {
@@ -36,8 +41,13 @@ static void on_level(enum opensc2_haptics_path path, uint8_t level, void *user_d
 
 	ARG_UNUSED(user_data);
 	atomic_set(&path_level[path], level);
+	(void)k_mutex_lock(&rtp_lock, K_FOREVER);
 	louder = MAX((uint32_t)atomic_get(&path_level[0]), (uint32_t)atomic_get(&path_level[1]));
-	(void)i2c_reg_write_byte_dt(&drv_bus, REG_RT_PLAYBACK_INPUT, (uint8_t)(louder >> 1));
+	if ((int16_t)(louder >> 1) != rtp_value &&
+	    i2c_reg_write_byte_dt(&drv_bus, REG_RT_PLAYBACK_INPUT, (uint8_t)(louder >> 1)) == 0) {
+		rtp_value = (int16_t)(louder >> 1);
+	}
+	(void)k_mutex_unlock(&rtp_lock);
 }
 
 static int drv2605_out_init(void)
