@@ -119,7 +119,7 @@ that is not there, or a tag that does not exist yet.
      Connect SDK v3.4.0, SuperMini firmware, template, samples, hardware test suite. Unofficial."
    - Topics: `zephyr`, `nrf52840`, `nrf-connect-sdk`, `steam-controller`, `game-controller`,
      `enhanced-shockburst`, `usb-hid`, `supermini`.
-   - Push `main`, then check that the CI run (the Actions tab) passes both jobs:
+   - Push `main`:
 
      ```powershell
      git remote add origin https://github.com/ded811/OpenSC2-Controller
@@ -206,8 +206,8 @@ Once, after the first release.
 2. **Make the repository public**: in its settings, General, Danger Zone, Change repository
    visibility. Then, under its security settings, enable private vulnerability reporting
    ([SECURITY.md](../SECURITY.md) points to it).
-3. **Look at it as a stranger would**, in a private browser window, logged out: the README with its
-   CI badge, a research link from `docs/protocol.md`, and the release with its `.uf2`.
+3. **Look at it as a stranger would**, in a private browser window, logged out: the README, a research
+   link from `docs/protocol.md`, and the release with its `.uf2`.
 4. **Optional:** try the west workspace way once, with `template/west.yml`
    ([integration.md](integration.md#way-3-a-west-workspace)), and then remove its "Not built this
    way yet" note from `docs/integration.md`.

@@ -2,7 +2,6 @@
 
 Make an nRF52840 board act as a Steam Controller 2.
 
-[![CI](https://github.com/ded811/OpenSC2-Controller/actions/workflows/ci.yml/badge.svg)](https://github.com/ded811/OpenSC2-Controller/actions/workflows/ci.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![nRF Connect SDK v3.4.0](https://img.shields.io/badge/nRF%20Connect%20SDK-v3.4.0-00a9ce)
 ![Zephyr module](https://img.shields.io/badge/Zephyr-module-6a5acd)

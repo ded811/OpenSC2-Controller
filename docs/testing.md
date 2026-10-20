@@ -168,7 +168,7 @@ builds for the nRF chips, not for the PC. They are tested with gcc; clang is not
 | macOS | `gcc` there is Apple's clang (untested): install GCC (`brew install gcc` names it `gcc-NN`, after its version) and run `CC=gcc-NN sh tests/host/run.sh`, or accept clang |
 
 Optional, on Linux: the same pure test cases as a ztest suite, `west twister -T tests -p native_sim`
-in the SDK's shell (native_sim needs a Linux PC; not part of `run.ps1`, `run.sh` or CI).
+in the SDK's shell (native_sim needs a Linux PC; not part of `run.ps1` or `run.sh`).
 
 **The first time on hardware**, go step by step and stop at the first surprise. Steam closed, the
 board wired (just plugged in), a harmless window focused (an empty Explorer window, not an editor):

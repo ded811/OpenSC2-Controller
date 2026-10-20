@@ -48,9 +48,8 @@ lines of Steam's own logs, in an issue or in a commit. The test suite's `report.
 | Links in the documentation | `python -I tools/check_links.py` |
 
 A change is ready when every build you touched has no compiler warnings and leaves no
-`partitions.yml`, and the host tests, the self-tests, the dry run and the link check pass. CI runs
-the host tests and the link check on every push and pull request; the firmware builds need the
-nRF Connect SDK, so they are checked locally. If your change touches what a board does, run the
+`partitions.yml`, and the host tests, the self-tests, the dry run and the link check pass. There is no CI: run them
+locally before you open a pull request (the firmware builds need the nRF Connect SDK). If your change touches what a board does, run the
 hardware test suite on one ([testing.md](docs/testing.md)) and say which tests ran.
 
 ## Style

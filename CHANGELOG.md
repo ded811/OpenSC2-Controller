@@ -29,8 +29,7 @@ First public release.
 - `template/`, a project to copy as the start of your own, and `docs/integration.md`.
 - Wired mode and the shell in every sample, and a README for each.
 - The documentation map, getting started, troubleshooting, test protocol and release pages;
-  `NOTICE.md`, `CONTRIBUTING.md`, `SECURITY.md`; CI on GitHub (the host tests and the links);
-  `tools/check_links.py` and `tools/collect_licenses.py`.
+  `NOTICE.md`, `CONTRIBUTING.md`, `SECURITY.md`; `tools/check_links.py` and `tools/collect_licenses.py`.
 
 ### Changed
 
