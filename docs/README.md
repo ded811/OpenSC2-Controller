@@ -45,7 +45,8 @@ the shell.
 **Wireless transport.** What a wireless boot runs: the puck's radio with bond 1 or 2, or (in the
 opt-in Bluetooth build, not yet tested on hardware) Bluetooth LE in slot 1 or 2, one at a time.
 The choice is stored on the board, as the real controller's `user/wireless_transport`;
-`opensc2 transport` shows and changes it ([api.md](api.md#wireless-transports-and-bluetooth-le)).
+`opensc2 transport` shows and changes it, and so do the real controller's button chords, such as
+A + right bumper held at a power-on on battery ([api.md](api.md#wireless-transports-and-bluetooth-le)).
 
 **Lizard mode.** Until Steam takes over, a Steam Controller 2 acts as a plain mouse and keyboard
 (the right trackpad moves the pointer, A is Enter, B is Escape, the D-pad gives the arrow keys).
@@ -92,10 +93,6 @@ library runs (on by default): what a power-on does, STEAM held 7 s, the button c
 link, the keylock, the idle timeout, low battery and shutdown, the LED's mode and the cues
 ([api.md](api.md#power-and-the-system-state-machine)).
 
-**Transport.** Where the controller's reports go when it is not wired: the puck with its first or
-second pairing, or (on the real controller) a Bluetooth host. Chords such as A + right bumper
-choose one.
-
 **Keylock.** A travel lock: STEAM + L4 + L5 + R4 + R5 held 3 s on battery makes the next power-on on
 battery turn straight off, and every one after it, until the board powers up on USB or the dock,
 or the chord is tapped.
@@ -103,6 +100,11 @@ or the chord is tapped.
 **Cue.** A short chime the real controller plays on its haptics (power on, power off, a transport,
 pairing). The library raises cue events; the haptics synthesiser, when it is built in, plays
 OpenSC2's own sound for each, otherwise the application does.
+
+**Haptics synthesiser.** An option of the library (`CONFIG_OPENSC2_HAPTICS_SYNTH`, not yet tested
+on hardware) that plays Steam's haptic output reports itself, as the real controller's
+sequencers do, as sample blocks for actuators the application drives, with sounds of
+OpenSC2's own ([api.md](api.md#the-haptics-synthesiser)).
 
 **The dock.** The puck's other job: a controller resting on it charges through three pogo pads,
 `+`, `−` and `P`, and the puck talks to it over a slow serial link on the same contacts, in 73-byte
