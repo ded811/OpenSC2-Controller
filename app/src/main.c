@@ -142,6 +142,7 @@ static void on_led(const struct opensc2_led *led, void *user_data)
 static void on_setting(uint8_t number, int16_t value, void *user_data)
 {
 	ARG_UNUSED(user_data);
+	imu_setting(number, value);
 	if (number == OPENSC2_SETTING_LIZARD_MODE) {
 		LOG_DBG("Lizard mode %s", value ? "on" : "off");
 	} else if (number == OPENSC2_SETTING_IMU_MODE) {

@@ -32,8 +32,10 @@ void rumble_haptic(const struct opensc2_haptic *haptic);
 /* trackpad.c: touch devices of Zephyr's input subsystem as the trackpads, if chosen. */
 int trackpad_init(void);
 
-/* imu.c: a sensor of Zephyr's sensor API as the IMU, if aliased as imu0. */
+/* imu.c: a sensor of Zephyr's sensor API as the IMU, if aliased as imu0 (imu_fifo.c with
+ * CONFIG_APP_IMU_STREAM). A controller setting changed: the IMU's own (48) are handed over. */
 int imu_init(void);
+void imu_setting(uint8_t number, int16_t value);
 
 /* battery.c: the battery level of report 0x43 (CONFIG_APP_BATTERY). */
 int battery_init(void);

@@ -31,7 +31,9 @@ still change between minor versions.
   report with four conversions averaged and a switched sensor supply, calibrated axes through the
   library, an LSM6DSV16X IMU with a mounting matrix (`imu-mounting-matrix`) and a rest-based gyro
   bias (settings 84 and 85), the trackpad's processing (settings 65, 72, 73), the battery level,
-  and I2C bus recovery at boot. A Kconfig fragment of `app/` brings the overlay of the same name.
+  and I2C bus recovery at boot. `app/imu-stream.conf` streams the LSM6DSV16X's FIFO with its own
+  fusion instead, as the real controller reads it. A Kconfig fragment of `app/` brings the overlay
+  of the same name.
 - The test hooks' raw injection (`RAW_INJECT`, `RAW_OFF`, `CAL_STATUS`, caps bit 21) and the
   hardware test suite's group `cal`, checked against the firmware emulator.
 

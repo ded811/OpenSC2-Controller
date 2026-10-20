@@ -36,6 +36,7 @@ target_sources(app PRIVATE
 	src/rumble.c
 	src/trackpad.c
 	src/imu.c
+	src/imu_fifo.c
 	src/battery.c
 	src/i2c_recover.c
 )

@@ -68,6 +68,16 @@ config APP_IMU_ALWAYS
 	help
 	  Like the real controller, the IMU only streams while controller setting 48 is not 0.
 
+config APP_IMU_STREAM
+	bool "Stream an LSM6DSV16X's FIFO with its own fusion, as the real controller"
+	depends on APP_IMU && LSM6DSV16X_STREAM
+	help
+	  Instead of reading any IMU every 4 ms: the FIFO of an ST LSM6DSV16X streamed with Zephyr's
+	  sensor streaming API (CONFIG_SENSOR_ASYNC_API, CONFIG_I2C_RTIO and an interrupt pin), with
+	  its own game rotation vector and gyro-bias estimate, from boot; setting 48 = 0 stops it and
+	  any other value starts it again; setting 84 subtracts the bias; the stored gyro bias is its
+	  starting bias. app/imu-stream.conf builds it. Untested on hardware.
+
 config APP_IMU_BIAS
 	bool "Estimate the gyro's bias at rest and subtract it (settings 84 and 85)"
 	depends on APP_IMU

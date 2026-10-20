@@ -23,13 +23,15 @@
 #include <zephyr/logging/log.h>
 #include "app.h"
 
-LOG_MODULE_REGISTER(imu, LOG_LEVEL_INF);
-
-#if DT_NODE_EXISTS(DT_ALIAS(imu0)) && defined(CONFIG_SENSOR) && defined(CONFIG_OPENSC2_FUSION)
+#if defined(CONFIG_APP_IMU_STREAM)
+/* The IMU's FIFO streamed instead: imu_fifo.c. */
+#elif DT_NODE_EXISTS(DT_ALIAS(imu0)) && defined(CONFIG_SENSOR) && defined(CONFIG_OPENSC2_FUSION)
 #include <zephyr/drivers/sensor.h>
 #include <opensc2/cal.h>
 #include <opensc2/fusion.h>
 #include <opensc2/sensor_helpers.h>
+
+LOG_MODULE_REGISTER(imu, LOG_LEVEL_INF);
 
 #define IMU_PERIOD_MS 4
 #define USER DT_PATH(zephyr_user)
@@ -171,11 +173,24 @@ int imu_init(void)
 	return 0;
 }
 
+void imu_setting(uint8_t number, int16_t value)
+{
+	/* Setting 48 is read at every sample. */
+	ARG_UNUSED(number);
+	ARG_UNUSED(value);
+}
+
 #else
 
 int imu_init(void)
 {
 	return 0;
+}
+
+void imu_setting(uint8_t number, int16_t value)
+{
+	ARG_UNUSED(number);
+	ARG_UNUSED(value);
 }
 
 #endif
