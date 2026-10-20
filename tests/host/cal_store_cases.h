@@ -695,4 +695,21 @@ OPENSC2_TEST(cal_store_pad_rules)
 	s.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = 9000, .y = 1000, .touched = true };
 	osc2_cal_rules(&s);
 	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 9000);
+	s.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = 12000, .y = 1000, .touched = true };
+	osc2_cal_rules(&s);
+	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 9000);    /* held: 3000 from the touch point */
+	/* so does setting 80 leaving 2 in the middle of a touch: the pad's own position meanwhile,
+	 * and the first sample with 80 = 2 again is the new touch point */
+	osc2.settings[OPENSC2_SETTING_PAD_STABILIZER] = 1;
+	s.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = 12001, .y = 1000, .touched = true };
+	osc2_cal_rules(&s);
+	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 12001);   /* untouched by the rules, even an odd value */
+	osc2.settings[OPENSC2_SETTING_PAD_STABILIZER] = 2;
+	s.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = 12500, .y = 1000, .touched = true };
+	osc2_cal_rules(&s);
+	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 12500);
+	s.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = 13000, .y = 1000, .touched = true };
+	osc2_cal_rules(&s);
+	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 12500);   /* held at the new touch point */
+	osc2.settings[OPENSC2_SETTING_PAD_STABILIZER] = 1;
 }
