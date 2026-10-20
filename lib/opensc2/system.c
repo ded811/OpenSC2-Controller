@@ -379,7 +379,9 @@ void opensc2_led_status(struct opensc2_led_status *st)
 	st->below_full_ms = led.below_full_ms;
 	k_spin_unlock(&led_lock, key);
 	st->connected = link_connected();
-	st->pairing = bt && bt->pairing && bt->pairing();
+	/* Bluetooth's pairing mode; the radio's over-the-air pairing (OpenSC2's) shows the same. */
+	st->pairing = (bt && bt->pairing && bt->pairing()) ||
+		      (!osc2_wired() && osc2_radio_state() == OPENSC2_LINK_PAIRING);
 	st->input_recent = input_recent;
 	st->full_level = full_level;
 	st->brightness = opensc2_led_brightness(osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS],

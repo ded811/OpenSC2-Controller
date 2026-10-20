@@ -427,8 +427,9 @@ open, the library does what should work with Steam and the puck, and says so her
     - **The LED**: the documentation gives the brightness curve for setting 38 = 1 (the default) and
       a linear brightness for 0; OpenSC2 uses the curve for every value that is not 0. The channel
       trims are the real controller's defaults (`led-trims` in the blank canvas's overlay can change
-      them), not the per-unit `cal/rgbw_*` keys. None of the patterns has been compared with a real
-      controller's LED.
+      them), not the per-unit `cal/rgbw_*` keys. The over-the-air pairing (gap 1), which the real
+      controller never shows, flashes like Bluetooth's pairing mode. None of the patterns has been
+      compared with a real controller's LED.
 
 ## What this library adds for development boards
 

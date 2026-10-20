@@ -95,6 +95,7 @@ static void get_status(struct opensc2_led_status *st)
 	} else {
 		st->mode = OPENSC2_LED_MODE_PUCK;
 		st->connected = opensc2_link_state() == OPENSC2_LINK_CONNECTED;
+		st->pairing = opensc2_link_state() == OPENSC2_LINK_PAIRING;
 		st->external_power = true;
 	}
 #endif

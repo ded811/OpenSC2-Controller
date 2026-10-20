@@ -756,7 +756,7 @@ static void every_10_ms(void)                /* OPENSC2_LED_STEP_MS */
 | `mode` | `enum opensc2_led_mode`, below |
 | `external_power` | modes 1 and 2: shown as on USB power or the dock |
 | `steady` | a chord state: the transport's colour, steady as if connected |
-| `connected`, `pairing` | a wireless link is connected; Bluetooth advertises in pairing mode |
+| `connected`, `pairing` | a wireless link is connected; pairing: Bluetooth advertises in pairing mode, or the radio pairs over the air (`opensc2_pair_start()`, OpenSC2's own: the real controller has no such pairing) |
 | `input_recent` | the idle monitor saw input within its timeout |
 | `shutting_down` | a shutdown or reboot runs (the IR LED is off too) |
 | `level`, `below_full_ms` | the battery level the LED was told (255: none yet, which counts as full); the uptime when it last read below 100 % |

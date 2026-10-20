@@ -48,7 +48,8 @@ struct opensc2_led_status {
 	bool external_power;       /* modes 1 and 2: shown as on USB power or the dock */
 	bool steady;               /* a chord state: the transport's colour steady, as if connected */
 	bool connected;            /* a wireless link is connected (either link) */
-	bool pairing;              /* Bluetooth advertises in pairing mode */
+	bool pairing;              /* Bluetooth advertises in pairing mode, or the radio pairs over the
+				    * air (opensc2_pair_start(), which the real controller lacks) */
 	bool input_recent;         /* the idle monitor saw input within its timeout */
 	bool shutting_down;        /* a shutdown or reboot runs: the IR LED is off too */
 	uint8_t level;             /* the battery level the LED was told (255: none yet; counts as
