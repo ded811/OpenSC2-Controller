@@ -276,12 +276,14 @@ int osc2_cal_by_name(uint8_t opcode, const uint8_t *payload, uint8_t len)
 		if (keys[k].kind == KIND_BIAS) {
 			return -ENOTSUP;   /* no read function: the real controller fails it */
 		}
+		/* The real controller saves what the key's read function gives: whatever 0xED would
+		 * show (an analog or touch key with a format word, a trim within 1..199). */
 		lk = k_spin_lock(&lock);
-		have = has_value_locked(k) || keys[k].kind == KIND_TRIM;
+		have = has_value_locked(k);
 		memcpy(value, ram[k], keys[k].size);
 		k_spin_unlock(&lock, lk);
 		if (!have) {
-			return -ENOENT;   /* nothing in RAM to save */
+			return -ENOENT;   /* nothing in RAM that could be read back: nothing saved */
 		}
 		return osc2_cal_flash_write(keys[k].name, value, keys[k].size);
 	}

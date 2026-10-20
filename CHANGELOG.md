@@ -22,10 +22,12 @@ simulator); none of it has been tested on hardware yet.
   as from the real controller.
 - Every settings key of the real controller in `0xED`..`0xF0`: the library keeps `user/keylock`,
   `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason` and
-  `settings/haptics/...` (stored under `opensc2/k/`, read back where the real controller can, each
-  exactly its size, `mte/charge_level` only while it is a valid window, deleted by the factory reset
-  where it deletes them), and the `cal/` keys are the calibration store's (below). Any other name is
-  still the application's, so a host cannot fill the storage partition.
+  `settings/haptics/...` (stored under `opensc2/k/`, each exactly its size, read back and saved by
+  `0xEF` where the real controller has a read function, so not the haptics keys, and
+  `mte/charge_level` only while it is a valid window; deleted by the factory reset where it deletes
+  them), and the `cal/` keys are the calibration store's (below): `0xEF` saves what `0xED` would
+  read back, as on the real controller. Any other name is still the application's, so a host cannot
+  fill the storage partition.
 - Crash records, as on the real controller (`CONFIG_OPENSC2_CRASH_RECORD`, on by default): the
   library's fatal-error handler leaves a 33-byte record in the retained RAM region and resets; the
   next boot stores it as `debug/resetreason`, and `0xF2` selector 1 answers it, then marks it seen.

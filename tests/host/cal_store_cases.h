@@ -184,6 +184,45 @@ OPENSC2_TEST(cal_store_by_name)
 	CHECK(cal_named(0xF0, "cal/foo", NULL, 0) < 0);
 }
 
+/* 0xEF saves what 0xED would read back, as the real controller saves what the key's read function
+ * gives: never an empty touch key, a trim outside 1..199 or the gyro bias. */
+OPENSC2_TEST(cal_store_save_refusals)
+{
+	uint8_t value[18], len;
+	int writes;
+
+	stub_reset();
+	/* a default trim saves */
+	CHECK_EQ(cal_named(0xEF, "cal/rgbw_g", NULL, 0), 0);
+	CHECK_EQ(cal_host_flash_get("cal/rgbw_g", value, &len), 0);
+	CHECK(len == 1 && value[0] == 35);
+	/* trims of 0 and 200: refused, nothing written; 199 saves */
+	writes = cal_host.writes;
+	CHECK_EQ(cal_named(0xEE, "cal/rgbw_r", (const uint8_t[]){ 0 }, 1), 0);
+	CHECK(cal_named(0xEF, "cal/rgbw_r", NULL, 0) < 0);
+	CHECK_EQ(cal_named(0xEE, "cal/rgbw_r", (const uint8_t[]){ 200 }, 1), 0);
+	CHECK(cal_named(0xEF, "cal/rgbw_r", NULL, 0) < 0);
+	CHECK_EQ(cal_host.writes, writes);
+	CHECK(cal_host_flash_get("cal/rgbw_r", value, &len) < 0);
+	CHECK_EQ(cal_named(0xEE, "cal/rgbw_r", (const uint8_t[]){ 199 }, 1), 0);
+	CHECK_EQ(cal_named(0xEF, "cal/rgbw_r", NULL, 0), 0);
+	CHECK_EQ(cal_host_flash_get("cal/rgbw_r", value, &len), 0);
+	CHECK_EQ(value[0], 199);
+	/* a touch key only with a format word */
+	writes = cal_host.writes;
+	CHECK(cal_named(0xEF, "cal/touch_l", NULL, 0) < 0);
+	CHECK_EQ(cal_host.writes, writes);
+	CHECK(cal_host_flash_get("cal/touch_l", value, &len) < 0);
+	CHECK_EQ(cal_named(0xEE, "cal/touch_l", (const uint8_t[10]){ 2, 0, 9 }, 10), 0);
+	CHECK_EQ(cal_named(0xEF, "cal/touch_l", NULL, 0), 0);
+	CHECK_EQ(cal_host_flash_get("cal/touch_l", value, &len), 0);
+	CHECK(len == 10 && value[0] == 2 && value[2] == 9);
+	/* the battery offset, which 0xED always reads, saves even as 0 */
+	CHECK_EQ(cal_named(0xEF, "cal/volt_offset", NULL, 0), 0);
+	CHECK_EQ(cal_host_flash_get("cal/volt_offset", value, &len), 0);
+	CHECK_EQ(len, 2);
+}
+
 OPENSC2_TEST(cal_store_erase_and_reset)
 {
 	static const uint8_t factory[4] = { 0x17, 0xA9, 0xC1, 0xEF };

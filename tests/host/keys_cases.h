@@ -192,7 +192,8 @@ OPENSC2_TEST(keys_cmd_kept)
 	CHECK_EQ(proto_usb(0xED, p, named(p, "user/keylock", NULL, 0), reply), 4);
 	CHECK(memcmp(&reply[3], (const uint8_t[4]){ 0 }, 4) == 0);
 	/* The fully-charged LED level has a read function: 3 until set. The haptics keys have none:
-	 * 0xED answers length 0, while 0xEE, 0xEF and 0xF0 work. */
+	 * 0xED answers length 0 and 0xEF fails (it saves what the read function gives), while 0xEE
+	 * and 0xF0 work. */
 	CHECK_EQ(proto_usb(0xED, p, named(p, "user/fully_charged_led_intensity", NULL, 0), reply), 1);
 	CHECK_EQ(reply[3], 3);
 	CHECK_EQ(named_set(0xEE, "user/fully_charged_led_intensity", (const uint8_t[]){ 1 }, 1), 0);
@@ -208,6 +209,14 @@ OPENSC2_TEST(keys_cmd_kept)
 	CHECK(len == 2 && (int16_t)opensc2_get_le16(v) == -6);
 	CHECK_EQ(named_set(0xEF, "user/fully_charged_led_intensity", NULL, 0), 0);
 	CHECK(stub.key_saves & (1u << OSC2_KEY_FULL_LED));
+	CHECK(named_set(0xEF, "settings/haptics/haptic_master_gain_db", NULL, 0) < 0);
+	CHECK(named_set(0xEF, "settings/haptics/amplifier_mode", NULL, 0) < 0);
+	CHECK(named_set(0xEF, "settings/haptics/enabled", NULL, 0) < 0);
+	CHECK(!(stub.key_saves & (1u << OSC2_KEY_HAPTIC_GAIN)));
+	CHECK(!(stub.key_saves & (1u << OSC2_KEY_HAPTIC_AMP)));
+	CHECK(!(stub.key_saves & (1u << OSC2_KEY_HAPTIC_ENABLED)));
+	CHECK_EQ(named_set(0xF0, "settings/haptics/amplifier_mode", NULL, 0), 0);
+	CHECK(stub.key_deletes & (1u << OSC2_KEY_HAPTIC_AMP));
 	/* The factory reset deletes the user, mte and debug keys and keeps settings/haptics. */
 	{
 		const uint8_t key[4] = { 0x17, 0xA9, 0xC1, 0xEF };
@@ -275,6 +284,19 @@ OPENSC2_TEST(keys_charge_window)
 	CHECK_EQ(named_set(0xEE, "mte/charge_level", v, 8), 0);
 	CHECK_EQ(proto_usb(0xED, p, named(p, "mte/charge_level", NULL, 0), reply), 8);
 	CHECK(memcmp(&reply[3], v, 8) == 0);
+	/* 0xEF saves what the read function gives: a valid window (and no window at all), never an
+	 * invalid one, which writes nothing */
+	CHECK_EQ(named_set(0xEF, "mte/charge_level", NULL, 0), 0);
+	CHECK(stub.key_saves & (1u << OSC2_KEY_CHARGE_WINDOW));
+	stub.key_saves = 0;
+	window(v, 1000, 5000);
+	CHECK_EQ(named_set(0xEE, "mte/charge_level", v, 8), 0);
+	CHECK(named_set(0xEF, "mte/charge_level", NULL, 0) < 0);
+	CHECK_EQ(stub.key_saves, 0);
+	window(v, 0, 0);
+	CHECK_EQ(named_set(0xEE, "mte/charge_level", v, 8), 0);
+	CHECK_EQ(named_set(0xEF, "mte/charge_level", NULL, 0), 0);
+	CHECK(stub.key_saves & (1u << OSC2_KEY_CHARGE_WINDOW));
 }
 
 OPENSC2_TEST(keys_cmd_cal)

@@ -210,12 +210,22 @@ static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8
 	}
 }
 
-/* 0xEF: write the RAM value to flash; refused when there is no valid value (an empty bond). */
+/* 0xEF: write the RAM value to flash; refused when there is no valid value (an empty bond). The
+ * real controller saves what the key's read function gives, so it fails for a key without one
+ * (the settings/haptics keys) and for a value the read function refuses (an invalid charge
+ * window): nothing is written then. */
 static int key_save(const struct osc2_key_info *info)
 {
 	enum named_key key = (enum named_key)info->id;
 
 	if (info->kind == OSC2_KEYK_BLOB) {
+		uint8_t value[OSC2_KEY_VALUE_MAX];
+		uint8_t len = 0;
+
+		if (!(info->flags & OSC2_KEYF_READ) || osc2_keys_get(info->id, value, &len) != 0 ||
+		    !osc2_key_value_readable(info->id, value, len)) {
+			return -ENOENT;
+		}
 		return osc2_keys_save(info->id);
 	}
 	switch (key) {

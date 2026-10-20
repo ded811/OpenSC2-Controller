@@ -1491,7 +1491,7 @@ over Bluetooth. The library answers these itself:
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate); from the dock acknowledged and ignored |
-| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock` and `user/fully_charged_led_intensity`, which the system state machine acts on: [The keylock](#the-keylock), [Status LED](#status-led); `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`: with `CONFIG_OPENSC2_CAL` the library's, [Calibration and raw inputs](#calibration-and-raw-inputs); without it the application's). `0xED` answers length 0 for an empty bond, an analog calibration key whose format word is 0, an LED trim outside 1..199 and the gyro bias; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond, an analog calibration key whose format word is 0 and the gyro bias; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
+| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock` and `user/fully_charged_led_intensity`, which the system state machine acts on: [The keylock](#the-keylock), [Status LED](#status-led); `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`: with `CONFIG_OPENSC2_CAL` the library's, [Calibration and raw inputs](#calibration-and-raw-inputs); without it the application's). `0xED` answers length 0 for an empty bond, a key without a read function (the `settings/haptics/` keys, the gyro bias), an invalid charge window, a calibration key of a stick, trigger, pad pressure or pad touch whose format word is 0 and an LED trim outside 1..199; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and saves only what `0xED` would read back, as the real controller saves what the key's read function gives: it refuses every one of those and writes nothing; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
 | `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 |
 | `0xD8`, `0xC0`, `0xC3`, `0xFE` | set | with `CONFIG_OPENSC2_CAL`: the stick, trigger and pressure recordings and the calibration erase ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
 | `0xA2` | set | write the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes (an ID of zero deletes it) |
@@ -1539,12 +1539,15 @@ names of its own:
 | `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled` | 2 each | length 0 (no read function) | `opensc2/k/hgain`, `hamp`, `hen` | keeps |
 | `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | with `CONFIG_OPENSC2_CAL` the library's calibration store ([Calibration and raw inputs](#calibration-and-raw-inputs)): a stick, trigger, pressure or touch key while its format word is not 0, the battery offset always, an LED trim while it lies within 1..199, the gyro bias never; without it the application's `vendor_command`, length 0 without one | `opensc2/cal/...` with `CONFIG_OPENSC2_CAL`, else the application's | keeps |
 
-`0xEE` takes exactly the key's size (another length is refused, as on the real controller). The
-system state machine acts on `user/keylock` ([The keylock](#the-keylock)) and
-`user/fully_charged_led_intensity` ([Status LED](#status-led)); `mte/charge_level` and the haptics
-keys are kept and read back, but nothing in the library acts on them yet; `debug/resetreason` holds
-the [crash record](#crash-records). With `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`,
-`0xEE` also takes OpenSC2's identity keys ([Identity](#identity)).
+`0xEE` takes exactly the key's size (another length is refused, as on the real controller). `0xEF`
+saves what `0xED` reads back, as the real controller does: it fails for a key without a read
+function (the haptics keys, which `0xEE` sets in RAM and `0xF0` deletes) and for a value `0xED`
+would not show (an invalid charge window), and writes nothing then. The system state machine acts on
+`user/keylock` ([The keylock](#the-keylock)) and `user/fully_charged_led_intensity`
+([Status LED](#status-led)); `mte/charge_level` and the haptics keys are kept, but nothing in the
+library acts on them yet; `debug/resetreason` holds the [crash record](#crash-records). With
+`CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`, `0xEE` also takes OpenSC2's identity keys
+([Identity](#identity)).
 
 ## Controller settings
 

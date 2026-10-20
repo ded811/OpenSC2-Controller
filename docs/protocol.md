@@ -551,18 +551,19 @@ open, the library does what should work with Steam and the puck, and says so her
     reading; on the real controller it may come from the charger's own status, which no host has
     been seen to compare.
 26. **Settings by name.** The library knows exactly the real controller's keys
-    ([api.md](api.md#settings-by-name)); other names go to the application. It keeps
-    `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level` and the
-    `settings/haptics/` keys as plain values: stored, read back where the real controller has a
-    read function, deleted by the factory reset where it deletes them. The system state machine
-    acts on the keylock and the fully-charged LED level (gap 34); nothing acts on the factory charge
-    window and the haptics settings yet. As on the real controller, `0xED` answers
-    `mte/charge_level` only while it holds a valid window (both values 0, or 3400 to 4120 mV in
-    10 mV steps). Choices where the documentation says nothing: a readable key that was never set
-    answers its whole size in zeros (the real controller's RAM value), and `0xEF` saves whatever
-    value is in RAM. The calibration keys are the calibration store's (gap 31); a build without
-    `CONFIG_OPENSC2_CAL` gives them to the application, so without one `0xED` answers length 0 and
-    the others are refused.
+    ([api.md](api.md#settings-by-name)); other names go to the application. It keeps `user/keylock`,
+    `user/fully_charged_led_intensity`, `mte/charge_level` and the `settings/haptics/` keys as plain
+    values: set in RAM, saved and read back where the real controller has a read function, deleted
+    by the factory reset where it deletes them. The system state machine acts on the keylock and the
+    fully-charged LED level (gap 34); nothing acts on the factory charge window and the haptics
+    settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
+    valid window (both values 0, or 3400 to 4120 mV in 10 mV steps), and `0xEF` saves what `0xED`
+    would read back, as the real controller saves what the key's read function gives: it fails for
+    the `settings/haptics/` keys (no read function) and for an invalid charge window, and writes
+    nothing then. A choice where the documentation says nothing: a readable key that was never set
+    answers its whole size in zeros (the real controller's RAM value). The calibration keys are the
+    calibration store's (gap 31); a build without `CONFIG_OPENSC2_CAL` gives them to the
+    application, so without one `0xED` answers length 0 and the others are refused.
 27. **Crash records.** The record and `0xF2`'s rules follow the documentation
     ([api.md](api.md#crash-records)). OpenSC2's own: where the record waits for the next boot (the
     retained RAM region, with a magic word and a CRC-32 of its own), the build time and revision it
@@ -615,9 +616,10 @@ open, the library does what should work with Steam and the puck, and says so her
     - `0xED` answers `cal/volt_offset` always, the LED trims while they lie within 1..199, a
       stick, trigger, pressure or touch key (`cal/touch_l`, `cal/touch_r`: 10 bytes, used by
       nothing) while its format word is not 0, and never the gyro bias, as the documentation
-      says; `0xEF` refuses an analog key whose format word is 0, and the gyro bias (the real
-      controller fails it too), and saves an LED trim whatever its value (the LED uses any
-      trim, 0 leaving the channel dark, as the real controller does);
+      says; `0xEF` saves only what `0xED` would read back (the real controller saves what the
+      key's read function gives), so it refuses an analog or touch key whose format word is 0,
+      an LED trim outside 1..199 and the gyro bias; the LED itself uses any trim, 0 leaving the
+      channel dark, as the real controller does;
     - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
       queue, in the order they were asked for (`0xFE` drops the saves still waiting from before
       it); `0xEF` writes before it answers, as for the bonds;
