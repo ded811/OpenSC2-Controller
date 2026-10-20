@@ -112,6 +112,11 @@ enum opensc2_charge_state {
 	OPENSC2_CHARGE_DONE = 4,
 };
 
+/* Added to the charge state while the charger has given up on a supply that does not charge the
+ * battery (the real controller tries again 60 s later). Report 0x43 carries it; while it is set
+ * and the level is above 0, the LED and the system state machine are told 100 %. */
+#define OPENSC2_CHARGE_GAVE_UP 0x80
+
 struct opensc2_battery {
 	uint8_t charge_state;        /* enum opensc2_charge_state */
 	uint8_t level;               /* state of charge, percent 0..100 */
