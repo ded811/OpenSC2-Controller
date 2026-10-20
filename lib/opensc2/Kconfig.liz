@@ -56,9 +56,10 @@ config OPENSC2_LIZARD_GLIDE
 	default y
 	depends on OPENSC2_LIZARD_MODE
 	help
-	  As on the real controller: a flick (a touch of more than 20 frames whose speed is above
-	  setting 11) keeps the pointer gliding, or the page scrolling, for setting 12 frames of
-	  steadily slowing motion. A new touch on that pad, or lizard mode turning off, stops it.
+	  As on the real controller: a flick (a touch of more than 20 frames and more than 700 pad
+	  units of travel whose speed is above setting 11) keeps the pointer gliding, or the page
+	  scrolling, for setting 12 frames of steadily slowing motion. A new touch on that pad, or
+	  lizard mode turning off, stops it.
 
 config OPENSC2_LIZARD_TICKS
 	bool "Lizard mode: haptic ticks and clicks on the pads (setting 14)"
