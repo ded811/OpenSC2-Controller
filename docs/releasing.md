@@ -42,20 +42,24 @@ public.
 2. **Review.** Read the whole diff. Check that every statement about hardware in the documentation
    matches [What works](../README.md#what-works): nothing stale, nothing beyond it. Then search
    the tree for anything private: your user name, your e-mail address, your user folder, Steam IDs,
-   serial numbers other than the `OSC...` and `OSB...` development form, and references to private
-   folders. Put your own user name and e-mail address in the first command:
+   serial numbers other than the `OSC...` and `OSB...` development form, Bluetooth addresses, and
+   references to private folders. Put your own user name and e-mail address in the first command:
 
    ```powershell
    git grep --untracked -n -I -i -e 'C:[\\/]Users' -e 'your-user-name' -e 'your-email-address'
    git grep --untracked -n -I -E '7656119[0-9]{10}'
    git grep --untracked -n -I -w -E '[0-9A-Z]{13}' | Select-String -NotMatch 'OSC|OSB|tests/codec/src/cases.h'
+   git grep --untracked -n -I -i -E '([0-9a-f]{2}:){5}[0-9a-f]{2}|C34F12ABCDEF|D2A1B2C3D4E5'
    ```
 
    Expected hits, all made up: the length placeholder `"0000000000000"` of the USB serial string
    in `lib/opensc2/usb.c`; the tests' fake puck and console serials (`PUCK000000001`,
-   `FAKEPUCK00001`, `FAKEPUCK00002`, `SIMCONSOLE001`); and the masking self-tests' fake user, folder
+   `FAKEPUCK00001`, `FAKEPUCK00002`, `SIMCONSOLE001`); the masking self-tests' fake user, folder
    and Steam ID in `tools/hwtest/selftest/test_mask.py` (the serial validator's test strings in
-   `tests/codec/src/cases.h` are filtered out above).
+   `tests/codec/src/cases.h` are filtered out above); and the made-up Bluetooth addresses
+   `C3:4F:12:AB:CD:EF` (also written `C34F12ABCDEF`) and `D2A1B2C3D4E5` of the Bluetooth simulator
+   and its self-tests (`tools/hwtest/simble.py`, `mask.py`, `proto/console.py`, `selftest/`; this
+   page names them too). Any other address is a real one: mask it.
 
 3. **Stage and commit.**
 
@@ -273,13 +277,16 @@ puck on its October 2026 firmware and Steam on a Windows PC.
 
 - Built, not yet tried with real parts: real buttons, sticks, trackpads, IMU, rumble motor, RGB LED
   and battery hardware (the drivers in `app/` and the samples have never run on such parts).
-- Built, not run on hardware: the samples and the template; lizard mode's processing (the touch
-  stabilisers, the 8-frame average, the glide, the haptic ticks) and the rules on every state
-  report (the stick-touch fallback, setting 82, raw triggers, the click by pressure).
+- Built, not run on hardware: the samples and the template.
+- Built, not yet tested on hardware: everything new since 0.2.0 that this release's run did not
+  cover (CHANGELOG.md, [Unreleased] until the release): the system state machine (power, chords,
+  the status LED's patterns, cues), calibration and raw inputs, lizard mode's processing and the
+  rules on every state report, crash records, and as opt-in builds Bluetooth LE, the haptics
+  synthesiser, the dock's UART, the battery build and the watchdog.
 - Built, untested with Steam: pairing over the air (the puck's pairing window).
 - Not tested: other boards; Linux and macOS as the PC (the PC side was tested with Steam on
   Windows).
-- Not implemented: Bluetooth; the dock (pogo pads); PCM haptics playback in the samples.
+- Not implemented, or different from the real controller: docs/protocol.md lists every gap.
 
 ## What you need
 
@@ -302,7 +309,7 @@ onto it; the board restarts with the new firmware. Check the download first: on 
    unplugged while you add the board.
 2. In Steam, start adding a controller. Steam asks you to connect it with a USB-C cable.
 3. Plug the board in with a USB-C data cable (not a charge-only cable). It comes up wired: the LED
-   is dark for half a second, then on with a short dark blink every 2 seconds.
+   turns on once the PC has set the board up.
 4. Steam pairs the board with the puck over the cable and reboots it into wireless mode: the LED
    goes dark, blinks slowly while the board looks for the puck, then stays on. The board is now
    connected through the puck.
