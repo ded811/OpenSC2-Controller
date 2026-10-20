@@ -240,9 +240,9 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 63 host tests (3,034 checks); 95 (5,783 checks) with the hardware
+- **Host tests**, no hardware: 65 host tests (3,121 checks); 100 (5,964 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 215 self-tests; its dry run against the library's own code in a firmware emulator; 6
+  runner's 216 self-tests; its dry run against the library's own code in a firmware emulator; 6
   self-tests of `tools/fake_puck.py` and 9 of `tools/match_steam_version.py`. Run
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc
   on PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are

@@ -153,10 +153,11 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 63 host tests (3,034 checks); 95 (5,783 checks) with
+the suite against that emulator. Today that is 65 host tests (3,121 checks); 100 (5,964 checks) with
 the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
-alike; the runner's 215 self-tests; its dry run against the library's own code in a firmware
-emulator, `--dock` included; 6 self-tests of `tools/fake_puck.py`; 9 self-tests of
+alike (after every test, each mutex the library took must have been let go again); the runner's
+216 self-tests; its dry run against the library's own code in a firmware emulator, `--dock`
+included; 6 self-tests of `tools/fake_puck.py`; 9 self-tests of
 `tools/match_steam_version.py`. To run the emulator by hand after `run.ps1` built it:
 
 ```powershell
@@ -357,7 +358,7 @@ python -I tools\fake_puck.py --test-op --polls 20
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 215 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 216 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking, every safety rule (including the
   source scan of the puck reader, and that every function that sends checks the exact bytes), the
   link lock against a racing keep-alive, the leak detector's filter and watch list, the Windows
