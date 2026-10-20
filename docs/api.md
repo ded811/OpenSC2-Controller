@@ -4,10 +4,11 @@ The library's whole interface, for developers who use it in their own firmware: 
 callback, field, rule and option.
 
 Everything a project needs from `<opensc2/opensc2.h>` (which also includes `<opensc2/types.h>`,
-`<opensc2/codec.h>` and `<opensc2/settings.h>`), plus the optional `<opensc2/fusion.h>`,
-`<opensc2/cal.h>` (calibration and raw inputs), `<opensc2/sensor_helpers.h>` and `<opensc2/gauge.h>`
-(sensor and battery helpers). The library
-is hardware-agnostic: it has no pins. Your application reads its buttons, sensors and touch parts
+`<opensc2/codec.h>`, `<opensc2/settings.h>` and `<opensc2/led.h>`, the status LED), plus the
+optional `<opensc2/fusion.h>`, `<opensc2/cal.h>` (calibration and raw inputs),
+`<opensc2/sensor_helpers.h>` and `<opensc2/gauge.h>` (sensor and battery helpers),
+`<opensc2/haptics.h>` (the haptics synthesiser) and `<opensc2/dock.h>` (the dock's frames). The
+library is hardware-agnostic: it has no pins. Your application reads its buttons, sensors and touch parts
 and hands the values over; it receives the outputs through callbacks and drives whatever it has.
 The same inputs and outputs work wireless (through the puck) and wired (on USB). How to bring the
 library into a project: [integration.md](integration.md).
@@ -2130,6 +2131,7 @@ host tests check them against values worked out from those rules.
 | `opensc2_stick_setup(&p, &cal)`, `opensc2_stick_value(&p, x, y, &out)`, `opensc2_stick_axis_value()` | a stick: validity, centre, two halves, the 10 % band; options `p.dead_zone` and `p.grow_range` |
 | `opensc2_trigger_setup(&p, &cal)`, `opensc2_trigger_value(&p, counts)` | a trigger: direction, the 5 % bands, full 2 % early |
 | `opensc2_pressure_setup(&p, &cal)`, `opensc2_pressure_sample(&p, raw, setting)`, `opensc2_pressure_value(&p)`, `p.click` | a pad's pressure: the filter, the range, the gain, the click's hysteresis |
+| `opensc2_pressure_raw_value(raw)` | setting 60 = 1: the raw word itself, below 0 counted as 0 |
 | `opensc2_cal_rec_init()`, `_rec_step()`, `_rec_frame()`, `_rec_stick()`, `_rec_trigger()`, `_rec_pressure()` | the factory recordings of `0xD8`, `0xC0` and `0xC3` |
 
 ### Sensor helpers
@@ -2141,13 +2143,13 @@ your part's readings to them. Untested on real parts.
 | Function | Does |
 | --- | --- |
 | `opensc2_approx_distance(dx, dy)` | the real controller's fast length approximation (within about 3 %) |
-| `opensc2_cap_sample(&t, word, on, off)`, `opensc2_stick_touch_on_level(s30)`, `_off_level(s31)`, `opensc2_grip_on_level(s34)`, `opensc2_grip_off_level(s34, s35)` | stick touch and grip: the two-word mean, the hysteresis, the levels from the settings |
-| `opensc2_pad_touch_step(&t, level, s72, s73, &x, &y)` | a pad's touch from a signal level (settings 72, 73) with the damping near lift-off |
+| `opensc2_cap_reset(&t)`, `opensc2_cap_sample(&t, word, on, off)`, `opensc2_stick_touch_on_level(s30)`, `_off_level(s31)`, `opensc2_grip_on_level(s34)`, `opensc2_grip_off_level(s34, s35)` | stick touch and grip: the two-word mean (the first word after a reset fills both), the hysteresis, the levels from the settings |
+| `opensc2_pad_touch_reset(&t)`, `opensc2_pad_touch_step(&t, level, s72, s73, &x, &y)` | a pad's touch from a signal level (settings 72, 73) with the damping near lift-off |
 | `opensc2_pad_edge(m)`, `opensc2_pad_stretch(side, axis, m)` | the edge push and setting 66's stretch (its constants fit Valve's pads only) |
 | `opensc2_pad_scale(m)` | a position (millionths of the pad) to the pad scale (±16383) |
-| `opensc2_pad_filter_step(&f, &x, &y, rate)` | setting 65's speed-adaptive position filter (floating point) |
-| `opensc2_pad_rotate(side, s2, s24, &x, &y)`, `opensc2_sin8192(deg)`, `opensc2_cos8192(deg)` | settings 2 and 24's rotation, with the real controller's angle steps |
-| `opensc2_stabiliser_step(&s, radius, &x, &y)` | the touch stabiliser (`OPENSC2_STABILISER_FINE` 4369, `_COARSE` 8738) |
+| `opensc2_pad_filter_reset(&f)`, `opensc2_pad_filter_step(&f, &x, &y, rate)` | setting 65's speed-adaptive position filter (floating point; reset it while the pad is not touched) |
+| `opensc2_pad_rotate(side, s2, s24, &x, &y)`, `opensc2_pad_rotation_angle(side, s2)`, `opensc2_sin8192(deg)`, `opensc2_cos8192(deg)` | settings 2 and 24's rotation, with the real controller's angle steps; the angle a pad turns by, 0..359 |
+| `opensc2_stabiliser_reset(&s)`, `opensc2_stabiliser_step(&s, radius, &x, &y)` | the touch stabiliser (`OPENSC2_STABILISER_FINE` 4369, `_COARSE` 8738; reset it on a sample without a touch) |
 | `opensc2_imu_accel_from_ms2(v)`, `opensc2_imu_gyro_from_rads(v)` | the real controller's IMU scaling (m/s² and rad/s, truncated) |
 | `opensc2_imu_mount(m, in, out)`, `opensc2_imu_mount_quat(m, in, out)` | a mounting matrix on acceleration, angular rate and the quaternion |
 | `opensc2_imu_dead_zone(v, t)` | the gyro dead zone after the bias |
@@ -2157,10 +2159,15 @@ your part's readings to them. Untested on real parts.
 ### Battery helpers
 
 `<opensc2/gauge.h>`: a battery level for report `0x43` the way the real controller's fuel gauge
-works: the divider and `cal/volt_offset` (`opensc2_gauge_divider_mv()`), the last 40 readings
-(`opensc2_gauge_history_*()`), a voltage curve per direction (OpenSC2's own for a single-cell LiPo:
-`opensc2_gauge_lipo_discharging`, `_charging`; Valve's tables are its own data), the stretch to the
-charge target, and a level that only falls while discharging and only rises while charging
-(`opensc2_gauge_step(&g, mv, charge_state)`, 255 until the first reading). Untested on a battery.
+works, with voltage curves of OpenSC2's own (Valve's tables are its own data). Untested on a
+battery.
+
+| Function | Does |
+| --- | --- |
+| `opensc2_gauge_divider_mv(pin_mv, total_ohm, bottom_ohm, offset_mv)` | the battery's millivolts from the ADC pin's: pin × total / bottom + the offset (`cal/volt_offset`), rounded (VDDH / 5: total 5, bottom 1) |
+| `opensc2_gauge_history_reset(&h)`, `opensc2_gauge_history_add(&h, mv)`, `opensc2_gauge_latest(&h)`, `opensc2_gauge_average(&h)`, `opensc2_gauge_max(&h)` | the last 40 readings (`OPENSC2_GAUGE_HISTORY`; the first after a reset fills all of them): the latest, their average rounded down, their maximum |
+| `opensc2_gauge_curve(points, n, mv)` | a curve's charge in tenths of a percent (linear between points, 0 below the first, 1000 above the last); OpenSC2's single-cell LiPo curves are `opensc2_gauge_lipo_discharging` and `opensc2_gauge_lipo_charging` (with `_len`) |
+| `opensc2_gauge_stretch(permille, target_permille)` | the stretch towards the charge target: the charge times (200 − s) / 100, s the curve's reading at the target, in percent, 0..100 |
+| `opensc2_gauge_init(&g, kept_level)`, `opensc2_gauge_step(&g, mv, charge_state)` | the level a controller reports: `OPENSC2_GAUGE_NO_LEVEL` (255) until the first reading (or a level kept over a warm reboot); charging uses the charging curve and only rises, done reads 100, anything else uses the discharging curve and only falls; a change between charging and not starts the history over |
 
 Back to the [documentation map](README.md).
