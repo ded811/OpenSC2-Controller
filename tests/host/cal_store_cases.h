@@ -241,6 +241,73 @@ OPENSC2_TEST(cal_store_erase_order)
 	CHECK(cal_host_flash_get("cal/prs_l", value, &len) < 0);
 }
 
+OPENSC2_TEST(cal_store_pad_start_over)
+{
+	static const uint8_t prs[8] = { 1, 0, 100, 0, 0x34, 0x08, 0xD0, 0x07 };   /* 100, 2100, 2000 */
+	struct opensc2_state s;
+
+	/* the stabiliser starts over at a change of setting 34 too: the next sample is the new touch
+	 * point instead of being held */
+	stub_reset();
+	osc2.settings[OPENSC2_SETTING_PAD_STABILIZER] = 2;
+	static const int16_t xs[] = { 1000, 3000, 3000 };
+	static const int16_t want[] = { 1000, 1000, 3000 };
+
+	for (size_t i = 0; i < ARRAY_SIZE(xs); i++) {
+		if (i == 2) {
+			osc2.settings[OPENSC2_SETTING_GRIP_SENSITIVITY] = 200;
+		}
+		memset(&s, 0, sizeof(s));
+		s.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = xs[i], .y = 1000, .touched = true };
+		osc2_cal_frame(&s);
+		osc2_cal_rules(&s);
+		CHECK_EQ(s.pad[OPENSC2_LEFT].x, want[i]);
+	}
+
+	/* a load of a pad's pressure key starts that pad over (its stick-touch mean), not the other */
+	stub_reset();
+	opensc2_set_touch_raw(OPENSC2_LEFT, 1100, 0);
+	opensc2_set_touch_raw(OPENSC2_RIGHT, 1100, 0);
+	cal_frame_state(&s);
+	CHECK(s.buttons & OPENSC2_TOUCH_LEFT_STICK);
+	CHECK(s.buttons & OPENSC2_TOUCH_RIGHT_STICK);
+	opensc2_set_touch_raw(OPENSC2_LEFT, 300, 0);
+	opensc2_set_touch_raw(OPENSC2_RIGHT, 300, 0);
+	CHECK_EQ(cal_named(0xEE, "cal/prs_l", prs, 8), 0);
+	cal_frame_state(&s);
+	CHECK(!(s.buttons & OPENSC2_TOUCH_LEFT_STICK));   /* the first word fills both: 300 */
+	CHECK(s.buttons & OPENSC2_TOUCH_RIGHT_STICK);     /* the mean of 1100 and 300: held */
+
+	/* a stick key does not touch the pads: a click held inside the hysteresis band stays */
+	stub_reset();
+	CHECK_EQ(cal_named(0xEE, "cal/prs_r", prs, 8), 0);
+	opensc2_set_pressure_raw(OPENSC2_RIGHT, 2100);
+	for (int i = 0; i < 3; i++) {   /* the filter reaches 1213: 56 %, on */
+		memset(&s, 0, sizeof(s));
+		s.pad[OPENSC2_RIGHT].touched = true;
+		osc2_cal_frame(&s);
+	}
+	CHECK(s.pad[OPENSC2_RIGHT].clicked);
+	opensc2_set_pressure_raw(OPENSC2_RIGHT, 909);   /* the filter settles at 909: 39 % */
+	for (int i = 0; i < 20; i++) {
+		memset(&s, 0, sizeof(s));
+		s.pad[OPENSC2_RIGHT].touched = true;
+		osc2_cal_frame(&s);
+	}
+	CHECK(s.pad[OPENSC2_RIGHT].clicked);
+	CHECK_EQ(cal_named(0xEE, "cal/joy_l", cal_joy_bytes, 18), 0);
+	memset(&s, 0, sizeof(s));
+	s.pad[OPENSC2_RIGHT].touched = true;
+	osc2_cal_frame(&s);
+	CHECK(s.pad[OPENSC2_RIGHT].clicked);
+	/* its own key does: the click starts over and stays off inside the band */
+	CHECK_EQ(cal_named(0xEE, "cal/prs_r", prs, 8), 0);
+	memset(&s, 0, sizeof(s));
+	s.pad[OPENSC2_RIGHT].touched = true;
+	osc2_cal_frame(&s);
+	CHECK(!s.pad[OPENSC2_RIGHT].clicked);
+}
+
 OPENSC2_TEST(cal_store_persist)
 {
 	static const uint8_t trg[OPENSC2_CAL_TRIGGER_LEN] = { 2, 0, 0xDC, 0x05, 0xC8, 0x00, 0 };

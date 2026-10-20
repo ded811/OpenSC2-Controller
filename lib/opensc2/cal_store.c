@@ -102,6 +102,7 @@ static uint8_t ram[K_COUNT][KEY_MAX] = {
 	[K_RGBW_R] = { 90 }, [K_RGBW_G] = { 35 }, [K_RGBW_B] = { 120 }, [K_RGBW_W] = { 80 },
 };
 static uint32_t generation;          /* changes with every stick, trigger or pressure key */
+static uint32_t pressure_loads[2];   /* changes with every load of cal/prs_l, cal/prs_r */
 static uint32_t pending_save;        /* keys to write from the system work queue */
 static bool pending_erase;
 
@@ -151,6 +152,9 @@ static void set_ram(int k, const uint8_t *value)
 	memcpy(ram[k], value, keys[k].size);
 	if (analog(k)) {
 		generation++;
+	}
+	if (k == K_PRS_L || k == K_PRS_R) {
+		pressure_loads[k - K_PRS_L]++;
 	}
 	k_spin_unlock(&lock, lk);
 }
@@ -299,6 +303,7 @@ static struct opensc2_cal_rec rec;
 
 static struct {
 	uint32_t applied;      /* the generation the set-ups come from */
+	uint32_t pressure_applied[2];   /* the pressure key loads the pads' set-ups come from */
 	bool set_up;
 	struct opensc2_stick_proc stick[2];
 	struct opensc2_trigger_proc trigger[2];
@@ -402,12 +407,26 @@ int opensc2_cal_raw_release(uint8_t inputs)
 	return 0;
 }
 
-/* Set the processing up again from the RAM keys when they changed. */
+/* A pad starts over: the two-word means and the touch states of its stick touch and grip, its
+ * click, its stabiliser. The pressure filter is kept. */
+static void pad_start_over(int side)
+{
+	struct opensc2_pressure_proc *p = &proc.pressure[side];
+
+	opensc2_cap_reset(&proc.stick_touch[side]);
+	opensc2_cap_reset(&proc.grip[side]);
+	opensc2_stabiliser_reset(&proc.stab[side]);
+	p->click = false;
+	p->click_setting = INT16_MIN;
+}
+
+/* Set the processing up again from the RAM keys when they changed: both sticks and both triggers
+ * after any of their keys, a pad (and its start-over) only after a load of its own pressure key. */
 static void apply_calibration(void)
 {
 	uint8_t joy[2][OPENSC2_CAL_STICK_LEN], trg[2][OPENSC2_CAL_TRIGGER_LEN];
 	uint8_t prs[2][OPENSC2_CAL_PRESSURE_LEN];
-	uint32_t gen;
+	uint32_t gen, loads[2];
 	k_spinlock_key_t lk = k_spin_lock(&lock);
 
 	gen = generation;
@@ -419,6 +438,7 @@ static void apply_calibration(void)
 		memcpy(joy[side], ram[K_JOY_L + side], sizeof(joy[side]));
 		memcpy(trg[side], ram[K_TRG_L + side], sizeof(trg[side]));
 		memcpy(prs[side], ram[K_PRS_L + side], sizeof(prs[side]));
+		loads[side] = pressure_loads[side];
 	}
 	k_spin_unlock(&lock, lk);
 
@@ -429,18 +449,23 @@ static void apply_calibration(void)
 
 		opensc2_cal_stick_unpack(joy[side], &s);
 		opensc2_cal_trigger_unpack(trg[side], &t);
-		opensc2_cal_pressure_unpack(prs[side], &p);
 		proc.stick[side].dead_zone = STICK_DEAD_ZONE;
 		proc.stick[side].grow_range = STICK_GROW_RANGE;
 		opensc2_stick_setup(&proc.stick[side], &s);
 		opensc2_trigger_setup(&proc.trigger[side], &t);
+		if (proc.set_up && loads[side] == proc.pressure_applied[side]) {
+			continue;   /* another key changed: this pad goes on as it was */
+		}
+		opensc2_cal_pressure_unpack(prs[side], &p);
 		opensc2_pressure_setup(&proc.pressure[side], &p);   /* the filter is kept */
+		pad_start_over(side);
+		proc.pressure_applied[side] = loads[side];
 	}
 	proc.applied = gen;
 	proc.set_up = true;
 }
 
-/* The settings whose change makes each pad start over (its means, touch states and click). */
+/* The settings whose change makes both pads start over. */
 static void pads_start_over_on_change(void)
 {
 	static const uint8_t numbers[10] = { 30, 31, 33, 34, 35, 52, 53, 66, 72, 73 };
@@ -456,12 +481,7 @@ static void pads_start_over_on_change(void)
 		return;
 	}
 	for (int side = 0; side < 2; side++) {
-		struct opensc2_pressure_proc *p = &proc.pressure[side];
-
-		opensc2_cap_reset(&proc.stick_touch[side]);
-		opensc2_cap_reset(&proc.grip[side]);
-		p->click = false;
-		p->click_setting = INT16_MIN;
+		pad_start_over(side);
 	}
 }
 
