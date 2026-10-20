@@ -86,7 +86,7 @@ if ($NoRunner) {
     $env:OPENSC2_FWEMU = $fwemu
     & python -I $runPy --selftest
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the runner self-tests'; $failed = 1 }
-    & python -I $runPy --dry-run --fw-emu $fwemu --lizard --yes --results $results
+    & python -I $runPy --dry-run --fw-emu $fwemu --lizard --dock --yes --results $results
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the dry run against the emulator'; $failed = 1 }
     Remove-Item Env:\OPENSC2_FWEMU
     & python -I (Join-Path $root 'tools\match_steam_version.py') --selftest

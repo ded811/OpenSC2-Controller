@@ -298,6 +298,28 @@ def _decode_entry_data(kind, d):
         e["git_revision"] = bytes(d[14:26]).split(b"\0", 1)[0].decode("ascii", "replace")
     elif kind == C.RING_CHANNELS:
         e["channels"] = list(d[0:4])
+    elif kind == C.RING_DOCK_SESSION:
+        e["what"] = d[0]               # 0 start, 1 end
+        e["reason"] = d[1]             # start: 0 pilot, 1 test hooks; end: proto/dock.py
+        e["frames"] = struct.unpack_from("<I", d, 2)[0]
+    elif kind == C.RING_DOCK_FRAME:
+        e["type"] = d[0]
+        e["outcome"] = d[1]            # 0 answered, 1 size, 2 CRC
+        e["length"] = d[2]
+        e["result"] = struct.unpack_from("<i", d, 3)[0]
+        e["us"] = struct.unpack_from("<I", d, 7)[0]
+    elif kind == C.RING_DOCK_PILOT:
+        e["mv"] = list(struct.unpack_from("<hhh", d, 0))
+        e["inside"] = d[6]
+        e["present"] = d[7]
+    elif kind == C.RING_DOCK_STATE:
+        e["what"] = d[0]               # 0 supply, 1 entry, 2 event
+        e["event"] = d[1]
+        e["chord"] = d[2]
+        e["from"] = d[3]
+        e["to"] = d[4]
+        e["handled"] = d[5]
+        e["actions"] = struct.unpack_from("<I", d, 6)[0]
     return e
 
 
@@ -386,6 +408,16 @@ def _encode_entry_data(e):
                 struct.pack("<I", e["board_revision"]) + git + bytes(12 - len(git)))
     if kind == C.RING_CHANNELS:
         return bytes(e["channels"][:4])
+    if kind == C.RING_DOCK_SESSION:
+        return bytes([e["what"], e["reason"]]) + struct.pack("<I", e["frames"])
+    if kind == C.RING_DOCK_FRAME:
+        return bytes([e["type"], e["outcome"], e["length"]]) + struct.pack("<iI", e["result"],
+                                                                          e["us"])
+    if kind == C.RING_DOCK_PILOT:
+        return struct.pack("<hhh", *e["mv"]) + bytes([e["inside"], e["present"]])
+    if kind == C.RING_DOCK_STATE:
+        return bytes([e["what"], e["event"], e["chord"], e["from"], e["to"], e["handled"]]) + \
+            struct.pack("<I", e["actions"])
     return e.get("data", b"")
 
 

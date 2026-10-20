@@ -143,7 +143,7 @@ class FwEmuBackend:
     # what this backend shows (the groups ask before checking a behaviour)
     models = {"firmware", "test_channel", "usb_framing", "console_test", "stream", "battery",
               "battery_cadence", "app_send", "outputs", "settings", "lease", "reboot", "radio",
-              "inputs", "lizard", "watchdog", "rumble_timeout", "detach_report"}
+              "inputs", "lizard", "watchdog", "rumble_timeout", "detach_report", "dock"}
 
     def __init__(self, exe, start_mode="W"):
         self.safety_ctx = None       # the Rig's live safety.Context (bound by the Rig)
@@ -168,6 +168,11 @@ class FwEmuBackend:
             self.proc.wait(timeout=5)
         except Exception:
             self.proc.kill()
+        for pipe in (self.proc.stdin, self.proc.stdout):
+            try:
+                pipe.close()
+            except Exception:
+                pass
 
     # ---- the line protocol ----
     def cmd(self, line):

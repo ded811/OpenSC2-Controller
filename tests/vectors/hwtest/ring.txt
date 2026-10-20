@@ -33,3 +33,9 @@ ENTRY 0000000012020905860402010501a00f                   # HAPTIC PCM control, 0
 ENTRY 0000000011030a00000000000000000001                 # RUMBLE all zero, timeout 1, link none (the rumble timeout)
 # a hex value split into tokens: the LED entry above again
 ENTRY 00000000 13 01 06 64 00 32 0a 00 32
+# the dock's entries (link 5)
+ENTRY 00010000 70 05 06 00 01 00000000                   # DOCK_SESSION start, by the test hooks
+ENTRY 00020000 70 05 06 01 02 03000000                   # DOCK_SESSION end, a bad CRC, after 3 frames
+ENTRY 00030000 71 05 0b 01 00 49 3f000000 96000000       # DOCK_FRAME GET answered, 73 bytes, result 63, 150 us
+ENTRY 00040000 72 05 08 c409 cf07 ffff 01 00             # DOCK_PILOT 2500, 1999, a failed conversion: inside 0x01, absent
+ENTRY 00050000 73 05 0a 01 00 00 00 01 01 00800800       # DOCK_STATE entry at power-on, away to radio off: keylock cleared, LED charging

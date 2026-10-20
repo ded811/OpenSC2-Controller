@@ -17,6 +17,7 @@ from . import config as C
 from . import safety
 from . import transport
 from .proto import console as cproto
+from .proto import dock as D
 from .proto import reports as R
 from .proto import testproto as T
 from .proto import vendor as V
@@ -940,6 +941,53 @@ class Rig:
 
     def radio_deaf(self, ms):
         return self.test(C.OP_RADIO_DEAF, struct.pack("<H", ms))
+
+    # ---- the dock link, through the test hooks' dock ops (proto/dock.py) ----
+    def dock_frame(self, frame, length=None, start_session=False):
+        """One frame to the board's dock link as if the puck had sent it: two DOCK_LOADs and a
+        DOCK_RUN of `length` bytes (73 by default). Returns the run's result as a dict with its
+        `status`; when the board answered, `answer` holds the answer frame as DOCK_READ shows it
+        (the serials, bonds and chip ID it masks are zeros). A SET is held to the HOST_SET
+        allowlist here first (S5); the firmware checks it again."""
+        frame = bytes(frame)
+        safety.check_dock_frame(frame)
+        with self._lock:
+            for args in D.load_args(frame):
+                a = self.test(C.OP_DOCK_LOAD, args)
+                if a["status"] != C.ST_OK:
+                    raise T.ProtocolError("DOCK_LOAD status %s" % C.STATUS_NAMES.get(a["status"]))
+            n = D.FRAME_LEN if length is None else length
+            a = self.test(C.OP_DOCK_RUN, bytes([n, D.RUN_START_SESSION if start_session else 0]))
+            if a["status"] != C.ST_OK:
+                return {"status": a["status"]}
+            r = D.parse_run(a["result"])
+            r["status"] = C.ST_OK
+            if r["outcome"] == D.RUN_ANSWERED:
+                r["answer"] = self.dock_read()
+            return r
+
+    def dock_read(self):
+        """The last answer frame, in two DOCK_READs (masked bytes as zeros)."""
+        out = b""
+        for off, n in ((0, D.READ_MAX), (D.READ_MAX, D.FRAME_LEN - D.READ_MAX)):
+            a = self.test(C.OP_DOCK_READ, bytes([off, n]))
+            if a["status"] != C.ST_OK or len(a["result"]) != 2 + n:
+                raise T.ProtocolError("DOCK_READ status %s" % C.STATUS_NAMES.get(a["status"]))
+            out += a["result"][2:]
+        return out
+
+    def dock_ctrl(self, args):
+        """DOCK_CTRL: the answer dict (status, result)."""
+        return self.test(C.OP_DOCK_CTRL, bytes(args))
+
+    def dock_status(self):
+        a = self.dock_ctrl([D.CTRL_STATUS])
+        if a["status"] != C.ST_OK:
+            raise T.ProtocolError("dock STATUS status %s" % C.STATUS_NAMES.get(a["status"]))
+        return D.parse_status(a["result"])
+
+    def dock_end(self):
+        return self.dock_ctrl([D.CTRL_END])["status"]
 
     # ---- the vendor channel as a host uses it (W: feature report 1; R: the test link) ----
     def _feature_set(self, buf):

@@ -326,6 +326,8 @@ def check_test_request(payload, transport, ctx=None):
         raise SafetyError("only reading test-channel ops go through the puck")
     if op == C.OP_HOST_SET and len(args) >= 2:
         check_host_set(args[0], bytes(args[2:2 + args[1]]))
+    if op == C.OP_DOCK_LOAD:
+        check_dock_load(bytes(args))
     if _injection_op(op, args):
         ctx = ctx if ctx is not None else Context()
         lizard_flag = (op == C.OP_INJECT and len(args) >= 1 and args[0] & C.INJECT_FLAG_LIZARD) \
@@ -355,6 +357,43 @@ def check_host_set(opcode, payload, ctx=None):
     # the few that could carry a forbidden shape (none here), to keep one rule.
     if opcode in _HARD_REFUSE or opcode in _FLASH_OPCODES:
         raise SafetyError("opcode 0x%02X refused on the test link" % opcode)
+
+
+# ---- the dock frame op (the board's dock link runs vendor commands too) ----------------------
+
+_DOCK_FRAME_LEN = 73
+_DOCK_SET = 2
+_DOCK_HEAD = 14    # start, type, 6 bytes, opcode, n and a 4-byte key: what a SET's check needs
+
+
+def check_dock_frame(frame):
+    """A whole dock frame the runner is about to load: a SET (type 2) runs a vendor command on the
+    board's dock link, so it is held to the HOST_SET allowlist (the firmware enforces the same
+    list at DOCK_RUN). Other types run no command."""
+    frame = bytes(frame)
+    if len(frame) != _DOCK_FRAME_LEN:
+        raise SafetyError("a dock frame is 73 bytes (%d)" % len(frame))
+    if frame[1] == _DOCK_SET:
+        check_host_set(frame[8], frame[10:10 + frame[9]])
+
+
+def check_dock_load(args):
+    """DOCK_LOAD at the send: the runner loads a frame in two parts, at offsets 0 (53 bytes) and
+    53. The first part holds the type, the opcode, its length and a 0x95 key, so a SET is checked
+    there; nothing is ever written into bytes 1 to 52 on its own, where it could turn a checked
+    frame into another."""
+    args = bytes(args)
+    if not args:
+        raise SafetyError("an empty DOCK_LOAD")
+    off, data = args[0], args[1:]
+    if off == 0:
+        if len(data) < _DOCK_HEAD:
+            raise SafetyError("a DOCK_LOAD at offset 0 holds at least the first 14 bytes")
+        if data[1] == _DOCK_SET:
+            check_host_set(data[8], data[10:10 + data[9]])
+        return
+    if off < 53:
+        raise SafetyError("DOCK_LOAD only at offset 0 or from 53 on (offset %d)" % off)
 
 
 # ---- the probes that must be refused (hooks.invisible, cmd.unknown, cmd.framing) ------------

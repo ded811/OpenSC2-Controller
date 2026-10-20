@@ -61,6 +61,13 @@ OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: 
             OP_CNT_RESET: "CNT_RESET", OP_MARK: "MARK", OP_SETTINGS_READ: "SETTINGS_READ",
             OP_HOST_OUT: "HOST_OUT", OP_HOST_SET: "HOST_SET", OP_HOST_GET: "HOST_GET",
             OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF"}
+# The dock (proto/dock.py has their arguments and results).
+OP_DOCK_LOAD = 0x90
+OP_DOCK_RUN = 0x91
+OP_DOCK_READ = 0x92
+OP_DOCK_CTRL = 0x93
+OP_NAMES.update({OP_DOCK_LOAD: "DOCK_LOAD", OP_DOCK_RUN: "DOCK_RUN", OP_DOCK_READ: "DOCK_READ",
+                 OP_DOCK_CTRL: "DOCK_CTRL"})
 
 # Answer status codes (docs/test-protocol.md).
 ST_OK = 0
@@ -106,7 +113,13 @@ RING_USB = 0x21
 RING_VERSION = 0x22
 RING_IDENTITY = 0x23
 RING_CHANNELS = 0x24
+RING_DOCK_SESSION = 0x70
+RING_DOCK_FRAME = 0x71
+RING_DOCK_PILOT = 0x72
+RING_DOCK_STATE = 0x73
 RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none"}
+RING_LINK_DOCK = 5
+RING_LINK_NAMES[RING_LINK_DOCK] = "dock"
 
 # LIZARD "what" values (docs/test-protocol.md, The ring).
 LIZARD_LEAVE = 0
@@ -207,6 +220,7 @@ CAP_USB_PLUG_IN_REBOOT = 11
 CAP_SHELL = 12
 CAP_FUSION = 13
 CAP_NO_HOST_WIRELESS = 14      # the charger test build (a testing aid, not the real controller)
+CAP_DOCK = 20                  # the dock link and its test ops (0x90 to 0x93)
 
 # ---- timings and thresholds -----------------------------------------------------------------
 STATE_PERIOD_MS = 4.0283            # USB state report period (about 248/s)

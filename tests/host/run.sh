@@ -65,7 +65,7 @@ elif [ -z "$py" ]; then
 else
 	OPENSC2_FWEMU="$emu" "$py" -I "$root/tools/hwtest/run.py" --selftest ||
 		{ echo "FAIL the runner self-tests"; rc=1; }
-	"$py" -I "$root/tools/hwtest/run.py" --dry-run --fw-emu "$emu" --lizard --yes \
+	"$py" -I "$root/tools/hwtest/run.py" --dry-run --fw-emu "$emu" --lizard --dock --yes \
 		--results "$out/opensc2_hwtest_results" ||
 		{ echo "FAIL the dry run against the emulator"; rc=1; }
 	"$py" -I "$root/tools/match_steam_version.py" --selftest ||
