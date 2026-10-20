@@ -331,7 +331,7 @@ def _lizard_lock(ctx, rig, c):
             c.eq("INJECT_STOP reason and what", (stops[0]["reason"], stops[0]["what"]), (1, 1))
         rpts = [e["report"] for e in base.of_kind(entries, C.RING_LIZARD_RPT)]
         c.eq("only the enter's reports were diverted", base.byte_lists(rpts),
-             base.byte_lists([bytes([C.RPT_MOUSE]) + bytes(5), bytes([C.RPT_KEYBOARD]) + bytes(8)]))
+             base.byte_lists([bytes([C.RPT_KEYBOARD]) + bytes(8), bytes([C.RPT_MOUSE]) + bytes(5)]))
         after = [r for _t, r in rig.read_stream(count=10) if r[0] == C.RPT_STATE]
         how = [app_state(R.state52_of_report(r), rig.baseline()) for r in after]
         c.true("every 0x42 from the stop on carries the application's state",

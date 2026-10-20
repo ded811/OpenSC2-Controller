@@ -7,8 +7,8 @@
 # is one opensc2_lizard_step() (fields not given are 0, the pads' touch and click from the button
 # bits, s82 setting 82 for this frame only), followed by its haptic events in order (TICK_L,
 # TICK_R: click A; CLICK_L, CLICK_R: click B); ENTER, LEAVE, SWITCHES up|down and RESYNC are the
-# transitions (ENTER sends the mouse report then the keyboard one, LEAVE the keyboard then the
-# mouse). Integer division truncates toward zero, as in C.
+# transitions (ENTER and LEAVE both send the keyboard report, then the mouse one). Integer division
+# truncates toward zero, as in C.
 START
 FRAME -> -
 FRAME buttons=0x00000001 -> 410000280000000000
@@ -66,7 +66,7 @@ FRAME -> 400000000000
 # transitions
 LEAVE -> 410000000000000000 400000000000
 LEAVE -> -
-ENTER -> 400000000000 410000000000000000
+ENTER -> 410000000000000000 400000000000
 FRAME buttons=0x00000001 -> -
 FRAME -> 410000000000000000
 SWITCHES down -> -
@@ -432,7 +432,7 @@ FRAME buttons=0x00200000 rpad=19000,0 -> 400010000000
 FRAME buttons=0x00200000 rpad=21000,0 -> 400010000000
 FRAME -> 40000F000000
 LEAVE -> 410000000000000000400000000000
-ENTER -> 400000000000410000000000000000
+ENTER -> 410000000000000000400000000000
 FRAME -> -
 # the ticks (rules 800): a step each time the thumb has moved more than 1500 from the last step point, a tick (click A) once the steps times 1500 exceed setting 14 (5500: every fourth step)
 START
@@ -505,7 +505,7 @@ FRAME buttons=0x00200000 rpad=9600,0 -> 40000D000000
 FRAME -> 400000000000
 # a click held when lizard mode starts is taken as it is
 LEAVE -> 410000000000000000400000000000
-ENTER -> 400000000000410000000000000000
+ENTER -> 410000000000000000400000000000
 FRAME buttons=0x00600000 rpad=0,0 -> 400100000000
 FRAME buttons=0x00200000 rpad=0,0 -> 400000000000 CLICK_R
 FRAME -> -

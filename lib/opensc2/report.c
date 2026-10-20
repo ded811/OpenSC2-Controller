@@ -206,11 +206,9 @@ void osc2_lizard_set(bool on)
 		osc2_test_note_lizard(on ? OSC2_TEST_LIZARD_ENTER : OSC2_TEST_LIZARD_LEAVE);
 		osc2_test_count_n(OSC2_TEST_CNT_LIZARD_MADE, 2);
 	}
-	/* Off: the keyboard first, then the mouse, releasing whatever was held. On: both, empty. */
-	if (made && on) {
-		(void)osc2_input_send(mouse, sizeof(mouse), false);
-		(void)osc2_input_send(keyboard, sizeof(keyboard), false);
-	} else if (made) {
+	/* The keyboard first, then the mouse, both ways: off, releasing whatever was held; on, both
+	 * empty (the protocol documentation's order, inferred there from the off order). */
+	if (made) {
 		(void)osc2_input_send(keyboard, sizeof(keyboard), false);
 		(void)osc2_input_send(mouse, sizeof(mouse), false);
 	}

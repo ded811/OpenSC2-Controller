@@ -345,7 +345,7 @@ static const char *const builtin_lizard[] = {
 	"# transitions",
 	"LEAVE -> 410000000000000000 400000000000",
 	"LEAVE -> -",
-	"ENTER -> 400000000000 410000000000000000",
+	"ENTER -> 410000000000000000 400000000000",
 	"FRAME buttons=0x00000001 -> -",
 	"FRAME -> 410000000000000000",
 	"SWITCHES down -> -",
@@ -491,11 +491,11 @@ static void lizard_line(char *tok[], int n, void *ctx)
 			got_len += (int)sizeof(mouse);
 		}
 	} else if (strcmp(tok[0], "ENTER") == 0) {
-		/* osc2_lizard_set(true): the mouse report, then the keyboard one. */
+		/* osc2_lizard_set(true): the keyboard report, then the mouse one. */
 		made = opensc2_lizard_enter(&run->lz, keyboard, mouse);
 		if (made) {
-			memcpy(&got[0], mouse, sizeof(mouse));
-			memcpy(&got[sizeof(mouse)], keyboard, sizeof(keyboard));
+			memcpy(&got[0], keyboard, sizeof(keyboard));
+			memcpy(&got[sizeof(keyboard)], mouse, sizeof(mouse));
 			got_len = (int)(sizeof(mouse) + sizeof(keyboard));
 		}
 	} else if (strcmp(tok[0], "LEAVE") == 0) {

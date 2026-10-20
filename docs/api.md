@@ -485,7 +485,9 @@ switches it off while it runs; about 10 seconds after Steam stops, it comes back
 same, on every link. With `CONFIG_OPENSC2_LIZARD_MODE` (default on) the library builds the mouse and
 keyboard reports from the input state:
 
-- **On** at every boot (controller setting 9 = 1; settings live in RAM).
+- **On** at every boot (controller setting 9 = 1; settings live in RAM). Coming back on (setting 9
+  = 1, `0x8E`, the Steam watchdog) sends one empty keyboard report `0x41`, then one all-zero mouse
+  report `0x40`, in the real controller's order.
 - **Off** with vendor command `0x81` (the first one sends one empty keyboard report `0x41`, then one
   all-zero mouse report `0x40`, releasing whatever was held) or setting 9 = 0. The release reports
   always come after every report lizard mode made before it turned off, also on USB, where the

@@ -158,10 +158,7 @@ void osc2_lizard_set(bool on)
 		osc2_test_note_lizard(on ? OSC2_TEST_LIZARD_ENTER : OSC2_TEST_LIZARD_LEAVE);
 		osc2_test_count_n(OSC2_TEST_CNT_LIZARD_MADE, 2);
 	}
-	if (made && on) {
-		(void)input_send(mouse, sizeof(mouse));
-		(void)input_send(keyboard, sizeof(keyboard));
-	} else if (made) {
+	if (made) {   /* the keyboard first, then the mouse, both ways */
 		(void)input_send(keyboard, sizeof(keyboard));
 		(void)input_send(mouse, sizeof(mouse));
 	}

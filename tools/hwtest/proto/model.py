@@ -388,8 +388,8 @@ class LizardModel:
         self.active = True
         self.keyboard_on = self.buttons_on = True
         self.keyboard_sync = True
-        # osc2_lizard_set(on): mouse first, then keyboard
-        return [("mouse", _mouse_report(0, 0, 0, 0, 0)), ("keyboard", _keyboard_report([]))]
+        # osc2_lizard_set(on): keyboard first, then mouse (the same order as off)
+        return [("keyboard", _keyboard_report([])), ("mouse", _mouse_report(0, 0, 0, 0, 0))]
 
     def leave(self):
         was_active = self.active

@@ -271,10 +271,10 @@ def _run(ctx, rig, snap):
             rig.vendor_set(C.VC_SETTINGS_LOAD_DEFAULTS)
             c.eq("setting 9", rig.settings_read()[9], 1)
             e = _ring_since(rig, start)
-            c.eq("LIZARD enter, then mouse zero, then keyboard empty (diverted)",
+            c.eq("LIZARD enter, then keyboard empty, then mouse zero (diverted)",
                  [(x["kind"], x.get("what"), x.get("report")) for x in e[:3]],
-                 [(C.RING_LIZARD, C.LIZARD_ENTER, None), (C.RING_LIZARD_RPT, None, MOUSE_ZERO),
-                  (C.RING_LIZARD_RPT, None, KEYS_EMPTY)])
+                 [(C.RING_LIZARD, C.LIZARD_ENTER, None), (C.RING_LIZARD_RPT, None, KEYS_EMPTY),
+                  (C.RING_LIZARD_RPT, None, MOUSE_ZERO)])
             rig.write_settings([(n, snap[n]) for n in (48, 84, 85)])
 
     if rig.settings_read()[9] == 0:
@@ -362,11 +362,11 @@ def _run(ctx, rig, snap):
             start = rig.ring_next()
             rig.write_settings([(9, 1)])
             e = _ring_since(rig, start)
-            c.eq("0x87 {9,1} while off: enter, mouse zero, keyboard empty, SETTING 9 = 1",
+            c.eq("0x87 {9,1} while off: enter, keyboard empty, mouse zero, SETTING 9 = 1",
                  [(x["kind"], x.get("what"), x.get("report"), x.get("number")) for x in e],
                  [(C.RING_LIZARD, C.LIZARD_ENTER, None, None),
-                  (C.RING_LIZARD_RPT, None, MOUSE_ZERO, None),
                   (C.RING_LIZARD_RPT, None, KEYS_EMPTY, None),
+                  (C.RING_LIZARD_RPT, None, MOUSE_ZERO, None),
                   (C.RING_SETTING, None, None, 9)])
 
     if ctx.want("lizard.switches"):
