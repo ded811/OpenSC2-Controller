@@ -1200,9 +1200,12 @@ in OpenSC2. The synthesiser has sounds of its own instead:
 | `opensc2_haptics_click(channels, click, dB)` | click A or B (`OPENSC2_HAPTIC_CMD_CLICK_A`, `_B`) on the pads: how many it queued |
 | `opensc2_haptics_stop(channels)` | stop everything on the channels: how many it queued |
 | `opensc2_haptics_play_clip(channel, data, samples, format, dB)` | a recording of your own in a stream format (0..11); `data` stays valid until it has played |
-| `opensc2_haptics_free_fall()` | a free fall: maybe a drop sound |
+| `opensc2_haptics_free_fall()` | a free fall: maybe a drop sound. From any context, an IMU's free-fall interrupt included: it notes the time, the rest runs on the system work queue |
 | `opensc2_haptics_info(&info)` | what plays, blocks, underruns, lost commands, stream fill |
 | `opensc2_haptics_block_level(path, block, frames)`, `opensc2_freefall_init(&ff)`, `opensc2_freefall_update(&ff, accel, ms)` | pure helpers, with or without the synthesiser |
+
+Every function above but `opensc2_haptics_free_fall()` and the pure helpers takes the synthesiser's
+mutex: call it from a thread, never from an interrupt.
 
 ### Settings, threads and memory
 

@@ -451,14 +451,34 @@ int opensc2_haptics_play_clip(uint8_t channel, const uint8_t *data, uint16_t sam
 	return queue_each((uint8_t)(1u << channel), &cmd) == 1 ? 0 : -ENOMEM;
 }
 
-void opensc2_haptics_free_fall(void)
-{
 #if defined(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS)
+/* A fall noted from any context (an IMU's interrupt too): its time, taken to the logic under the
+ * lock from the system work queue. The drop sound comes 250 ms after the fall's time anyway. */
+static atomic_t fall_time;
+static atomic_t fall_waiting;
+
+static void fall_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	if (!atomic_cas(&fall_waiting, 1, 0)) {
+		return;
+	}
 	lock();
-	(void)osc2_hap_rt_fall(&rt, now_ms());
+	(void)osc2_hap_rt_fall(&rt, (uint32_t)atomic_get(&fall_time));
 	schedule_locked();
 	unlock();
 	flush();
+}
+static K_WORK_DEFINE(fall_work, fall_fn);
+#endif
+
+void opensc2_haptics_free_fall(void)
+{
+#if defined(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS)
+	/* No mutex here: it may be an interrupt. */
+	atomic_set(&fall_time, (atomic_val_t)now_ms());
+	atomic_set(&fall_waiting, 1);
+	(void)k_work_submit(&fall_work);
 #endif
 }
 

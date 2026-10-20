@@ -136,9 +136,12 @@ int opensc2_haptics_stop(uint8_t channels);
 int opensc2_haptics_play_clip(uint8_t channel, const uint8_t *data, uint16_t samples,
 			      uint8_t format, int8_t gain_db);
 
-/* A free fall (CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS): from the IMU's free-fall interrupt, or from
- * opensc2_freefall_update(). 250 ms later a random byte picks one of the two drop sounds (3 in 16
- * and 5 in 16) or none, on the left grip; further falls count again 5 s after this one. */
+/* A free fall (CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS): from any context, an IMU's free-fall interrupt
+ * included (it only notes the time; the rest runs in the system work queue), or from a thread on
+ * opensc2_freefall_update(). 250 ms after the fall a random byte picks one of the two drop sounds
+ * (3 in 16 and 5 in 16) or none, on the left grip; further falls count again 5 s after this one.
+ * Every other opensc2_haptics_* call takes the synthesiser's mutex: from threads only, never from
+ * an interrupt. */
 void opensc2_haptics_free_fall(void);
 
 /* What the synthesiser does now. */
