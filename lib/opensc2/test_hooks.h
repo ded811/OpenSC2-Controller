@@ -23,7 +23,6 @@
 /* osc2_test_ctx_enter() with the hooks unarmed: nothing to restore. */
 #define OSC2_TEST_CTX_UNSET 0xFF
 
-
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 
 /* ---- state reports, lizard mode, battery ---- */

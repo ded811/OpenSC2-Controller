@@ -379,12 +379,12 @@ open, the library does what should work with Steam and the puck, and says so her
     doubles them again, so an odd position loses its lowest bit while a rule is on. The rotation's
     sine and cosine are the exact values × 8192, truncated (30° gives 4096). The position filter
     (setting 65, on by default on the real controller) is a helper for applications
-    (`<opensc2/sensor_helpers.h>`), not a library rule: as a rule it would change every board's pads. Its
-    speed is the change since the previous output, as in the usual "one euro" filter (the
-    documentation leaves open whether the previous input is meant).
+    (`<opensc2/sensor_helpers.h>`), not a library rule: as a rule it would change every board's
+    pads. Its speed is the change since the previous output, as in the usual "one euro" filter
+    (the documentation leaves open whether the previous input is meant).
 24. **Setting 85.** The real controller hands it to its IMU's fusion block, where its role is not
-    known. OpenSC2's rest-based gyro-bias estimate (`<opensc2/sensor_helpers.h>`, for IMUs without one of
-    their own) takes it as its rest threshold in report units.
+    known. OpenSC2's rest-based gyro-bias estimate (`<opensc2/sensor_helpers.h>`, for IMUs
+    without one of their own) takes it as its rest threshold in report units.
 
 ## What this library adds for development boards
 
