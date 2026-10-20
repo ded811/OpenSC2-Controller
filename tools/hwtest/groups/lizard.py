@@ -38,9 +38,10 @@ TOUCHED = (11, 12, 14, 52, 53, 70, 80, 82, 68, 9)
 AFTER_MAX = 1100            # frames after a sequence the model may run (a glide: setting 12)
 
 
-def S(buttons=0, rpad=(0, 0), lpad=(0, 0), rt=0, lt=0):
+def S(buttons=0, rpad=(0, 0), lpad=(0, 0), rt=0, lt=0, rstick=(0, 0), rpress=0):
     return R.make_state52(buttons=buttons, rpad_x=rpad[0], rpad_y=rpad[1], lpad_x=lpad[0],
-                          lpad_y=lpad[1], right_trigger=rt, left_trigger=lt)
+                          lpad_y=lpad[1], right_trigger=rt, left_trigger=lt,
+                          rstick_x=rstick[0], rstick_y=rstick[1], rpad_pressure=rpress)
 
 
 def expected(steps, rules, settings):
@@ -290,6 +291,13 @@ def _run(ctx, rig, snap):
                                                 (S(), 1)], mapping)
             check_sequence(c, rig, "pad click", [(S(RPAD_TOUCH | RPAD_CLICK), 1), (S(), 1)],
                            mapping)
+            if rig.caps and rig.caps["build_flags"] & (1 << C.CAP_RULES):
+                # the click by pressure (setting 53), switched on for this sequence: pressed past
+                # 48 % the right pad is the left button, until it falls below 32 %
+                check_sequence(c, rig, "pad click by pressure (switched on)", [
+                    (S(RPAD_TOUCH), 1), (S(RPAD_TOUCH, rpress=20000), 2),
+                    (S(RPAD_TOUCH, rpress=12000), 1), (S(RPAD_TOUCH, rpress=9000), 1),
+                    (S(), 1)], mapping | M.RULE_PAD_CLICK, [(53, 40)])
 
     if ctx.want("lizard.thumb_on_stick"):
         with ctx.check(GROUP, "lizard.thumb_on_stick") as c:
@@ -299,6 +307,13 @@ def _run(ctx, rig, snap):
                     (S(RSTICK_TOUCH | RPAD_TOUCH, rpad=(1280, 0)), 1),
                     (S(RSTICK_TOUCH | RPAD_TOUCH, rpad=(2560, 0)), 1), (S(), 1)], mapping,
                     [(82, s82)])
+            # the stick-touch fallback: the stick deflected beyond 12000, without its sensor's
+            # bit, blanks the pad too (a board on OpenSC2 0.2.0 has no fallback: the pointer moves)
+            check_sequence(c, rig, "s82=3, the right stick deflected", [
+                (S(RPAD_TOUCH, rpad=(0, 0), rstick=(20000, 0)), 1),
+                (S(RPAD_TOUCH, rpad=(1280, 0), rstick=(20000, 0)), 1),
+                (S(RPAD_TOUCH, rpad=(2560, 0), rstick=(20000, 0)), 1), (S(), 1)], mapping,
+                [(82, 3)])
             rig.write_settings([(82, snap[82])])
 
     if ctx.want("lizard.off"):
@@ -432,6 +447,10 @@ def _processing(ctx, rig, snap):
             check_sequence(c, rig, "right pad, setting 80 = 0", [
                 (S(RPAD_TOUCH, rpad=(0, 0)), 1), (S(RPAD_TOUCH, rpad=(1280, 0)), 1),
                 (S(), 1)], rules, [(80, 0)])
+            # 80 = 2 selects the stabiliser of the reported position (not implemented), none here
+            check_sequence(c, rig, "right pad, setting 80 = 2", [
+                (S(RPAD_TOUCH, rpad=(0, 0)), 1), (S(RPAD_TOUCH, rpad=(1280, 0)), 1),
+                (S(), 1)], rules, [(80, 2)])
             rig.write_settings([(80, snap[80])])
 
     if ctx.want("lizard.smoothing"):
