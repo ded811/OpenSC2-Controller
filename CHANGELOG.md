@@ -38,7 +38,7 @@ hardware.
 - The hardware test suite's lizard group runs its mapping tests with lizard mode's processing
   switched off, and follows every sequence until lizard mode goes quiet (a glide keeps the reports
   going); its model and the shared vectors cover the input rules and the processing.
-- The host tests are now 62 (4,983 checks), and 90 (7,462 checks) with the hardware test hooks;
+- The host tests are now 62 (5,221 checks), and 90 (7,700 checks) with the hardware test hooks;
   the runner has 211 self-tests.
 
 ## [0.2.0] - 2026-10-19

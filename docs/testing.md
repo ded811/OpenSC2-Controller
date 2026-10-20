@@ -148,7 +148,7 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 62 host tests (4,983 checks); 90 (7,462 checks) with
+the suite against that emulator. Today that is 62 host tests (5,221 checks); 90 (7,700 checks) with
 the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
 alike; the runner's 211 self-tests; its dry run against the library's own code in a firmware
 emulator; 9 self-tests of `tools/match_steam_version.py`. To run the emulator by hand after

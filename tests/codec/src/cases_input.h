@@ -253,6 +253,26 @@ OPENSC2_TEST(input_stabiliser)
 	x = -1000;   /* 8000 away: within the coarse radius */
 	osc2_stabiliser_step(&st, OSC2_STABILISER_COARSE, true, &x, &y);
 	CHECK_EQ(x, -9000);
+
+	/* The fine radius along an axis: 4443 away is still held (4369 by the approximation), 4444
+	 * is out. Out once, the output follows for the rest of the touch, back inside the radius
+	 * too: no second hold. */
+	osc2_stabiliser_reset(&st);
+	x = 0;
+	y = 0;
+	osc2_stabiliser_step(&st, OSC2_STABILISER_FINE, true, &x, &y);
+	x = 4443;
+	osc2_stabiliser_step(&st, OSC2_STABILISER_FINE, true, &x, &y);
+	CHECK_EQ(x, 0);
+	CHECK(st.holding);
+	x = 4444;
+	osc2_stabiliser_step(&st, OSC2_STABILISER_FINE, true, &x, &y);
+	CHECK(!st.holding);
+	CHECK_EQ(x, 1 + 4443 / 8 + 1);   /* the thumb's 1, then an eighth of the gap plus one */
+	x = 100;
+	osc2_stabiliser_step(&st, OSC2_STABILISER_FINE, true, &x, &y);
+	CHECK_EQ(x, 557 - 4344 + 3887 / 8 + 1);   /* moved with the thumb, the gap closing */
+	CHECK_EQ(y, 0);
 }
 
 /* ---- lizard mode's haptic events and what ends a glide --------------------------------------- */
