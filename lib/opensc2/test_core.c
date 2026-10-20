@@ -2121,6 +2121,10 @@ struct console {
 	char id[8];
 };
 
+/* The verbs stay out of line: only the one that runs has its buffers on the shell's stack, and a
+ * raw request goes deep (verb_raw()). */
+#define VERB __attribute__((__noinline__))
+
 static void out_line(struct console *k, const char *tag, const char *fmt, ...)
 {
 	char line[256];
@@ -2206,7 +2210,7 @@ static bool parse_decimal(const char *text, unsigned int digits, uint32_t *value
 	return n > 0;
 }
 
-static int verb_raw(struct console *k, int argc, const char *const *argv)
+static VERB int verb_raw(struct console *k, int argc, const char *const *argv)
 {
 	/* Static: a raw request can run a dock op down to a vendor command and its log line, deeper
 	 * than the shell's stack would hold with these 245 bytes on it as well. The console runs one
@@ -2231,7 +2235,7 @@ static int verb_raw(struct console *k, int argc, const char *const *argv)
 	return finish(k, 0);
 }
 
-static int verb_status(struct console *k, int argc)
+static VERB int verb_status(struct console *k, int argc)
 {
 	uint8_t status[OSC2_TEST_STATUS_LEN];
 	char text[200];
@@ -2246,7 +2250,7 @@ static int verb_status(struct console *k, int argc)
 	return finish(k, 0);
 }
 
-static int verb_arm(struct console *k, int argc, const char *const *argv)
+static VERB int verb_arm(struct console *k, int argc, const char *const *argv)
 {
 	uint8_t key[4], args[7] = { 0 }, result[OSC2_TEST_RESULT_MAX], rlen = 0, status;
 	uint32_t lease = 0;
@@ -2273,7 +2277,7 @@ static int verb_arm(struct console *k, int argc, const char *const *argv)
 }
 
 /* A verb that needs arming and runs one op without arguments. */
-static int verb_simple(struct console *k, uint8_t op, const char *tag)
+static VERB int verb_simple(struct console *k, uint8_t op, const char *tag)
 {
 	uint8_t result[OSC2_TEST_RESULT_MAX], rlen = 0, status;
 
@@ -2289,7 +2293,7 @@ static int verb_simple(struct console *k, uint8_t op, const char *tag)
 	return finish(k, 0);
 }
 
-static int verb_ring(struct console *k, int argc, const char *const *argv)
+static VERB int verb_ring(struct console *k, int argc, const char *const *argv)
 {
 	uint8_t result[OSC2_TEST_RESULT_MAX], args[5] = { 0 }, rlen = 0, status;
 	uint32_t from = 0, first = 0, next = 0;
@@ -2336,7 +2340,7 @@ static int verb_ring(struct console *k, int argc, const char *const *argv)
 	return finish(k, 0);
 }
 
-static int verb_cnt(struct console *k, int argc)
+static VERB int verb_cnt(struct console *k, int argc)
 {
 	uint8_t result[OSC2_TEST_RESULT_MAX], rlen = 0, status;
 
@@ -2362,7 +2366,7 @@ static int verb_cnt(struct console *k, int argc)
 	return finish(k, 0);
 }
 
-static int verb_settings(struct console *k, int argc)
+static VERB int verb_settings(struct console *k, int argc)
 {
 	if (argc != 0) {
 		return fail(k, OSC2_TEST_RC_BAD_ARGS, "settings takes no arguments");
