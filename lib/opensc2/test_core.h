@@ -99,6 +99,11 @@ enum osc2_test_op {
 	OSC2_TEST_OP_HOST_GET = 0x42,
 	OSC2_TEST_OP_APP_SEND = 0x43,
 	OSC2_TEST_OP_RADIO_DEAF = 0x44,
+	/* The dock (test_dock.c; the environment's dock_op). */
+	OSC2_TEST_OP_DOCK_LOAD = 0x90,
+	OSC2_TEST_OP_DOCK_RUN = 0x91,
+	OSC2_TEST_OP_DOCK_READ = 0x92,
+	OSC2_TEST_OP_DOCK_CTRL = 0x93,
 };
 
 /* Flags of ARM, INJECT, SEQ_RUN and BATTERY. */
@@ -150,6 +155,11 @@ enum osc2_test_kind {
 	OSC2_TEST_KIND_VERSION = 0x22,
 	OSC2_TEST_KIND_IDENTITY = 0x23,
 	OSC2_TEST_KIND_CHANNELS = 0x24,
+	/* The dock (test_dock.c), link 5. */
+	OSC2_TEST_KIND_DOCK_SESSION = 0x70,
+	OSC2_TEST_KIND_DOCK_FRAME = 0x71,
+	OSC2_TEST_KIND_DOCK_PILOT = 0x72,
+	OSC2_TEST_KIND_DOCK_STATE = 0x73,
 };
 
 /* LIZARD entries. */
@@ -223,6 +233,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+/* CONFIG_OPENSC2_DOCK_LINK: the dock link, and with it the dock ops 0x90 to 0x93. */
+#define OSC2_TEST_FLAG_DOCK                   (1u << 20)
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)
@@ -296,6 +308,10 @@ struct osc2_test_env {
 	void (*battery_now)(void);                /* a battery report now; the period restarts */
 	bool (*release_held)(void);               /* osc2_lizard_release_held() */
 	void (*lizard_resync)(void);              /* osc2_lizard_resync() (writes a LIZARD entry) */
+	/* The dock ops 0x90 to 0x93 (test_dock.c), the argument lengths checked: the status, the
+	 * result into `result`. NULL in a build without the dock link: BAD_OP. */
+	uint8_t (*dock_op)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			   uint8_t *rlen);
 };
 
 /* ---- the core's state ------------------------------------------------------------------------ */

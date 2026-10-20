@@ -20,20 +20,22 @@ out="${TMPDIR:-/tmp}"
 
 compile() {
 	${CC:-gcc} -std=c11 -Wall -Wextra -Wshadow -Werror -I"$here/shim" -I"$root/include" -I"$lib" \
+		-DCONFIG_OPENSC2_DOCK_LINK=1 \
 		"$here/stubs.c" "$lib/codec.c" "$lib/lizard.c" \
 		"$lib/settings_defaults.c" "$lib/fusion.c" "$lib/usb_desc.c" "$lib/usb_rules.c" \
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
-		"$lib/report_rules.c" "$lib/test_core.c" "$@" -lm
+		"$lib/report_rules.c" "$lib/test_core.c" "$lib/dock_codec.c" "$lib/dock_rules.c" \
+		"$lib/dock_link.c" "$here/dock_stub.c" "$@" -lm
 }
 
 compile "$here/run_tests.c" -o "$out/opensc2_host_tests_plain"
 compile "$here/run_tests.c" -DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=512 \
-	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$here/hooks_stub.c" \
-	-o "$out/opensc2_host_tests_hooks"
+	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$lib/test_dock.c" \
+	"$here/hooks_stub.c" -o "$out/opensc2_host_tests_hooks"
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
 compile "$here/fwemu.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_TEST_HOOKS=1 \
 	-DCONFIG_OPENSC2_TEST_RING_SIZE=2048 -DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 \
-	"$lib/test_notes.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
+	"$lib/test_notes.c" "$lib/test_dock.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
 
 rc=0
 "$out/opensc2_host_tests_plain" --vectors "$root/tests/vectors/hwtest" \

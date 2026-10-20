@@ -74,12 +74,14 @@ static void register_test(const char *name, test_fn fn)
 
 #include "../codec/src/cases.h"
 #include "../codec/src/cases_usb.h"
+#include "../codec/src/cases_dock.h"
 #include "commands_cases.h"
 #include "vectors_cases.h"
 #include "differential_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 #include "hooks_cases.h"
 #endif
+#include "dock_cases.h"   /* after hooks_cases.h: its hooks part uses those helpers */
 
 int main(int argc, char **argv)
 {

@@ -35,6 +35,9 @@ enum osc2_link {
 	 * host, with a stored request of their own; active exactly when the mode's real link is. */
 	OSC2_LINK_TEST = 2,
 #endif
+	/* 3 is "no link" in the test hooks' ring, 4 Bluetooth. The dock (dock_link.c): commands and
+	 * the latest state report over the puck's charging pads; never "active" for lizard mode. */
+	OSC2_LINK_DOCK = 5,
 	OSC2_LINK_COUNT,
 };
 
@@ -129,6 +132,9 @@ int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_le
  * `out` ({opcode, length, data}); returns the bytes written ({opcode, 0} when the command has no
  * answer). The record's own byte is not used: Valve's puck does not set it. */
 uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63]);
+/* The same, with the command's own result in `*rc` (0, or a negative errno; -ENOTSUP when the
+ * stored command has nothing to read), for the dock, which answers it. */
+uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc);
 /* USB: the 64-byte data stage of SET_REPORT(Feature 1). 0, or a negative errno (STALL). */
 int osc2_usb_feature_set(const uint8_t *data, uint16_t len);
 /* USB: answer GET_REPORT(Feature 1) for the stored request, `reply_len` bytes cut to `wlength`.

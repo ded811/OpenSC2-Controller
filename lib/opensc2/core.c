@@ -330,6 +330,9 @@ bool osc2_link_active(enum osc2_link link)
 		return false;
 #endif
 	}
+	if (link == OSC2_LINK_DOCK) {
+		return false;   /* the dock carries no lizard mode (dock_link.h says when it is up) */
+	}
 	return !osc2_wired() && osc2_radio_connected();
 }
 

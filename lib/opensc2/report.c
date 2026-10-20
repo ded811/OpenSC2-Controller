@@ -15,6 +15,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include "internal.h"
+#include "dock_link.h"
 #include "lizard.h"
 #include "report_rules.h"
 #include "test_hooks.h"
@@ -93,6 +94,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 #endif
 	opensc2_encode_state(s, sequence++, state);
 	osc2_test_frame(state);
+	osc2_dock_cache_report(state);   /* the dock's copy, while a dock session runs */
 }
 
 void osc2_report_lizard(const struct opensc2_state *s)

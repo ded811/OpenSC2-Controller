@@ -454,4 +454,7 @@ config OPENSC2_BOOTLOADER_BUILD_TIME
 
 endmenu
 
+# The dock (the puck's charging pads).
+rsource "Kconfig.dock"
+
 endif # OPENSC2

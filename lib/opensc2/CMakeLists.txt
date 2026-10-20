@@ -49,6 +49,17 @@ zephyr_library_sources_ifdef(CONFIG_OPENSC2_TEST_HOOKS
 if(CONFIG_OPENSC2_TEST_HOOKS AND CONFIG_OPENSC2_SHELL)
   zephyr_library_sources(test_shell.c)
 endif()
+# The dock: the frames (<opensc2/dock.h>, for any application), the dock link and its rules, its
+# test ops with the hooks, and the UART and pilot glue (dock.c, CONFIG_OPENSC2_DOCK inside).
+zephyr_library_sources(dock_codec.c)
+zephyr_library_sources_ifdef(CONFIG_OPENSC2_DOCK_LINK
+	dock.c
+	dock_link.c
+	dock_rules.c
+)
+if(CONFIG_OPENSC2_DOCK_LINK AND CONFIG_OPENSC2_TEST_HOOKS)
+  zephyr_library_sources(test_dock.c)
+endif()
 
 # The build time reported to Steam when CONFIG_OPENSC2_BUILD_TIME is 0: when CMake configured
 # this build (Unix seconds, UTC).

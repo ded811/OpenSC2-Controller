@@ -626,6 +626,7 @@ struct op_req {
 	struct osc2_test_core *c;
 	const struct osc2_test_env *env;
 	uint8_t link;            /* the transport: radio, USB, or test (the console) */
+	uint8_t op;
 	const uint8_t *args;
 	uint8_t alen;
 	uint8_t *result;
@@ -1014,6 +1015,12 @@ static uint8_t op_radio_deaf(struct op_req *r)
 	return OSC2_TEST_OK;
 }
 
+/* DOCK_LOAD, DOCK_RUN, DOCK_READ, DOCK_CTRL: the dock link's, through the environment. */
+static uint8_t op_dock(struct op_req *r)
+{
+	return r->env->dock_op(r->op, r->args, r->alen, r->result, &r->rlen);
+}
+
 typedef uint8_t (*op_fn)(struct op_req *r);
 
 static const struct {
@@ -1044,7 +1051,19 @@ static const struct {
 	{ OSC2_TEST_OP_HOST_GET, 0, 0, false, op_host_get },
 	{ OSC2_TEST_OP_APP_SEND, 1, OSC2_TEST_ARGS_MAX, false, op_app_send },
 	{ OSC2_TEST_OP_RADIO_DEAF, 2, 2, false, op_radio_deaf },
+	{ OSC2_TEST_OP_DOCK_LOAD, 2, OSC2_TEST_ARGS_MAX, false, op_dock },
+	{ OSC2_TEST_OP_DOCK_RUN, 2, 2, false, op_dock },
+	{ OSC2_TEST_OP_DOCK_READ, 2, 2, false, op_dock },
+	{ OSC2_TEST_OP_DOCK_CTRL, 1, 7, false, op_dock },
 };
+
+/* DOCK_CTRL's argument bytes by its first one (an unknown one: BAD_ARG in the op). */
+static bool dock_ctrl_length_ok(const uint8_t *args, uint8_t alen)
+{
+	static const uint8_t len[] = { 1, 1, 7, 6, 3, 1 };   /* STATUS END PILOT SUPPLY EVENT RESET */
+
+	return args[0] >= sizeof(len) || alen == len[args[0]];
+}
 
 /* Lengths that depend on the arguments themselves. */
 static bool length_ok(uint8_t op, const uint8_t *args, uint8_t alen)
@@ -1060,6 +1079,8 @@ static bool length_ok(uint8_t op, const uint8_t *args, uint8_t alen)
 			return alen == 6;      /* channel u8, flags u32 */
 		}
 		return true;               /* an unknown kind: BAD_ARG */
+	case OSC2_TEST_OP_DOCK_CTRL:
+		return dock_ctrl_length_ok(args, alen);
 	default:
 		return true;
 	}
@@ -1072,6 +1093,9 @@ static uint8_t dispatch(struct op_req *r, uint8_t op, bool console)
 	for (size_t i = 0; i < sizeof(op_table) / sizeof(op_table[0]); i++) {
 		if (op_table[i].op != op) {
 			continue;
+		}
+		if (op_table[i].fn == op_dock && !r->env->dock_op) {
+			return OSC2_TEST_BAD_OP;   /* built without the dock link */
 		}
 		if (r->alen < op_table[i].min || r->alen > op_table[i].max ||
 		    !length_ok(op, r->args, r->alen)) {
@@ -1094,6 +1118,7 @@ static uint8_t run(struct osc2_test_core *c, const struct osc2_test_env *env, ui
 		.c = c,
 		.env = env,
 		.link = link,
+		.op = req[6],
 		.args = &req[OSC2_TEST_HEADER_LEN],
 		.alen = (uint8_t)(n - OSC2_TEST_HEADER_LEN),
 		.result = result,
@@ -1559,7 +1584,56 @@ static const char *kind_name(uint8_t kind)
 	case OSC2_TEST_KIND_VERSION:     return "VERSION";
 	case OSC2_TEST_KIND_IDENTITY:    return "IDENTITY";
 	case OSC2_TEST_KIND_CHANNELS:    return "CHANNELS";
+	case OSC2_TEST_KIND_DOCK_SESSION: return "DOCK_SESSION";
+	case OSC2_TEST_KIND_DOCK_FRAME:  return "DOCK_FRAME";
+	case OSC2_TEST_KIND_DOCK_PILOT:  return "DOCK_PILOT";
+	case OSC2_TEST_KIND_DOCK_STATE:  return "DOCK_STATE";
 	default:                         return NULL;
+	}
+}
+
+/* The dock's entries as key=value (test_dock.c writes them); false for a short one. */
+static bool add_dock_fields(char *out, size_t size, size_t *at, uint8_t kind, const uint8_t *d,
+			    uint8_t n)
+{
+	static const char *const outcomes[] = { "answered", "size", "crc" };
+	static const char *const whats[] = { "supply", "enter", "event" };
+
+	switch (kind) {
+	case OSC2_TEST_KIND_DOCK_SESSION:
+		if (n < 6) {
+			return false;
+		}
+		add(out, size, at, " what=%s reason=%u frames=%lu", d[0] ? "end" : "start",
+		    (unsigned int)d[1], (unsigned long)opensc2_get_le32(&d[2]));
+		return true;
+	case OSC2_TEST_KIND_DOCK_FRAME:
+		if (n < 11) {
+			return false;
+		}
+		add(out, size, at, " type=%u outcome=%s len=%u rc=%ld us=%lu", (unsigned int)d[0],
+		    d[1] < 3 ? outcomes[d[1]] : "?", (unsigned int)d[2],
+		    (long)(int32_t)opensc2_get_le32(&d[3]), (unsigned long)opensc2_get_le32(&d[7]));
+		return true;
+	case OSC2_TEST_KIND_DOCK_PILOT:
+		if (n < 8) {
+			return false;
+		}
+		add(out, size, at, " mv=%d,%d,%d inside=0x%x present=%u",
+		    (int)(int16_t)opensc2_get_le16(&d[0]), (int)(int16_t)opensc2_get_le16(&d[2]),
+		    (int)(int16_t)opensc2_get_le16(&d[4]), (unsigned int)d[6], (unsigned int)d[7]);
+		return true;
+	case OSC2_TEST_KIND_DOCK_STATE:
+		if (n < 10) {
+			return false;
+		}
+		add(out, size, at, " what=%s event=%u chord=%u from=%u to=%u handled=%u actions=0x%lx",
+		    d[0] < 3 ? whats[d[0]] : "?", (unsigned int)d[1], (unsigned int)d[2],
+		    (unsigned int)d[3], (unsigned int)d[4], (unsigned int)d[5],
+		    (unsigned long)opensc2_get_le32(&d[6]));
+		return true;
+	default:
+		return false;
 	}
 }
 
@@ -1729,6 +1803,9 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 		}
 		break;
 	default:
+		if (add_dock_fields(out, size, at, kind, d, n)) {
+			return;
+		}
 		break;
 	}
 	add(out, size, at, " data=");
@@ -1751,7 +1828,8 @@ void osc2_test_fmt_entry(char *out, size_t size, uint32_t seq, const uint8_t *en
 	n = (uint8_t)MIN_OF((size_t)entry[6], len - OSC2_TEST_ENTRY_HEADER);
 	name = kind_name(entry[4]);
 	add(out, size, &at, "%lu %lu.%03lu %s ", (unsigned long)seq, (unsigned long)(t / 1000u),
-	    (unsigned long)(t % 1000u), entry[5] < 4 ? links[entry[5]] : "?");
+	    (unsigned long)(t % 1000u),
+	    entry[5] < 4 ? links[entry[5]] : entry[5] == 5 ? "dock" : "?");
 	if (name) {
 		add(out, size, &at, "%s", name);
 	} else {

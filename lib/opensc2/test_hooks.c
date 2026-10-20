@@ -16,11 +16,14 @@
 #include <zephyr/spinlock.h>
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
+#include "test_dock.h"
 #include "test_hooks.h"
 
+/* The links after the test link (Bluetooth, the dock) hold no answers of the test channel. */
 BUILD_ASSERT((int)OSC2_LINK_RADIO == (int)OSC2_TEST_LINK_RADIO &&
 	     (int)OSC2_LINK_USB == (int)OSC2_TEST_LINK_USB &&
-	     (int)OSC2_LINK_TEST == (int)OSC2_TEST_LINK_TEST && (int)OSC2_LINK_COUNT == OSC2_TEST_LINKS,
+	     (int)OSC2_LINK_TEST == (int)OSC2_TEST_LINK_TEST && (int)OSC2_LINK_COUNT > OSC2_TEST_LINKS &&
+	     (int)OSC2_LINK_DOCK == OSC2_TEST_LINK_DOCK,
 	     "the test hooks number the links as enum osc2_link does");
 
 struct osc2_test_core osc2_test_core_obj;
@@ -177,6 +180,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= IS_ENABLED(CONFIG_OPENSC2_SHELL) ? OSC2_TEST_FLAG_SHELL : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_FUSION) ? OSC2_TEST_FLAG_FUSION : 0;
 	flags |= OSC2_NO_HOST_WIRELESS_MS > 0 ? OSC2_TEST_FLAG_NO_HOST_WIRELESS : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_DOCK_LINK) ? OSC2_TEST_FLAG_DOCK : 0;
 
 	opensc2_identity_get(&id);
 	caps->mode = osc2_wired() ? 1 : 0;
@@ -309,6 +313,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+#if defined(CONFIG_OPENSC2_DOCK_LINK)
+	.dock_op = osc2_test_dock_op,
+#endif
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

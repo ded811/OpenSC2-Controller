@@ -27,19 +27,21 @@ $lib = Join-Path $root 'lib\opensc2'
 $shim = Join-Path $PSScriptRoot 'shim'
 $vectors = Join-Path $root 'tests\vectors\hwtest'
 $flags = @('-std=c11', '-Wall', '-Wextra', '-Wshadow', '-Werror', "-I$shim", "-I$root\include",
-    "-I$lib")
+    "-I$lib", '-DCONFIG_OPENSC2_DOCK_LINK=1')
 $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\codec.c", "$lib\lizard.c", "$lib\settings_defaults.c", "$lib\fusion.c",
     "$lib\usb_desc.c", "$lib\usb_rules.c", "$lib\mode_rules.c", "$lib\retained.c",
-    "$lib\id_rules.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c")
+    "$lib\id_rules.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c",
+    "$lib\dock_codec.c", "$lib\dock_rules.c", "$lib\dock_link.c",
+    (Join-Path $PSScriptRoot 'dock_stub.c'))
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',
-    '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c",
+    '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c", "$lib\test_dock.c",
     (Join-Path $PSScriptRoot 'hooks_stub.c'))
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
 $emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_TEST_HOOKS=1',
     '-DCONFIG_OPENSC2_TEST_RING_SIZE=2048', '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8',
-    "$lib\test_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
+    "$lib\test_notes.c", "$lib\test_dock.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
     (Join-Path $PSScriptRoot 'fwemu.c'))
 
 $plain = Join-Path $tmp 'opensc2_host_tests_plain.exe'

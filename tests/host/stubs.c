@@ -8,6 +8,8 @@
  */
 #include <string.h>
 #include "internal.h"
+#include "dock_link.h"
+#include "dock_stub.h"
 #include "stubs.h"
 #include "test_hooks.h"
 
@@ -170,6 +172,8 @@ void stub_reset(void)
 	for (int link = 0; link < OSC2_LINK_COUNT; link++) {
 		osc2_commands_reset((enum osc2_link)link);
 	}
+	osc2_dock_reset();
+	memset(&dock_stub, 0, sizeof(dock_stub));
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	hooks_reset();
 #endif

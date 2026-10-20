@@ -1,0 +1,132 @@
+# dock.txt: the dock's frames and rules (docs/protocol.md, "The dock"; docs/api.md, "The dock").
+# The C host tests (tests/host/dock_cases.h) and the runner's self-tests (selftest/test_dock.py)
+# both read this file; the values are written out from the protocol documentation's tables.
+#
+#   CRC <bytes> = <crc16>                     CRC-16/KERMIT, initial value 0
+#   CHECK <frame> = OK | BAD_SIZE | BAD_CRC   a received frame, as the controller checks it
+#   REQ <type> <payload or -> = <frame>       a request as the puck builds it
+#   MV <count> = <mV>                         a 12-bit count at gain 1/6 of 0.6 V, at the pin
+#   PILOT <mV> <mV> <mV> = <present> <inside bits>
+#   POWER <reported> <present> <kind> IN <usb> <plus> <pilot> = <event or -> <present> <kind>
+#   ENTER <how> <warm> = <state> <selected> <actions or NONE>       from AWAY, nothing selected
+#   SM <state> <selected> <event> <chord> = <state> <selected> <handled> <actions or NONE>
+# Kinds and events: NONE 0, USB 1, DOCK 2. States: AWAY RADIO_OFF LIFTED CHORD LINK_UP. Entries:
+# POWER_ON BATTERY_WAIT ON_BATTERY. Chords: 0 STEAM, 1 B+RB, 2 B+LB, 3 A+RB, 4 A+LB.
+
+# ---- CRC-16/KERMIT ---------------------------------------------------------------------------
+CRC 313233343536373839 = 2189                       # "123456789": the check value
+CRC - = 0000                                        # nothing
+CRC 00 = 0000
+CRC 01 = 1189
+CRC ff = 0f78
+# the documentation's two computed examples: 5A 00 and 5A 03, each followed by 69 zero bytes
+CRC 5a00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 = 9bd0
+CRC 5a03 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 = 3ba7
+
+# ---- frames ----------------------------------------------------------------------------------
+# a probe (type 0) and a GET input (type 3) as the puck sends them: the CRC low byte first
+REQ 00 - = 5a00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 d09b
+REQ 03 - = 5a03 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 a73b
+CHECK 5a00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 d09b = OK
+CHECK 5a03 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 a73b = OK
+# the CRC's bytes swapped, one payload bit flipped, the start byte changed (it is covered too)
+CHECK 5a00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 9bd0 = BAD_CRC
+CHECK 5a00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001 d09b = BAD_CRC
+CHECK ac00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 d09b = BAD_CRC
+# 72 and 74 bytes: the size is checked first
+CHECK 5a00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 d0 = BAD_SIZE
+CHECK 5a00 000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 d09b00 = BAD_SIZE
+CHECK - = BAD_SIZE
+
+# ---- the pilot -------------------------------------------------------------------------------
+MV 0 = 0
+MV 4095 = 3599
+MV 2276 = 2000                                       # the window's ends
+MV 2275 = 1999
+MV 3754 = 3299
+MV 3755 = 3300
+MV 3756 = 3301
+MV -1 = -1                                           # a failed conversion stays outside
+PILOT 2500 2500 2500 = 1 07
+PILOT 2000 3300 1999 = 1 03                          # both ends count
+PILOT 1999 3301 2500 = 0 04                          # one inside is not enough
+PILOT 0 2500 2600 = 1 06
+PILOT -1 -1 2500 = 0 04
+PILOT 3300 -1 3300 = 1 05
+
+# ---- the supply rule -------------------------------------------------------------------------
+# the first reading always posts
+POWER 0 0 0 IN 0 0 0 = 0 0 0
+POWER 0 0 0 IN 1 0 0 = 1 1 1
+POWER 0 0 0 IN 0 1 1 = 2 1 2
+POWER 0 0 0 IN 0 1 0 = 1 1 1                         # + without the pilot: USB
+POWER 0 0 0 IN 1 1 1 = 2 1 2                         # both: the dock (one input on the real one)
+# later only a change of "present" posts; the kind is decided as the supply appears
+POWER 1 0 0 IN 0 0 0 = - 0 0
+POWER 1 0 0 IN 0 1 1 = 2 1 2
+POWER 1 1 2 IN 0 1 1 = - 1 2
+POWER 1 1 2 IN 1 0 0 = - 1 2                         # dock to USB with power all along: nothing
+POWER 1 1 1 IN 0 1 1 = - 1 1                         # the pilot valid only later: still USB
+POWER 1 1 2 IN 0 0 0 = 0 0 0
+POWER 1 1 1 IN 0 0 1 = 0 0 0
+
+# ---- the docked states: coming onto the dock ---------------------------------------------------
+ENTER POWER_ON 0 = RADIO_OFF 0 KEYLOCK_CLEAR LED_CHARGING
+ENTER POWER_ON 1 = LINK_UP 1 KEYLOCK_CLEAR START_LINK LED_TRANSPORT
+ENTER BATTERY_WAIT 0 = RADIO_OFF 1 LED_CHARGING STOP_LINK
+ENTER BATTERY_WAIT 1 = RADIO_OFF 1 LED_CHARGING STOP_LINK
+ENTER ON_BATTERY 0 = LINK_UP 1 LED_TRANSPORT
+
+# ---- the docked states: on the dock, the radio off ---------------------------------------------
+SM RADIO_OFF 0 CHORD 0 = CHORD 1 1 SELECT CUE LED_COLOUR TIMER_4S PAUSE
+SM RADIO_OFF 0 CHORD 3 = CHORD 1 1 SELECT CUE LED_COLOUR TIMER_4S PAUSE
+SM RADIO_OFF 0 POWER_GONE 0 = LIFTED 0 1 LED_OFF TIMER_5S
+SM RADIO_OFF 1 WARM_REBOOT 0 = AWAY 1 1 REBOOT
+SM RADIO_OFF 0 REBOOT 0 = RADIO_OFF 0 0 NONE            # a plain reboot does nothing here
+SM RADIO_OFF 0 TURN_OFF 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 BOOTLOADER 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 STEAM_7S 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 LINK_OFF 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 POWER_USB 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 POWER_DOCK 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 TIMER 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 CHORD_UP 0 = RADIO_OFF 0 0 NONE
+SM RADIO_OFF 0 OTHER 0 = RADIO_OFF 0 0 NONE
+
+# ---- a chord on the dock -----------------------------------------------------------------------
+SM CHORD 1 TIMER 2 = LINK_UP 1 1 START_LINK PAIRING LED_TRANSPORT TIMER_STOP
+SM CHORD 1 CHORD_UP 0 = LINK_UP 1 1 START_LINK LED_TRANSPORT TIMER_STOP
+SM CHORD 1 POWER_GONE 0 = CHORD 1 0 NONE                # lifted off during a chord: ignored
+SM CHORD 1 POWER_DOCK 0 = CHORD 1 0 NONE
+SM CHORD 1 CHORD 1 = CHORD 1 0 NONE                     # no second chord
+SM CHORD 1 TURN_OFF 0 = CHORD 1 0 NONE
+SM CHORD 1 WARM_REBOOT 0 = CHORD 1 0 NONE
+SM CHORD 1 STEAM_7S 0 = CHORD 1 0 NONE
+
+# ---- on the dock with the link up ------------------------------------------------------------
+SM LINK_UP 1 STEAM_7S 0 = RADIO_OFF 1 1 CHIME_OFF LED_CHARGING STOP_LINK
+SM LINK_UP 1 LINK_OFF 0 = RADIO_OFF 1 1 CHIME_OFF LED_CHARGING STOP_LINK
+SM LINK_UP 1 TURN_OFF 0 = RADIO_OFF 1 1 CHIME_OFF LED_CHARGING STOP_LINK
+SM LINK_UP 1 WARM_REBOOT 0 = AWAY 1 1 REBOOT
+SM LINK_UP 1 REBOOT 0 = AWAY 1 1 REBOOT
+SM LINK_UP 1 BOOTLOADER 0 = LINK_UP 1 1 UPDATE_WINDOW
+SM LINK_UP 1 POWER_GONE 0 = AWAY 1 1 TO_BATTERY
+SM LINK_UP 1 POWER_USB 0 = LINK_UP 1 0 NONE
+SM LINK_UP 1 POWER_DOCK 0 = LINK_UP 1 0 NONE
+SM LINK_UP 1 CHORD 3 = LINK_UP 1 0 NONE
+SM LINK_UP 1 OTHER 0 = LINK_UP 1 0 NONE
+
+# ---- lifted off with the radio off: the 5 s debounce ------------------------------------------
+SM LIFTED 0 POWER_DOCK 0 = RADIO_OFF 0 1 TIMER_STOP LED_CHARGING
+SM LIFTED 1 POWER_DOCK 0 = RADIO_OFF 1 1 TIMER_STOP LED_CHARGING STOP_LINK
+SM LIFTED 0 POWER_USB 0 = AWAY 0 1 TIMER_STOP REBOOT
+SM LIFTED 0 TIMER 0 = AWAY 0 1 TIMER_STOP SHUTDOWN
+SM LIFTED 0 CHORD 4 = AWAY 0 1 TIMER_STOP TO_CHORD
+SM LIFTED 0 POWER_GONE 0 = LIFTED 0 0 NONE
+SM LIFTED 0 TURN_OFF 0 = LIFTED 0 0 NONE
+SM LIFTED 0 WARM_REBOOT 0 = LIFTED 0 0 NONE
+SM LIFTED 0 STEAM_7S 0 = LIFTED 0 0 NONE
+
+# ---- outside the dock states nothing happens here --------------------------------------------
+SM AWAY 0 POWER_DOCK 0 = AWAY 0 0 NONE
+SM AWAY 1 TURN_OFF 0 = AWAY 1 0 NONE

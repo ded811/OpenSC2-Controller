@@ -47,6 +47,7 @@ struct hooks_record {
 	void (*resync_hook)(void);
 	/* ... and report.c's osc2_output_dispatch() for HOST_OUT (the rumble timeout too) */
 	int (*output_hook)(uint8_t link, const uint8_t *report, uint8_t len);
+	int dock_op_calls;              /* the dock ops 0x90 to 0x93 */
 };
 
 extern struct hooks_record hk;

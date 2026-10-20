@@ -12,6 +12,7 @@
 #include "internal.h"
 #include "stubs.h"
 #include "hooks_stub.h"
+#include "test_dock.h"
 
 struct osc2_test_core osc2_test_core_obj;
 struct hooks_record hk;
@@ -66,6 +67,7 @@ void hooks_reset(void)
 	hk.ctx_link = OSC2_TEST_LINK_NONE;
 	hk.usb_state = OPENSC2_USB_CONFIGURED;
 	osc2_test_core_init(&osc2_test_core_obj);
+	osc2_test_dock_reset();
 }
 
 /* ---- the fake environment ---- */
@@ -141,6 +143,9 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	caps->mode = osc2_wired() ? 1 : 0;
 	caps->build_flags = OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO | OSC2_TEST_FLAG_LIZARD_MODE |
 			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB;
+#if defined(OSC2_HOST_FWEMU)
+	caps->build_flags |= OSC2_TEST_FLAG_DOCK;   /* the emulator has the dock link, as the app */
+#endif
 	caps->battery_interval_ms = 3500;
 	caps->rumble_timeout_ms = 500;
 	caps->report_delay_us = 2000;
@@ -310,6 +315,15 @@ static void env_lizard_resync(void)
 	osc2_test_note_lizard(OSC2_TEST_LIZARD_RESYNC);
 }
 
+/* The dock ops: the real ones (test_dock.c on dock_link.c and commands.c). */
+static uint8_t env_dock_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			   uint8_t *rlen)
+{
+	library_call();
+	hk.dock_op_calls++;
+	return osc2_test_dock_op(op, args, alen, result, rlen);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -338,4 +352,5 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+	.dock_op = env_dock_op,
 };
