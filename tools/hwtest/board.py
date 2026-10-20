@@ -92,8 +92,9 @@ LINK_CONNECTED = 4
 
 def _injection_request(op, args):
     """The test ops S7 guards: INJECT, SEQ_RUN, APP_SEND of a controller-state report (0x45), and
-    the system ops that inject into the firmware's own rules."""
-    return safety._injection_op(op, bytes(args)) or op in safety.SYSTEM_INJECTION_OPS
+    the system ops that inject into the firmware's own rules (not SYS_BOOT's clear)."""
+    return safety._injection_op(op, bytes(args)) or (
+        op in safety.SYSTEM_INJECTION_OPS and not safety.system_clear(op, bytes(args)))
 
 
 class Answer:
@@ -857,6 +858,11 @@ class Rig:
         """SYS_BOOT: a boot-time injection for the next boot (`hold`: the buttons' time in
         100 ms; flags 0 clears it)."""
         return self._sys_op(C.OP_SYS_BOOT, SP.sys_args(flags, buttons, level, source, hold))
+
+    def sys_boot_clear(self):
+        """SYS_BOOT with flags 0: nothing left for the next boot. It injects nothing, so it
+        needs none of S7's conditions (safety.system_clear); the restore sends it."""
+        return self.test(C.OP_SYS_BOOT, SP.sys_args(0))
 
     def sys_event(self, kind):
         return self._sys_op(C.OP_SYS_EVENT, bytes([kind]))

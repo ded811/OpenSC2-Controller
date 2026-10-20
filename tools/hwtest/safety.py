@@ -311,6 +311,12 @@ def _injection_op(op, args):
 SYSTEM_INJECTION_OPS = {C.OP_SYS_INJECT, C.OP_SYS_BOOT, C.OP_SYS_EVENT}
 
 
+def system_clear(op, args):
+    """SYS_BOOT with all eight argument bytes 0 only clears a boot-time injection left for the
+    next boot: it injects nothing, so S7 does not apply (the restore sends it)."""
+    return op == C.OP_SYS_BOOT and bytes(args) == bytes(8)
+
+
 def check_system_injection(ctx):
     """S7 for the system ops (SYS_INJECT, SYS_BOOT, SYS_EVENT): what they inject reaches only the
     firmware's chords, power and battery rules, never a report, so neither the sole reader nor
@@ -345,7 +351,7 @@ def check_test_request(payload, transport, ctx=None):
         raise SafetyError("only reading test-channel ops go through the puck")
     if op == C.OP_HOST_SET and len(args) >= 2:
         check_host_set(args[0], bytes(args[2:2 + args[1]]))
-    if op in SYSTEM_INJECTION_OPS:
+    if op in SYSTEM_INJECTION_OPS and not system_clear(op, args):
         check_system_injection(ctx if ctx is not None else Context())
     if _injection_op(op, args):
         ctx = ctx if ctx is not None else Context()
