@@ -521,7 +521,8 @@ keyboard reports from the input state:
     700 pad units of travel ends faster than setting 11 (default 200 pad units per frame, the mean
     of the 15 oldest of its last 20 movements), the motion goes on, slowing down to nothing over
     setting 12 frames (default 100, about 0.4 s on the cable); a new touch on that pad or lizard
-    mode turning off stops it, setting 82 holds it back; the left pad glides too;
+    mode turning off stops it; while setting 82 blanks the pad its motion is dropped, not saved
+    for later, and the slowing down goes on; the left pad glides too;
   - the haptic ticks and clicks (`CONFIG_OPENSC2_LIZARD_TICKS`), while setting 70 is 1: a step each
     time the thumb has moved more than 1500 pad units from the last one, and a tick once the steps
     times 1500 exceed setting 14 (5500: every fourth step); click B when a pad's click turns on or

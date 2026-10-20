@@ -548,7 +548,7 @@ class LizardModel:
                 p.stab.reset()
             motion[side] = self._pad_motion(p, touched, x, y, s)
             if blanked[side]:
-                motion[side] = (0, 0)   # held back; a glide's factor keeps running down
+                motion[side] = (0, 0)   # dropped; a glide's factor keeps running down
         self.click_sync = False
 
         x = self._divide("rem_x", motion[1][0], POINTER_DIVISOR)

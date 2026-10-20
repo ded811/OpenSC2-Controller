@@ -18,7 +18,7 @@
  *             travel whose flick speed (the mean of the 15 oldest of the last 20 movements) is
  *             longer than setting 11 glides: the flick speed times a factor that starts at 1 and
  *             drops by 1 / setting 12 every frame. A new touch, or lizard mode turning off, ends
- *             a glide; while setting 82 blanks a pad its motion is held back. The division
+ *             a glide; while setting 82 blanks a pad its motion is dropped. The division
  *             remainders are kept until lizard mode is entered again. The right trigger or a
  *             right-pad click is the left button, the left trigger the right one. A report goes
  *             out every frame while any field is non-zero, then one zero report.
@@ -426,7 +426,7 @@ uint32_t opensc2_lizard_step(struct opensc2_lizard *lz, const struct opensc2_sta
 		}
 		pad_motion(p, touched, px, py, settings, rules, &mx[side], &my[side]);
 		if (blanked[side]) {
-			mx[side] = my[side] = 0;   /* held back; a glide's factor keeps running down */
+			mx[side] = my[side] = 0;   /* dropped; a glide's factor keeps running down */
 		}
 	}
 	lz->click_sync = false;
