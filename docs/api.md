@@ -619,7 +619,9 @@ and saves only the sides that gave samples. Its flash writes, and those of `0xE2
 from the system work queue in the order they were asked for (`0xFE` drops the saves still waiting
 from before it); `0xEF` and `0xF0` of a `cal/` key wait for them, then write before they answer, so
 a host's "erase, then store the new calibration" keeps the new keys. Steps above 3 do nothing; a
-step 2 or 3 without a step 1 does nothing.
+step 2 or 3 without a step 1 does nothing (the real controller's `0xC3` step 3 saves even then,
+wiping the pads' pressure calibration:
+[protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 31).
 
 **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default) act on the reported pads, raw or not,
 after the hardware test hooks' injection, so report `0x42` and lizard mode both see them: with

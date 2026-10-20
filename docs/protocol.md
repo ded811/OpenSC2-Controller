@@ -430,6 +430,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | The haptic events' sound | the library hands over click A or B and the documented level ([api.md](api.md#outputs)); with the haptics synthesiser it plays them itself, while lizard mode is on, setting 70 is exactly 1 and the current link is not the dock (gap 35) |
     | The keyboard | evaluated once per report frame; the real controller sends a key report as soon as its button driver sees the change, so on the cable a key can come up to one frame (4 ms) later here; through the puck both ride the same acknowledgement |
     | A dropped link | the trackers are not started over (as documented): a pad held across a reconnect moves the pointer by the distance it moved meanwhile |
+    | `0x85` while the keyboard runs | not copied: on the real controller its "on" stays pending, so the next switch-off (`0x81`, or 9 = 0) sends the empty `0x41`, then the keyboard takes up the pending "on", sends a second empty `0x41` and keeps running, so the mapped buttons send keys with setting 9 at 0 until the next "off". The library raises the switches at once and the switch-off turns everything off, with one set of release reports |
 
     The key-slot rule, the scales (128 pad units per pointer count, 1024 per scroll step, pad up
     scrolls with a negative wheel value) and the rule that a mouse report goes out every frame
@@ -594,7 +595,9 @@ open, the library does what should work with Steam and the puck, and says so her
 
     The pressure of an untouched pad is sent as the application reports it, where the real
     controller sends 0; the trigger bits' on point is setting 68 plus 5 points, and a fully pulled
-    trigger always counts, where the real one never sets the bit from 68 = 95 on.
+    trigger always counts, where the real one never sets the bit from 68 = 96 on, and at exactly 95
+    sets it only for a trigger calibrated the other way round (direction 1) once its output reaches
+    32767, clearing it below 90 %.
 30. **Reports waiting through the puck.** The real controller's input records wait for a free
     buffer. The library queues up to 6 extra reports behind each state report as before, and lets
     lizard mode's and the application's reports wait in up to 8 more
@@ -610,7 +613,12 @@ open, the library does what should work with Steam and the puck, and says so her
     - the factors 0.9, 0.98 and 0.05 are exact fractions in integer arithmetic, so a value that
       lands exactly on a whole number is not off by one the way a floating-point one can be;
     - a recording saves only the sides that got raw samples since its step 1: a board that gives
-      no raw input for a side keeps that side's stored key;
+      no raw input for a side keeps that side's stored key. The real controller's pad pressure
+      recording (`0xC3`) differs here: its step 3 saves whatever the two records hold, with or
+      without a step 1, so a step 3 sent alone after boot stores both pads as uncalibrated
+      (format 0) and leaves them without pressure and click. OpenSC2 deliberately saves nothing
+      for a step 3 without a step 1, as the documentation has the sticks and triggers do (`0xD8`,
+      `0xC0`);
     - the raw inputs are processed once per state report: the pressure filter and the two-word
       means of the capacitive words step per report, where the real controller steps them per
       trackpad frame (about 250 a second, close to the report rate on the cable);
@@ -735,11 +743,14 @@ open, the library does what should work with Steam and the puck, and says so her
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
     | `0x87` and `0x89` through the puck | the report's own length on every link. The real controller's handlers are told the radio record's length, which counts the report ID too, so through the puck its `0x87` takes one byte from beyond the report (63 in a full one, the last a junk byte) and its `0x89` accepts n one larger (n = 62 in a full report, with a junk byte), which OpenSC2 drops. Not copied: the extra byte would put a 16-bit stream out of step; an n of 61 or less is the same on every link |
 36. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
-    not write as it was in its previous answer: a probe's type and result, a SET's payload, the bytes
-    after a shorter answer, and the whole frame for a request type it does not know. OpenSC2 writes
-    zeros there, answers a probe with type 0 and result 0, and an unknown type with its type and
-    `-22`. The puck reads only what each answer defines and never sends another type, so neither it
-    nor Steam can tell.
+    not write as it was: a probe's type and result, a SET's payload, the bytes after a GET's answer
+    (the rest of the SET that selected the command, then its previous answer), and the whole frame
+    for a request type it does not know. OpenSC2 writes zeros there, as a USB GET has done since
+    0.2.0, answers a probe with type 0 and result 0, and an unknown type with its type and `-22`.
+    The puck checks only an answer's length and CRC and reads the result only of a GET feature, so
+    it cannot tell; but it forwards a positive GET's 63 bytes to the PC, so a host reading a
+    command's answer through the puck's dock interface sees zeros after the answer where the real
+    controller's bytes come from the selecting SET and its previous answer.
 37. **GET input with the dock alone** answers with the report built for that request. The real
     controller (inferred from its thread priorities) answers with the one its previous request
     built, one poll old (about 90 ms).
