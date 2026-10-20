@@ -235,12 +235,21 @@ hardware**; [api.md](api.md#the-bluetooth-build) has every detail and what is no
 - **Advertising**: "Steam Ctrl (BT) " and the unit serial; connectable legacy advertising every 100
   to 150 ms; flags, the gamepad appearance (`0x03C4`), the HID and battery service UUIDs, the TX
   power and manufacturer data of company ID `0x055D` with no payload; the name in the scan response.
-  Without a bond the slot is open to any host (pairing mode); with one, only its host may connect.
-- **Pairing**: Just Works, LE Secure Connections only, bonding. Every HID value needs encryption.
+  Without a bond the slot is open to any host (pairing mode); with one, advertising is directed to
+  its host (1.28 s), then allow-listed for it. Every start of advertising arms a 60 s window, after
+  which wireless goes off.
+- **Identities and pairing**: Just Works, LE Secure Connections only, bonding; every HID value needs
+  encryption. Each slot has two identities (1 and 2, 3 and 4) with addresses of their own; a
+  pairing request resets the slot's other identity and advertises on it, so the old host keeps its
+  bond until a new one has paired, and each pairing appears to hosts as a new device.
+- **Disconnects**: the host ending the link (`0x13`) or powering off (`0x15`) turns wireless off;
+  any other loss advertises again 500 ms later on the same identity.
 - **Services**: HID over GATT with the USB report map byte for byte (inputs `0x40` to `0x45`,
   outputs `0x80` to `0x89`, feature report 1); Device Information with PnP ID `28DE:1303`, model
-  "Steam Controller", an empty manufacturer name, the unit serial and the build time; Battery.
-  Vendor command `0x83` still reports product ID `0x1302`.
+  "Steam Controller", an empty manufacturer name, the unit serial and the build time; Battery; and
+  Valve's vendor service (`100F6Cxx-1735-4313-B402-38567131E5F3`), the same reports as plain
+  characteristics, which SDL's Android and Apple back ends use. Vendor command `0x83` still reports
+  product ID `0x1302`.
 - **The gate**: no report until the link is encrypted and its ATT MTU is 64 or more; then Bluetooth
   is the active transport and attribute 11 of `0x83` is the connection interval in µs.
 - **Reports**: one state report per connection event, as `0x45` (the first 45 bytes of `0x42`, the
@@ -383,18 +392,24 @@ open, the library does what should work with Steam and the puck, and says so her
     | Point | The documented controller | OpenSC2 |
     | --- | --- | --- |
     | Sharing the radio with the puck's ESB | MPSL is shut down when the puck link stops, and started again by Bluetooth | MPSL stays initialised (in this build its clock driver also serves the USB console's crystal); ESB takes the radio interrupt while it runs and the library hands it back to MPSL; switching between the two within one boot is supported both ways |
-    | Advertising forms | high-duty directed to the bonded host first, then allow-listed, with a 60 s window | allow-listed for a bonded slot, open otherwise; no directed advertising and no 60 s window yet |
-    | After a disconnect | 0x13 or 0x15 from the host means "wireless off"; other reasons advertise again 500 ms later | advertises again 500 ms later whatever the reason |
-    | Identities | two per slot; a pairing request resets the other one, so the old host is kept until a new one has paired | one per slot so far (identities 1 and 3); pairing mode forgets the slot's host |
+    | The advertising window | 60 s | 60 s by default, a Kconfig option (`CONFIG_OPENSC2_BLE_ADV_WINDOW_S`; 0: advertise until a host connects) |
+    | "Wireless off" | on battery the controller turns off; on USB power wireless goes off | the library stops advertising and asks the application (`OPENSC2_POWER_WIRELESS_OFF`); the blank canvas stays on, as on USB power, until a button or `opensc2 start` |
+    | Turning wireless off while Bluetooth advertises, or before the gate | Bluetooth is left advertising until its window ends (inferred, not observed) | `opensc2_stop()` stops it in any state |
+    | The bond rule | a host that pairs on an identity that had no bond at the start deletes the bond on the slot's other identity, once the link reaches security level 2 | the same, once the host has bonded: a host that pairs without bonding leaves the slot's host alone |
+    | A pairing request while a host is connected on the slot | not documented (a chord asks for it while wireless is off) | the link ends (the zero report, `0x13`), then the slot's other identity advertises in pairing mode |
+    | The subscription flags | a quirk can send state reports to the vendor characteristic whatever the host subscribed to (after an odd puck disconnect reason in the same boot; inferred, not observed) | not copied: a report goes where the host enabled notifications, the vendor characteristic first |
+    | Haptic cues | "pairing" at each start of pairing mode, "paired" when a new host has bonded | none (the library has no haptic output of its own; an application can play them from `link_changed`) |
+    | LED patterns | blue: the pairing double flash, the searching fade, connected steady or fading on external power | the blank canvas shows them in blue on an RGB LED; a one-colour LED shows connected steady |
     | The ATT MTU | the last value is remembered across connections | per connection, as the specification has it (hosts raise it at every connection) |
     | Reading feature report 1 | 64 bytes, the answer then left-overs; a read blob gets the start again | the 63 bytes the report map declares; a read blob gets the rest of the same answer |
     | No connection-event trigger | no state reports (inferred) | a timer at the connection interval paces them |
     | Report pacing | the slot less the worst processing time of the last 65 frames | the slot less a fixed 500 µs (`CONFIG_OPENSC2_BLE_REPORT_LEAD_US`) |
     | A report that cannot be sent | logged as an error with its ID | logged at debug level (at the default MTU every state report would be) |
-    | Valve's vendor GATT service | present (SDL's Android and Apple back ends use it) | not yet |
 
     Valve's Bluetooth company ID and the PnP ID `28DE:1303` are advertised for interoperability, as
-    the USB IDs are ([NOTICE.md](../NOTICE.md)); both are Kconfig options.
+    the USB IDs are, and the vendor service uses Valve's UUIDs for the same reason
+    ([NOTICE.md](../NOTICE.md)); the IDs are Kconfig options and the vendor service can be left
+    out (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE`).
 24. **Attribute 11 on the dock** is documented as 64000 µs; the library answers that for its dock
     link, which has no code yet and is never active.
 

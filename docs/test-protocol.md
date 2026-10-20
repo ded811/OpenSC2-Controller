@@ -21,7 +21,7 @@ One binary protocol, the same bytes on every transport:
 | --- | --- | --- |
 | USB (wired) | `SET_REPORT(Feature 1)`: `01 7E <n> <request>`, zero padded to 64 bytes | the next `GET_REPORT(Feature 1)`: `01 7E <m> <answer>` |
 | the radio, through the puck | the puck's feature report 1, the same bytes (a SET record) | the puck's GET (retried until the answer is there) |
-| Bluetooth (the opt-in Bluetooth build; no runner path yet) | a write of feature report 1's characteristic: `7E <n> <request>`, without the report ID | the next read of it: `7E <m> <answer>`, 63 bytes |
+| Bluetooth (the opt-in Bluetooth build; the suite's path B, `--bluetooth`) | a write of feature report 1's characteristic: `7E <n> <request>`, without the report ID | the next read of it: `7E <m> <answer>`, 63 bytes |
 | the console (wireless) | `opensc2 test <id> raw <request as hex>` | `HWT <id> RAW <answer as hex>` |
 
 `0x7E` is no command of the real controller, of Steam or of SDL (theirs start at `0x80`).
@@ -73,6 +73,9 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x42` | HOST_GET | | opcode u8, n u8, flags u8 (bit 0 masked, bit 1 cut), then the first min(n, 54) answer bytes, or for a masked answer the CRC-32 of its n bytes | a vendor GET on the test link; masked: `0xED` of `esb/bond` or `esb/bond_2`, `0xAE` tags 0, 1 and 4, `0xF2` selector 0, `0xA1` selector 1 |
 | `0x43` | APP_SEND | kind u8; kind 0: an input report, ID first, 1..53 bytes; kind 1: channel u8, flags u32 | result s32 | as the application would (`opensc2_send_report()`, `opensc2_send_haptic_status()`), through the guard like every report; DENIED for a `0x42` |
 | `0x44` | RADIO_DEAF | ms u16 (100..5000) | | the radio hears nothing that long, so the link times out the normal way; BUSY while one is pending, NO_LINK unless wireless and connected |
+| `0x60` | BLE_STATUS | | the Bluetooth link, 28 bytes (below) | BAD_OP in a build without Bluetooth |
+| `0x61` | BLE_DROP | HCI reason u8 (not 0) | | the board ends the Bluetooth link 100 ms after the answer and then acts as if the host had ended it with this reason: `0x13` or `0x15` turn wireless off, any other advertises again 500 ms later; NO_LINK unless connected over Bluetooth; BAD_OP without Bluetooth |
+| `0x62` | BLE_WINDOW | ms u32 (100..600000, or 0) | | the next advertising window lasts this long instead of the configured one (`CONFIG_OPENSC2_BLE_ADV_WINDOW_S`), once; 0 drops a pending one; BAD_OP without Bluetooth |
 
 The **test link** is a third command link of the library with a stored request of its own, used only
 by `HOST_SET` and `HOST_GET`, so emulating a host on the board never disturbs the stored request of
@@ -107,6 +110,18 @@ reason; 7 the sequence byte of the last state report; 8 nonce u32; 12 uptime ms 
 first u32; 20 next u32; 24 frames since ARM u32; 28 the step in use (`0xFF` idle); 29 steps loaded;
 30 frames left in the step u16.
 
+BLE_STATUS (the `0x60` result): 0 flags (bit 0 the Bluetooth stack on, 1 advertising, 2 connected, 3
+active: past the gate, the reports flow, 4 the reports paced by the connection-event trigger (else
+a timer), 5 Bluetooth the running wireless transport, 6 a pairing request pending, 7 wireless off);
+1 the advertising form (0 pairing mode, 1 allow-listed for the bonded host, 2 directed to it,
+`0xFF` none); 2 the slot (0 or 1); 3 the identity in use (1 and 2 slot 1, 3 and 4 slot 2); 4 the
+identities with a bond (bit n for identity n); 5 identities that exist (5 once Bluetooth has run:
+0, never used, and 1 to 4); 6 the link's security level; 7 the HCI reason of the last disconnect (0
+none yet); 8 the link state (`enum opensc2_link_state`); 9 its reason (`enum opensc2_reason`); 10
+the ATT MTU u16; 12 the connection interval µs u32; 16 ms left of the advertising window u32 (0 when
+none runs); 20 state reports sent u32 and 24 dropped u32 (since the connection). No name and no
+address: those are on the console (`opensc2 ble status`), which the suite masks.
+
 ## The ring
 
 `CONFIG_OPENSC2_TEST_RING_SIZE` bytes of whole entries; when one does not fit the oldest are dropped
@@ -139,7 +154,7 @@ the dock; for `ARMED` and `MARK` the transport of the request), data length u8 (
 | `0x22` | VERSION | the protocol version answered |
 | `0x23` | IDENTITY | product ID u16, build time u32, bootloader build time u32, revision u32, git revision 12 bytes (never the serials) |
 | `0x24` | CHANNELS | the four channel bytes of `0xE4` |
-| `0x40` | BLE | a Bluetooth link event (link 4): event u8, a u8, b u16, c u32. 1 state: a the link state, b the reason, c the slot (bits 0 to 7), the identity (8 to 15) and the advertising form (16 to 23: 0 open, 1 for the bonded host); 2 security: a the level, b the error; 3 the ATT MTU in b; 4 parameters: b the latency, c the interval in µs; 5 the gate: a 1 up, 0 down, b the ATT MTU, c the interval; 6 the connection-event trigger: a 1 set, 0 failed (a timer paces), b the error; 7 disconnect: a the HCI reason |
+| `0x40` | BLE | a Bluetooth link event (link 4): event u8, a u8, b u16, c u32. 1 state: a the link state, b the reason, c the slot (bits 0 to 7), the identity (8 to 15) and the advertising form (16 to 23: 0 pairing mode, 1 allow-listed, 2 directed, `0xFF` none); 2 security: a the level, b the error; 3 the ATT MTU in b; 4 parameters: b the latency, c the interval in µs; 5 the gate: a 1 up, 0 down, b the ATT MTU, c the interval; 6 the connection-event trigger: a 1 set, 0 failed (a timer paces), b the error; 7 disconnect: a the HCI reason acted on (`BLE_DROP`'s, or the stack's), b what followed (0 advertising again after 500 ms, 1 wireless off, 2 nothing: the board ended the link itself, a `0x16`), c the reason the stack reported; 8 advertising started: a the form, b the error (0 running), c the slot (bits 0 to 7), the identity (8 to 15), why (16 to 23: 0 a start, 1 again after a lost link, 2 after a failed connection) and bit 24 set when the identity was reset first; 9 advertising ended: a why (0 a host connected, 1 a connection failed: b the HCI error, `0x3C` when directed advertising went unanswered, 2 the window ran out, 3 stopped), c the identity; 10 identity: a 0 created, 1 reset (a new address, no keys), 2 a reset failed (b the error), c the identity; 11 bond: a 0 a new host bonded (c the identity, bits 8 to 15 the slot's other one, whose bond goes), 1 a bond was deleted and its identity is reset, 2 a bond was deleted but its identity is in use and kept, c the identity; 12 wireless off: a the cause (0 the window ran out, 1 the host ended the link), b the HCI reason |
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).
 

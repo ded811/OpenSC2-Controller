@@ -22,14 +22,38 @@ still change between minor versions.
 - Attribute 11 of `0x83` follows the link (the connection interval over Bluetooth, 64000 µs for the
   dock link to come); the library's links and the test hooks' ring know Bluetooth (4) and the dock
   (5); ring entries of kind `0x40` for Bluetooth events; caps bit 17 for a Bluetooth build.
+- Bluetooth, as the real controller does it: five identities, two per slot, with the rule that
+  picks one and a pairing request that resets the slot's other identity (so the old host keeps its
+  bond until a new one has paired); the bond rules (a new host deletes the slot's other bond, a
+  deleted bond resets its identity, a host bonded on another identity loses that bond); high-duty
+  directed advertising to the bonded host, then allow-listed, else pairing mode; a 60 s advertising
+  window from every start (`CONFIG_OPENSC2_BLE_ADV_WINDOW_S`); "wireless off" when the window runs
+  out or the host ends the link (`0x13`, `0x15`), with the reasons `LISTEN_TIMEOUT` and
+  `HOST_DISCONNECTED` and the power request `OPENSC2_POWER_WIRELESS_OFF`; advertising again 500 ms
+  after any other disconnect; a factory reset deletes every Bluetooth bond and identity.
+  `opensc2_select_transport_pairing()` for a transport chord held 4 s. Built; not yet tested on
+  hardware.
+- Valve's vendor GATT service (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE`, on in a Bluetooth build): the
+  command channel, inputs and outputs as plain characteristics for SDL's Android and Apple back
+  ends, sharing their values with the HID service; reports go to the vendor characteristic first
+  when the host subscribed there.
+- The blank canvas shows the Bluetooth link with the real controller's patterns in blue, and
+  `opensc2 ble status` shows the identity, the bonds, the advertising form and its window.
+- The hardware test suite's Bluetooth path (`--bluetooth`, path B): the board found through its
+  console and the HID device Windows made of it, only that device ever opened; the groups hooks,
+  desc, cmd, inputs, battery, stream, reports, outputs, settings, lizard and modes over Bluetooth,
+  and the new group `ble` (the link, the `0x45` cut, a lost link, wireless off, with `--flash` the
+  advertising window). Test ops `0x60` BLE_STATUS, `0x61` BLE_DROP and `0x62` BLE_WINDOW, and ring
+  events for advertising, identities, bonds, disconnects and wireless off. Run only against the
+  simulator so far.
 
 ### Changed
 
 - A transport or puck slot chosen at run time (`opensc2_select_slot()`, the shell's `opensc2
   slot`) is stored once its link is up, as the October 2026 firmware does, instead of at once. It
   is stored as `opensc2/transport`, with `opensc2/slot` still written for a puck transport.
-- Host tests: 61 (2,462 checks), and 89 (4,965 checks) with the hardware test hooks; the runner's
-  self-tests: 208.
+- Host tests: 65 (2,601 checks), and 94 (5,149 checks) with the hardware test hooks; the runner's
+  self-tests: 233.
 
 ## [0.2.0] - 2026-10-19
 

@@ -40,7 +40,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_start()`, `opensc2_stop()` | the wireless transport on, off (wireless mode): the radio, or Bluetooth | [Life cycle](#life-cycle) |
 | `opensc2_pair_start(s)`, `opensc2_pair_cancel()` | pair over the air with a puck's open pairing window (with Bluetooth as the transport: pairing mode) | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_link_state()`, `opensc2_link_info(&info)` | the wireless link's state and counters | [Life cycle](#life-cycle) |
-| `opensc2_select_transport(t)`, `opensc2_selected_transport()` | the wireless transport: the puck with bond 1 or 2, or Bluetooth slot 1 or 2 | [Wireless transports](#wireless-transports-and-bluetooth-le) |
+| `opensc2_select_transport(t)`, `opensc2_select_transport_pairing(t)`, `opensc2_selected_transport()` | the wireless transport: the puck with bond 1 or 2, or Bluetooth slot 1 or 2 (with the pairing flag, Bluetooth opens the slot for a new host) | [Wireless transports](#wireless-transports-and-bluetooth-le) |
 | `opensc2_mode()`, `opensc2_mode_reason()` | this boot's mode (wired or wireless) and why | [Modes](#modes) |
 | `opensc2_policy()`, `opensc2_policy_set(p)` | the stored rule for boots with USB power | [Modes](#modes) |
 | `opensc2_reboot(how, why)`, `opensc2_reboot_later(how, why, ms)` | reboot by the rule, into wireless, or into wired once | [Modes](#modes) |
@@ -93,9 +93,9 @@ int main(void)
 | Function | Does |
 | --- | --- |
 | `opensc2_init(&config)` | Loads the bonds, the wireless transport, the stored identity and the mode policy from Zephyr settings, checks the identity, decides this boot's mode, then starts the USB device (wired) or the stored wireless transport (wireless: the radio thread, or Bluetooth). Once. `-EINVAL` for an invalid identity. A wired boot whose USB device cannot be set up goes on wireless (`OPENSC2_MODE_USB_FAILED`, the transport started if `start` is set). After an error the debug console (`CONFIG_OPENSC2_USB_CONSOLE`) still starts, so the log can be read. |
-| `opensc2_start()` | The wireless transport on. The radio: listen for the bonded puck, or wait in `OPENSC2_LINK_NO_BOND` when the slot is empty. Bluetooth: advertise ([below](#wireless-transports-and-bluetooth-le)). `-EBUSY` while wired. |
+| `opensc2_start()` | The wireless transport on. The radio: listen for the bonded puck, or wait in `OPENSC2_LINK_NO_BOND` when the slot is empty. Bluetooth: advertise ([below](#the-bluetooth-build)), also after "wireless off". `-EBUSY` while wired. |
 | `opensc2_stop()` | The wireless transport off. The radio: like the real controller, nothing is sent; the puck notices the silence. Bluetooth: an all-zero `0x45`, 100 ms, a disconnect, no advertising. |
-| `opensc2_pair_start(seconds)` | Pair over the air with a puck whose pairing window is open. `0` = `CONFIG_OPENSC2_PAIRING_TIMEOUT_S` (60). Starts the radio if needed. With Bluetooth as the transport: pairing mode instead (the slot forgets its host and advertises open). `-EBUSY` while wired (Steam pairs a wired board itself). |
+| `opensc2_pair_start(seconds)` | Pair over the air with a puck whose pairing window is open. `0` = `CONFIG_OPENSC2_PAIRING_TIMEOUT_S` (60). Starts the radio if needed. With Bluetooth as the transport: pairing mode instead (the slot's other identity, reset, advertises open to a new host; the slot's old host keeps its bond until a new one has paired). `-EBUSY` while wired (Steam pairs a wired board itself). |
 | `opensc2_pair_cancel()` | Stop pairing. |
 | `opensc2_link_state()` | `OFF`, `NO_BOND`, `PAIRING`, `LISTENING` or `CONNECTED`, of the running transport (always `OFF` while wired). |
 | `opensc2_link_info(&info)` | State, last reason, slot, channel list, protocol version, RSSI, packet and report counters, connection time, and `transport` (the radio fields are 0 for Bluetooth). |
@@ -120,11 +120,12 @@ Link states and reasons (`link_changed` gets both):
 | `OPENSC2_LINK_LISTENING` | Waiting on channel 2 for the bonded puck's connection request. |
 | `OPENSC2_LINK_CONNECTED` | On the puck's private pipe; reports flow. |
 
-With Bluetooth as the transport the same states mean: `OFF` Bluetooth stopped; `PAIRING`
-advertising open to any host (pairing mode); `LISTENING` advertising for the bonded host only (and
-the 500 ms before advertising again after a lost link); `CONNECTED` a host is connected (reports
-flow once the link is encrypted and its ATT MTU is 64 or more). The reasons `LINK_LOST`, `DISABLED`
-and `PAIRED` apply too.
+With Bluetooth as the transport the same states mean: `OFF` Bluetooth stopped, or "wireless off"
+(reason `LISTEN_TIMEOUT` or `HOST_DISCONNECTED`); `PAIRING` advertising open to any host (pairing
+mode); `LISTENING` advertising for the bonded host only, directed and then allow-listed (and the
+500 ms before advertising again after a lost link); `CONNECTED` a host is connected (reports flow
+once the link is encrypted and its ATT MTU is 64 or more). The reasons `LINK_LOST`, `DISABLED` and
+`PAIRED` apply too.
 
 | Reason | Means |
 | --- | --- |
@@ -133,7 +134,9 @@ and `PAIRED` apply too.
 | `PUCK_TURN_OFF` (3) | The puck sent "turn off" (the PC went to sleep). The link then goes `OFF`. |
 | `BAD_VERSION` (4) | The puck's protocol version is not 0 or 1. |
 | `PAIRED`, `PAIRING_FAILED` | End of a pairing window. |
-| `LISTEN_TIMEOUT`, `BOND_CHANGED` | As named. |
+| `LISTEN_TIMEOUT` | `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` passed without the puck; Bluetooth: its advertising window ended without a host (wireless off). |
+| `BOND_CHANGED` | A bond or the slot selection changed. |
+| `HOST_DISCONNECTED` | Bluetooth: the host ended the link (HCI `0x13`) or powered off (`0x15`): wireless off. |
 
 Reasons 0 to 4 are the controller's own disconnect reasons; the last one is what vendor command
 `0xF2` selector 2 reports.
@@ -477,6 +480,7 @@ itself where it is a reboot, and ignores the others.
 | `OPENSC2_POWER_BOOTLOADER` | `0x90`, or `0x95` with `0xECAABAC0`: Steam's firmware update | your bootloader cannot take Steam's update; ignoring it is usually right (Steam's update then fails, and the firmware stays as it is) |
 | `OPENSC2_POWER_FACTORY_RESET` | `0x86` with `0xEFC1A917` | the bonds, slot and chime level are already erased; `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)` |
 | `OPENSC2_POWER_USB_PLUGGED` | USB power appeared while wireless with the link down or STEAM held (policy auto) | `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)`: back wired |
+| `OPENSC2_POWER_WIRELESS_OFF` | Bluetooth gave up: its advertising window (`CONFIG_OPENSC2_BLE_ADV_WINDOW_S`, 60 s) ended without a host, or the host ended the link (`0x13`) or powered off (`0x15`); the link is `OFF` with reason `LISTEN_TIMEOUT` or `HOST_DISCONNECTED` | the library has already stopped advertising. Power down if on battery (the real controller turns off); on USB power nothing more (the real controller stays on with wireless off). A button can `opensc2_start()` again, as the blank canvas does |
 | `OPENSC2_POWER_USB_UNPLUGGED` | USB power gone for 0.2 s while wired (only a board with a battery or another supply still runs to see it) | power off if the board can (the real controller shuts down), or `opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL)`, which comes back wireless without USB power (the default, and what the blank canvas does). Ignoring it leaves the board wired with neither link until a reset or a re-plug |
 
 ## Identity
@@ -499,11 +503,12 @@ controller, which the library answers too.
 | `product_name` | 1 to 31 printable ASCII characters (`0x20`..`0x7E`), no space at either end | `CONFIG_OPENSC2_USB_PRODUCT` "Steam Controller" | the wired USB device's product string, from the next wired boot; never sent over the radio |
 
 The "OSC"/"OSB" development serials are this project's, not a real controller's. The real controller
-also has a Bluetooth name ("Steam Ctrl (BT) " + serial), but nothing is named over the puck's link
-and this library has no Bluetooth. Steam's updater forces an update on controllers whose build time
-is at or before `0x6A18D057`. Such a build time stops the build when it is the default
-(`CONFIG_OPENSC2_BUILD_TIME`, or with 0 the build machine's clock), the shell stores one only with
-`force`, and the library warns at boot when one is in use.
+also has a Bluetooth name ("Steam Ctrl (BT) " + serial), which the Bluetooth build advertises the
+same way ([The Bluetooth build](#the-bluetooth-build)); nothing is named over the puck's link.
+Steam's updater forces an update on controllers whose build time is at or before `0x6A18D057`. Such
+a build time stops the build when it is the default (`CONFIG_OPENSC2_BUILD_TIME`, or with 0 the
+build machine's clock), the shell stores one only with `force`, and the library warns at boot when
+one is in use.
 
 **The product name** is optional. Windows shows it: it reads the product string when the wired
 device enumerates (for example as the device's name in Settings and as its bus-reported description
@@ -604,7 +609,7 @@ Storage keys (Zephyr settings): `opensc2/bond0`, `opensc2/bond1`, `opensc2/trans
 wireless transport, 0 to 3), `opensc2/slot` (the puck's slot, written with a puck transport;
 firmware before the transport key reads only this one), `opensc2/chime`, `opensc2/id`,
 `opensc2/name`, `opensc2/mode`. A Bluetooth build also keeps Zephyr's `bt/` keys (bonds,
-identities, the name).
+identities, the name); a factory reset (`0x86`) deletes all of them.
 
 ## Wireless transports and Bluetooth LE
 
@@ -623,6 +628,7 @@ pairs a controller over the cable:
 | Function | Does |
 | --- | --- |
 | `opensc2_select_transport(t)` | Run `t` from now on: the running transport stops and hands over the radio (only one runs at a time). Stored once its link is up, as the October 2026 firmware does (the puck: connected; Bluetooth: connected, encrypted, an ATT MTU of 64 or more), so a choice whose link never comes up is not kept; in wired mode it is stored at once, for the next wireless boot. `-ENOTSUP` for Bluetooth without `CONFIG_OPENSC2_BLE`, `-EINVAL` for another value. |
+| `opensc2_select_transport_pairing(t)` | The same with the pairing flag that the real controller's transport chords give when held 4 s: Bluetooth opens the slot for a new host (pairing mode on the slot's other identity, which is reset first, so the old host's bond stays until a new host has paired), even when that slot is connected; the puck's radio ignores the flag, as the real controller's does; in wired mode the choice is stored and the flag dropped. |
 | `opensc2_selected_transport()` | the transport this boot runs |
 
 A boot runs the stored transport (a board from before the transport key: the slot it stored).
@@ -640,27 +646,63 @@ tested on hardware.** The blank canvas's opt-in build is `app/ble.conf`
 protocol documentation's Bluetooth page ([protocol.md](protocol.md#overview-bluetooth-le) has the
 summary and the gaps):
 
-- **Name and advertising**: "Steam Ctrl (BT) " and the unit serial (29 characters); connectable
-  legacy advertising every 100 to 150 ms with the flags, the gamepad appearance, the HID and battery
-  service UUIDs, the TX power and the manufacturer data of company ID `0x055D` (no payload), and the
-  name in the scan response, while the slot is open to a new host; once a host has bonded, only that
-  host may connect, and the advertising carries only the flags, the TX power and the manufacturer
-  data.
-- **Pairing**: Just Works with LE Secure Connections only, bonding; every HID value needs an
-  encrypted link. Identities 1 and 3 advertise for slots 1 and 2 (identity 0 never advertises), each
-  with its own static random address.
+- **Name and advertising**: "Steam Ctrl (BT) " and the unit serial (29 characters). Three forms of
+  connectable advertising, chosen at each start from the identity in use: **pairing mode** when it
+  has no bond (undirected every 100 to 150 ms, anyone may connect; the flags, the gamepad
+  appearance, the HID and battery service UUIDs, the TX power and the manufacturer data of company
+  ID `0x055D` with no payload, and the name in the scan response); **directed** when it has one
+  (high duty cycle to the bonded host, 1.28 s at most); and **allow-listed** after a directed try
+  or a connection that failed (undirected every 100 to 150 ms, only the bonded host on the filter
+  accept list; only the flags, the TX power and the manufacturer data).
+- **The advertising window**: every start of advertising arms `CONFIG_OPENSC2_BLE_ADV_WINDOW_S`
+  (60 s, as on the real controller; 0: none). When it ends without a connection, advertising stops:
+  "wireless off", the link `OFF` with reason `LISTEN_TIMEOUT`, and the application gets
+  `OPENSC2_POWER_WIRELESS_OFF`. `opensc2_start()` advertises again.
+- **Identities and slots**: five identities (0, never used to advertise, and 1 to 4), each with its
+  own static random address. Slot 1 (`OPENSC2_TRANSPORT_BLE_1`) uses identities 1 and 2, slot 2
+  identities 3 and 4. A start uses the slot's first identity if it has a bond or neither has one,
+  otherwise the second; a pairing request (`opensc2_pair_start()`,
+  `opensc2_select_transport_pairing()`, the shell's `opensc2 ble pair`) resets the slot's other
+  identity (a fresh address, no keys) and advertises on it in pairing mode, so a request no host
+  answers loses nothing.
+- **Pairing and bonds**: Just Works with LE Secure Connections only, bonding; every HID and vendor
+  value needs an encrypted link. A host that bonds on an identity that had no bond when advertising
+  started is the slot's new host: the bond on the slot's other identity is deleted, so each slot has
+  one host at a time and each new pairing appears to hosts as a new device. A bond the stack deletes
+  by any route resets its identity (only logged while that identity is in use). A host that bonds
+  on a second identity loses its bond on the first (`CONFIG_BT_ID_UNPAIR_MATCHING_BONDS`); a host
+  that asks to pair again on the identity it is bonded to is refused (SMP error `0x03`): it needs a
+  pairing request first. A factory reset (`0x86` with its key) deletes the whole `bt/` subtree:
+  bonds, identities and the name; the next start creates four new identities.
+- **Disconnects**: when the host ends the link (HCI `0x13`) or powers off (`0x15`): "wireless off",
+  the link `OFF` with reason `HOST_DISCONNECTED`, and `OPENSC2_POWER_WIRELESS_OFF`. Any other reason
+  (a supervision timeout, `0x08`): 500 ms later the same identity advertises again, directed to its
+  host first, with a fresh window. When the board ends the link itself (`opensc2_stop()`, another
+  slot, a pairing request) it first sends an all-zero `0x45` if the link is past the gate, waits
+  100 ms and disconnects with `0x13`; nothing more follows. A reboot just resets (the host sees the
+  link time out).
 - **Services**: the library's own HID service with the USB report map byte for byte (inputs `0x40`
   to `0x45`, outputs `0x80` to `0x89`, feature report 1), the library's own Device Information
   Service (model "Steam Controller", an empty manufacturer name, PnP ID `28DE:1303` version
-  `0x0100`, the unit serial, the build time as the firmware and software revision) and Zephyr's
-  Battery Service.
+  `0x0100`, the unit serial, the build time as the firmware and software revision), Zephyr's
+  Battery Service, and Valve's vendor service (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE`, on by default),
+  in the real controller's order (battery, device information, vendor, HID).
+- **Valve's vendor service**, for hosts that talk GATT themselves (SDL's Android and Apple back
+  ends): UUIDs `100F6Cxx-1735-4313-B402-38567131E5F3`, the service `xx` = `32`, the command channel
+  `34` (feature report 1, read and write), inputs `0x40` to `0x45` as `75` to `7A` (read, notify)
+  and outputs `0x80` to `0x89` as `B5` to `BE` (read, write, write without response): 41
+  attributes, every value encrypted. The characteristics share their values and handlers with the
+  HID service's, so a SET written on one is the stored request of the other; a write shorter than
+  the report is taken (SDL leaves out the last byte). An input report goes out on the vendor
+  characteristic when the host enabled its notifications there, else on the HID service's.
 - **The gate**: reports flow once the link is encrypted and its ATT MTU is 64 or more; then
   Bluetooth is the active transport (`0x81` and `0x85` act, attribute 11 of `0x83` is the connection
   interval in µs) and the choice is stored.
 - **Reports**: one state report per connection event, built one connection interval after the event
   less `CONFIG_OPENSC2_BLE_REPORT_LEAD_US` (500 µs) and sent as `0x45` (the first 45 bytes of
   `0x42`); lizard mode's `0x40` and `0x41`, `0x43` (which also sets the battery service's level) and
-  `0x44` go out on their characteristics, each only where the host enabled notifications.
+  `0x44` go out on their characteristics, each only where the host enabled notifications (the
+  vendor service's first).
 - **Outputs and commands**: output reports written with or without response go to the same
   dispatcher as on every link; feature report 1 is the vendor command channel (a write is a SET, a
   read a GET), with refusals as ATT error `0x04` and a write past 64 bytes as `0x07`. Power and
@@ -677,10 +719,12 @@ summary and the gaps):
   the internal RC oscillator with calibration (500 ppm); in the Bluetooth build MPSL calibrates it
   every 4 s, whichever transport runs.
 
-Not built yet: high-duty directed advertising, the slot's second identity and the bond rules, the
-60 s advertising window and "wireless off" when a host ends the link (Bluetooth advertises again
-500 ms after any disconnect), Valve's vendor GATT service (SDL's Android and Apple back ends need
-it), the factory reset of the `bt/` keys.
+Not in the library: the real controller's haptic cues when pairing mode starts and when a host
+has paired (an application can play its own from `link_changed`), and the transport chords (an
+application's, with `opensc2_select_transport()` and `opensc2_select_transport_pairing()`). The
+shell's `opensc2 ble status` shows the link, and the hardware test suite's `--bluetooth` path checks
+it on a board paired with Windows ([testing.md](testing.md#bluetooth)); nothing of it has run on
+hardware yet.
 
 What a project needs, as `app/ble.conf` sets it:
 
@@ -690,6 +734,7 @@ What a project needs, as `app/ble.conf` sets it:
 | `CONFIG_OPENSC2_BLE=y` | this (it selects `CONFIG_ESB_DYNAMIC_INTERRUPTS`, `CONFIG_MPSL_DYNAMIC_INTERRUPTS` and `CONFIG_BT_CTLR_SDC_EVENT_TRIGGER`) |
 | `CONFIG_BT_SMP=y`, `CONFIG_BT_SMP_SC_PAIR_ONLY=y`, `CONFIG_BT_BONDABLE=y` | Just Works bonding, LE Secure Connections only |
 | `CONFIG_BT_SETTINGS=y`, `CONFIG_BT_ID_MAX=5`, `CONFIG_BT_MAX_PAIRED=5`, `CONFIG_BT_FILTER_ACCEPT_LIST=y` | bonds and identities kept; five identities; advertising for the bonded host only (the first two checked at build time) |
+| `CONFIG_BT_ID_UNPAIR_MATCHING_BONDS=y`, `CONFIG_BT_ID_ALLOW_UNAUTH_OVERWRITE=y` | a host that bonds on another identity loses its older bond (checked); an unauthenticated pairing may replace keys held on another identity, never those of the identity in use. Leave `CONFIG_BT_SMP_ALLOW_UNAUTH_OVERWRITE` off: a host pairing again on its own identity is refused, as on the real controller |
 | `CONFIG_BT_DEVICE_NAME_DYNAMIC=y`, `CONFIG_BT_DEVICE_NAME_MAX=31`, `CONFIG_BT_DEVICE_APPEARANCE=964` | the name with the unit serial; the gamepad appearance (the first two checked) |
 | `CONFIG_BT_BUF_ACL_RX_SIZE=71`, `CONFIG_BT_BUF_ACL_TX_SIZE=71`, `CONFIG_BT_L2CAP_TX_MTU=67`, `CONFIG_BT_ATT_PREPARE_COUNT=4` | an ATT MTU of 67 (64 or more checked); long writes of the 64-byte feature report at the default MTU |
 | `CONFIG_BT_PERIPHERAL_PREF_MIN_INT=6`, `_MAX_INT=6`, `_LATENCY=0`, `_TIMEOUT=42`, `CONFIG_BT_AUTO_PHY_PERIPHERAL_2M=y`, `CONFIG_BT_AUTO_DATA_LEN_UPDATE=n` | the connection parameters and the PHY |
@@ -833,6 +878,8 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_BLE_COMPANY_ID` | 0x055D | the advertised manufacturer data's company ID (Valve's, for interoperability: [NOTICE.md](../NOTICE.md)) |
 | `CONFIG_OPENSC2_BLE_PNP_VENDOR`, `_PNP_PRODUCT`, `_PNP_VERSION` | 0x28DE, 0x1303, 0x0100 | the Device Information Service's PnP ID (vendor ID source: the USB-IF) |
 | `CONFIG_OPENSC2_BLE_MODEL`, `_MANUFACTURER` | "Steam Controller", "" | its model number and manufacturer name |
+| `CONFIG_OPENSC2_BLE_VENDOR_SERVICE` | y | Valve's vendor GATT service, for SDL on Android and Apple platforms |
+| `CONFIG_OPENSC2_BLE_ADV_WINDOW_S` | 60 | the advertising window, then "wireless off"; 0 to 3600, 0: advertise until a host connects |
 | `CONFIG_OPENSC2_BLE_THREAD_PRIORITY`, `_STACK_SIZE` | 6, 2048 | the Bluetooth thread |
 | `CONFIG_OPENSC2_BLE_REPORT_THREAD_PRIORITY`, `_STACK_SIZE` | 4, 1536 | the Bluetooth report thread |
 | `CONFIG_OPENSC2_BLE_TX_QUEUE_DEPTH` | 8 | input reports from other threads waiting for it |
@@ -879,7 +926,7 @@ With `CONFIG_SHELL` (on the SuperMini: the USB serial port, in wireless mode):
 | `opensc2 start`, `opensc2 stop` | the wireless transport on / off |
 | `opensc2 slot [1\|2]`, `opensc2 bonds`, `opensc2 forget <1\|2>` | bonds |
 | `opensc2 transport [puck\|puck2\|ble\|ble2] [save]` | show the transport (running, chosen, stored), or run another; stored once its link is up, or at once with `save` |
-| `opensc2 ble [status]`, `opensc2 ble pair` | with `CONFIG_OPENSC2_BLE`: the Bluetooth link (state, slot, identity and its address, security, ATT MTU, interval, pacing, counters); pairing mode for the slot (its host is forgotten) |
+| `opensc2 ble [status]`, `opensc2 ble pair` | with `CONFIG_OPENSC2_BLE`: the Bluetooth link (on or off, slot, identity and its address, the name, the bonds of the four identities, advertising and its form and the seconds left of its window, or connected with security, ATT MTU, interval, pacing and counters, or wireless off and why; the last disconnect reason); pairing mode for the slot (its other identity, reset, open to a new host; the old host's bond goes once a new one has paired) |
 | `opensc2 id`, `opensc2 id set <unit\|board\|git\|pid\|rev\|build\|blbuild\|name> <value> [force]`, `opensc2 id clear` | identity: `set` stores that one field as given (0 too); numbers in hex with `0x`, or `0`; a name with spaces in double quotes; `force` for a build time at or before `0x6A18D057` ([Identity](#identity)) |
 | `opensc2 state` | the current input state |
 | `opensc2 test [<id>] <verb> ...` | with `CONFIG_OPENSC2_TEST_HOOKS`: the [hardware test hooks](test-protocol.md#the-console-opensc2-test) |
@@ -902,7 +949,11 @@ board with nothing wired to it. While the PC has the hooks **armed**:
   entry by entry, so outputs with no hardware behind them can be checked byte for byte;
 - **the lizard guard**: lizard mode's mouse and keyboard reports (`0x40`, `0x41`) never leave the
   board; they go into the ring instead;
-- **counters** of everything that flows (frames, reports sent and dropped, packets, commands).
+- **counters** of everything that flows (frames, reports sent and dropped, packets, commands);
+- **Bluetooth** (a build with `CONFIG_OPENSC2_BLE`): the link's state (`BLE_STATUS`), a link ended
+  as if by the host with a given reason (`BLE_DROP`), a shorter advertising window once
+  (`BLE_WINDOW`), and ring entries for advertising, its end, identities, bonds, disconnects and
+  wireless off.
 
 Unarmed, the board behaves exactly as without the option, byte for byte, including the STALL of every
 unknown opcode (the host tests compare the two builds request by request). Arming is RAM only: it ends
