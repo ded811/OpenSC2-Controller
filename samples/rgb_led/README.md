@@ -8,11 +8,13 @@ takes over the controller's LED. For anyone who wants a status LED like the real
 
 ## What it shows
 
-- `opensc2_led_get()`: the colour Steam sets with vendor command `0xC5` (red, green, blue and white
-  in percent), whether Steam's LED override is on (controller setting 37), and the brightness
-  Steam sets (controller setting 45, 50 % by default).
-- `opensc2_mode()`, `opensc2_link_state()` and `opensc2_usb_state()`: the board's state as LED
-  patterns when Steam shows no colour of its own, the same patterns and colours as `app/`.
+- `opensc2_led_status()`: the real controller's LED mode, which the library's system state machine
+  selects (on by default), with Steam's colour (vendor command `0xC5`) while Steam's LED override
+  is on (controller setting 37) and the brightness Steam sets (controller settings 45 and 38).
+- The pattern player of `<opensc2/led.h>` (`opensc2_led_player_step()` every 10 ms): the real
+  controller's patterns and fades as a colour, and `opensc2_led_duty()` with the unit's LED trims
+  (`opensc2_cal_led_trim()`, the calibration keys `cal/rgbw_*`): the same patterns and colours as
+  `app/` (`app/src/status.c`). The white channel is mixed into red, green and blue.
 - Three PWM channels of one PWM instance (so one period), found by their names (`red`, `green`,
   `blue`) in `zephyr,user`, with the polarity set for a common-anode or a common-cathode LED.
 - The pairing button with the same rules as every sample.
@@ -76,9 +78,9 @@ but has not run on hardware.
    unplugged while you add the board.
 2. In Steam, start adding a controller. Steam asks you to connect it with a USB-C cable.
 3. Plug the board in with a USB-C data cable (not a charge-only cable). It comes up wired: the RGB
-   LED is dark for half a second, then green with a short dark blink every 2 seconds.
+   LED is dark at first, then green once the PC has set the board up.
 4. Steam pairs the board with the puck over the cable and reboots it into wireless mode: the LED
-   goes dark, blinks slowly in white-blue while the board looks for the puck, then stays on. The
+   goes dark, pulses slowly in white-blue while the board looks for the puck, then stays on. The
    board is now connected through the puck.
 5. From then on the board connects through the puck by itself whenever it starts wireless. Plugged
    into a PC again it comes up wired; hold the pairing button while plugging in to keep it
@@ -101,32 +103,36 @@ The sample is built to do the following; none of it has run on hardware yet.
 
 | The LED | Means |
 | --- | --- |
-| Steam's colour | Steam has turned its LED override on, and the board has a host (connected through the puck, or set up by the PC while wired) |
+| Steam's colour | while Steam's LED override is on |
 | white-blue, on | wireless, connected through the puck |
-| white-blue, a slow blink | wireless, looking for the puck |
-| white-blue, a short blink every 2 s | wireless, no pairing yet |
+| white-blue, a slow pulse (in over 0.1 s, about 1 s on, out, dark) | wireless, looking for the puck (also when it is not paired yet) |
 | white-blue, two quick flashes, repeating | pairing over the air |
-| green, on with a short dark blink every 2 s | wired, set up by the PC |
-| amber, a fast blink | wired, but no PC has set the board up (a charger, a power bank) |
-| off | wireless with the radio off, or wired during its first half second |
+| green | wired, set up by the PC |
+| amber | wired, but no PC has set the board up (a charger, a power bank), or wireless switched off on USB power (the PC went to sleep): STEAM brings it back wired |
+| off | the first second or so after power-up, a reboot or a shutdown |
 
-Steam's brightness setting (controller setting 45, 50 % by default) scales every colour.
+These are the steady colours of a board that counts as fully charged, as this one does without a
+battery; an application that reports a lower level gets the real controller's breathing patterns.
+Each colour is scaled by the unit's LED trims (90, 35, 120 and 80 % until a host stores others) and
+by Steam's brightness setting (controller setting 45, 50 % by default, through the curve of
+setting 38).
 
 - In wireless mode the board's USB serial port has a shell
   ([Reach the shell](../../docs/getting-started.md#reach-the-shell)): `opensc2 status` shows the
   mode and the link. It also shows the board's serials: mask them before you post the output.
-- When the PC goes to sleep, the puck tells the controller to turn off, and the radio stays off
-  (the LED goes dark): this sample has no code that turns it back on (`app/` turns it on at any
-  button press). Reset the board (short RST to GND once), holding the pairing button if it is on
-  USB power, so that it starts wireless again.
+- When the PC goes to sleep, the puck tells the controller to turn off: the system state machine
+  switches wireless off and the LED turns amber. This sample has no STEAM button: reset the board
+  (short RST to GND once), holding the pairing button if it is on USB power, so that it starts
+  wireless again, or type `opensc2 start` on its console.
 
 ## Change it
 
-- **Colours and patterns**: the `set_colour()` calls at the end of `main()` and the two pattern
-  functions, `radio_pattern()` and `usb_pattern()`, in ticks of 50 ms.
-- **The LED callback**: the library also calls a `led` callback when Steam changes the colour or
-  the LED settings; this sample polls `opensc2_led_get()` instead, since the patterns need a clock
-  anyway.
+- **Colours and patterns**: `led_step()` turns the player's colour into the three duties; the
+  patterns themselves are the library's ([docs/api.md](../../docs/api.md#status-led)), as the
+  real controller plays them. A board without the system state machine
+  (`CONFIG_OPENSC2_SYSTEM=n`) gets a plain mode from `get_status()` instead.
+- **The LED callback**: the library also calls a `led_status` callback when the mode changes; this
+  sample steps the player every 10 ms instead, since the patterns move between calls anyway.
 - **The on-board LED**: `app/src/status.c` shows the same patterns on the board's one-colour LED
   (and on an RGB LED with the same channel names).
 - **Other pins**: any free pins work, the nRF52840 routes PWM to any GPIO; change the `psels` in the

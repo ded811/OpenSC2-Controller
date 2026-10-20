@@ -144,9 +144,9 @@ full: [Add it in Steam](../docs/getting-started.md#add-it-in-steam).
   It streams only while Steam has the IMU on (controller setting 48). Other IMUs: replace the node.
 - **rumble**: the `rumble` and `haptic` callbacks on one motor: rumble as a duty cycle, the haptic
   effects as short buzzes. The library stops a rumble Steam stopped repeating.
-- **rgb_led**: `opensc2_led_get()`: Steam's colour and brightness once Steam turns its LED override
-  on, and otherwise the board's state in the same patterns and colours as `app/`, wired and
-  wireless.
+- **rgb_led**: the status LED as `app/` shows it: the system state machine's mode
+  (`opensc2_led_status()`) through the library's pattern player (`<opensc2/led.h>`), with the
+  unit's LED trims, Steam's colour while its LED override is on and Steam's brightness.
 - **haptics**: the library's haptics synthesiser (`CONFIG_OPENSC2_HAPTICS_SYNTH`) with its built-in
   outputs, each set up from a devicetree node (`opensc2,haptics-i2s`, `opensc2,haptics-pwm-dac`, or
   a `ti,drv2605` chosen as `opensc2,haptics-drv2605`), the start-up cue the system state machine

@@ -3,14 +3,14 @@
  * SPDX-License-Identifier: MIT
  *
  * An RGB LED like the controller's status LED, wired or wireless, with the same patterns and
- * colours as app/ (app/src/status.c):
- *  - with a host (wireless: connected through the puck; wired: set up by the PC) and Steam's LED
- *    override on (controller setting 37), the colour Steam sets with vendor command 0xC5 (red,
- *    green, blue, white in percent), scaled by the brightness Steam sets (controller setting 45);
- *  - otherwise the state: wireless in the radio's white-blue (quick double flashes while pairing,
- *    a slow blink while looking for the puck, a short blink every 2 s with no pairing, steady
- *    when connected, off with the radio off); wired, amber with a fast blink while no PC has set
- *    the board up, green with a short dark blink every 2 s once one has.
+ * colours as app/ (app/src/status.c): the library's system state machine selects the real
+ * controller's LED mode (opensc2_led_status(), on by default), and the library's pattern player
+ * (<opensc2/led.h>) turns it into a colour every 10 ms with the real controller's patterns and
+ * fades: white with a little blue for the puck (a slow pulse while looking for it, steady once
+ * connected), green while wired, amber on USB power without a PC or with wireless off, and Steam's
+ * own colour (vendor command 0xC5) while Steam's override is on (controller setting 37). Each
+ * channel is scaled by the unit's trim (cal/rgbw_*, opensc2_cal_led_trim()) and by the brightness
+ * Steam sets (settings 45 and 38); the white channel is mixed into red, green and blue.
  * There is no power_request callback: the library does the reboots Steam asks for itself, and it
  * ignores Steam's request to enter a bootloader for a firmware update.
  */
@@ -20,6 +20,8 @@
 #include <zephyr/input/input.h>
 #include <zephyr/logging/log.h>
 #include <opensc2/opensc2.h>
+#include <opensc2/cal.h>
+#include <opensc2/led.h>
 
 LOG_MODULE_REGISTER(rgb_led, LOG_LEVEL_INF);
 
@@ -80,52 +82,55 @@ INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_NODELABEL(opensc2_buttons)), on_button, N
 /* ---- The LED --------------------------------------------------------------------------------- */
 
 static bool led_ready;
+static struct opensc2_led_player player;
 
-static void set_colour(uint32_t r, uint32_t g, uint32_t b)   /* percent */
+static void set_duty(const struct pwm_dt_spec *ch, uint32_t duty)   /* thousandths */
 {
-	const uint32_t pct[3] = { r, g, b };
+	duty = MIN(duty, OPENSC2_LED_FULL_SCALE);
+	(void)pwm_set_pulse_dt(ch, (uint32_t)((uint64_t)ch->period * duty / OPENSC2_LED_FULL_SCALE));
+}
 
+/* The LED's mode. With the system state machine (the default) the library's; without it a plain
+ * one from the mode, the link and USB, as app/src/status.c does. */
+static void get_status(struct opensc2_led_status *st)
+{
+	opensc2_led_status(st);
+#if !defined(CONFIG_OPENSC2_SYSTEM)
+	if (opensc2_mode() == OPENSC2_MODE_WIRED) {
+		st->mode = opensc2_usb_state() == OPENSC2_USB_CONFIGURED ? OPENSC2_LED_MODE_WIRED :
+			   OPENSC2_LED_MODE_AMBER;
+	} else {
+		st->mode = OPENSC2_LED_MODE_PUCK;
+		st->connected = opensc2_link_state() == OPENSC2_LINK_CONNECTED;
+		st->pairing = opensc2_link_state() == OPENSC2_LINK_PAIRING;
+		st->external_power = true;
+	}
+#endif
+}
+
+/* One step of the player, every OPENSC2_LED_STEP_MS: the colour in thousandths of full duty
+ * (R, G, B, W), then each channel's duty with its trim and Steam's brightness. */
+static void led_step(void)
+{
+	struct opensc2_led_status st;
+	uint16_t c[4];
+	uint32_t white;
+
+	get_status(&st);
+	opensc2_led_player_step(&player, &st, k_uptime_get_32(), c);
 	if (!led_ready) {
 		return;
 	}
+	white = opensc2_led_duty(c[3], opensc2_cal_led_trim(3), st.brightness);
 	for (int i = 0; i < 3; i++) {
-		pwm_set_pulse_dt(&rgb[i], rgb[i].period / 100 * MIN(pct[i], 100));
-	}
-}
-
-/* The patterns, in ticks of 50 ms. */
-static bool radio_pattern(enum opensc2_link_state link, uint32_t tick)
-{
-	switch (link) {
-	case OPENSC2_LINK_PAIRING:
-		return tick % 8 == 0 || tick % 8 == 2;   /* two quick flashes every 400 ms */
-	case OPENSC2_LINK_LISTENING:
-		return tick % 20 < 4;                    /* 200 ms every second */
-	case OPENSC2_LINK_NO_BOND:
-		return tick % 40 == 0;                   /* 50 ms every 2 s */
-	case OPENSC2_LINK_CONNECTED:
-		return true;
-	default:
-		return false;                            /* the radio is off */
-	}
-}
-
-static bool usb_pattern(enum opensc2_usb_state usb, uint32_t tick)
-{
-	switch (usb) {
-	case OPENSC2_USB_NO_HOST:
-		return tick % 4 < 2;                     /* 100 ms on, 100 ms off */
-	case OPENSC2_USB_CONFIGURED:
-		return tick % 40 >= 2;                   /* on, 100 ms dark every 2 s */
-	default:
-		return false;                            /* the first 0.5 s on the bus */
+		set_duty(&rgb[i], opensc2_led_duty(c[i], opensc2_cal_led_trim((uint8_t)i),
+						   st.brightness) + white);
 	}
 }
 
 int main(void)
 {
 	struct opensc2_config config = { .start = true };
-	uint32_t tick = 0;
 	int err;
 
 	gpio_pin_configure_dt(&vcc, GPIO_OUTPUT_ACTIVE);   /* a common anode is on VCC */
@@ -134,6 +139,7 @@ int main(void)
 	if (!led_ready) {
 		LOG_ERR("The PWM outputs are not ready: no LED");
 	}
+	opensc2_led_player_init(&player);
 
 	if (pair_held()) {
 		pair_held_at_boot = true;
@@ -145,33 +151,11 @@ int main(void)
 		LOG_ERR("opensc2_init failed (%d)", err);
 	}
 
-	/* Poll the state every 50 ms; the led callback could report Steam's colour too, but the
-	 * patterns need a clock anyway. */
-	for (;; tick++) {
-		bool wired = opensc2_mode() == OPENSC2_MODE_WIRED;
-		enum opensc2_usb_state usb = opensc2_usb_state();
-		enum opensc2_link_state link = opensc2_link_state();
-		bool host = wired ? usb == OPENSC2_USB_CONFIGURED : link == OPENSC2_LINK_CONNECTED;
-		struct opensc2_led led;
-		uint32_t level;
-
-		opensc2_led_get(&led);
-		level = led.brightness;   /* controller setting 45, 0..100 (50 by default) */
-		if (host && led.override) {
-			/* Steam's colour; the white channel is mixed into all three. */
-			set_colour(MIN(led.red + led.white, 100) * level / 100,
-				   MIN(led.green + led.white, 100) * level / 100,
-				   MIN(led.blue + led.white, 100) * level / 100);
-		} else if (!(wired ? usb_pattern(usb, tick) : radio_pattern(link, tick))) {
-			set_colour(0, 0, 0);
-		} else if (wired && host) {
-			set_colour(0, 50 * level / 100, 0);                     /* green: on a PC */
-		} else if (wired) {
-			set_colour(40 * level / 100, 40 * level / 100, 0);      /* amber: no PC yet */
-		} else {
-			set_colour(80 * level / 100, 80 * level / 100, level);  /* the radio's white-blue */
-		}
-		k_msleep(50);
+	/* The player needs a clock: step it every 10 ms. The library's led_status callback tells of
+	 * a new mode too, but the patterns move between calls anyway. */
+	for (;;) {
+		led_step();
+		k_msleep(OPENSC2_LED_STEP_MS);
 	}
 	return 0;
 }
