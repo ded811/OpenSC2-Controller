@@ -88,8 +88,14 @@ that ESB also supports are untested.
    console with the default IDs `2FE3:0004` and the product string "OpenSC2 console"
    ([NOTICE.md](../NOTICE.md)).
 
-9. **Radio coexistence.** The library owns the radio while it is on. Bluetooth at the same time is
-   not supported (it would need ESB on MPSL timeslots, `CONFIG_ESB_MPSL_TIMESLOT`, untested).
+9. **Radio coexistence.** The library owns the radio while it is on. Its own Bluetooth
+   (`CONFIG_OPENSC2_BLE`, not yet tested on hardware) takes turns with the puck's link: one at a
+   time, the radio handed over at run time ([api.md](api.md#the-bluetooth-build)); that needs
+   Nordic's SoftDevice Controller and no other user of the radio. Bluetooth of the application's
+   own next to the puck's link is not supported (it would need ESB on MPSL timeslots,
+   `CONFIG_ESB_MPSL_TIMESLOT`, untested). A board for the Bluetooth build also needs a free EGU
+   (`egu3` by default) and the 32.768 kHz source of the table above (MPSL then calibrates an RC
+   oscillator every 4 s).
 
 ## Wired mode
 

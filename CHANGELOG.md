@@ -7,6 +7,30 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Added
+
+- Bluetooth LE, an opt-in build (`CONFIG_OPENSC2_BLE`; for the SuperMini the fragment
+  `app/ble.conf`): the board as a HID-over-GATT Steam Controller 2 (PnP ID `28DE:1303`) with the
+  real controller's name, advertising and pairing (Just Works, LE Secure Connections), the USB
+  report map, the vendor commands on feature report 1 (refusals as ATT errors), output reports, the
+  battery and device information services, October's gate (encryption and an ATT MTU of 64), a
+  state report `0x45` per connection event and lizard mode. Built; not yet tested on hardware.
+- Wireless transports: the real controller's four `user/wireless_transport` values (Bluetooth slots
+  1 and 2, the puck with bond 1 or 2), `opensc2_select_transport()`, `opensc2_selected_transport()`
+  and the shell's `opensc2 transport`; the puck's ESB and Bluetooth hand the radio over to each
+  other at run time. With Bluetooth, `opensc2 ble status` and `opensc2 ble pair`.
+- Attribute 11 of `0x83` follows the link (the connection interval over Bluetooth, 64000 µs for the
+  dock link to come); the library's links and the test hooks' ring know Bluetooth (4) and the dock
+  (5); ring entries of kind `0x40` for Bluetooth events; caps bit 17 for a Bluetooth build.
+
+### Changed
+
+- A transport or puck slot chosen at run time (`opensc2_select_slot()`, the shell's `opensc2
+  slot`) is stored once its link is up, as the October 2026 firmware does, instead of at once. It
+  is stored as `opensc2/transport`, with `opensc2/slot` still written for a puck transport.
+- Host tests: 61 (2,448 checks), and 88 (4,915 checks) with the hardware test hooks; the runner's
+  self-tests: 208.
+
 ## [0.2.0] - 2026-10-19
 
 First public release.

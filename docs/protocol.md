@@ -32,6 +32,7 @@ study of the controller's firmware, not from that documentation; the gaps below 
 | The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
 | Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
 | Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
+| Bluetooth LE: advertising, pairing, the HID service, the gate, reports, the transport choice (an opt-in build here) | [Bluetooth LE](#overview-bluetooth-le), [api.md, Wireless transports](api.md#wireless-transports-and-bluetooth-le) | [docs/controller/05-bluetooth.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/05-bluetooth.md) |
 | The dock (not implemented here) | [The puck's end](#overview-the-pucks-end) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md) |
 | What the puck shows Steam (feature report pass-through, attribute cache) | [The puck's end](#overview-the-pucks-end) | [docs/puck/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/03-usb-and-hid.md) |
 
@@ -223,6 +224,30 @@ usable without Steam. OpenSC2 does the same, on every link:
   status LED shows its mode by colour: green while wired, white with a little blue on the puck's
   link, amber on the dock.
 
+## Overview: Bluetooth LE
+
+The controller can also connect straight to a PC, phone or console over Bluetooth LE, without the
+puck. OpenSC2 has it as an opt-in build (`CONFIG_OPENSC2_BLE`), built and **not yet tested on
+hardware**; [api.md](api.md#the-bluetooth-build) has every detail and what is not built yet.
+
+- **One transport at a time**: the stored `user/wireless_transport` decides (0 and 1 Bluetooth slots
+  1 and 2, 2 and 3 the puck with bond 1 or 2); October saves a new choice only once its link is up.
+- **Advertising**: "Steam Ctrl (BT) " and the unit serial; connectable legacy advertising every 100
+  to 150 ms; flags, the gamepad appearance (`0x03C4`), the HID and battery service UUIDs, the TX
+  power and manufacturer data of company ID `0x055D` with no payload; the name in the scan response.
+  Without a bond the slot is open to any host (pairing mode); with one, only its host may connect.
+- **Pairing**: Just Works, LE Secure Connections only, bonding. Every HID value needs encryption.
+- **Services**: HID over GATT with the USB report map byte for byte (inputs `0x40` to `0x45`,
+  outputs `0x80` to `0x89`, feature report 1); Device Information with PnP ID `28DE:1303`, model
+  "Steam Controller", an empty manufacturer name, the unit serial and the build time; Battery.
+  Vendor command `0x83` still reports product ID `0x1302`.
+- **The gate**: no report until the link is encrypted and its ATT MTU is 64 or more; then Bluetooth
+  is the active transport and attribute 11 of `0x83` is the connection interval in µs.
+- **Reports**: one state report per connection event, as `0x45` (the first 45 bytes of `0x42`, the
+  quaternion cut); lizard mode, battery and haptic status on their own characteristics.
+- **Commands and outputs**: feature report 1 is the command channel (refusals are ATT errors);
+  output reports go to the same dispatcher as on every other link.
+
 ## Where this library had to fill gaps
 
 The research documentation describes one real controller firmware. Where it leaves something
@@ -345,6 +370,33 @@ open, the library does what should work with Steam and the puck, and says so her
     or reboot (`OPENSC2_POWER_USB_UNPLUGGED`); without a callback it reboots, which comes back
     wireless on a battery, and the blank canvas does the same, having no power-off of its own. A
     board without a battery has lost its power anyway.
+22. **The wireless transport** (`user/wireless_transport`). The library keeps the real controller's
+    four values and October's rule that a choice is saved once its link is up. Not documented, and
+    the library's choices: a host's `0xEE` of a value between the puck and Bluetooth takes effect at
+    the next wireless start (a new puck slot at once, as before); without Bluetooth, `0xEE` with 0
+    or 1 is taken and changes nothing; a board that stored only `opensc2/slot` (older firmware)
+    starts on that puck slot. What Steam does when it reads 0 or 1 during a cable pairing is not
+    known.
+23. **Bluetooth LE** (an opt-in build; built, not yet tested on hardware). Where it differs from the
+    documented controller, or the documentation is silent:
+
+    | Point | The documented controller | OpenSC2 |
+    | --- | --- | --- |
+    | Sharing the radio with the puck's ESB | MPSL is shut down when the puck link stops, and started again by Bluetooth | MPSL stays initialised (in this build its clock driver also serves the USB console's crystal); ESB takes the radio interrupt while it runs and the library hands it back to MPSL; switching between the two within one boot is supported both ways |
+    | Advertising forms | high-duty directed to the bonded host first, then allow-listed, with a 60 s window | allow-listed for a bonded slot, open otherwise; no directed advertising and no 60 s window yet |
+    | After a disconnect | 0x13 or 0x15 from the host means "wireless off"; other reasons advertise again 500 ms later | advertises again 500 ms later whatever the reason |
+    | Identities | two per slot; a pairing request resets the other one, so the old host is kept until a new one has paired | one per slot so far (identities 1 and 3); pairing mode forgets the slot's host |
+    | The ATT MTU | the last value is remembered across connections | per connection, as the specification has it (hosts raise it at every connection) |
+    | Reading feature report 1 | 64 bytes, the answer then left-overs; a read blob gets the start again | the 63 bytes the report map declares; a read blob gets the rest of the same answer |
+    | No connection-event trigger | no state reports (inferred) | a timer at the connection interval paces them |
+    | Report pacing | the slot less the worst processing time of the last 65 frames | the slot less a fixed 500 µs (`CONFIG_OPENSC2_BLE_REPORT_LEAD_US`) |
+    | A report that cannot be sent | logged as an error with its ID | logged at debug level (at the default MTU every state report would be) |
+    | Valve's vendor GATT service | present (SDL's Android and Apple back ends use it) | not yet |
+
+    Valve's Bluetooth company ID and the PnP ID `28DE:1303` are advertised for interoperability, as
+    the USB IDs are ([NOTICE.md](../NOTICE.md)); both are Kconfig options.
+24. **Attribute 11 on the dock** is documented as 64000 µs; the library answers that for its dock
+    link, which has no code yet and is never active.
 
 ## What this library adds for development boards
 

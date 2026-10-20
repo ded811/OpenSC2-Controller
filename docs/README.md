@@ -42,6 +42,11 @@ off. Steam reads it like the real controller, and pairs it with the puck in this
 ShockBurst). On USB it shows at most a debug serial port with other IDs (`2FE3:0004`), which has
 the shell.
 
+**Wireless transport.** What a wireless boot runs: the puck's radio with bond 1 or 2, or (in the
+opt-in Bluetooth build, not yet tested on hardware) Bluetooth LE in slot 1 or 2, one at a time.
+The choice is stored on the board, as the real controller's `user/wireless_transport`;
+`opensc2 transport` shows and changes it ([api.md](api.md#wireless-transports-and-bluetooth-le)).
+
 **Lizard mode.** Until Steam takes over, a Steam Controller 2 acts as a plain mouse and keyboard
 (the right trackpad moves the pointer, A is Enter, B is Escape, the D-pad gives the arrow keys).
 Steam switches it off while it runs; about 10 seconds after Steam stops, it comes back. OpenSC2

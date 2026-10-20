@@ -30,6 +30,7 @@ change a pin there, or delete an input you do not wire.
 | [The serial console](#the-serial-console-wireless-mode), [Identity](#identity), [Steam's firmware update](#steams-firmware-update) | looking inside and changing what Steam sees |
 | [Optional parts](#optional-parts), [Build options](#build-options) | more hardware, other settings |
 | [The hardware test hooks](#the-hardware-test-hooks), [Test build: the charger fallback](#test-build-the-charger-fallback) | testing |
+| [Test build: Bluetooth LE](#test-build-bluetooth-le) | the opt-in Bluetooth build (not yet tested on hardware) |
 
 ## Build and flash
 
@@ -460,5 +461,39 @@ The library side, the rule and its Kconfig option:
 [docs/api.md](../docs/api.md#test-builds-only-no-host-then-wireless).
 
 </details>
+
+## Test build: Bluetooth LE
+
+> [!NOTE]
+> The Bluetooth build (`app/ble.conf`, `CONFIG_OPENSC2_BLE`) is opt-in and **built, not yet tested
+> on hardware**. It is not part of the default build or any release.
+
+On top of everything the default build does, the board can be a Steam Controller 2 over Bluetooth
+LE: a HID-over-GATT device (`28DE:1303`) that a PC or a phone pairs without the puck. It still boots
+wired on USB power, and wireless on the stored transport: the puck unless Bluetooth was chosen and
+has connected once. Build it with the fragment on top of `prj.conf`, in a build folder of its own:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\ble.conf -OutDir C:\b\osc2-ble -Pristine
+```
+
+The image is `C:\b\osc2-ble\app\zephyr\zephyr.uf2` (about 320 KB of flash and 79 KB of RAM, against
+about 175 KB and 49 KB without Bluetooth). With west: `west build -p always -d build-ble -b
+promicro_nrf52840/nrf52840/uf2 app -- -DEXTRA_CONF_FILE=ble.conf`.
+
+On the console (wireless mode):
+
+| Command | Does |
+| --- | --- |
+| `opensc2 transport ble` | switch to Bluetooth slot 1 (`ble2`: slot 2); stored once a host has connected and encrypted the link |
+| `opensc2 transport ble save` | the same, stored at once (then `opensc2 reboot wireless` comes back on Bluetooth) |
+| `opensc2 ble status` | advertising or connected, the identity and its address, security, ATT MTU, interval, the reports sent |
+| `opensc2 ble pair` | pairing mode: the slot forgets its host and is open to a new one (the pairing button does the same while Bluetooth is the transport) |
+| `opensc2 transport puck` | back to the puck |
+
+Then pair it in Windows: **Settings, Bluetooth & devices, Add device, Bluetooth**; it shows as
+"Steam Ctrl (BT)" and the board's serial, and pairs without a prompt. The LED shows the link as it
+does for the puck: two flashes while open to a new host, a short blink while it advertises for its
+host, steady once connected. What is built and what is not: [docs/api.md](../docs/api.md#the-bluetooth-build).
 
 Back to the [documentation map](../docs/README.md)

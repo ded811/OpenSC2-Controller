@@ -56,7 +56,22 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 Because nothing is wired, the board's own inputs read neutral; the inputs come from the test
 channel, and the outputs (rumble, haptics, LED) show up in the hooks' ring, entry by entry, with the
 fields the library decoded. Not covered: the physical inputs and outputs of a board that has them
-(the samples' drivers), the USB cable rules (unplugging, plugging in), Bluetooth and the dock.
+(the samples' drivers), the USB cable rules (unplugging, plugging in), Bluetooth (below) and the
+dock.
+
+**The Bluetooth build** (`app/ble.conf`, not yet tested on hardware) has no Bluetooth path in the
+suite yet. Its pure parts run in the host tests (the name, the advertising data byte for byte, the
+HID service's report table against the report map, the gate, the cut to `0x45`, the checks of
+written values, the pacing, the transport values and attribute 11 per link). On the board, the
+suite's W and R paths run on it as on the default image while the puck is the transport (a
+Bluetooth build reports caps bit 17, and `cmd.by_name_harmless` then leaves out the transport value
+1, which selects Bluetooth there). By hand, in this order: `opensc2 transport ble` on the console;
+`opensc2 ble status` shows the board advertising open; Windows' **Settings, Bluetooth & devices, Add
+device** lists "Steam Ctrl (BT) OSC..." and pairs without a prompt; Device Manager shows a HID device
+`28DE:1303` with three collections; `opensc2 ble status` shows the link active (encrypted, ATT MTU
+64 or more) and the state reports counting up; with Steam closed the board is also a Bluetooth mouse
+and keyboard (lizard mode; with nothing wired it sends no motion). `opensc2 transport puck` goes
+back to the puck.
 
 ## What it needs
 
@@ -148,9 +163,9 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 52 host tests (2,209 checks); 79 (4,658 checks) with
+the suite against that emulator. Today that is 61 host tests (2,448 checks); 88 (4,915 checks) with
 the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
-alike; the runner's 207 self-tests; its dry run against the library's own code in a firmware
+alike; the runner's 208 self-tests; its dry run against the library's own code in a firmware
 emulator; 9 self-tests of `tools/match_steam_version.py`. To run the emulator by hand after
 `run.ps1` built it:
 
@@ -321,7 +336,7 @@ in `report.json` (`safety.puck_writes`).
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 207 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 208 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking, every safety rule (including the
   source scan of the puck reader, and that every function that sends checks the exact bytes), the
   link lock against a racing keep-alive, the leak detector's filter and watch list, the Windows
