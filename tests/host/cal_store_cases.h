@@ -212,6 +212,35 @@ OPENSC2_TEST(cal_store_erase_and_reset)
 	CHECK(osc2_usb_feature_get(reply, 64, 64, &opcode, &n) < 0);
 }
 
+OPENSC2_TEST(cal_store_erase_order)
+{
+	static const uint8_t erase[4] = { 0x85, 0x48, 0x67, 0xC6 };
+	uint8_t value[18], len;
+
+	stub_reset();
+	CHECK_EQ(cal_named(0xEE, "cal/joy_r", cal_joy_bytes, 18), 0);
+	CHECK_EQ(cal_named(0xEF, "cal/joy_r", NULL, 0), 0);
+	/* a save asked for before the erase does not outlive it (both wait for the work queue) */
+	CHECK_EQ(cal_set(0xE2, (const uint8_t[]){ 1, 2 }, 2), 0);
+	CHECK_EQ(cal_set(0xFE, erase, 4), 0);
+	osc2_cal_flush();
+	CHECK(cal_host_flash_get("cal/joy_r", value, &len) < 0);
+	/* one asked for after it is written after it, from the RAM copy the erase left in use */
+	CHECK_EQ(cal_set(0xFE, erase, 4), 0);
+	CHECK_EQ(cal_set(0xE2, (const uint8_t[]){ 1, 2 }, 2), 0);
+	osc2_cal_flush();
+	CHECK_EQ(cal_host_flash_get("cal/joy_r", value, &len), 0);
+	CHECK_EQ(len, 18);
+	/* a recording finished before the erase is not saved either */
+	CHECK_EQ(cal_set(0xC3, (const uint8_t[]){ 1 }, 1), 0);
+	opensc2_set_pressure_raw(OPENSC2_LEFT, 900);
+	cal_frame_state(&(struct opensc2_state){ 0 });
+	CHECK_EQ(cal_set(0xC3, (const uint8_t[]){ 3 }, 1), 0);
+	CHECK_EQ(cal_set(0xFE, erase, 4), 0);
+	osc2_cal_flush();
+	CHECK(cal_host_flash_get("cal/prs_l", value, &len) < 0);
+}
+
 OPENSC2_TEST(cal_store_persist)
 {
 	static const uint8_t trg[OPENSC2_CAL_TRIGGER_LEN] = { 2, 0, 0xDC, 0x05, 0xC8, 0x00, 0 };

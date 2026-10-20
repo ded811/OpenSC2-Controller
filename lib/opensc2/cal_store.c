@@ -185,6 +185,7 @@ void osc2_cal_flush(void)
 	pending_erase = false;
 	k_spin_unlock(&lock, lk);
 
+	/* The erase first: a save still to do was asked for after it (0xFE drops the earlier ones). */
 	if (erase) {
 		LOG_INF("0xFE: deleting every cal/ key from flash");
 		for (int k = 0; k < K_COUNT; k++) {
@@ -724,6 +725,7 @@ int osc2_cal_command(uint8_t opcode, const uint8_t *payload, uint8_t len, size_t
 		}
 		lk = k_spin_lock(&lock);
 		pending_erase = true;   /* the RAM copies stay in use until the next boot */
+		pending_save = 0;       /* saves asked for before it would come after it: the erase wins */
 		k_spin_unlock(&lock, lk);
 		osc2_cal_defer();
 		return 0;
