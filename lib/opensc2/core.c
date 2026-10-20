@@ -19,7 +19,7 @@
 #include "internal.h"
 #include "crash.h"
 #include "hwdt.h"
-#include "keys.h"
+#include "key_store.h"
 #include "system.h"
 #include "test_hooks.h"
 

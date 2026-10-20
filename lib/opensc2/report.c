@@ -132,7 +132,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 #if defined(CONFIG_OPENSC2_LIZARD_MODE)
 /* Lizard mode's ticks and pad clicks: haptic events of the library's own (report ID 0), noted in
  * the hooks' ring with the link lizard mode runs on, then to the application. */
-static void lizard_haptics(const struct opensc2_haptic *h, uint8_t n)
+static void lizard_feedback(const struct opensc2_haptic *h, uint8_t n)
 {
 	uint8_t link = (uint8_t)osc2_mode_link();   /* USB, Bluetooth or the radio */
 
@@ -186,7 +186,7 @@ void osc2_report_lizard(const struct opensc2_state *s)
 	}
 	n_haptics = opensc2_lizard_haptics(made, haptics);
 	k_mutex_unlock(&lizard_lock);
-	lizard_haptics(haptics, n_haptics);
+	lizard_feedback(haptics, n_haptics);
 #else
 	ARG_UNUSED(s);
 #endif

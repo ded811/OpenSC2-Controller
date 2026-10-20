@@ -2,13 +2,13 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * keys.h: the values of the blob keys (key_rules.h) the library keeps for vendor commands 0xED,
- * 0xEE, 0xEF and 0xF0, in RAM and, with CONFIG_OPENSC2_STORAGE, in Zephyr settings under
- * "opensc2/k/" (keys.c; the host tests have a stand-in). Not a public interface. Keys are
+ * key_store.h: the values of the blob keys (key_rules.h) the library keeps for vendor commands
+ * 0xED, 0xEE, 0xEF and 0xF0, in RAM and, with CONFIG_OPENSC2_STORAGE, in Zephyr settings under
+ * "opensc2/k/" (key_store.c; the host tests have a stand-in). Not a public interface. Keys are
  * numbered as enum osc2_key_id.
  */
-#ifndef OPENSC2_KEYS_H_
-#define OPENSC2_KEYS_H_
+#ifndef OPENSC2_KEY_STORE_H_
+#define OPENSC2_KEY_STORE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -32,4 +32,4 @@ int osc2_keys_store(uint8_t id, const uint8_t *value, uint8_t len);
 /* The factory reset (0x86): every blob it deletes (OSC2_KEYF_FACTORY), in RAM and in flash. */
 int osc2_keys_factory_reset(void);
 
-#endif /* OPENSC2_KEYS_H_ */
+#endif /* OPENSC2_KEY_STORE_H_ */

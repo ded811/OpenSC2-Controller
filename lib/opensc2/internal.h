@@ -105,7 +105,7 @@ const char *osc2_power_reason(void);
  * test link is when the mode's real link is; the dock never is. */
 bool osc2_link_active(enum osc2_link link);
 
-/* transport.c: the wireless transport of this boot (the puck's radio, or Bluetooth). */
+/* wireless.c: the wireless transport of this boot (the puck's radio, or Bluetooth). */
 /* At init, after the settings are loaded: this boot's transport from the stored choice. */
 void osc2_transport_init(void);
 /* The link reports go to and the test link stands for: USB while wired, else the running
@@ -241,7 +241,7 @@ int osc2_output_dispatch(enum osc2_link link, const uint8_t *report, size_t len)
 /* The link went down: stop a rumble the host can no longer stop. */
 void osc2_output_link_down(void);
 
-/* ble.c: Bluetooth LE (CONFIG_OPENSC2_BLE; without it transport.c answers these two: never
+/* ble.c: Bluetooth LE (CONFIG_OPENSC2_BLE; without it wireless.c answers these two: never
  * active, interval 0). */
 /* Bluetooth is the active transport: connected, encrypted, an ATT MTU of 64 or more. */
 bool osc2_ble_active(void);

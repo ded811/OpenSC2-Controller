@@ -11,7 +11,7 @@
 #include <string.h>
 #include "internal.h"
 #include "key_rules.h"
-#include "keys.h"
+#include "key_store.h"
 #include "stubs.h"
 
 /* `name` with its NUL, then `value`: a 0xED..0xF0 payload; returns its length. */
@@ -307,8 +307,9 @@ OPENSC2_TEST(keys_cmd_cal)
 	/* With the library's calibration (CONFIG_OPENSC2_CAL, as these binaries are built) every
 	 * calibration key of the key table is the calibration store's (cal_store.c): exactly the
 	 * table's size, read back by 0xED where the table marks it readable, and never one of
-	 * keys.c's kept values. Without the store the keys go to vendor_command, so 0xED answers
-	 * them empty and the others are refused (run.ps1 and run.sh compile that build too). */
+	 * key_store.c's kept values. Without the store the keys go to vendor_command, so 0xED
+	 * answers them empty and the others are refused (run.ps1 and run.sh compile that build
+	 * too). */
 	memset(value, 0x01, sizeof(value));   /* a format word that is not 0, a trim within 1..199 */
 	for (uint8_t id = 1; id < OSC2_KEY_COUNT; id++) {
 		const struct osc2_key_info *k = osc2_key_by_id(id);

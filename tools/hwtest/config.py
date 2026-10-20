@@ -294,7 +294,7 @@ KEY_NAMES = {
     21: "cal/prs_r", 22: "cal/touch_l", 23: "cal/touch_r", 24: "cal/rgbw_r", 25: "cal/rgbw_g",
     26: "cal/rgbw_b", 27: "cal/rgbw_w", 28: "cal/volt_offset", 29: "cal/sensors/gyroscope/bias",
 }
-# The keys the library keeps as plain values ("blobs", keys.c): name -> (size, 0xED reads it).
+# The keys the library keeps as plain values ("blobs", key_store.c): name -> (size, 0xED reads it).
 # Until set, and after 0xF0, zeros (user/fully_charged_led_intensity: 3). The system state machine
 # acts on user/keylock and user/fully_charged_led_intensity.
 KEPT_KEYS = {

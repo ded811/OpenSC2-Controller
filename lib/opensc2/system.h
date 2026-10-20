@@ -76,7 +76,7 @@ void osc2_sys_cue_post(uint8_t cue);
 void osc2_sys_bluetooth(const struct osc2_bt_transport *bt);
 /* What the Bluetooth transport tells the machine (any thread): OSC2_SYS_BT_*. */
 void osc2_sys_bt_event(uint8_t event);
-/* A wireless transport selected at run time (transport.c, any thread): the machine's choice from
+/* A wireless transport selected at run time (wireless.c, any thread): the machine's choice from
  * now on (its LED, the battery wait's start). */
 void osc2_sys_transport_selected(uint8_t transport);
 

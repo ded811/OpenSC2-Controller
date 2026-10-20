@@ -14,7 +14,7 @@
 #include <string.h>
 #include "internal.h"
 #include "chord_rules.h"
-#include "keys.h"
+#include "key_store.h"
 #include "idle_rules.h"
 #include "sys_rules.h"
 #include "stubs.h"
@@ -50,7 +50,7 @@ static uint32_t retained[OSC2_RET_SYS_WORDS];
 static uint32_t end_at_boot[OSC2_TEST_SYS_END_WORDS];   /* the last end, as this boot found it */
 static uint32_t keylock_flash;
 
-/* user/keylock in RAM (keys.c's value; the stand-in store here). */
+/* user/keylock in RAM (key_store.c's value; the stand-in store here). */
 static uint32_t keylock_ram(void)
 {
 	uint8_t v[OSC2_KEY_VALUE_MAX];

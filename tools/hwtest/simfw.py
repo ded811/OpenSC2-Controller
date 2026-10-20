@@ -83,7 +83,7 @@ class SimBoard:
         self.set_rules(self.rules)
         self.slot = world.slot
         if not hasattr(world, "kept_saved"):
-            world.kept_saved = {}              # keys.c's stored values (C.KEPT_KEYS)
+            world.kept_saved = {}              # key_store.c's stored values (C.KEPT_KEYS)
             world.kept_writes = 0
         self.kept = dict(world.kept_saved)     # their RAM values, loaded at boot
         # wireless: connected through the puck at once, or listening when there is no puck; on
@@ -455,7 +455,7 @@ class SimBoard:
         return 0
 
     def _kept_key(self, opcode, name, value):
-        """keys.c: a value the library only keeps (C.KEPT_KEYS), exactly its size."""
+        """key_store.c: a value the library only keeps (C.KEPT_KEYS), exactly its size."""
         size, _readable = C.KEPT_KEYS[name]
         if opcode == 0xEE:
             if len(value) != size:

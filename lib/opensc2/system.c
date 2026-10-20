@@ -16,8 +16,8 @@
  *     dropping and starting the link, the keylock, and the end: OPENSC2_POWER_OFF, or a reboot
  *     (setting 77, a board without a battery, the test hooks in use).
  * The keylock and the fully-charged LED level are the settings-by-name keys user/keylock and
- * user/fully_charged_led_intensity, whose values the library keeps (keys.c, opensc2/k/): a host's
- * 0xED..0xF0 and the machine see the same value.
+ * user/fully_charged_led_intensity, whose values the library keeps (key_store.c, opensc2/k/): a
+ * host's 0xED..0xF0 and the machine see the same value.
  *
  * Without CONFIG_OPENSC2_SYSTEM only the public getters are here, answering as v0.2.0 would.
  */
@@ -28,7 +28,7 @@
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
 #include "dock_link.h"
-#include "keys.h"
+#include "key_store.h"
 #include "system.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -109,7 +109,7 @@ static struct {
 	uint32_t below_full_ms;
 } led = { .level = 255 };
 
-/* ---- the keys (keys.c) ------------------------------------------------------------------------ */
+/* ---- the keys (key_store.c) ------------------------------------------------------------------ */
 
 /* user/keylock in RAM: 0x41FB0AC3 while locked. */
 static uint32_t keylock_value(void)

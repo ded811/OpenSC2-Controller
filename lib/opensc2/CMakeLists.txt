@@ -26,7 +26,7 @@ zephyr_library_sources(
 	id_rules.c
 	input_rules.c
 	key_rules.c
-	keys.c
+	key_store.c
 	lizard.c
 	mode.c
 	mode_rules.c
@@ -40,7 +40,7 @@ zephyr_library_sources(
 	sensor_helpers.c
 	settings_defaults.c
 	storage.c
-	transport.c
+	wireless.c
 	transport_rules.c
 	# power, chords, the status LED and cues (CONFIG_OPENSC2_SYSTEM; system.c answers the
 	# public getters without it)

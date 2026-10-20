@@ -173,7 +173,7 @@ static int radio_enable(void)
 	}
 	atomic_set(&esb_starting, 1);
 	if (osc2_ble_owns_radio()) {
-		/* Only one wireless transport at a time: Bluetooth has the radio (transport.c starts
+		/* Only one wireless transport at a time: Bluetooth has the radio (wireless.c starts
 		 * the radio again once it has given it back). */
 		atomic_set(&esb_starting, 0);
 		LOG_WRN("Bluetooth has the radio: the puck's link stays off");

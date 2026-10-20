@@ -23,7 +23,7 @@
 #include "cal_store.h"
 #include "crash.h"
 #include "dock_link.h"
-#include "keys.h"
+#include "key_store.h"
 #include "proto_rules.h"
 #include "system.h"
 #include "test_hooks.h"
@@ -87,7 +87,7 @@ static uint32_t get_u32(const uint8_t *p, size_t avail)
  * it, and OpenSC2's identity keys. A name that is not there, and a calibration key while the
  * library keeps no calibration, goes to the application's vendor_command (0xED answers length 0
  * without one, the others are refused), so a host cannot fill the storage partition with names of
- * its own. The blob keys are only kept (keys.c). */
+ * its own. The blob keys are only kept (key_store.c). */
 enum named_key {
 	KEY_NONE = OSC2_KEY_UNKNOWN,
 	KEY_BOND_1 = OSC2_KEY_BOND,           /* esb/bond */

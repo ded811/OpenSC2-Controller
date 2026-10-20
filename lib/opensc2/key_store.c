@@ -2,7 +2,7 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * keys.c: the blob keys of the settings-by-name commands (keys.h): user/keylock,
+ * key_store.c: the blob keys of the settings-by-name commands (key_store.h): user/keylock,
  * user/fully_charged_led_intensity, mte/charge_level, debug/resetreason and settings/haptics/...
  * Their RAM values, and with CONFIG_OPENSC2_STORAGE the stored ones, in the Zephyr settings
  * subtree "opensc2/k" (its own handler: storage.c's "opensc2" handler does not see these keys).
@@ -14,7 +14,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/spinlock.h>
 #include "internal.h"
-#include "keys.h"
+#include "key_store.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 

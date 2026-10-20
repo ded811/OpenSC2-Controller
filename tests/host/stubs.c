@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: MIT
  *
  * Host tests only: stand-ins for the parts of the library around the command channel (core.c,
- * storage.c, keys.c, radio.c, report.c), so commands.c runs on a PC. Each records what it was asked
- * to do; the tests in commands_cases.h look at the record.
+ * storage.c, key_store.c, radio.c, report.c), so commands.c runs on a PC. Each records what it
+ * was asked to do; the tests in commands_cases.h look at the record.
  */
 #include <errno.h>
 #include <string.h>
@@ -74,7 +74,7 @@ int osc2_storage_delete_transport(void)
 	return 0;
 }
 
-/* transport.c's: USB while wired, else the running wireless transport's link. */
+/* wireless.c's: USB while wired, else the running wireless transport's link. */
 enum osc2_link osc2_mode_link(void)
 {
 	if (osc2_wired()) {
@@ -83,7 +83,7 @@ enum osc2_link osc2_mode_link(void)
 	return stub.ble_running ? OSC2_LINK_BLE : OSC2_LINK_RADIO;
 }
 
-/* ble.c's (transport.c's without Bluetooth): the interval while Bluetooth is active, else 0. */
+/* ble.c's (wireless.c's without Bluetooth): the interval while Bluetooth is active, else 0. */
 uint32_t osc2_ble_interval_us(void)
 {
 	return stub.link_active[OSC2_LINK_BLE] ? stub.ble_interval_us : 0;
@@ -105,7 +105,7 @@ int osc2_storage_factory_reset(void)
 	return 0;
 }
 
-/* keys.c, on the pure blob store; saves and deletes are recorded, nothing is stored. */
+/* key_store.c, on the pure blob store; saves and deletes are recorded, nothing is stored. */
 static bool blob(uint8_t id)
 {
 	const struct osc2_key_info *k = osc2_key_by_id(id);

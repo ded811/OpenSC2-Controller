@@ -2,7 +2,7 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * transport.c: which wireless transport this boot runs: the puck's 2.4 GHz radio (radio.c), or,
+ * wireless.c: which wireless transport this boot runs: the puck's 2.4 GHz radio (radio.c), or,
  * in a build with CONFIG_OPENSC2_BLE, Bluetooth LE (ble.c). Only one runs at a time, as on the
  * real controller.
  *

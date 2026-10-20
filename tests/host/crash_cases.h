@@ -9,7 +9,7 @@
  */
 #include <string.h>
 #include "crash_rules.h"
-#include "keys.h"
+#include "key_store.h"
 #include "stubs.h"
 #include "test_core.h"
 

@@ -5,9 +5,9 @@
  * crash.c: crash records, as on the real controller (crash_rules.h). With
  * CONFIG_OPENSC2_CRASH_RECORD the library's fatal-error handler writes the record of a fatal error
  * into RAM that a reset keeps and resets the chip at once, without flushing logs or touching
- * flash. At the next boot opensc2_init() stores it as debug/resetreason (keys.c) and clears the
- * RAM copy; vendor command 0xF2 with selector 1 answers it and then marks it seen, a flash write
- * from the system work queue. The RAM slot is in the devicetree region chosen as
+ * flash. At the next boot opensc2_init() stores it as debug/resetreason (key_store.c) and clears
+ * the RAM copy; vendor command 0xF2 with selector 1 answers it and then marks it seen, a flash
+ * write from the system work queue. The RAM slot is in the devicetree region chosen as
  * opensc2,retained-ram, the one the USB session log uses (usblog.c leaves room for it), so a
  * bootloader that runs at every reset (the UF2 bootloader) does not overwrite it; without such a
  * region it is in no-init RAM, which such a bootloader may clear.
@@ -19,7 +19,7 @@
 #include <zephyr/sys/reboot.h>
 #include "internal.h"
 #include "crash.h"
-#include "keys.h"
+#include "key_store.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 

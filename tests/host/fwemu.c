@@ -208,7 +208,7 @@ static void lizard_frame(const struct opensc2_state *s)
 		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
 		(void)input_send(mouse, sizeof(mouse));
 	}
-	/* report.c's lizard_haptics(): noted with the link lizard mode runs on */
+	/* report.c's lizard_feedback(): noted with the link lizard mode runs on */
 	n = opensc2_lizard_haptics(made, haptics);
 	for (uint8_t i = 0; i < n; i++) {
 		osc2_test_note_haptic(wireless ? OSC2_TEST_LINK_RADIO : OSC2_TEST_LINK_USB,
