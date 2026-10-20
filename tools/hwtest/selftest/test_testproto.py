@@ -7,6 +7,7 @@ import struct
 import unittest
 
 from hwtest import config as C
+from hwtest.proto import sysproto as S
 from hwtest.proto import testproto as T
 
 
@@ -94,6 +95,45 @@ class CountersSettings(unittest.TestCase):
         self.assertEqual(s[9], 1)
         self.assertEqual(s[10], 200)
 
+
+
+class SystemOps(unittest.TestCase):
+    """proto/sysproto.py: SYS_INJECT's and SYS_BOOT's arguments, the 30-byte SYS_STATUS and the
+    machine's names, as lib/opensc2/test_sys.h and sys_rules.h have them."""
+
+    def test_args(self):
+        self.assertEqual(S.sys_args(S.INJECT_BUTTONS | S.INJECT_SOURCE, 0x00010201, 7,
+                                    S.SRC_BATTERY, 30).hex(), "05010201000700" + "1e")
+        self.assertEqual(len(S.sys_args(0)), 8)
+
+    def test_status_round_trip(self):
+        st = {"state": S.STATE["battery"], "transport": 2, "source": S.SRC_BATTERY,
+              "led_mode": S.LED_PUCK, "flags": 0x1C, "idle_history": 0xFFE0,
+              "end_valid": True, "end_state": S.STATE["shutdown"],
+              "end_cause": S.EVENT["steam-held"], "end_how": S.HOW_REBOOT,
+              "end_uptime_ms": 123456, "idle_timeout_s": 2}
+        d = S.decode_sys_status(S.encode_sys_status(st))
+        self.assertEqual(d["state_name"], "battery")
+        self.assertTrue(d["level_injected"] and d["source_injected"] and d["boot_injected"])
+        self.assertFalse(d["buttons_injected"])
+        self.assertEqual((d["end_state"], d["end_cause"], d["end_how"], d["end_uptime_ms"]),
+                         (12, 4, 2, 123456))
+        self.assertEqual(d["idle_timeout_s"], 2)
+        with self.assertRaises(ValueError):
+            S.decode_sys_status(bytes(29))
+
+    def test_names(self):
+        # the firmware's numbering (lib/opensc2/sys_rules.h)
+        self.assertEqual(S.STATE["usb-link-off"], 5)
+        self.assertEqual(S.STATE["reboot"], 16)
+        self.assertEqual(S.EVENT["unplugged"], 19)
+        self.assertEqual(len(S.STATES), 17)
+        self.assertEqual(S.KEYLOCK_CHORD, 0x00070180)
+
+    def test_short_entry_kept_raw(self):
+        e = T.decode_entry(bytes.fromhex("0000000050030102"))
+        self.assertNotIn("from", e)
+        self.assertEqual(T.encode_entry(e).hex(), "0000000050030102")
 
 if __name__ == "__main__":
     unittest.main()

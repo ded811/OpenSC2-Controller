@@ -39,10 +39,11 @@ $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512
     '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c", "$lib\test_sys_notes.c",
     (Join-Path $PSScriptRoot 'hooks_stub.c'))
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
-$emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_TEST_HOOKS=1',
+$emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_SYSTEM=1',
+    '-DCONFIG_OPENSC2_TEST_HOOKS=1',
     '-DCONFIG_OPENSC2_TEST_RING_SIZE=2048', '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8',
     "$lib\test_notes.c", "$lib\test_sys_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
-    (Join-Path $PSScriptRoot 'fwemu.c'))
+    (Join-Path $PSScriptRoot 'fwemu.c'), (Join-Path $PSScriptRoot 'fwemu_sys.c'))
 
 $plain = Join-Path $tmp 'opensc2_host_tests_plain.exe'
 $withHooks = Join-Path $tmp 'opensc2_host_tests_hooks.exe'

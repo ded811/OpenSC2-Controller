@@ -54,13 +54,21 @@ OP_HOST_SET = 0x41
 OP_HOST_GET = 0x42
 OP_APP_SEND = 0x43
 OP_RADIO_DEAF = 0x44
+# the system state machine's ops (0x70..0x77; proto/sysproto.py)
+OP_SYS_INJECT = 0x70
+OP_SYS_INJECT_OFF = 0x71
+OP_SYS_STATUS = 0x72
+OP_SYS_BOOT = 0x73
+OP_SYS_EVENT = 0x74
 OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: "INJECT",
             OP_INJECT_OFF: "INJECT_OFF", OP_BATTERY: "BATTERY", OP_BATTERY_OFF: "BATTERY_OFF",
             OP_SEQ_LOAD: "SEQ_LOAD", OP_SEQ_RUN: "SEQ_RUN", OP_SEQ_STOP: "SEQ_STOP",
             OP_RING_READ: "RING_READ", OP_RING_CLEAR: "RING_CLEAR", OP_CNT_READ: "CNT_READ",
             OP_CNT_RESET: "CNT_RESET", OP_MARK: "MARK", OP_SETTINGS_READ: "SETTINGS_READ",
             OP_HOST_OUT: "HOST_OUT", OP_HOST_SET: "HOST_SET", OP_HOST_GET: "HOST_GET",
-            OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF"}
+            OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF",
+            OP_SYS_INJECT: "SYS_INJECT", OP_SYS_INJECT_OFF: "SYS_INJECT_OFF",
+            OP_SYS_STATUS: "SYS_STATUS", OP_SYS_BOOT: "SYS_BOOT", OP_SYS_EVENT: "SYS_EVENT"}
 
 # Answer status codes (docs/test-protocol.md).
 ST_OK = 0
@@ -106,6 +114,14 @@ RING_USB = 0x21
 RING_VERSION = 0x22
 RING_IDENTITY = 0x23
 RING_CHANNELS = 0x24
+# the system state machine's entries (0x50..0x57; proto/sysproto.py)
+RING_SYS_STATE = 0x50
+RING_LED_MODE = 0x51
+RING_CUE = 0x52
+RING_SYS_END = 0x53
+RING_CHORD = 0x54
+RING_SOURCE = 0x55
+RING_IDLE = 0x56
 RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none"}
 
 # LIZARD "what" values (docs/test-protocol.md, The ring).
@@ -207,6 +223,7 @@ CAP_USB_PLUG_IN_REBOOT = 11
 CAP_SHELL = 12
 CAP_FUSION = 13
 CAP_NO_HOST_WIRELESS = 14      # the charger test build (a testing aid, not the real controller)
+CAP_SYSTEM = 18                # CONFIG_OPENSC2_SYSTEM: the system state machine and its ops
 
 # ---- timings and thresholds -----------------------------------------------------------------
 STATE_PERIOD_MS = 4.0283            # USB state report period (about 248/s)

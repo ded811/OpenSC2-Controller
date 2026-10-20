@@ -9,6 +9,7 @@ import binascii
 import struct
 
 from .. import config as C
+from . import sysproto as S
 
 
 def crc32(data):
@@ -298,6 +299,11 @@ def _decode_entry_data(kind, d):
         e["git_revision"] = bytes(d[14:26]).split(b"\0", 1)[0].decode("ascii", "replace")
     elif kind == C.RING_CHANNELS:
         e["channels"] = list(d[0:4])
+    elif kind in S.KINDS:
+        typed = S.decode_entry_data(kind, d)
+        if typed is not None:
+            e.update(typed)
+            e["sys_typed"] = True
     return e
 
 
@@ -386,6 +392,8 @@ def _encode_entry_data(e):
                 struct.pack("<I", e["board_revision"]) + git + bytes(12 - len(git)))
     if kind == C.RING_CHANNELS:
         return bytes(e["channels"][:4])
+    if kind in S.KINDS and e.get("sys_typed"):
+        return S.encode_entry_data(e)
     return e.get("data", b"")
 
 

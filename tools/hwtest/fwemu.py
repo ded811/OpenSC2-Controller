@@ -123,8 +123,10 @@ class _Port:
             self._out.append(SF.line("reboot", {"opensc2 reboot": "",
                                                 "opensc2 reboot wireless": " into wireless mode",
                                                 "opensc2 reboot wired": " into wired mode"}[cmd]))
-            emu.pending_boot = {"opensc2 reboot": "W", "opensc2 reboot wireless": "R",
-                                "opensc2 reboot wired": "W"}[cmd]
+            # the emulator decides the mode (a boot-time injection of the system ops can make a
+            # plain reboot wireless); the port goes away with the boot
+            emu.cmd("REBOOT " + {"opensc2 reboot": "PLAIN", "opensc2 reboot wireless": "WIRELESS",
+                                 "opensc2 reboot wired": "WIRED"}[cmd])
         elif cmd in ("opensc2 usb", "opensc2 usb log"):
             self._out.append(SF.line("usb_wireless", "present"))
             self._out.append(SF.last_line(emu.last))
@@ -143,7 +145,7 @@ class FwEmuBackend:
     # what this backend shows (the groups ask before checking a behaviour)
     models = {"firmware", "test_channel", "usb_framing", "console_test", "stream", "battery",
               "battery_cadence", "app_send", "outputs", "settings", "lease", "reboot", "radio",
-              "inputs", "lizard", "watchdog", "rumble_timeout", "detach_report"}
+              "inputs", "lizard", "watchdog", "rumble_timeout", "detach_report", "system"}
 
     def __init__(self, exe, start_mode="W"):
         self.safety_ctx = None       # the Rig's live safety.Context (bound by the Rig)

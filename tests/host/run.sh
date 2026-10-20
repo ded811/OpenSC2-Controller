@@ -32,8 +32,9 @@ compile "$here/run_tests.c" -DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_
 	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$lib/test_sys_notes.c" \
 	"$here/hooks_stub.c" -o "$out/opensc2_host_tests_hooks"
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
-compile "$here/fwemu.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_TEST_HOOKS=1 \
-	-DCONFIG_OPENSC2_TEST_RING_SIZE=2048 -DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 \
+compile "$here/fwemu.c" "$here/fwemu_sys.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_SYSTEM=1 \
+	-DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=2048 \
+	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 \
 	"$lib/test_notes.c" "$lib/test_sys_notes.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
 
 rc=0

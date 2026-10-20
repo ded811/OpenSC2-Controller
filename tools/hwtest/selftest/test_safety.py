@@ -576,5 +576,41 @@ class Injection(unittest.TestCase):
         safety.check_injection(ctx)
 
 
+class SystemInjection(unittest.TestCase):
+    """The system ops (SYS_INJECT, SYS_BOOT, SYS_EVENT) reach only the firmware's rules: armed with
+    the guard, the canary passed, Steam closed; neither the sole reader nor lizard mode counts."""
+
+    @staticmethod
+    def _ctx():
+        ctx = safety.Context()
+        ctx.armed = ctx.guard = ctx.canary_passed = True
+        return ctx
+
+    def test_preconditions(self):
+        safety.check_system_injection(self._ctx())       # no sole reader, lizard mode on: fine
+        for attr in ("armed", "guard", "canary_passed"):
+            ctx = self._ctx()
+            setattr(ctx, attr, False)
+            with self.assertRaises(safety.SafetyError):
+                safety.check_system_injection(ctx)
+        ctx = self._ctx()
+        ctx.steam_running = True
+        with self.assertRaises(safety.SafetyError):
+            safety.check_system_injection(ctx)
+
+    def test_at_the_send(self):
+        for op in (C.OP_SYS_INJECT, C.OP_SYS_BOOT, C.OP_SYS_EVENT):
+            req = T.build_request(op, bytes(8 if op != C.OP_SYS_EVENT else 1))
+            with self.assertRaises(safety.SafetyError):
+                safety.check_test_request(req, "console", safety.Context())
+            safety.check_test_request(req, "console", self._ctx())
+            safety.check_test_request(req, "usb", self._ctx())
+            with self.assertRaises(safety.SafetyError):
+                safety.check_test_request(req, "puck", self._ctx())   # not a reading op
+        # the reading and stopping ones need nothing
+        for op in (C.OP_SYS_STATUS, C.OP_SYS_INJECT_OFF):
+            safety.check_test_request(T.build_request(op), "console", safety.Context())
+
+
 if __name__ == "__main__":
     unittest.main()

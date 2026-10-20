@@ -175,14 +175,16 @@ bool osc2_test_sys_fields(char *out, size_t size, size_t *at, uint8_t kind, cons
 
 void osc2_test_sys_stop(void)
 {
-	/* With the core's lock held. A boot-time injection's source and level stay for the boot:
-	 * the board would otherwise fall back to its real power at once. */
+	/* With the core's lock held. A boot-time injection's source and level stay for the boot
+	 * (the board would otherwise fall back to its real power at once), and its buttons until
+	 * their hold time ends. */
 	if (!sys.boot) {
 		sys.level_on = false;
 		sys.source_on = false;
 	}
-	sys.buttons_on = false;
-	sys.hold_on = false;
+	if (!sys.hold_on) {
+		sys.buttons_on = false;
+	}
 }
 
 static uint8_t sys_inject(const struct osc2_test_env *env, const uint8_t *args)

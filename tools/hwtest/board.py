@@ -18,6 +18,7 @@ from . import safety
 from . import transport
 from .proto import console as cproto
 from .proto import reports as R
+from .proto import sysproto as SP
 from .proto import testproto as T
 from .proto import vendor as V
 
@@ -90,8 +91,9 @@ LINK_CONNECTED = 4
 
 
 def _injection_request(op, args):
-    """The test ops S7 guards: INJECT, SEQ_RUN, APP_SEND of a controller-state report (0x45)."""
-    return safety._injection_op(op, bytes(args))
+    """The test ops S7 guards: INJECT, SEQ_RUN, APP_SEND of a controller-state report (0x45), and
+    the system ops that inject into the firmware's own rules."""
+    return safety._injection_op(op, bytes(args)) or op in safety.SYSTEM_INJECTION_OPS
 
 
 class Answer:
@@ -820,6 +822,50 @@ class Rig:
 
     def battery_off(self):
         return self.test(C.OP_BATTERY_OFF)
+
+    # ---- the system state machine (proto/sysproto.py) ----
+    def _sys_ready(self):
+        """S7 for the system ops (safety.check_system_injection): armed with the guard, this
+        ARM's canary passed, Steam closed."""
+        if self.injection_blocked:
+            raise safety.InjectionBlocked(self.injection_blocked)
+        if self.steam_running():
+            self._steam_stop_injection()
+        if self.ctx.armed and not self.ctx.canary_passed:
+            ok, _info = self.guard_canary()
+            if not ok:
+                raise safety.SafetyError("the guard canary failed: no injection in this run")
+        safety.check_system_injection(self.ctx)
+
+    def _sys_op(self, op, args=b""):
+        for attempt in (0, 1):
+            self._sys_ready()
+            try:
+                return self.test(op, args)
+            except LeaseLost:
+                if attempt:
+                    raise
+
+    def sys_inject(self, flags, buttons=0, level=0, source=0):
+        """SYS_INJECT: buttons, a battery level and/or a power source into the firmware's rules."""
+        return self._sys_op(C.OP_SYS_INJECT, SP.sys_args(flags, buttons, level, source))
+
+    def sys_inject_off(self):
+        return self.test(C.OP_SYS_INJECT_OFF)
+
+    def sys_boot(self, flags, buttons=0, level=0, source=0, hold=0):
+        """SYS_BOOT: a boot-time injection for the next boot (`hold`: the buttons' time in
+        100 ms; flags 0 clears it)."""
+        return self._sys_op(C.OP_SYS_BOOT, SP.sys_args(flags, buttons, level, source, hold))
+
+    def sys_event(self, kind):
+        return self._sys_op(C.OP_SYS_EVENT, bytes([kind]))
+
+    def sys_status(self):
+        a = self.test(C.OP_SYS_STATUS)
+        if a["status"] != C.ST_OK:
+            return None
+        return SP.decode_sys_status(a["result"])
 
     def inject_and_read(self, state52, nonce=None, timeout=None, keep_timestamp=False):
         """Inject and return (the first report carrying the nonce, or None; the nonce)."""

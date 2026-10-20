@@ -119,7 +119,8 @@ uint8_t osc2_test_sys_op(struct osc2_test_core *c, const struct osc2_test_env *e
 			 uint8_t *rlen);
 
 /* ARM and the end of arming, with the core's lock held: the runtime injection stops. A boot-time
- * injection's power source and level stay for the boot (SYS_INJECT_OFF ends them). */
+ * injection's power source and level stay for the boot, and its buttons while their hold time
+ * runs (SYS_INJECT_OFF ends them all). */
 void osc2_test_sys_stop(void);
 
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)

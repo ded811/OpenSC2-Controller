@@ -228,7 +228,20 @@ OPENSC2_TEST(sys_hooks_boot)
 	CHECK(!osc2_test_sys_level(&level));
 	CHECK_EQ(con_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
 	CHECK(!osc2_test_sys_keep_on());
-	/* hold 0: held until SYS_INJECT_OFF. */
+	/* An ARM while the hold runs keeps the buttons; they let go at the hold's end. */
+	sys_hooks_reset();
+	b.hold = 20;
+	osc2_test_sys_boot_pack(&b, words);
+	osc2_test_sys_boot_apply(words, 0);
+	CHECK_EQ(arm_on(false, 0x63, 0, 0), OSC2_TEST_OK);
+	CHECK(osc2_test_sys_buttons(&v));
+	CHECK_EQ(v, 0x00010201u);
+	CHECK(osc2_test_sys_poll(2000));
+	CHECK(osc2_test_sys_buttons(&v));
+	CHECK_EQ(v, 0);
+	CHECK_EQ(con_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
+	CHECK(!osc2_test_sys_buttons(&v));   /* the hold over: the end of arming ends them */
+	/* hold 0: held until SYS_INJECT_OFF (or an ARM). */
 	sys_hooks_reset();
 	b.hold = 0;
 	osc2_test_sys_boot_pack(&b, words);

@@ -126,7 +126,8 @@ class RingVectors(unittest.TestCase):
                      C.RING_INJECT_STOP, C.RING_OUTPUT, C.RING_RUMBLE, C.RING_HAPTIC, C.RING_LED,
                      C.RING_SETTING, C.RING_LIZARD, C.RING_LIZARD_RPT, C.RING_POWER,
                      C.RING_VENDOR, C.RING_HOST_ASLEEP, C.RING_LINK, C.RING_USB, C.RING_VERSION,
-                     C.RING_IDENTITY, C.RING_CHANNELS):
+                     C.RING_IDENTITY, C.RING_CHANNELS, C.RING_SYS_STATE, C.RING_LED_MODE,
+                     C.RING_CUE, C.RING_SYS_END, C.RING_CHORD, C.RING_SOURCE, C.RING_IDLE):
             self.assertIn(kind, kinds, "ring.txt has no entry of kind 0x%02x" % kind)
 
 
