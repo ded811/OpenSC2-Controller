@@ -553,7 +553,8 @@ input.
 
 The library processes them once per state report, before the hardware test hooks' injection;
 give them from the `sample` callback to have them sampled at the last moment. An input stays raw
-until `opensc2_cal_raw_release(OPENSC2_RAW_*)` gives it back to the finished-value setters. A pad
+until `opensc2_cal_raw_release(OPENSC2_RAW_*)` gives it back to the finished-value setters
+(`OPENSC2_RAW_ALL` for every input). A pad
 given raw pressure keeps its touch flag and position from `opensc2_set_trackpad()`.
 
 The "millivolts" are the real controller's: counts × 3300 / 4096 for a stick (full scale VDD) and
@@ -598,6 +599,12 @@ uses with the by-name commands:
 | `cal/rgbw_r`, `_g`, `_b`, `_w` | 1 each | LED colour trims, percent, used whatever their value as on the real controller (0 leaves the channel dark, above 100 is brighter up to full duty; `0xED` reads one only while it lies within 1..199); 90, 35, 120, 80 from a boot with none stored, 0 after `0xF0` until the next boot: `opensc2_cal_led_trim(channel)` |
 | `cal/volt_offset` | 2 | battery voltage offset, s16 mV: `opensc2_cal_volt_offset()` |
 | `cal/sensors/gyroscope/bias` | 12 | three floats (rad/s), a starting gyro bias, taken as the real controller takes it (a NaN as 0; 2^31 or more in magnitude, an infinity too, refused with `-ERANGE`, and the real controller then leaves its IMU stream off): `opensc2_cal_gyro_bias(bias)` |
+
+The sizes and formats have names in `<opensc2/cal.h>`: `OPENSC2_CAL_STICK_LEN` (18), `_TRIGGER_LEN`
+(7), `_PRESSURE_LEN` (8), `_TOUCH_LEN` (10) and `_GYRO_BIAS_LEN` (12); `OPENSC2_CAL_FORMAT_ANALOG` (2)
+and `_ANALOG_ALT` (`0x81`) for sticks and triggers, `_PRESSURE` (1) and `_PRESSURE_SPAN` (`0x80`) for
+pressure; `OPENSC2_CAL_PRESSURE_GAIN_ONE` (2000) is a gain of 1, and `OPENSC2_CAL_ADC_MAX` (4095) the
+top of a 12-bit reading.
 
 `opensc2_cal_generation()` changes whenever a stick, trigger or pressure key changes in RAM, for an
 application that processes its own inputs with the [calibration helpers](#calibration-helpers); the
@@ -1017,7 +1024,7 @@ dark, the searching and fully-charged displays from the colour shown last.
 | `opensc2_led_player_step(&p, &st, now_ms, rgbw)` | the colour to show at `now_ms`: R, G, B, W in thousandths of full duty, before trims and brightness |
 | `opensc2_led_player_envelope(&p)` | for a one-colour LED: how bright the pattern is against the cycle's peak, 0 to 1000; switch the LED on from 500 |
 | `opensc2_led_brightness(s45, s38)` | the brightness in percent: with setting 38 not 0 (the default 1) the curve b = 100 × (6^(s/100) − 1) / 5, cut to a whole number (setting 45's default 50 gives 28); with 0, b = s |
-| `opensc2_led_duty(colour, trim, brightness)` | a channel's duty in thousandths: colour × trim / 100 × brightness / 100, at most 1000. The real controller's factory trims are `OPENSC2_LED_TRIM_RED` 90, `_GREEN` 35, `_BLUE` 120 and `_WHITE` 80 (percent) |
+| `opensc2_led_duty(colour, trim, brightness)` | a channel's duty in thousandths: colour × trim / 100 × brightness / 100, at most 1000 (`OPENSC2_LED_FULL_SCALE`). The real controller's factory trims are `OPENSC2_LED_TRIM_RED` 90, `_GREEN` 35, `_BLUE` 120 and `_WHITE` 80 (percent) |
 
 **The IR LED**: controller setting 36 (percent; 0 by default), off during every shutdown and reboot
 (`st.shutting_down`; its setting stays). The blank canvas drives one from a PWM channel named `ir`.
@@ -1188,7 +1195,10 @@ in OpenSC2. The synthesiser has sounds of its own instead:
   | 10 | the PC is asleep | 4 | the level |
 
   The [system state machine](#power-and-the-system-state-machine) plays them when it raises
-  them ([Cues](#cues)); an application can play them too.
+  them ([Cues](#cues)); an application can play them too. The numbers are `enum opensc2_cue`'s;
+  `<opensc2/haptics.h>` also names them `OPENSC2_HAPTICS_CUE_USB_START` (0), `_BT_SLOT_1`,
+  `_BT_SLOT_2`, `_PUCK`, `_PUCK_2`, `_POWER_OFF`, `_BT_PAIRING`, `_BT_PAIRED`, `_CHARGE_WINDOW`,
+  `_SPARE` and `_HOST_ASLEEP` (10).
 - **The drop sounds** (`CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS`, on with the synthesiser):
   `opensc2_haptics_free_fall()` reports a fall; 250 ms later a random byte picks script 16 (below
   48), script 17 (48 to 127) or nothing, on the left grip at 0 dB whatever the chime level; falls
@@ -2064,6 +2074,13 @@ puck's `P` pad, are untried guesses.
 | `opensc2_dock_frame_seal(frame, start)` | the start byte and the CRC of bytes 0 to 70 at 71 and 72 |
 | `opensc2_dock_build_request(type, payload, len, out)` | a request as the puck builds it (`0x5A`, the type, up to 63 payload bytes) |
 
+The frame's numbers are named too: `OPENSC2_DOCK_FRAME_LEN` (73), the offsets `OPENSC2_DOCK_TYPE_OFF`
+(1), `_RESULT_OFF` (4), `_PAYLOAD_OFF` (8, `_PAYLOAD_LEN` 63 bytes) and `_CRC_OFF` (71), the start bytes
+`OPENSC2_DOCK_START_PUCK` (`0x5A`) and `_START_CONTROLLER` (`0xAC`), the request types
+`OPENSC2_DOCK_PROBE`, `_GET`, `_SET` and `_INPUT` (0 to 3), `OPENSC2_DOCK_BAUD` (115200),
+`OPENSC2_DOCK_GAP_TIMEOUT_MS` (64) and `OPENSC2_DOCK_INTERVAL_US` (64000, attribute 11 while the dock
+is the only link).
+
 ## Pure helpers
 
 `<opensc2/codec.h>` has every wire format as a pure function (encode the state, battery and identity
@@ -2133,7 +2150,7 @@ host tests check them against values worked out from those rules.
 | `opensc2_trigger_setup(&p, &cal)`, `opensc2_trigger_value(&p, counts)` | a trigger: direction, the 5 % bands, full 2 % early |
 | `opensc2_pressure_setup(&p, &cal)`, `opensc2_pressure_sample(&p, raw, setting)`, `opensc2_pressure_value(&p)`, `p.click` | a pad's pressure: the filter, the range, the gain, the click's hysteresis |
 | `opensc2_pressure_raw_value(raw)` | setting 60 = 1: the raw word itself, below 0 counted as 0 |
-| `opensc2_cal_rec_init()`, `_rec_step()`, `_rec_frame()`, `_rec_stick()`, `_rec_trigger()`, `_rec_pressure()` | the factory recordings of `0xD8`, `0xC0` and `0xC3` |
+| `opensc2_cal_rec_init()`, `_rec_step()`, `_rec_frame()`, `_rec_stick()`, `_rec_trigger()`, `_rec_pressure()` | the factory recordings of `0xD8`, `0xC0` and `0xC3` (`OPENSC2_CAL_REC_STICKS`, `_TRIGGERS`, `_PRESSURE`); `_rec_step()` and `_rec_frame()` return the bits of the records finished (`OPENSC2_CAL_SAVE_STICK_L`, `_STICK_R`, `_TRIGGER_L`, `_TRIGGER_R`, `_PRESSURE_L`, `_PRESSURE_R`) |
 
 ### Sensor helpers
 
@@ -2147,7 +2164,7 @@ your part's readings to them. Untested on real parts.
 | `opensc2_cap_reset(&t)`, `opensc2_cap_sample(&t, word, on, off)`, `opensc2_stick_touch_on_level(s30)`, `_off_level(s31)`, `opensc2_grip_on_level(s34)`, `opensc2_grip_off_level(s34, s35)` | stick touch and grip: the two-word mean (the first word after a reset fills both), the hysteresis, the levels from the settings |
 | `opensc2_pad_touch_reset(&t)`, `opensc2_pad_touch_step(&t, level, s72, s73, &x, &y)` | a pad's touch from a signal level (settings 72, 73) with the damping near lift-off |
 | `opensc2_pad_edge(m)`, `opensc2_pad_stretch(side, axis, m)` | the edge push and setting 66's stretch (its constants fit Valve's pads only) |
-| `opensc2_pad_scale(m)` | a position (millionths of the pad) to the pad scale (±16383) |
+| `opensc2_pad_scale(m)` | a position (millionths of the pad, `OPENSC2_PAD_CENTRE` 500000 the centre) to the pad scale (±16383) |
 | `opensc2_pad_filter_reset(&f)`, `opensc2_pad_filter_step(&f, &x, &y, rate)` | setting 65's speed-adaptive position filter (floating point; reset it while the pad is not touched) |
 | `opensc2_pad_rotate(side, s2, s24, &x, &y)`, `opensc2_pad_rotation_angle(side, s2)`, `opensc2_sin8192(deg)`, `opensc2_cos8192(deg)` | settings 2 and 24's rotation, with the real controller's angle steps; the angle a pad turns by, 0..359 |
 | `opensc2_stabiliser_reset(&s)`, `opensc2_stabiliser_step(&s, radius, &x, &y)` | the touch stabiliser (`OPENSC2_STABILISER_FINE` 4369, `_COARSE` 8738; reset it on a sample without a touch) |
@@ -2168,7 +2185,7 @@ battery.
 | `opensc2_gauge_divider_mv(pin_mv, total_ohm, bottom_ohm, offset_mv)` | the battery's millivolts from the ADC pin's: pin × total / bottom + the offset (`cal/volt_offset`), rounded (VDDH / 5: total 5, bottom 1) |
 | `opensc2_gauge_history_reset(&h)`, `opensc2_gauge_history_add(&h, mv)`, `opensc2_gauge_latest(&h)`, `opensc2_gauge_average(&h)`, `opensc2_gauge_max(&h)` | the last 40 readings (`OPENSC2_GAUGE_HISTORY`; the first after a reset fills all of them): the latest, their average rounded down, their maximum |
 | `opensc2_gauge_curve(points, n, mv)` | a curve's charge in tenths of a percent (linear between points, 0 below the first, 1000 above the last); OpenSC2's single-cell LiPo curves are `opensc2_gauge_lipo_discharging` and `opensc2_gauge_lipo_charging` (with `_len`) |
-| `opensc2_gauge_stretch(permille, target_permille)` | the stretch towards the charge target: the charge times (200 − s) / 100, s the curve's reading at the target, in percent, 0..100 |
+| `opensc2_gauge_stretch(permille, target_permille)` | the stretch towards the charge target (`OPENSC2_GAUGE_TARGET_MV`, 4120, or `OPENSC2_GAUGE_TARGET_CHARGING_MV`, 4160, during a charge cycle): the charge times (200 − s) / 100, s the curve's reading at the target, in percent, 0..100 |
 | `opensc2_gauge_init(&g, kept_level)`, `opensc2_gauge_step(&g, mv, charge_state)` | the level a controller reports: `OPENSC2_GAUGE_NO_LEVEL` (255) until the first reading (or a level kept over a warm reboot); charging uses the charging curve and only rises, done reads 100, anything else uses the discharging curve and only falls; a change between charging and not starts the history over |
 
 Back to the [documentation map](README.md).
