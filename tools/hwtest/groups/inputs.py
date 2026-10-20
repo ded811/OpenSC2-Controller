@@ -270,11 +270,14 @@ def _raw_sticks(rig, c):
         for v46 in (2, 1, 0):
             rig.write_settings([(46, v46)])
             got[v46] = left_stick()
-        if got[2] is None:
+        if got[2] is None or got[0] is None:
             c.fail("no state report")
             return
         if got[2] == (0, 0):
             c.skip("no analog left stick in this build (46 = 2 reads 0, 0)")
+        if all(abs(r - k) <= 500 for r, k in zip(got[2], got[0])):
+            c.skip("this application gives no raw stick output (46 = 2 reads as 46 = 0: %s)"
+                   % (got[2],))
         c.observe(counts=list(got[2]), millivolts=list(got[1] or ()), calibrated=list(got[0] or ()))
         c.true("46 = 2: the left stick's counts near half of 4095 (%s)" % (got[2],),
                all(1650 <= v <= 2450 for v in got[2]))

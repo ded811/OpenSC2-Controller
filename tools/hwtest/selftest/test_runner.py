@@ -4,6 +4,7 @@
 # test_runner.py: the catalogue and the exit-code precedence.
 import unittest
 
+from hwtest import board as board_mod
 from hwtest import config as C
 from hwtest import mask as mask_mod
 from hwtest import results as results_mod
@@ -23,6 +24,44 @@ class Catalog(unittest.TestCase):
                     "settings.clamps", "cmd.attributes", "wireless.reconnect", "modes.to_wireless",
                     "restore.as_found", "hooks.guard", "lizard.no_leak"):
             self.assertIn(tid, ids)
+
+
+class RuleWord(unittest.TestCase):
+    """A firmware without the rule word (caps bit 15) has OpenSC2 0.2.0's rules: the runner
+    models it so, never sends RULES or RULES_SET to it, and its new tests skip."""
+
+    def test_without_the_rule_word(self):
+        from hwtest.proto import model as M
+        rig = object.__new__(board_mod.Rig)
+
+        def no_request(*_a, **_k):
+            raise AssertionError("a test-channel request to a firmware without RULES")
+        rig.test = no_request
+        rig.caps = {"build_flags": 1 << C.CAP_TRIGGER_CLICK_AUTO}
+        self.assertEqual(rig.rules(), (M.RULES_V0_2, M.RULES_V0_2))
+        rig.caps = {"build_flags": 0}
+        self.assertEqual(rig.rules(), (0, 0))
+        self.assertIsNone(rig.rules_set(M.RULES_DEFAULT))
+
+    def test_with_the_rule_word(self):
+        from hwtest.proto import model as M
+        from hwtest.proto import testproto as T
+        rig = object.__new__(board_mod.Rig)
+        sent = []
+
+        def answer(op, args=b"", **_k):
+            sent.append((op, bytes(args)))
+            if op == C.OP_RULES:
+                return {"status": C.ST_OK, "result": (M.RULES_DEFAULT).to_bytes(4, "little") +
+                        (M.RULES_DEFAULT).to_bytes(4, "little") +
+                        M.RULES_KNOWN.to_bytes(4, "little")}
+            return {"status": C.ST_OK, "result": args[:4]}
+        rig.test = answer
+        rig.caps = {"build_flags": 1 << C.CAP_RULES}
+        self.assertEqual(rig.rules(), (M.RULES_DEFAULT, M.RULES_DEFAULT))
+        self.assertEqual(rig.rules_set(M.RULE_PAD_CLICK), M.RULE_PAD_CLICK)
+        self.assertEqual(sent[-1], (C.OP_RULES_SET, M.RULE_PAD_CLICK.to_bytes(4, "little")))
+        self.assertTrue(T.cap_flag(rig.caps, C.CAP_RULES))
 
 
 class ExitCodes(unittest.TestCase):

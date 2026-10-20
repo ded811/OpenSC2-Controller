@@ -242,7 +242,7 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 - **Host tests**, no hardware: 62 host tests (4,983 checks); 90 (7,462 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 209 self-tests; its dry run against the library's own code in a firmware emulator; 9
+  runner's 211 self-tests; its dry run against the library's own code in a firmware emulator; 9
   self-tests of `tools/match_steam_version.py`. Run
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc
   on PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
