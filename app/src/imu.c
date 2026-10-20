@@ -64,6 +64,7 @@ static void imu_thread(void *p1, void *p2, void *p3)
 		    opensc2_setting_get(OPENSC2_SETTING_IMU_MODE) == OPENSC2_IMU_MODE_OFF) {
 			if (streaming) {
 				opensc2_set_imu(&out);   /* zeros while Steam has it off */
+				opensc2_freefall_init(&fall);   /* no fall carried over the pause */
 				streaming = false;
 			}
 			continue;
