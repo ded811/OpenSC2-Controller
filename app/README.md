@@ -486,6 +486,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\dock.
 
 `app/CMakeLists.txt` adds the overlay whenever the fragment is built. Try it first against a 3.3 V
 USB-UART adapter that plays the puck ([tools/fake_puck.py](../tools/fake_puck.py)), never against
-the puck itself. What the library does on the dock: [docs/api.md](../docs/api.md#the-dock).
+the puck itself. With nothing on P0.31 the pin floats and may now and then read inside the pilot's
+window, which starts dock sessions nobody asked for: on a board with nothing attached, tie it to
+ground through a resistor (100 kΩ, say) before running the `dock` group on this build. What the
+library does on the dock: [docs/api.md](../docs/api.md#the-dock).
 
 Back to the [documentation map](../docs/README.md)

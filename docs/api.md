@@ -931,9 +931,13 @@ both named by the devicetree node aliased `opensc2-dock` ([dts/bindings/opensc2,
 It needs `CONFIG_UART_ASYNC_API` and the instance's `CONFIG_UART_<n>_ASYNC`. One thread checks the
 pilot between sessions and serves the requests during one; it arms the receiver for one 73-byte
 frame with a 64 ms gap timeout, answers, waits until the answer has left, and only then arms again,
-so it never hears its own answer on a shared line. The TX pin should leave the line alone between
-answers (open drain, as the SuperMini build has it). The UART and the test hooks' dock ops share the
-one dock link: the thread leaves a session the test hooks started alone, so use one at a time.
+so it never hears its own answer on a shared line. A receive error (framing, break, overrun) that
+cuts a frame short ends the session with its own reason; an answer still not sent after 50 ms is
+aborted. The TX pin should leave the line alone between answers (open drain, as the SuperMini build
+has it). The UART and the test hooks' dock ops share the one dock link: the thread leaves a session
+the test hooks started alone, so use one at a time. A pilot pin with nothing connected floats and
+may read inside the window now and then, which starts sessions nobody asked for (harmless, but the
+`dock` group expects none): give it a defined level (a resistor to ground) when nothing is attached.
 `app/dock.conf` with `app/dock.overlay` is a SuperMini variant; its pins, and how they would meet the
 puck's `P` pad, are untried guesses.
 

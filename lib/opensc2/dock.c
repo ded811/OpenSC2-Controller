@@ -160,7 +160,13 @@ static void session(void)
 			return;
 		}
 		if (rx_error && n != OPENSC2_DOCK_FRAME_LEN) {
+			/* A framing, break or overrun error cut the frame short. The session ends as
+			 * for any short frame, with the receive error as its reason; the frame is still
+			 * counted and recorded (as too short). */
 			LOG_WRN("Dock: receive error after %d bytes", n);
+			osc2_dock_session_end(OSC2_DOCK_END_RX_ERROR);
+			(void)osc2_dock_receive(rx_buf, (size_t)n, tx_buf, NULL);
+			return;
 		}
 		outcome = osc2_dock_receive(rx_buf, (size_t)n, tx_buf, NULL);
 		if (outcome != OSC2_DOCK_ANSWERED) {
@@ -173,7 +179,13 @@ static void session(void)
 			continue;
 		}
 		/* About 6.3 ms on the wire; the receiver is armed again only after it. */
-		(void)k_sem_take(&tx_done, K_MSEC(50));
+		if (k_sem_take(&tx_done, K_MSEC(50)) != 0) {
+			/* Stuck (it should never be): stopped, so that the next answer can go out and
+			 * the receiver is not armed while this one could still be on the line. */
+			LOG_WRN("Dock: the answer did not leave within 50 ms");
+			(void)uart_tx_abort(uart);
+			(void)k_sem_take(&tx_done, K_MSEC(10));
+		}
 		if (!osc2_dock_active()) {
 			return;   /* ended from elsewhere (the test hooks, a shutdown) */
 		}

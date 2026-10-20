@@ -235,10 +235,10 @@ enum osc2_dock_outcome osc2_dock_receive(const uint8_t *frame, size_t len,
 	osc2_test_note_dock_frame(len >= 2 ? frame[OPENSC2_DOCK_TYPE_OFF] : 0xFF, (uint8_t)outcome,
 				  (uint8_t)MIN(len, (size_t)255), result, us);
 	if (outcome == OSC2_DOCK_BAD_SIZE) {
-		LOG_WRN("Dock: message size invalid (%u bytes)", (unsigned int)len);
+		LOG_WRN("Dock: a frame of %u bytes, not 73: the session ends", (unsigned int)len);
 		osc2_dock_session_end(OSC2_DOCK_END_BAD_SIZE);
 	} else if (outcome == OSC2_DOCK_BAD_CRC) {
-		LOG_WRN("Dock: unexpected CRC16 value");
+		LOG_WRN("Dock: a frame whose CRC does not check: the session ends");
 		osc2_dock_session_end(OSC2_DOCK_END_BAD_CRC);
 	} else if (us > 50000u) {
 		/* The puck waits 64 ms for the answer (a flash write can take that long). */
