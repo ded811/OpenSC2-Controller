@@ -433,10 +433,10 @@ class SimBoard:
                 return 0, struct.pack("<BII", 2, self.uptime() & 0xFFFFFFFF, self.last_reason)
             return 0, b""
         if opcode == 0xA1:
-            if sel == 1:
-                return 0, struct.pack("<BI", 1, self.world.reset_cause) + self.world.chip_id + \
-                    bytes(8)
-            return 0, b""
+            if sel == 1:   # the world keeps Zephyr's causes; 0xA1 has the real one's encoding
+                return 0, bytes([1, M.reset_flags(self.world.reset_cause)]) + \
+                    self.world.chip_id + bytes(8)
+            return 0, bytes(18)
         if opcode == 0xBE:
             b = dict(self.battery)
             self.hooks.battery(b)

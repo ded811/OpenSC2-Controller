@@ -151,6 +151,52 @@ OPENSC2_TEST(proto_stop_status_entry)
 }
 #endif
 
+OPENSC2_TEST(proto_reset_flags)
+{
+	/* Zephyr's RESET_* bits: pin 0, software 1, brown-out 2, power-on 3, watchdog 4, debug 5,
+	 * security 6, low-power wake 7, lock-up 8, ... flash 16. */
+	CHECK_EQ(osc2_reset_flags(0), 0);
+	CHECK_EQ(osc2_reset_flags(1u << 3), OSC2_RESET_POWER_ON);
+	CHECK_EQ(osc2_reset_flags(1u << 2), OSC2_RESET_BROWNOUT);
+	CHECK_EQ(osc2_reset_flags(1u << 0), OSC2_RESET_PIN);
+	CHECK_EQ(osc2_reset_flags(1u << 4), OSC2_RESET_WATCHDOG);
+	CHECK_EQ(osc2_reset_flags(1u << 1), OSC2_RESET_SOFTWARE);
+	for (int bit = 5; bit <= 16; bit++) {
+		CHECK_EQ(osc2_reset_flags(1u << bit), OSC2_RESET_OTHER);
+	}
+	/* They add up: a pin reset, then two reboots, then a watchdog, before a power-on. */
+	CHECK_EQ(osc2_reset_flags((1u << 0) | (1u << 1) | (1u << 4)), 0x70);
+	CHECK_EQ(osc2_reset_flags(0x1FFFF), 0x7B);
+	CHECK_EQ(OSC2_RESET_POWER_ON | OSC2_RESET_BROWNOUT | OSC2_RESET_OTHER | OSC2_RESET_PIN |
+		 OSC2_RESET_WATCHDOG | OSC2_RESET_SOFTWARE, 0x7B);
+}
+
+OPENSC2_TEST(proto_cmd_reset_info)
+{
+	uint8_t reply[64];
+
+	stub_reset();
+	/* Selector 1: 1, the flags byte, the chip's 8-byte ID, 8 zero bytes: 18 in all. (No chip on
+	 * a PC: flags and ID read 0 here.) */
+	CHECK_EQ(proto_usb(0xA1, (const uint8_t[]){ 1 }, 1, reply), 18);
+	CHECK_EQ(reply[3], 1);
+	CHECK(memcmp(&reply[4 + 9], (const uint8_t[8]){ 0 }, 8) == 0);
+	CHECK_EQ(reply[3 + 18], 0);
+	/* Any other selector: 0 and 17 zero bytes. */
+	for (int sel = 0; sel < 256; sel += 51) {
+		const uint8_t s = (uint8_t)sel;
+
+		if (s == 1) {
+			continue;
+		}
+		CHECK_EQ(proto_usb(0xA1, &s, 1, reply), 18);
+		CHECK(memcmp(&reply[3], (const uint8_t[18]){ 0 }, 18) == 0);
+	}
+	/* No payload: selector 0. */
+	CHECK_EQ(proto_usb(0xA1, NULL, 0, reply), 18);
+	CHECK_EQ(reply[3], 0);
+}
+
 OPENSC2_TEST(proto_cmd_imu_settings)
 {
 	const uint8_t writes[9] = { 48, 0x18, 0, 84, 0, 0, 85, 50, 0 };

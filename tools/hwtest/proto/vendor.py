@@ -87,10 +87,13 @@ def decode_device_info2(data):
             "reason": struct.unpack_from("<I", data, 5)[0]}
 
 
+RESET_INFO_LEN = 18
+
+
 def decode_reset_info(data):
-    """0xA1 selector 1 (21 bytes): selector, reset cause u32, chip ID (8), 8 zero bytes."""
-    return {"selector": data[0], "reset_cause": struct.unpack_from("<I", data, 1)[0],
-            "chip_id": bytes(data[5:13])}
+    """0xA1 selector 1 (18 bytes): selector, the reset-cause flags (RESET_* below), the chip ID
+    (8), 8 zero bytes."""
+    return {"selector": data[0], "reset_cause": data[1], "chip_id": bytes(data[2:10])}
 
 
 def decode_led(data):
@@ -108,15 +111,21 @@ def decode_setting(data):
     return {"number": data[0], "value": struct.unpack_from("<h", data, 1)[0]}
 
 
-# Reset-cause flags (Zephyr RESET_*, include/zephyr/drivers/hwinfo.h), for cmd.reset_info and
-# the note of an unplanned reset.
-RESET_SOFTWARE = 2
-RESET_NAMES = ["pin", "software", "brown-out", "power-on", "watchdog", "debug", "security",
-               "low-power wake", "CPU lock-up", "parity", "PLL", "clock", "hardware", "user",
-               "temperature", "bootloader", "flash"]
+# Reset-cause flags of 0xA1, the real controller's encoding (proto_rules.c), for cmd.reset_info
+# and the note of an unplanned reset. The chip's register is never cleared, so the flags of
+# several resets add up until a power-on.
+RESET_POWER_ON = 0x01
+RESET_BROWNOUT = 0x02
+RESET_OTHER = 0x08
+RESET_PIN = 0x10
+RESET_WATCHDOG = 0x20
+RESET_SOFTWARE = 0x40
+RESET_NAMES = {RESET_POWER_ON: "power-on", RESET_BROWNOUT: "brown-out",
+               RESET_OTHER: "debug, low-power wake, lock-up or other", RESET_PIN: "pin",
+               RESET_WATCHDOG: "watchdog", RESET_SOFTWARE: "software"}
 
 
 def reset_cause_text(flags):
-    """The reset cause bits by name ("watchdog, pin"), or "unknown" for none."""
-    names = [n for i, n in enumerate(RESET_NAMES) if flags & (1 << i)]
-    return ", ".join(names) if names else "unknown"
+    """The reset cause bits by name ("pin, software"), or "none" for a fresh power-on."""
+    names = [n for bit, n in sorted(RESET_NAMES.items(), reverse=True) if flags & bit]
+    return ", ".join(names) if names else "none (a power-on)"

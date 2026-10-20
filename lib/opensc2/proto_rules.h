@@ -4,8 +4,8 @@
  *
  * proto_rules.h: small rules of the vendor commands and reports that are pure logic, so the host
  * tests run them as the library does: the answers in which the real controller reports something
- * other than the value it keeps (0x89 for the IMU's settings, 0xE9's read-back of the LED colour),
- * and the haptic stream status reports a stop sends.
+ * other than the value it keeps (0x89 for the IMU's settings, 0xE9's read-back of the LED colour,
+ * 0xA1's encoding of the reset causes), and the haptic stream status reports a stop sends.
  */
 #ifndef OPENSC2_PROTO_RULES_H_
 #define OPENSC2_PROTO_RULES_H_
@@ -25,6 +25,18 @@ int16_t osc2_setting_answer(uint8_t number, int16_t value);
  * back. Its conversion truncates before it scales, so a channel reads 100 when it is exactly 100
  * and 0 otherwise. The library copies that, since a host can see it (docs/protocol.md, gaps). */
 uint8_t osc2_led_readback(uint8_t percent);
+
+/* 0xA1: the real controller's byte of reset-cause flags from Zephyr's hwinfo causes (RESET_*):
+ * 0x01 power-on, 0x02 brown-out, 0x08 debug, a low-power wake, a CPU lock-up or any other cause,
+ * 0x10 the reset pin, 0x20 the watchdog, 0x40 software. Nothing clears the chip's register, so on
+ * the nRF52 the flags of several resets add up until a power-on, as on the real controller. */
+#define OSC2_RESET_POWER_ON   0x01
+#define OSC2_RESET_BROWNOUT   0x02
+#define OSC2_RESET_OTHER      0x08
+#define OSC2_RESET_PIN        0x10
+#define OSC2_RESET_WATCHDOG   0x20
+#define OSC2_RESET_SOFTWARE   0x40
+uint8_t osc2_reset_flags(uint32_t causes);
 
 /* The channel IDs of input report 0x44 (opensc2_send_haptic_status()). */
 #define OSC2_STATUS_LEFT_GRIP   0

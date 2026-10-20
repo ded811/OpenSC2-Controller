@@ -1622,15 +1622,15 @@ OPENSC2_TEST(hooks_host_get_mask)
 	host_set(0xF2, &sel, 1);
 	CHECK_EQ(con_op(OSC2_TEST_OP_HOST_GET, NULL, 0), OSC2_TEST_OK);
 	CHECK(RES[1] == 9 && RES[2] == 0 && RES[3] == 2);
-	/* 0xA1 selector 1, the chip ID: masked; selector 0 answers nothing. */
+	/* 0xA1 selector 1, the chip ID: masked; selector 0 answers 18 zero bytes, not masked. */
 	sel = 1;
 	host_set(0xA1, &sel, 1);
 	CHECK_EQ(con_op(OSC2_TEST_OP_HOST_GET, NULL, 0), OSC2_TEST_OK);
-	CHECK(RES[1] == 21 && RES[2] == 0x01);
+	CHECK(RES[1] == 18 && RES[2] == 0x01);
 	sel = 0;
 	host_set(0xA1, &sel, 1);
 	CHECK_EQ(con_op(OSC2_TEST_OP_HOST_GET, NULL, 0), OSC2_TEST_OK);
-	CHECK(RES[1] == 0 && RES[2] == 0);
+	CHECK(RES[1] == 18 && RES[2] == 0 && RES[3] == 0);
 	/* 0xED of a bond: masked (the CRC of the same 24 bytes); empty: n 0; the transport: not. */
 	memcpy(key_and_bond, "esb/bond", 9);
 	host_set(0xED, key_and_bond, 9);

@@ -623,7 +623,7 @@ The library answers these itself:
 | `0x83` | get | six `{tag, u32}`: 1 product ID, 2 capabilities (0), 10 bootloader build time, 4 build time, 9 board revision, 11 report interval (4000 µs) |
 | `0xAE` | get | the tag (only the tag byte counts, whatever the length), then a string zero padded to 20 bytes: 1 unit serial, 0 and 4 board serial, 3 git revision, others "NA" |
 | `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: an empty crash record (33 zero bytes); 2: uptime in ms (u32) and the last disconnect reason (u32) |
-| `0xA1` | get | selector 1: reset cause (u32, Zephyr's `RESET_*` flags), the chip's 8-byte device ID, 8 zero bytes |
+| `0xA1` | get | 18 bytes. Selector 1: 1, a byte of reset-cause flags in the real controller's encoding (`0x01` power-on, `0x02` brown-out, `0x08` debug, a low-power wake, a CPU lock-up or any other cause, `0x10` the reset pin, `0x20` the watchdog, `0x40` software), the chip's 8-byte device ID, 8 zero bytes; any other selector: 0 and 17 zero bytes. The flags come from Zephyr's `hwinfo_get_reset_cause()`; nothing clears the chip's register, so the causes of several resets add up until a power-on, as on the real controller |
 | `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`; byte 13 is 1 while charging, byte 14 the charge state without a `0x80` flag: [Battery](#battery)) |
 | `0xE9` / `0xC5` | get / set | LED colour, four percentages (`0xC5` clamps each to 100 and calls `led`). `0xE9` reads it back as the real controller does: a channel reads 100 when it is exactly 100, otherwise 0 (`opensc2_led_get()` has the colour as kept) |
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |

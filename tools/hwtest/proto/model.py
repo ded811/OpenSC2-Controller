@@ -327,6 +327,15 @@ def setting_answer(number, value):
     return setting_default(number) if number in IMU_SETTINGS else value
 
 
+def reset_flags(causes):
+    """0xA1's byte of reset-cause flags from Zephyr's RESET_* bits (proto_rules.c): power-on
+    0x01, brown-out 0x02, any other cause 0x08, pin 0x10, watchdog 0x20, software 0x40."""
+    named = 0x1F
+    return ((0x01 if causes & 0x08 else 0) | (0x02 if causes & 0x04 else 0) |
+            (0x08 if causes & ~named else 0) | (0x10 if causes & 0x01 else 0) |
+            (0x20 if causes & 0x10 else 0) | (0x40 if causes & 0x02 else 0))
+
+
 def led_readback(percent):
     """One channel of 0xE9 as the real controller reads it back: 100 stays, anything else is 0."""
     return 100 if percent == 100 else 0

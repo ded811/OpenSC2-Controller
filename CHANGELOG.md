@@ -24,6 +24,9 @@ still change between minor versions.
 - `0xBE`: byte 13 is 1 while the charge state is "charging" (else 0) and byte 14 is the charge
   state without its `0x80` flag, as on the real controller. The `gauge_flags` field of
   `struct opensc2_battery` is no longer sent.
+- `0xA1` answers 18 bytes as the real controller does: selector 1 gives 1, one byte of reset-cause
+  flags in its encoding (it was Zephyr's flags as a u32), the chip ID and 8 zero bytes; any other
+  selector gives 0 and 17 zero bytes (it was an empty answer).
 
 ## [0.2.0] - 2026-10-19
 

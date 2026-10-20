@@ -25,6 +25,12 @@
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
+#if defined(CONFIG_HWINFO)
+/* proto_rules.c restates these to stay free of Zephyr. */
+BUILD_ASSERT(RESET_PIN == BIT(0) && RESET_SOFTWARE == BIT(1) && RESET_BROWNOUT == BIT(2) &&
+	     RESET_POR == BIT(3) && RESET_WATCHDOG == BIT(4), "Zephyr's RESET_* bits changed");
+#endif
+
 #define KEY_FACTORY_RESET      0xEFC1A917u   /* 0x86 */
 #define KEY_BOOTLOADER         0xECAABAC0u   /* 0x95 */
 #define KEY_REBOOT_KEEP_LINK   0xA427AF52u   /* 0x95: come back in wireless mode */
@@ -643,18 +649,19 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 			*out_len = 9;
 		}
 		return 0;
-	case 0xA1:   /* device info: reset cause and chip ID */
+	case 0xA1:   /* device info: 18 bytes, the reset causes and chip ID for selector 1 */
 		memset(out, 0, OPENSC2_ANSWER_MAX);
+		*out_len = 18;   /* any other selector: 0 and 17 zero bytes */
 		if (sel == 1) {
 			uint32_t cause = 0;
 
 			out[0] = 1;
 #if defined(CONFIG_HWINFO)
+			/* never cleared, so the bits of several resets add up, as on the real one */
 			(void)hwinfo_get_reset_cause(&cause);
-			(void)hwinfo_get_device_id(&out[5], 8);
+			(void)hwinfo_get_device_id(&out[2], 8);
 #endif
-			opensc2_put_le32(&out[1], cause);
-			*out_len = 21;
+			out[1] = osc2_reset_flags(cause);
 		}
 		return 0;
 	case 0xBE: { /* ID_GET_BATTERY_DATA */

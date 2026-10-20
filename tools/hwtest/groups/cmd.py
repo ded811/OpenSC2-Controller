@@ -114,20 +114,25 @@ def run(ctx):
     if ctx.want("cmd.reset_info"):
         with ctx.check(GROUP, "cmd.reset_info") as c:
             a = rig.vendor(C.VC_RESET_INFO, b"\x01")
-            c.eq("selector 1: n", a.n, 21)
-            info = V.decode_reset_info(a.data + bytes(21))
+            c.eq("selector 1: n", a.n, V.RESET_INFO_LEN)
+            info = V.decode_reset_info(a.data + bytes(V.RESET_INFO_LEN))
             c.eq("selector 1: the selector", info["selector"], 1)
             if rig.models("hwinfo"):
                 c.true("selector 1: a chip ID (masked)", any(info["chip_id"]))
-            c.eq("selector 1: the last 8 bytes", a.data[13:21], bytes(8))
+            c.eq("selector 1: the last 8 bytes", a.data[10:18], bytes(8))
+            c.eq("selector 1: only the real controller's flag bits", info["reset_cause"] &
+                 ~(V.RESET_POWER_ON | V.RESET_BROWNOUT | V.RESET_OTHER | V.RESET_PIN |
+                   V.RESET_WATCHDOG | V.RESET_SOFTWARE), 0)
             rig.mask.add_secret(info["chip_id"].hex(), "<chip>")
             if getattr(rig, "did_plain_reboot", False) and \
                     not info["reset_cause"] & V.RESET_SOFTWARE:
-                c.warn("after the runner's reboot the reset cause 0x%x has no RESET_SOFTWARE "
-                       "(the UF2 bootloader may hide it)" % info["reset_cause"])
-            c.observe(reset_cause=info["reset_cause"])
-            a = rig.vendor(C.VC_RESET_INFO, b"\x00")
-            c.eq("selector 0: n", a.n, 0)
+                c.warn("after the runner's reboot the reset flags 0x%02x have no software reset "
+                       "(the UF2 bootloader may clear them)" % info["reset_cause"])
+            c.observe(reset_cause="0x%02x (%s)" % (info["reset_cause"],
+                                                   V.reset_cause_text(info["reset_cause"])))
+            for sel in (0, 2, 0xFF):
+                a = rig.vendor(C.VC_RESET_INFO, bytes([sel]))
+                c.eq("selector %d: 18 zero bytes" % sel, (a.n, a.data[:18]), (18, bytes(18)))
 
     if ctx.want("cmd.user_store"):
         with ctx.check(GROUP, "cmd.user_store") as c:

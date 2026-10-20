@@ -249,9 +249,11 @@ open, the library does what should work with Steam and the puck, and says so her
    given up on a supply that does not charge the battery (it tries again 60 s later); the library
    has no charger logic of its own and never adds it.
 4. **Answer layouts not given byte for byte**: `0xF2` selector 2 (uptime u32, then the reason as a
-   u32), `0xA1` (reset cause u32, device ID, zeros; the reset-cause flags are Zephyr's, not the
-   original's), and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for
-   the puck).
+   u32) and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for the
+   puck). `0xA1` follows the documentation byte for byte (18 bytes; the real controller's flag
+   encoding of Zephyr's reset causes); whether the UF2 bootloader, which runs before the
+   application at every reset, leaves the chip's reset-reason register alone has not been
+   checked.
 5. **Which commands Steam sends through the puck** is not fully documented. The library answers the
    identity, settings, LED, user-store and settings-by-name commands and passes the rest to the
    application. On the cable the commands Steam sends are known

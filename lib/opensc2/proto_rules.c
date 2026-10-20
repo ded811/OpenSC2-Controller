@@ -24,6 +24,28 @@ uint8_t osc2_led_readback(uint8_t percent)
 	return percent == 100 ? 100 : 0;
 }
 
+/* Zephyr's RESET_* bits (include/zephyr/drivers/hwinfo.h), restated: this file is pure C. */
+#define ZEPHYR_RESET_PIN       (1u << 0)
+#define ZEPHYR_RESET_SOFTWARE  (1u << 1)
+#define ZEPHYR_RESET_BROWNOUT  (1u << 2)
+#define ZEPHYR_RESET_POR       (1u << 3)
+#define ZEPHYR_RESET_WATCHDOG  (1u << 4)
+
+uint8_t osc2_reset_flags(uint32_t causes)
+{
+	const uint32_t named = ZEPHYR_RESET_PIN | ZEPHYR_RESET_SOFTWARE | ZEPHYR_RESET_BROWNOUT |
+			       ZEPHYR_RESET_POR | ZEPHYR_RESET_WATCHDOG;
+	uint8_t flags = 0;
+
+	flags |= (causes & ZEPHYR_RESET_POR) ? OSC2_RESET_POWER_ON : 0;
+	flags |= (causes & ZEPHYR_RESET_BROWNOUT) ? OSC2_RESET_BROWNOUT : 0;
+	flags |= (causes & ~named) ? OSC2_RESET_OTHER : 0;   /* debug, wake, lock-up, ... */
+	flags |= (causes & ZEPHYR_RESET_PIN) ? OSC2_RESET_PIN : 0;
+	flags |= (causes & ZEPHYR_RESET_WATCHDOG) ? OSC2_RESET_WATCHDOG : 0;
+	flags |= (causes & ZEPHYR_RESET_SOFTWARE) ? OSC2_RESET_SOFTWARE : 0;
+	return flags;
+}
+
 /* The channels of a target, as 0x44 IDs, left first or right first. */
 static uint8_t channel_ids(uint8_t channels, bool right_first, uint8_t ids[4])
 {

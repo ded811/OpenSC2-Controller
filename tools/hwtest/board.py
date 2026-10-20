@@ -1387,8 +1387,10 @@ class Rig:
         self._after_boot()
         try:
             if self.path == "W":
-                info = V.decode_reset_info(self.vendor(C.VC_RESET_INFO, b"\x01").data + bytes(21))
-                return "reset cause: %s" % V.reset_cause_text(info["reset_cause"])
+                info = V.decode_reset_info(self.vendor(C.VC_RESET_INFO, b"\x01").data +
+                                           bytes(V.RESET_INFO_LEN))
+                return "reset flags (they add up until a power-on): %s" % \
+                    V.reset_cause_text(info["reset_cause"])
             st = cproto.parse_status(self.console_run("opensc2 usb log"))
             if "last_wired_end" not in st or st["last_wired_end"] is None:
                 return "the session log holds no wired session"
