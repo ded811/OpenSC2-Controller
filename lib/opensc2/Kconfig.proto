@@ -17,7 +17,7 @@ config OPENSC2_HAPTIC_STOP_STATUS
 	  the queue of reports that ride with the state reports through the puck. An application
 	  with a haptics engine of its own that sends its own 0x44 reports for stops can turn this
 	  off; the library's haptics synthesiser (OPENSC2_HAPTICS_SYNTH) selects it, as it sends no
-	  0x02 for a stop itself.
+	  0x02 for a stop itself. Built; not yet tested on hardware.
 
 config OPENSC2_CRASH_RECORD
 	bool "Crash records: a fatal error leaves a record and resets, as on the real controller"
@@ -33,6 +33,7 @@ config OPENSC2_CRASH_RECORD
 	  copy takes 44 bytes of the devicetree region chosen as opensc2,retained-ram, which the UF2
 	  bootloader leaves alone. Without this option a fatal error halts the board, Zephyr's
 	  default. Turn it off when the application has a fatal-error handler of its own.
+	  Built; not yet tested on hardware.
 
 config OPENSC2_WATCHDOG
 	bool "The hardware watchdog, with a crash record first (not tried with the UF2 bootloader)"
@@ -69,3 +70,4 @@ config OPENSC2_STORAGE_RECOVERY
 	  no other (other errors leave the data alone, and the board runs without its bonds until
 	  the next boot). The erase loses the bonds and the stored identity. Zephyr's option applies
 	  to every NVS file system of the application, not only the settings.
+	  Built; not yet tested on hardware.

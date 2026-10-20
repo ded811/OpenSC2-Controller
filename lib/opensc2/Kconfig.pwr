@@ -17,7 +17,7 @@ config OPENSC2_SYSTEM
 	  (opensc2/led.h has a pattern player) and the cues (the cue callback), and powers off when
 	  asked (OPENSC2_POWER_OFF). A board without a battery is never switched off: its
 	  shutdowns reboot (CONFIG_OPENSC2_BATTERY). Off: the v0.2.0 behaviour, where the power
-	  requests go straight to the application.
+	  requests go straight to the application. Built; not yet tested on hardware.
 
 if OPENSC2_SYSTEM
 
@@ -32,7 +32,7 @@ config OPENSC2_BATTERY
 	  of listening and 10 s with an empty bond slot, as on the real controller. Without it (the
 	  default) a board that runs without USB power is taken to be on an external supply, and
 	  every shutdown that would power off reboots instead (setting 77's behaviour), so a board
-	  that cannot be woken again is never switched off.
+	  that cannot be woken again is never switched off. Built; not yet tested on hardware.
 
 config OPENSC2_POWER_POLL_MS
 	int "How often the power source is looked at, ms"

@@ -12,7 +12,7 @@ config OPENSC2_STICK_TOUCH_FALLBACK
 	  centre, measured with the controller's distance approximation (about 12200 along an axis,
 	  12340 on a diagonal), its stick-touch bit is set in report 0x42, which also blanks that
 	  side's pad (setting 82) and counts in lizard mode. Never while setting 46 asks for raw
-	  stick output.
+	  stick output. Built; not yet tested on hardware.
 
 config OPENSC2_PAD_BLANK_ON_STICK
 	bool "Setting 82 blanks a pad in report 0x42 while its stick is touched"
@@ -21,7 +21,7 @@ config OPENSC2_PAD_BLANK_ON_STICK
 	  As on the real controller (setting 82, default 3: bit 0 left, bit 1 right): while the
 	  thumb rests on a stick, the pad on that side reports no touch, no click, position 0, 0 and
 	  no pressure, in report 0x42 as in lizard mode. The stick-touch and grip bits stay. Off:
-	  only lizard mode ignores the pad.
+	  only lizard mode ignores the pad. Built; not yet tested on hardware.
 
 config OPENSC2_PAD_CLICK_AUTO
 	bool "Set the pads' click bits from their pressure (settings 52, 53)"
@@ -32,7 +32,7 @@ config OPENSC2_PAD_CLICK_AUTO
 	  bits that way from the pressure the application reports (0..32767 as the whole press),
 	  replacing the application's own clicks. Off by default: a board with a physical click
 	  keeps it, and a pressure that is not a real press (a constant while touched) would click on
-	  every touch.
+	  every touch. Built; not yet tested on hardware.
 
 config OPENSC2_LIZARD_STABILISER
 	bool "Lizard mode: hold a new touch still until the thumb really moves"
@@ -42,6 +42,7 @@ config OPENSC2_LIZARD_STABILISER
 	  The real controller's touch stabilisers in lizard mode: on the right pad while setting 80
 	  is 1 (the default), with a hold radius of 4369 pad units, and on the left pad always, with
 	  8738. A new touch neither moves the pointer nor scrolls until the thumb leaves that radius.
+	  Built; not yet tested on hardware.
 
 config OPENSC2_LIZARD_SMOOTHING
 	bool "Lizard mode: average the motion over 8 frames"
@@ -49,7 +50,7 @@ config OPENSC2_LIZARD_SMOOTHING
 	depends on OPENSC2_LIZARD_MODE
 	help
 	  As on the real controller: each frame's motion is the mean of the pad's newest 8 movements
-	  (about 32 ms on the cable).
+	  (about 32 ms on the cable). Built; not yet tested on hardware.
 
 config OPENSC2_LIZARD_GLIDE
 	bool "Lizard mode: keep gliding after a flick (settings 11, 12)"
@@ -59,7 +60,7 @@ config OPENSC2_LIZARD_GLIDE
 	  As on the real controller: a flick (a touch of more than 20 frames and more than 700 pad
 	  units of travel whose speed is above setting 11) keeps the pointer gliding, or the page
 	  scrolling, for setting 12 frames of steadily slowing motion. A new touch on that pad, or
-	  lizard mode turning off, stops it.
+	  lizard mode turning off, stops it. Built; not yet tested on hardware.
 
 config OPENSC2_LIZARD_TICKS
 	bool "Lizard mode: haptic ticks and clicks on the pads (setting 14)"
@@ -73,7 +74,7 @@ config OPENSC2_LIZARD_TICKS
 	  library). With CONFIG_OPENSC2_HAPTICS_SYNTH the library also plays them itself on the
 	  pads (while setting 70 is 1 and the dock is not the current link); the haptic callback
 	  still gets them, so do not play them again on the synthesiser's actuators. Nothing plays
-	  once Steam has turned lizard mode off.
+	  once Steam has turned lizard mode off. Built; not yet tested on hardware.
 
 config OPENSC2_REPORT_WAIT_DEPTH
 	int "Radio: lizard and application reports that wait when the report queue is full"
@@ -85,3 +86,4 @@ config OPENSC2_REPORT_WAIT_DEPTH
 	  must not be lost (lizard mode's, and opensc2_send_report()'s) wait for room instead of
 	  being dropped: up to this many more, while lizard mode waits with its next frame. A battery
 	  report is still dropped when the queue is full. 0: every report is dropped then.
+	  Built; not yet tested on hardware.

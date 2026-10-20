@@ -19,6 +19,7 @@ config OPENSC2_CAL
 	  counts, pressure and capacitive words at every state report, as the real controller does,
 	  and the recordings take their samples from them. An application that gives finished values
 	  only is not affected. About 0.7 KB of RAM and 10 KB of flash (the blank canvas's build).
+	  Built; not yet tested on hardware.
 
 if OPENSC2_CAL
 
@@ -57,4 +58,4 @@ config OPENSC2_PAD_RULES
 	  the other way), and with setting 80 = 2 the touch stabiliser holds a new touch still until
 	  the thumb moves more than 4369 units. Both are off with the default settings (2 = 0,
 	  80 = 1), so nothing changes until a host writes them. Report 0x42 and lizard mode see the
-	  result.
+	  result. Built; not yet tested on hardware.
