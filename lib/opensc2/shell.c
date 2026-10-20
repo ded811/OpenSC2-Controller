@@ -540,8 +540,8 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_id,
 #if defined(CONFIG_OPENSC2_BLE)
 SHELL_STATIC_SUBCMD_SET_CREATE(sub_ble,
 	SHELL_CMD(status, NULL, "The Bluetooth link", cmd_ble_status),
-	SHELL_CMD(pair, NULL, "Pairing mode: open the slot to a new host (its old one is forgotten)",
-		  cmd_ble_pair),
+	SHELL_CMD(pair, NULL, "Pairing mode: open the slot to a new host (the old host's bond goes "
+		  "once a new one has paired)", cmd_ble_pair),
 	SHELL_SUBCMD_SET_END);
 #endif
 
