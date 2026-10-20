@@ -24,6 +24,7 @@ zephyr_library_sources(
 	mode_rules.c
 	radio.c
 	report.c
+	report_queue.c
 	report_rules.c
 	settings_defaults.c
 	storage.c

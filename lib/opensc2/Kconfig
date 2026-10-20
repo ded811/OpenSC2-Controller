@@ -113,6 +113,8 @@ config OPENSC2_STEAM_WATCHDOG
 	  within 10 s, lizard mode comes back and the settings return to their defaults (the IMU
 	  mode excepted). Independent of the link: a wired board falls back too.
 
+rsource "Kconfig.liz"
+
 config OPENSC2_STORAGE
 	bool "Keep bonds, the identity and the mode policy in Zephyr settings"
 	default y

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: MIT
  *
  * The library's test cases as a plain C program, for any PC compiler:
- *   - tests/codec/src/cases.h and cases_usb.h: the pure parts (wire formats, USB descriptors and
- *     framing, lizard mode, the mode rules, the retained area, settings, fusion), also a ztest
- *     suite;
+ *   - tests/codec/src/cases.h, cases_usb.h and cases_input.h: the pure parts (wire formats, USB
+ *     descriptors and framing, lizard mode, the radio's report queue, the mode rules, the retained
+ *     area, settings, fusion), also a ztest suite;
  *   - commands_cases.h (here): the vendor command channel, commands.c built against the small
  *     stand-ins in shim/ and stubs.c;
  *   - vectors_cases.h: the hardware test suite's shared vectors through the library's own code;
@@ -74,6 +74,7 @@ static void register_test(const char *name, test_fn fn)
 
 #include "../codec/src/cases.h"
 #include "../codec/src/cases_usb.h"
+#include "../codec/src/cases_input.h"
 #include "commands_cases.h"
 #include "vectors_cases.h"
 #include "differential_cases.h"

@@ -51,11 +51,10 @@ int osc2_input_send(const uint8_t *report, size_t len, bool droppable)
 		return -ENOTCONN;
 #endif
 	}
-	ARG_UNUSED(droppable);
 	if (!osc2_radio_connected()) {
 		return -ENOTCONN;
 	}
-	return osc2_radio_queue_report(report, len);
+	return osc2_radio_queue_report(report, len, droppable);
 }
 
 /* ---- state report ---------------------------------------------------------------------------- */
@@ -109,6 +108,13 @@ void osc2_report_lizard(const struct opensc2_state *s)
 		return;
 	}
 	k_mutex_lock(&lizard_lock, K_FOREVER);
+	if (!osc2_wired() && osc2_radio_backlog()) {
+		/* Reports wait for room in the radio's queue: lizard mode waits with them, as the real
+		 * controller's mouse and keyboard wait for a free buffer. The next frame it runs takes
+		 * up the motion (a difference of positions). */
+		k_mutex_unlock(&lizard_lock);
+		return;
+	}
 	made = opensc2_lizard_step(&lizard, s,
 				   (uint8_t)osc2.settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK],
 				   keyboard, mouse);

@@ -28,6 +28,7 @@
 #include <esb.h>
 #include <hal/nrf_radio.h>
 #include "internal.h"
+#include "report_queue.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -48,14 +49,17 @@ struct rx_item {
 	uint8_t data[CONFIG_ESB_MAX_PAYLOAD_LENGTH];
 };
 
-struct extra_item {
-	uint8_t len;
-	uint8_t data[64];
-};
-
 K_MSGQ_DEFINE(osc2_rx_q, sizeof(struct rx_item), CONFIG_OPENSC2_RX_QUEUE_DEPTH, 8);
-K_MSGQ_DEFINE(osc2_extra_q, sizeof(struct extra_item), CONFIG_OPENSC2_REPORT_QUEUE_DEPTH, 1);
 static K_EVENT_DEFINE(radio_ev);
+
+/* Extra input reports, riding behind the state reports (report_queue.h): up to
+ * CONFIG_OPENSC2_REPORT_QUEUE_DEPTH, then CONFIG_OPENSC2_REPORT_WAIT_DEPTH more that must not be
+ * lost, waiting for room. Any thread adds to it; only the radio thread takes from it. */
+#define EXTRA_CAP (CONFIG_OPENSC2_REPORT_QUEUE_DEPTH + CONFIG_OPENSC2_REPORT_WAIT_DEPTH)
+BUILD_ASSERT(EXTRA_CAP >= 1 && EXTRA_CAP <= 255, "the extra report queue holds 1 to 255 reports");
+static struct osc2_rq_item extra_items[EXTRA_CAP];
+static struct osc2_rq extra_q;
+static struct k_spinlock extra_lock;
 
 /* ---- link state ------------------------------------------------------------------------------ */
 
@@ -282,16 +286,30 @@ void osc2_radio_info(struct opensc2_link_info *out)
 	k_spin_unlock(&info_lock, key);
 }
 
-int osc2_radio_queue_report(const uint8_t *report, size_t len)
+int osc2_radio_queue_report(const uint8_t *report, size_t len, bool droppable)
 {
-	struct extra_item item = { .len = (uint8_t)len };
+	k_spinlock_key_t key;
+	int err;
 
-	memcpy(item.data, report, len);
-	if (k_msgq_put(&osc2_extra_q, &item, K_NO_WAIT) != 0) {
-		osc2_test_count(OSC2_TEST_CNT_RADIO_EXTRA_DROPPED);
-		return -ENOMEM;
+	if (len > OSC2_RQ_REPORT_MAX) {
+		return -EINVAL;
 	}
-	return 0;
+	key = k_spin_lock(&extra_lock);
+	err = osc2_rq_put(&extra_q, report, (uint8_t)len, droppable);
+	k_spin_unlock(&extra_lock, key);
+	if (err == -ENOMEM) {
+		osc2_test_count(OSC2_TEST_CNT_RADIO_EXTRA_DROPPED);
+	}
+	return err;
+}
+
+bool osc2_radio_backlog(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&extra_lock);
+	bool backlog = osc2_rq_backlog(&extra_q);
+
+	k_spin_unlock(&extra_lock, key);
+	return backlog;
 }
 
 static const char *state_name(enum opensc2_link_state s)
@@ -684,9 +702,10 @@ static void build_state_report(uint8_t report[OPENSC2_STATE_REPORT_LEN])
 static void queue_reply(int64_t report_at_ticks)
 {
 	struct opensc2_payload p;
-	struct extra_item extra;
+	const struct osc2_rq_item *extra;
+	k_spinlock_key_t key;
 	uint8_t report[OPENSC2_STATE_REPORT_LEN];
-	uint32_t extras = 0;
+	uint8_t extras = 0;
 	bool with_answer = false;
 
 	if (conn.disconnecting) {
@@ -732,10 +751,14 @@ static void queue_reply(int64_t report_at_ticks)
 		with_answer = opensc2_payload_add_record(&p, a->type, a->data, a->len) == 0;
 	}
 	(void)opensc2_payload_add_record(&p, OPENSC2_REC_INPUT, report, sizeof(report));
-	while (k_msgq_peek_at(&osc2_extra_q, &extra, extras) == 0 &&
-	       opensc2_payload_add_record(&p, OPENSC2_REC_INPUT, extra.data, extra.len) == 0) {
+	/* As many extra reports as fit, oldest first; they leave the queue once the payload is
+	 * written (only this thread takes from it, others only add at its end). */
+	key = k_spin_lock(&extra_lock);
+	while ((extra = osc2_rq_peek(&extra_q, extras)) != NULL &&
+	       opensc2_payload_add_record(&p, OPENSC2_REC_INPUT, extra->data, extra->len) == 0) {
 		extras++;
 	}
+	k_spin_unlock(&extra_lock, key);
 
 	if (write_payload(&p) != 0) {
 		info.dropped++;   /* two payloads are already waiting: this report is dropped */
@@ -748,9 +771,9 @@ static void queue_reply(int64_t report_at_ticks)
 		conn.answer_head = (conn.answer_head + 1) % ANSWER_DEPTH;
 		conn.answer_count--;
 	}
-	while (extras--) {
-		(void)k_msgq_get(&osc2_extra_q, &extra, K_NO_WAIT);
-	}
+	key = k_spin_lock(&extra_lock);
+	osc2_rq_take(&extra_q, extras);
+	k_spin_unlock(&extra_lock, key);
 }
 
 static void handle_packet(const struct rx_item *it)
@@ -832,6 +855,7 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 	struct rx_item it;
 	int index = 0;   /* which entry of the channel list we listen on */
 	int64_t last_rx;
+	k_spinlock_key_t key;
 
 	memset(&conn.channels, 0xFF, sizeof(conn.channels));
 	conn.channels[0] = request.channel;
@@ -842,7 +866,9 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 	conn.disconnecting = false;
 	conn.disconnect_reason = OPENSC2_REASON_NONE;
 	conn.answer_head = conn.answer_count = 0;
-	k_msgq_purge(&osc2_extra_q);
+	key = k_spin_lock(&extra_lock);
+	osc2_rq_purge(&extra_q);   /* the puck released whatever was held when the link dropped */
+	k_spin_unlock(&extra_lock, key);
 	osc2_commands_reset(OSC2_LINK_RADIO);
 
 	/* The puck sends its hello on the private pipe 1 ms after the request: be there. */
@@ -957,6 +983,7 @@ static struct k_thread radio_thread_data;
 int osc2_radio_init(bool start)
 {
 	memset(info.channels, 0xFF, sizeof(info.channels));
+	osc2_rq_init(&extra_q, extra_items, EXTRA_CAP, CONFIG_OPENSC2_REPORT_QUEUE_DEPTH);
 	k_thread_create(&radio_thread_data, radio_stack, K_THREAD_STACK_SIZEOF(radio_stack),
 			radio_thread, (void *)(uintptr_t)start, NULL, NULL,
 			CONFIG_OPENSC2_THREAD_PRIORITY, 0, K_NO_WAIT);

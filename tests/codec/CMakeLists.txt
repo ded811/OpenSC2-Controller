@@ -17,6 +17,7 @@ target_sources(app PRIVATE
 	src/main.c
 	${OPENSC2_ROOT}/lib/opensc2/codec.c
 	${OPENSC2_ROOT}/lib/opensc2/lizard.c
+	${OPENSC2_ROOT}/lib/opensc2/report_queue.c
 	${OPENSC2_ROOT}/lib/opensc2/settings_defaults.c
 	${OPENSC2_ROOT}/lib/opensc2/fusion.c
 	${OPENSC2_ROOT}/lib/opensc2/usb_desc.c
