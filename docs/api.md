@@ -1054,11 +1054,11 @@ opensc2_haptics_play_script(OPENSC2_HAPTIC_LEFT_GRIP | OPENSC2_HAPTIC_RIGHT_GRIP
 
 ### The two paths
 
-| | Pads | Grips |
+| `enum opensc2_haptics_path` | Pads (`OPENSC2_HAPTICS_PADS`) | Grips (`OPENSC2_HAPTICS_GRIPS`) |
 | --- | --- | --- |
 | Channels | 0 left pad, 1 right pad | 2 left grip, 3 right grip |
-| Rate | 4000 Hz | 8000 Hz |
-| Block | 32 frames (8 ms) | 64 frames (8 ms) |
+| Rate | 4000 Hz (`OPENSC2_HAPTICS_PAD_RATE_HZ`) | 8000 Hz (`OPENSC2_HAPTICS_GRIP_RATE_HZ`) |
+| Block | 32 frames, 8 ms (`OPENSC2_HAPTICS_PAD_FRAMES`) | 64 frames, 8 ms (`OPENSC2_HAPTICS_GRIP_FRAMES`) |
 | Samples | `uint8_t`, 128 = silence | `int16_t`, -32767..32767 |
 
 A frame is two samples, the left channel's first. Each path has its own thread: idle until
@@ -1145,9 +1145,10 @@ starts again. Controller setting 75 = 1 keeps the enable on between sounds. All 
 path's own thread. `opensc2_haptics_set_output(path, &out)` takes effect from the path's next
 playback; `NULL` removes it.
 
-For an actuator that only has an amplitude, `opensc2_haptics_set_level_output(path, fn, user)` hands
-over each block's loudness (`opensc2_haptics_block_level()`, 0..255) every 8 ms and 0 when nothing
-plays; the blocks are then paced by a timer. A path with neither renders anyway, paced by a timer.
+For an actuator that only has an amplitude, `opensc2_haptics_set_level_output(path, fn, user)`
+hands over each block's loudness (`opensc2_haptics_block_level()`, 0..255) every 8 ms and 0 when
+nothing plays, as `fn(path, level, user)` (an `opensc2_haptics_level_fn`); the blocks are then
+paced by a timer. A path with neither renders anyway, paced by a timer.
 
 Built-in outputs, each set up from the devicetree and registered at start-up (built; not yet tested
 on hardware; `samples/haptics` has all three):
