@@ -314,9 +314,11 @@ onto it; the board restarts with the new firmware. Check the download first: on 
 
 The default `app/` build has the hardware test hooks on (`CONFIG_OPENSC2_TEST_HOOKS=y`), so the test
 suite checks the very image you run. They do nothing until the suite arms them; arming lives in RAM
-and ends at every reboot, or 15 s after the PC goes quiet. The key that arms them is published with
-the code: it prevents accidents, it is not a lock. For a board you give to someone else, build with
-`CONFIG_OPENSC2_TEST_HOOKS=n`.
+and ends at every reboot, or 15 s after the PC goes quiet. The one exception is a boot-time
+injection of the system state machine the armed suite stored for the next boot: a reset before
+the arming ends makes that boot run on the injected power source, unarmed (SECURITY.md). The key
+that arms them is published with the code: it prevents accidents, it is not a lock. For a board you
+give to someone else, build with `CONFIG_OPENSC2_TEST_HOOKS=n`.
 
 ## Steam's update prompt
 

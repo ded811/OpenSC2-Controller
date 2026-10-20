@@ -155,7 +155,10 @@ config OPENSC2_TEST_HOOKS
 	  guarded by a 32-bit key, on every command link) and the console command "opensc2 test".
 	  Inert until armed: an unarmed board behaves exactly as without this option, including the
 	  STALL of every unknown opcode. Arming lives in RAM, ends at every reboot and expires by
-	  itself when the PC goes quiet.
+	  itself when the PC goes quiet. The one exception: a boot-time injection of the system
+	  state machine (SYS_BOOT) that the armed hooks stored for the next boot. A reset before the
+	  arming ends makes that boot decide its power and run on the injected source, unarmed;
+	  the end of arming drops one that no reboot has used yet.
 
 	  While armed the PC can replace the application's inputs with a state of its choice (with
 	  lizard mode off, which the hooks enforce), and the board records what the library decoded

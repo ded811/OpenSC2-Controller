@@ -85,7 +85,7 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x70` | SYS_INJECT | flags u8 (bit 0 buttons, 1 level, 2 power source), buttons u32, level u8, source u8 (0 battery, 1 USB, 2 the dock), zero u8 | | [system injection](#system-injection): what the flags name reaches the system state machine's rules from now on (the others stay as they are); BAD_ARG for another flag bit, a source above 2 or a last byte that is not 0 |
 | `0x71` | SYS_INJECT_OFF | | | ends every system injection, the boot-time one too |
 | `0x72` | SYS_STATUS | | the machine's status, 30 bytes | [below](#system-injection); also unarmed on the console |
-| `0x73` | SYS_BOOT | flags u8, buttons u32, level u8, source u8, hold u8 (× 100 ms; 0: until the next `ARM` or `SYS_INJECT_OFF`) | | keeps a boot-time injection for the next boot, in the retained RAM area (flags 0 clears it); DENIED without that area; BAD_ARG for another flag bit or a source above 2 |
+| `0x73` | SYS_BOOT | flags u8, buttons u32, level u8, source u8, hold u8 (× 100 ms; 0: until the next `ARM` or `SYS_INJECT_OFF`) | | keeps a boot-time injection for the next boot, in the retained RAM area (flags 0 clears it; the end of arming drops one that no reboot has used yet); DENIED without that area; BAD_ARG for another flag bit or a source above 2 |
 | `0x74` | SYS_EVENT | kind u8: 1 a link that gave up, 2 the puck's "PC asleep" | | as the radio would report it: 1 posts "wireless off" (with the listen timeout as its reason), 2 runs the `0xE6` path (the `host_asleep` callback, a `HOST_ASLEEP` entry, the once-per-boot cue); BAD_ARG for another kind |
 | `0x80` | HAP_RESET | seed u32 | | the haptics synthesiser (below): everything stops at once, the queues and stream rings empty, the formats forgotten, the scripts and the drop sounds idle, captures off, the rumble's random burst gains restarted from the seed (5323 = `0x14CB` at boot) |
 | `0x81` | HAP_CAPTURE | path u8 (0 pads, 1 grips, 2 both), blocks u8 (0 stops) | | a `HAP_BLOCK` entry for each of the next blocks the path renders; BAD_ARG for a path above 2 |
@@ -176,10 +176,14 @@ level and source stay (below).
 (three words: `0x5B007A5E`, the buttons, then flags | level << 8 | source << 16 | hold << 24). The
 next boot reads and clears them first thing and injects them from the start, so the power-on
 decision itself sees them: a source of 0 (battery) or 2 (the dock) makes a boot with USB power a
-battery or dock power-on, not a wired one. They outlive the end of arming: the source and the
-level stay for that boot, the buttons until their hold time ends (then every injected button is
-up; with a hold of 0, until the next `ARM`); `SYS_INJECT_OFF` ends them all. While the hooks are armed, and in a boot a boot-time
-injection started, a shutdown never turns the board off: it reboots (how 4 below).
+battery or dock power-on, not a wired one. Once a boot has taken them they outlive the end of
+arming: the source and the level stay for that boot, the buttons until their hold time ends (then
+every injected button is up; with a hold of 0, until the next `ARM`); `SYS_INJECT_OFF` ends them
+all. Words that no reboot has taken yet go at the end of arming (`DISARM`, the lease), so a run
+that stopped before its reboot leaves nothing for a later soft reset; a reset before the arming
+ends still makes that boot run on them, unarmed (SECURITY.md names it). While the hooks are armed,
+and in a boot a boot-time injection started, a shutdown never turns the board off: it reboots (how
+4 below).
 
 **The last end.** When the machine ends (a power-off or a reboot) it keeps how in the retained RAM
 area, three words (`0x5E0DE4D5`, state | cause << 8 | end << 16 | how << 24, the uptime in ms), so

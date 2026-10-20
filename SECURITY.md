@@ -29,7 +29,12 @@ Bugs in Steam, in Valve's puck or in the nRF Connect SDK belong to their makers.
   `0x7E57AB1E`, is published with the code: it prevents accidents, it is not a lock. Anything that
   can send feature reports to the board, or to the puck it is paired with, can arm the hooks and
   inject controller input, which a local program could do anyway by creating input itself. Arming
-  lives in RAM and ends at every reboot, or 15 s after the PC goes quiet. While armed, the lizard
+  lives in RAM and ends at every reboot, or 15 s after the PC goes quiet. One thing outlives a
+  reboot: a boot-time injection of the system state machine (`SYS_BOOT`: a power source, a battery
+  level, buttons) that the armed hooks stored for the next boot. If the board resets before arming
+  ends, that boot makes its power-on decision on the injected source and runs on it unarmed
+  (shutdowns then reboot) until a power cycle or an `ARM` and `SYS_INJECT_OFF`; the end of arming
+  (`DISARM`, the lease) drops one that no reboot has used yet. While armed, the lizard
   guard keeps the board's mouse and keyboard reports on the board, and inputs are injected only
   with lizard mode off, so injected input does not reach the PC as keys or mouse moves
   ([api.md](docs/api.md#hardware-test-hooks)). For a board you give to someone else, build with

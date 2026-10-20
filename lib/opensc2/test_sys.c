@@ -187,6 +187,13 @@ void osc2_test_sys_stop(void)
 	}
 }
 
+void osc2_test_sys_disarmed(void)
+{
+	if (osc2_test_sys_env) {
+		(void)osc2_test_sys_env->boot_store(NULL);
+	}
+}
+
 static uint8_t sys_inject(const struct osc2_test_env *env, const uint8_t *args)
 {
 	uint8_t flags = args[0], source = args[6];

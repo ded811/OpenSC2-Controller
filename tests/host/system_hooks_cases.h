@@ -193,6 +193,17 @@ OPENSC2_TEST(sys_hooks_boot)
 	CHECK_EQ(con_op(OSC2_TEST_OP_SYS_BOOT, sargs(9, 0, 0, 0, 0), 8), OSC2_TEST_BAD_ARG);
 	sysenv.store_rc = -ENOTSUP;
 	CHECK_EQ(con_op(OSC2_TEST_OP_SYS_BOOT, sargs(1, 1, 0, 0, 0), 8), OSC2_TEST_DENIED);
+	sysenv.store_rc = 0;
+	/* the end of arming drops words that no reboot has used: a run that stopped before its
+	 * reboot leaves nothing for a later soft reset nobody armed for */
+	CHECK_EQ(con_op(OSC2_TEST_OP_SYS_BOOT, sargs(3, OPENSC2_BTN_STEAM, 2, 0, 3), 8),
+		 OSC2_TEST_OK);
+	CHECK(!sysenv.store_null);
+	CHECK_EQ(con_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
+	CHECK(sysenv.store_null);
+	sysenv.store_null = false;
+	CHECK_EQ(arm_on(false, 0x63, 0, 0), OSC2_TEST_OK);
+	CHECK(!sysenv.store_null);          /* an ARM keeps them */
 	CHECK_EQ(con_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
 
 	/* At the next boot: the buttons for `hold` x 100 ms, then up; the source and the level for

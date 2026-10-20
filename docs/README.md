@@ -78,7 +78,8 @@ lizard mode is setting 9, the IMU stream setting 48.
 
 **Test hooks.** An option of the library (`CONFIG_OPENSC2_TEST_HOOKS`, on in `app/`) with which the
 PC test suite injects inputs and records outputs on a board with nothing wired. They do nothing
-until the suite arms them, and arming ends at every reboot ([testing.md](testing.md)).
+until the suite arms them, and arming ends at every reboot, but for a boot-time injection stored
+for the next boot ([testing.md](testing.md), [SECURITY.md](../SECURITY.md)).
 
 **USB session log.** What happened in a wired session, request by request, kept in RAM across a
 reboot (not a power loss). In wireless mode, `opensc2 usb log` prints it.

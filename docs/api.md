@@ -1873,8 +1873,13 @@ board with nothing wired to it. While the PC has the hooks **armed**:
 
 Unarmed, the board behaves exactly as without the option, byte for byte, including the STALL of every
 unknown opcode (the host tests compare the two builds request by request). Arming is RAM only: it ends
-at every reboot, with `DISARM`, or when its lease runs out because the PC went quiet. About 3 KB of RAM
-with the defaults (the ring, the sequence steps, the settings snapshot).
+at every reboot, with `DISARM`, or when its lease runs out because the PC went quiet. The one
+exception is a boot-time injection of the system state machine (`SYS_BOOT`), which the armed hooks
+store in the retained RAM area for the next boot: a reset before the arming ends makes that boot
+decide its power on the injected source and run on it unarmed (its shutdowns reboot) until a power
+cycle or an `ARM` and `SYS_INJECT_OFF`; the end of arming drops one that no reboot has used yet
+([test-protocol.md](test-protocol.md#system-injection)). About 3 KB of RAM with the defaults (the
+ring, the sequence steps, the settings snapshot).
 
 Safety rules the firmware enforces itself:
 
@@ -1909,9 +1914,10 @@ keyboard.
 
 The default `app/` build has the hardware test hooks on (`CONFIG_OPENSC2_TEST_HOOKS=y`), so the test
 suite checks the very image you run. They do nothing until the suite arms them; arming lives in RAM
-and ends at every reboot, or 15 s after the PC goes quiet. The key that arms them is published with
-the code: it prevents accidents, it is not a lock. For a board you give to someone else, build with
-`CONFIG_OPENSC2_TEST_HOOKS=n`. The samples and the template build without them.
+and ends at every reboot (but for a boot-time injection stored for the next boot, above), or 15 s
+after the PC goes quiet. The key that arms them is published with the code: it prevents accidents,
+it is not a lock. For a board you give to someone else, build with `CONFIG_OPENSC2_TEST_HOOKS=n`.
+The samples and the template build without them.
 
 Kconfig: `CONFIG_OPENSC2_TEST_HOOKS` (off by default), `CONFIG_OPENSC2_TEST_RING_SIZE` (2048 bytes,
 512 to 16384) and `CONFIG_OPENSC2_TEST_SEQ_DEPTH` (8 steps, 2 to 32). With the hooks, Zephyr's

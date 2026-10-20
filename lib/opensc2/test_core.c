@@ -596,6 +596,7 @@ static void end_arming(struct osc2_test_core *c, const struct osc2_test_env *env
 	c->completion_ms = env->now_ms() + OSC2_TEST_COMPLETION_MS;
 	env->unlock();
 	env->cnt_reset();
+	osc2_test_sys_disarmed();   /* a boot-time injection no reboot used goes too */
 
 	/* The build's rules again (RULES_SET), with the guard still on. */
 	if (c->rules_changed) {

@@ -122,6 +122,10 @@ uint8_t osc2_test_sys_op(struct osc2_test_core *c, const struct osc2_test_env *e
  * injection's power source and level stay for the boot, and its buttons while their hold time
  * runs (SYS_INJECT_OFF ends them all). */
 void osc2_test_sys_stop(void);
+/* The end of arming (DISARM, the lease), without the core's lock: a boot-time injection that no
+ * reboot has used yet is dropped, so one stored by a run that then stopped (the runner killed, the
+ * console lost) never reaches a later soft reset that nobody armed for. */
+void osc2_test_sys_disarmed(void);
 
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 
