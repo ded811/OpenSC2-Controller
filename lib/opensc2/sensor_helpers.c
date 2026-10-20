@@ -411,7 +411,7 @@ void opensc2_gyro_bias_update(struct opensc2_gyro_bias *b, const float gyro[3], 
 		return;
 	}
 	for (int i = 0; i < 3; i++) {
-		b->bias[i] += (gyro[i] - b->bias[i]) / 64.0f;
+		b->bias[i] += (gyro[i] - b->bias[i]) / 256.0f;
 	}
 }
 

@@ -162,7 +162,7 @@ int16_t opensc2_imu_dead_zone(int16_t v, int32_t t);
 
 /* A gyro-bias estimate of OpenSC2's own for IMUs without one (the real controller takes its IMU's):
  * while every axis stays within `threshold` of the current estimate, and has for `settle` samples
- * in a row, the estimate moves 1/64 of the way toward the reading. Use setting 85 as the
+ * in a row, the estimate moves 1/256 of the way toward the reading. Use setting 85 as the
  * threshold in report units (default 100, about 6 deg/s; Steam writes 50) and subtract the
  * estimate while setting 84 is not 0. Units are whatever the caller uses, rad/s for example. */
 struct opensc2_gyro_bias {

@@ -68,6 +68,31 @@ config APP_IMU_ALWAYS
 	help
 	  Like the real controller, the IMU only streams while controller setting 48 is not 0.
 
+config APP_IMU_BIAS
+	bool "Estimate the gyro's bias at rest and subtract it (settings 84 and 85)"
+	depends on APP_IMU
+	help
+	  For IMUs without a bias estimate of their own (the real controller takes its IMU's): a
+	  rest-based estimate of OpenSC2's own, subtracted while controller setting 84 is not 0 (the
+	  default), with setting 85 as its rest threshold in report units (default 100, about
+	  6 deg/s). It starts from the stored cal/sensors/gyroscope/bias when there is one. Untested
+	  on hardware.
+
+config APP_I2C_RECOVER
+	bool "Free each I2C bus at boot, before its parts' drivers start"
+	depends on APP_I2C
+	help
+	  As the real controller does: a reset in the middle of a transfer can leave a part holding
+	  SDA low; clocking SCL frees it (Zephyr's i2c_recover_bus()). Untested on hardware.
+
+config APP_I2C_RECOVER_PRIORITY
+	int "Init priority of the bus recovery (POST_KERNEL)"
+	default 60
+	depends on APP_I2C_RECOVER
+	help
+	  After the I2C drivers (CONFIG_I2C_INIT_PRIORITY, 50) and before the sensor and touch
+	  drivers (90).
+
 endmenu
 
 source "Kconfig.zephyr"

@@ -344,9 +344,9 @@ OPENSC2_TEST(sensors_gyro_bias)
 	}
 	CHECK(b.bias[0] == 0.0f);
 	opensc2_gyro_bias_update(&b, rest, 0.1f, 4);
-	CHECK(fabsf(b.bias[0] - 0.05f / 64.0f) < 1e-6f);
-	CHECK(fabsf(b.bias[1] + 0.02f / 64.0f) < 1e-6f);
-	for (int i = 0; i < 500; i++) {
+	CHECK(fabsf(b.bias[0] - 0.05f / 256.0f) < 1e-6f);
+	CHECK(fabsf(b.bias[1] + 0.02f / 256.0f) < 1e-6f);
+	for (int i = 0; i < 3000; i++) {
 		opensc2_gyro_bias_update(&b, rest, 0.1f, 4);
 	}
 	CHECK(fabsf(b.bias[0] - 0.05f) < 0.001f);
