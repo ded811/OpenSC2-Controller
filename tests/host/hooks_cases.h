@@ -1940,3 +1940,42 @@ OPENSC2_TEST(hooks_rules)
 	CHECK_EQ(hk.rules_set_calls, 0);
 	CHECK_EQ(hk.violations, 0);
 }
+/* ---- the haptics synthesiser's ops, in a build without it ----------------------------------- */
+
+OPENSC2_TEST(hooks_haptics_ops_without_synth)
+{
+	static const uint8_t seed[4] = { 0xCB, 0x14, 0, 0 };
+	static const uint8_t capture[2] = { 1, 4 };
+	static const uint8_t play[3] = { 0, 5, 2 };
+	uint8_t caps[OSC2_TEST_CAPS_LEN];
+
+	stub_reset();
+	CHECK_EQ(arm_on(false, 0x1234, 0, 0), OSC2_TEST_OK);
+	memcpy(caps, RES, sizeof(caps));
+	CHECK_EQ(opensc2_get_le32(&caps[2]) & OSC2_TEST_FLAG_HAPTICS_SYNTH, 0);
+	/* the lengths are checked first, then the library answers BAD_OP: nothing is built */
+	CHECK_EQ(con_op(OSC2_TEST_OP_HAP_RESET, seed, 3), OSC2_TEST_BAD_LEN);
+	CHECK_EQ(con_op(OSC2_TEST_OP_HAP_RESET, seed, 4), OSC2_TEST_BAD_OP);
+	CHECK_EQ(con_op(OSC2_TEST_OP_HAP_CAPTURE, capture, 2), OSC2_TEST_BAD_OP);
+	CHECK_EQ(con_op(OSC2_TEST_OP_HAP_STATUS, NULL, 0), OSC2_TEST_BAD_OP);
+	CHECK_EQ(hans_len, 4);                        /* no result */
+	CHECK_EQ(con_op(OSC2_TEST_OP_HAP_PLAY, play, 3), OSC2_TEST_BAD_OP);
+	CHECK_EQ(con_op(OSC2_TEST_OP_HAP_PLAY, NULL, 0), OSC2_TEST_BAD_LEN);
+	CHECK_EQ(hk.violations, 0);
+}
+
+OPENSC2_TEST(hooks_haptics_entry_text)
+{
+	/* the console prints the synthesiser's entries by name */
+	static const uint8_t gen[] = { 0x00, 0x01, 0x00, 0x00, 0x60, 0x03, 0x0c, 0x02, 0x03, 0x01,
+				       0xfa, 0xc8, 0x00, 0x64, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	static const uint8_t block[] = { 0x00, 0x02, 0x00, 0x00, 0x61, 0x03, 0x0c, 0x01, 0x00, 0x00,
+					 0x00, 0x00, 0xfd, 0xe1, 0x9d, 0xab, 0x34, 0x12, 0x01 };
+	char text[200];
+
+	osc2_test_fmt_entry(text, sizeof(text), 7, gen, sizeof(gen));
+	CHECK(strstr(text, "HAP_GEN ch=2 type=3 what=1 gain=-6 p=200,100,0,0") != NULL);
+	osc2_test_fmt_entry(text, sizeof(text), 8, block, sizeof(block));
+	CHECK(strstr(text, "HAP_BLOCK path=1 index=0 crc=ab9de1fd peak=4660 flags=1") != NULL);
+	CHECK(strstr(text, " none ") != NULL);
+}

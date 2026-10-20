@@ -43,15 +43,22 @@ $libSources += @("$lib\cal.c", "$lib\sensor_helpers.c", "$lib\gauge.c", "$lib\ca
 # the system state machine: power, chords, the status LED, cues
 $libSources += @("$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c",
     "$lib\led_rules.c", "$lib\test_sys.c")
+# the haptics synthesiser's pure parts
+$libSources += @("$lib\haptics_dsp.c", "$lib\haptics_tables.c", "$lib\haptics_core.c",
+    "$lib\haptics_rules.c", "$lib\haptics_sounds.c", "$lib\haptics_run.c",
+    "$lib\haptics_help.c")
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',
     '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c", "$lib\test_sys_notes.c",
     (Join-Path $PSScriptRoot 'hooks_stub.c'))
-# the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
+# the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps), the system state
+# machine, and the haptics synthesiser as app\haptics.conf has it
 $emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_SYSTEM=1',
     '-DCONFIG_OPENSC2_TEST_HOOKS=1',
     '-DCONFIG_OPENSC2_TEST_RING_SIZE=2048', '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8',
+    '-DCONFIG_OPENSC2_HAPTICS_SYNTH=1',
     "$lib\test_notes.c", "$lib\test_sys_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
+    (Join-Path $PSScriptRoot 'haptics_emu.c'),
     (Join-Path $PSScriptRoot 'fwemu.c'), (Join-Path $PSScriptRoot 'fwemu_sys.c'))
 
 $plain = Join-Path $tmp 'opensc2_host_tests_plain.exe'

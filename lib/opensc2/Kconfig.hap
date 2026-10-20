@@ -1,0 +1,92 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# The haptics synthesiser and its outputs. Sourced from lib/opensc2/Kconfig inside "if OPENSC2".
+
+DT_COMPAT_OPENSC2_HAPTICS_I2S := opensc2,haptics-i2s
+DT_COMPAT_OPENSC2_HAPTICS_PWM_DAC := opensc2,haptics-pwm-dac
+DT_CHOSEN_OPENSC2_HAPTICS_DRV2605 := opensc2,haptics-drv2605
+
+menuconfig OPENSC2_HAPTICS_SYNTH
+	bool "Haptics synthesiser: the output reports rendered for actuators"
+	help
+	  Render what Steam plays on the controller's four haptic actuators (rumble 0x80, pulse
+	  trains, clicks, tones, sweeps, scripts and PCM streams 0x81..0x89) into sample blocks, as
+	  the real controller's two sequencers do: the pads at 4 kHz (unsigned 8-bit, 32-frame
+	  blocks), the grips at 8 kHz (signed 16-bit, 64-frame blocks), one thread each. The blocks go
+	  to outputs the application sets with opensc2_haptics_set_output() or to the built-in ones
+	  below; without an output a path still renders, paced by a timer, so the test hooks can check
+	  it. Also plays OpenSC2's own built-in sounds (report 0x85's scripts, the cues, the drop
+	  sounds) and sends the PCM streams' flow control (input report 0x44: 0x01, 0x02 when a
+	  stream runs dry, 0x04, 0x08, 0x10, 0x20, 0x40). Applies controller settings 76 (master
+	  gain), 75 (amplifier mode) and 27 (rumble gain offset). The application's rumble and haptic
+	  callbacks are still called. About 10 KB of RAM (two thread stacks, four 512-byte stream rings,
+	  the generators and queues) and 14 KB of flash. Built; not yet tested on hardware.
+
+if OPENSC2_HAPTICS_SYNTH
+
+config OPENSC2_HAPTICS_THREAD_PRIORITY
+	int "Sequencer threads' priority"
+	default 6
+	help
+	  Each path renders an 8 ms block ahead of what plays. Keep it below (numerically above) the
+	  radio and USB threads (5) and above long-running application threads.
+
+config OPENSC2_HAPTICS_THREAD_STACK_SIZE
+	int "Sequencer thread stack size"
+	default 1536
+
+config OPENSC2_HAPTICS_QUEUE_DEPTH
+	int "Commands a sequencer holds"
+	default 20
+	range 4 64
+	help
+	  As on the real controller (20): a command that finds the queue full is lost.
+
+config OPENSC2_HAPTICS_DROP_SOUNDS
+	bool "Drop sounds after a free fall"
+	default y
+	help
+	  opensc2_haptics_free_fall() (the application's IMU saw a free fall): 250 ms later one of
+	  two drop sounds of OpenSC2's own plays on the left grip, about half of the time, as on the
+	  real controller; falls count again 5 s later. Nothing happens unless the application reports
+	  free falls (the blank canvas does with an IMU, through opensc2_freefall_update()).
+
+config OPENSC2_HAPTICS_OUT_I2S
+	bool "Grips: an I2S amplifier (untested)"
+	depends on $(dt_compat_enabled,$(DT_COMPAT_OPENSC2_HAPTICS_I2S))
+	select I2S
+	help
+	  The grips' blocks to Zephyr's I2S driver as master, 16-bit stereo at 8 kHz (the left grip
+	  on the left word), for an I2S class-D amplifier per channel or a stereo one. Set up from an
+	  "opensc2,haptics-i2s" devicetree node: its i2s phandle and an optional enable-gpios for the
+	  amplifier's shutdown pin. Built; not yet tested on hardware.
+
+config OPENSC2_HAPTICS_OUT_PWM_DAC
+	bool "Pads: PWM as a DAC on nrfx (untested)"
+	depends on $(dt_compat_enabled,$(DT_COMPAT_OPENSC2_HAPTICS_PWM_DAC))
+	depends on SOC_SERIES_NRF52
+	select NRFX_PWM
+	help
+	  The pads' blocks played as duty cycles by an nRF PWM instance through nrfx's sequence
+	  playback: a 15.625 us period (250 steps of the 16 MHz clock), each sample held 16 periods
+	  (exactly 4 kHz), two sequences played in turn so one fills while the other plays. Needs an
+	  H-bridge or a small amplifier and an RC filter per pad. Set up from an
+	  "opensc2,haptics-pwm-dac" devicetree node: a PWM instance that Zephyr's PWM driver does not
+	  use (disabled in the devicetree), the left and right pad pins, an optional enable-gpios.
+	  Built; not yet tested on hardware.
+
+config OPENSC2_HAPTICS_OUT_DRV2605
+	bool "One actuator on a DRV2605 in real-time playback (untested)"
+	depends on $(dt_chosen_enabled,$(DT_CHOSEN_OPENSC2_HAPTICS_DRV2605))
+	depends on DT_HAS_TI_DRV2605_ENABLED
+	select HAPTICS
+	help
+	  A TI DRV2605(L) driving one ERM or LRA, through Zephyr's ti,drv2605 driver in real-time
+	  playback: every 8 ms the louder of the two paths' block levels becomes the amplitude. Rumble,
+	  clicks and pulses come through; tones, sweeps, chimes and PCM lose their pitch (the chip has
+	  no drive-frequency control). Choose the drv2605 node as opensc2,haptics-drv2605. A path
+	  that has an output of its own (the grips on an I2S amplifier, say) does not feed it.
+	  Built; not yet tested on hardware.
+
+endif # OPENSC2_HAPTICS_SYNTH

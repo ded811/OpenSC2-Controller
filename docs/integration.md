@@ -24,7 +24,7 @@ library has no pins.
 | --- | --- | --- |
 | [`template/`](../template/README.md) (recommended) | you write firmware of your own | anything: it is small and made to be copied out |
 | [`app/`](../app/README.md) | you build a controller on the SuperMini with the parts `app/` supports; the hardware results come from its v0.2.0 release image ([What works](../README.md#what-works)) | usually only its overlay (pins and parts) |
-| [`samples/`](../samples/README.md) | you want to see one part on its own: buttons and a stick, a touchpad, an IMU, rumble, an RGB LED | copy that part into your project |
+| [`samples/`](../samples/README.md) | you want to see one part on its own: buttons and a stick, a touchpad, an IMU, rumble, an RGB LED, the haptics synthesiser | copy that part into your project |
 
 The template is the OpenSC2 library, five buttons, a pairing button and a status LED on the
 SuperMini nRF52840 (a Pro Micro-sized nRF52840 board with the nice!nano pinout and the Adafruit
@@ -424,6 +424,7 @@ int main(void)
 | Power requests | without a `power_request` callback the library carries out the reboots Steam asks for itself and ignores Steam's request to enter a bootloader. With one, you decide ([api.md](api.md#power-requests)). The system state machine (on by default) also runs the real controller's power rules: STEAM held 7 s and the turn-off command switch wireless off on USB power; on a battery they, the idle timeout and low battery shut the board down. A board built without `CONFIG_OPENSC2_BATTERY` counts as on USB power and never switches itself off (a shutdown ends in a reboot); a battery build gets `OPENSC2_POWER_OFF` ([api.md](api.md#power-and-the-system-state-machine)). |
 | The status LED and cues | optional: the `led_status` callback (or `opensc2_led_status()`) gives the mode the real controller would show, and `<opensc2/led.h>` plays its patterns for you; the `cue` callback names each chime to play ([api.md](api.md#status-led)). |
 | Priorities | the radio thread runs at priority 5 (`CONFIG_OPENSC2_THREAD_PRIORITY`): keep long-running application threads below it, at a higher number (the template's `main()` runs at 7). |
+| Haptics | the `rumble` and `haptic` callbacks hand over what Steam plays; to have it played as the real controller plays it, turn on the library's haptics synthesiser (`CONFIG_OPENSC2_HAPTICS_SYNTH`) and give it outputs, its built-in ones or your own ([api.md](api.md#the-haptics-synthesiser), [samples/haptics](../samples/haptics/README.md); built, not yet tested on hardware). |
 
 Every function, field and callback: [api.md](api.md). The wired device in detail:
 [api.md](api.md#wired-mode).

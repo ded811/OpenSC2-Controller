@@ -398,6 +398,8 @@ endchoice
 
 endif # OPENSC2_USB
 
+rsource "Kconfig.hap"
+
 menu "Identity (defaults)"
 
 config OPENSC2_UNIT_SERIAL

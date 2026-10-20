@@ -29,18 +29,22 @@ compile() {
 		"$lib/transport_rules.c" "$lib/ble_rules.c" \
 		"$lib/cal.c" "$lib/sensor_helpers.c" "$lib/gauge.c" "$lib/cal_store.c" \
 		"$lib/sys_rules.c" "$lib/chord_rules.c" "$lib/idle_rules.c" "$lib/led_rules.c" \
-		"$lib/test_sys.c" "$@" -lm
+		"$lib/test_sys.c" "$lib/haptics_dsp.c" "$lib/haptics_tables.c" \
+		"$lib/haptics_core.c" "$lib/haptics_rules.c" "$lib/haptics_sounds.c" \
+		"$lib/haptics_run.c" "$lib/haptics_help.c" "$@" -lm
 }
 
 compile "$here/run_tests.c" -o "$out/opensc2_host_tests_plain"
 compile "$here/run_tests.c" -DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=512 \
 	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$lib/test_sys_notes.c" \
 	"$here/hooks_stub.c" -o "$out/opensc2_host_tests_hooks"
-# the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
+# the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps), the system state
+# machine, and the haptics synthesiser as app/haptics.conf has it
 compile "$here/fwemu.c" "$here/fwemu_sys.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_SYSTEM=1 \
 	-DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=2048 \
-	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 \
-	"$lib/test_notes.c" "$lib/test_sys_notes.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
+	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 -DCONFIG_OPENSC2_HAPTICS_SYNTH=1 \
+	"$lib/test_notes.c" "$lib/test_sys_notes.c" "$here/hooks_stub.c" "$here/haptics_emu.c" \
+	-o "$out/opensc2_fwemu"
 # Without CONFIG_OPENSC2_CAL the calibration's calls are stand-ins: those files must still compile.
 for f in "$lib/commands.c" "$lib/cal_store.c" "$lib/test_core.c"; do
 	${CC:-gcc} -std=c11 -Wall -Wextra -Wshadow -Werror -I"$here/shim" -I"$root/include" -I"$lib" \

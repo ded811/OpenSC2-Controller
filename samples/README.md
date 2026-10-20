@@ -1,6 +1,6 @@
 # Examples
 
-Six small applications, each showing one part of the OpenSC2 library on the SuperMini nRF52840.
+Seven small applications, each showing one part of the OpenSC2 library on the SuperMini nRF52840.
 For learners who want to see one feature at a time, and for anyone who wants code to copy into
 their own controller.
 
@@ -26,6 +26,7 @@ their own controller.
 | [imu](imu/README.md) | an IMU through Zephyr's sensor API, with the fusion helper | an MPU-6050 module (GY-521) on I2C, a push button | P0.17 SDA, P0.20 SCL, P0.31 pairing | builds; not run on hardware |
 | [rumble](rumble/README.md) | rumble and haptics on one motor | a vibration motor with a MOSFET and a flyback diode, a push button | P0.22 PWM, P0.31 pairing | builds; not run on hardware |
 | [rgb_led](rgb_led/README.md) | a status LED that follows Steam's colour | a common-anode RGB LED, three resistors, a push button | P0.22 red, P0.24 green, P1.00 blue, P0.31 pairing | builds; not run on hardware |
+| [haptics](haptics/README.md) | the library's haptics synthesiser on real outputs: the grips on I2S, the pads on a PWM DAC, or one actuator on a DRV2605 (`drv2605.conf`) | I2S amplifiers and exciters, H-bridges and RC filters, or a DRV2605L breakout; a push button | P0.17, P0.20, P0.22, P0.24 I2S; P0.06, P0.08, P1.04 the pads; P1.00, P0.11, P1.06 the DRV2605; P0.31 pairing | builds; not run on hardware |
 
 Each sample's README has its parts, wiring, what to expect and what to change. The pins are in each
 sample's `boards/promicro_nrf52840_nrf52840_uf2.overlay`. The SuperMini's silkscreen names pins by
@@ -146,5 +147,10 @@ full: [Add it in Steam](../docs/getting-started.md#add-it-in-steam).
 - **rgb_led**: `opensc2_led_get()`: Steam's colour and brightness once Steam turns its LED override
   on, and otherwise the board's state in the same patterns and colours as `app/`, wired and
   wireless.
+- **haptics**: the library's haptics synthesiser (`CONFIG_OPENSC2_HAPTICS_SYNTH`) with its built-in
+  outputs, each set up from a devicetree node (`opensc2,haptics-i2s`, `opensc2,haptics-pwm-dac`, or
+  a `ti,drv2605` chosen as `opensc2,haptics-drv2605`), a start-up cue with
+  `opensc2_haptics_play_cue()` at the chime level, and a shell command that plays the sounds by
+  hand.
 
 Back to the [documentation map](../docs/README.md)

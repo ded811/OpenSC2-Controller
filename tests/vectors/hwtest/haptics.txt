@@ -1,0 +1,20 @@
+# haptics.txt: blocks the haptics synthesiser renders (CONFIG_OPENSC2_HAPTICS_SYNTH), as CRC-32s.
+#   RENDER <name> PATH <0 pads|1 grips> SEED <rumble seed, hex> MASTER <setting 76> S27 <setting 27>
+#          BLOCKS <n> OUT <output report, hex> CRC <one CRC-32 per block, hex>
+# From an idle synthesiser: the rumble's random burst gains restarted from SEED, settings 76 and 27
+# as given, the output report decoded and its commands queued, then n blocks of PATH rendered (the
+# first begins with the 4 ms lead-in), each while something still plays. The host tests render them
+# with the library's code; the
+# hardware test suite's haptics group plays the same report on the board and compares the CRCs the
+# board reports. The synthesiser computes in integers only, so both must match exactly.
+RENDER tone200 PATH 1 SEED 14cb MASTER -3 S27 -10 BLOCKS 3 OUT 8303fac8006400000000 CRC ab9de1fd 6bbe0906 dfc8e7cc
+RENDER tone200_master6 PATH 1 SEED 14cb MASTER 6 S27 -10 BLOCKS 3 OUT 8303fac8006400000000 CRC 8838b292 35c44892 5832604f
+RENDER tone_lfo_pads PATH 0 SEED 14cb MASTER -3 S27 -10 BLOCKS 4 OUT 8302002c013c000a0032 CRC 2a1c2247 207d6f52 a40e4a8b 3a6145a6
+RENDER sweep_antiphase PATH 1 SEED 14cb MASTER -3 S27 -10 BLOCKS 4 OUT 8407fd78006400e803 CRC d723bf8c 3ff9c8eb a04330d7 4c133db9
+RENDER pulse_right_pad PATH 0 SEED 14cb MASTER -3 S27 -10 BLOCKS 2 OUT 8100e803e8030600 CRC 6444a39c 0239e890
+RENDER click_a PATH 0 SEED 14cb MASTER -3 S27 -10 BLOCKS 3 OUT 820101fa CRC 026d8c11 131af2f4 c17b578a
+RENDER click_b_count3 PATH 0 SEED 14cb MASTER -3 S27 -10 BLOCKS 4 OUT 8101640064000300 CRC 45030ce9 22877a9a 307068a3 98ce3a10
+RENDER rumble PATH 1 SEED 14cb MASTER -3 S27 -10 BLOCKS 13 OUT 8000000030750050c300 CRC 17995207 45db1ca4 96368987 a7bd6667 14241687 977a6354 197d5bd0 9c7680a3 32539bbc b9f94107 eee8ca9f 809d1144 1603450b
+RENDER rumble_seed PATH 1 SEED 12345678 MASTER -3 S27 -10 BLOCKS 13 OUT 80000000000000ffff00 CRC ab7565b3 fbb44e2c af8acbcf 6a5e201f f3c15d47 7473fcfc 0d968558 0d968558 0d968558 0d968558 0183310b df20a6cd 5af8e9e8
+RENDER rumble_level16 PATH 1 SEED 14cb MASTER -3 S27 -10 BLOCKS 4 OUT 80001000d00700000000 CRC 066eb6e2 78cd1a47 ab52d353 8a90e7f7
+RENDER rumble_s27 PATH 1 SEED 14cb MASTER -3 S27 0 BLOCKS 3 OUT 80000000204e00000000 CRC efea3599 7ad9bd11 73264f23

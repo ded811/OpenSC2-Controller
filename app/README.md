@@ -441,6 +441,7 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
 | `CONFIG_OPENSC2_BATTERY=y` | **not here**: in the [battery build](#a-battery-build) (`battery.conf`) |
 | `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
+| `CONFIG_OPENSC2_HAPTICS_SYNTH=y` | the [haptics build](#haptics-build-the-synthesiser) (`haptics.conf`): the library renders the haptic reports itself |
 
 The USB session log and the warm-restart mark live in a 16 KB RAM area that the overlay takes out
 of the application's RAM, clear of the RAM the UF2 bootloader uses at every reset
@@ -495,6 +496,27 @@ with nothing wired. Lizard mode's mouse and keyboard reports never leave the boa
 are only injected with lizard mode off, so nothing types or moves the pointer on the PC. The hooks
 cost about 3 KB of RAM. How to run the suite and read its report:
 [docs/testing.md](../docs/testing.md); the protocol: [docs/test-protocol.md](../docs/test-protocol.md).
+
+## Haptics build: the synthesiser
+
+`app/haptics.conf` builds the blank canvas with the library's haptics synthesiser
+(`CONFIG_OPENSC2_HAPTICS_SYNTH`; built, not yet tested on hardware): it renders everything Steam
+plays on the controller's haptics (rumble, pulses, clicks, tones, sweeps, scripts, PCM streams) into
+sample blocks as the real controller does, plays sounds of OpenSC2's own (scripts, cues, drop
+sounds) and sends the PCM streams' flow control (`0x44`). Wire-wise it differs from the default
+build only in those `0x44` reports, which the real controller sends too. With nothing wired the
+blocks go nowhere, and the hardware test suite's `haptics` group checks them through the test hooks
+([docs/testing.md](../docs/testing.md)); with a vibration motor on the `rumble` PWM channel, the
+motor follows the rendered blocks' loudness instead of the decoded reports.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\haptics.conf -OutDir C:\b\osc2-hap -Pristine
+```
+
+The image is `C:\b\osc2-hap\app\zephyr\zephyr.uf2`; as with the charger build, give it a build
+folder of its own. Real actuator outputs (an I2S amplifier, the pads' PWM DAC, a DRV2605):
+[samples/haptics](../samples/haptics/README.md). The synthesiser itself:
+[docs/api.md](../docs/api.md#the-haptics-synthesiser).
 
 ## Test build: the charger fallback
 

@@ -22,12 +22,13 @@ from . import results as results_mod
 from . import safety
 from .board import BoardGone, DeviceError, NoLink, Rig, RigError
 from .groups import base as gbase
-from .groups import (battery, ble, cal, cmd, desc, flash, hooks, inputs, lizard, modes, outputs,
-                     puck, reports, restore, settings, steam, stream, system, wireless)
+from .groups import (battery, ble, cal, cmd, desc, flash, haptics, hooks, inputs, lizard, modes,
+                     outputs, puck, reports, restore, settings, steam, stream, system, wireless)
 
 CATALOG = [
     ("hooks", hooks), ("desc", desc), ("cmd", cmd), ("inputs", inputs), ("battery", battery),
-    ("stream", stream), ("reports", reports), ("outputs", outputs), ("settings", settings),
+    ("stream", stream), ("reports", reports), ("outputs", outputs), ("haptics", haptics),
+    ("settings", settings),
     ("flash", flash), ("lizard", lizard), ("wireless", wireless), ("puck", puck),
     ("ble", ble), ("steam", steam), ("modes", modes), ("restore", restore), ("cal", cal),
     ("system", system),
@@ -36,11 +37,11 @@ MODULES = dict(CATALOG)
 INJECTION_GROUPS = {"inputs", "reports", "lizard", "wireless", "ble", "cal", "system"}
 STEAM_CLOSED_GROUPS = {"hooks", "cmd", "inputs", "battery", "reports", "outputs", "settings",
                        "flash", "lizard", "modes", "wireless", "puck", "desc", "stream", "ble",
-                       "cal", "system"}
+                       "cal", "system", "haptics"}
 W_GROUPS = ("hooks", "desc", "cmd", "inputs", "battery", "stream", "reports", "outputs",
-            "settings", "cal", "flash", "lizard", "system")
-R_GROUPS = ("hooks", "inputs", "battery", "stream", "reports", "outputs", "settings", "cmd",
-            "wireless", "cal", "flash", "puck", "lizard", "system")
+            "haptics", "settings", "cal", "flash", "lizard", "system")
+R_GROUPS = ("hooks", "inputs", "battery", "stream", "reports", "outputs", "haptics", "settings",
+            "cmd", "wireless", "cal", "flash", "puck", "lizard", "system")
 # --bluetooth: the board over Bluetooth, through the HID device Windows made of it (TST-1)
 B_GROUPS = ("hooks", "desc", "cmd", "inputs", "battery", "stream", "reports", "outputs",
             "settings", "ble", "lizard")

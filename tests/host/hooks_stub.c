@@ -11,6 +11,7 @@
 #include <string.h>
 #include "internal.h"
 #include "cal_store.h"
+#include "haptics_glue.h"
 #include "input_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
@@ -148,6 +149,9 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 			    OSC2_TEST_FLAG_HAPTIC_STOP_STATUS;   /* the emulator sends them (fwemu.c) */
 #if defined(OSC2_HOST_FWEMU)
 	caps->build_flags |= OSC2_TEST_FLAG_SYSTEM;   /* fwemu_sys.c: the system state machine */
+#endif
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+	caps->build_flags |= OSC2_TEST_FLAG_HAPTICS_SYNTH;   /* the firmware emulator has it */
 #endif
 	caps->battery_interval_ms = 3500;
 	caps->rumble_timeout_ms = 500;
@@ -351,6 +355,15 @@ static void env_rules_set(uint32_t rules)
 	hk.rules = rules & OSC2_RULES_KNOWN;
 }
 
+/* The haptics synthesiser's ops: the firmware emulator's (tests/host/haptics_emu.c), BAD_OP in the
+ * host tests, which have no synthesiser around the hooks. */
+static uint8_t env_hap_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			  uint8_t *rlen)
+{
+	library_call();
+	return osc2_haptics_test_op(op, args, alen, result, rlen);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -384,4 +397,5 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.rules_build = env_rules_build,
 	.rules_set = env_rules_set,
 	.cal_status = osc2_cal_status,
+	.hap_op = env_hap_op,
 };

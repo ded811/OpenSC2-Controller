@@ -20,6 +20,7 @@
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
 #include "cal_store.h"
+#include "haptics_glue.h"
 #include "input_rules.h"
 #include "lizard.h"
 #include "proto_rules.h"
@@ -382,6 +383,8 @@ int osc2_output_dispatch(enum osc2_link link, const uint8_t *report, size_t len)
 		}
 		stop_status(link, &out[i]);
 	}
+	/* The haptics synthesiser (CONFIG_OPENSC2_HAPTICS_SYNTH) plays them too. */
+	osc2_haptics_outputs((uint8_t)link, out, n);
 	return n;
 }
 

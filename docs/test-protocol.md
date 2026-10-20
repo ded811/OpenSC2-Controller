@@ -83,6 +83,10 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x72` | SYS_STATUS | | the machine's status, 30 bytes | [below](#system-injection); also unarmed on the console |
 | `0x73` | SYS_BOOT | flags u8, buttons u32, level u8, source u8, hold u8 (× 100 ms; 0: until the next `ARM` or `SYS_INJECT_OFF`) | | keeps a boot-time injection for the next boot, in the retained RAM area (flags 0 clears it); DENIED without that area; BAD_ARG for another flag bit or a source above 2 |
 | `0x74` | SYS_EVENT | kind u8: 1 a link that gave up, 2 the puck's "PC asleep" | | as the radio would report it: 1 posts "wireless off" (with the listen timeout as its reason), 2 runs the `0xE6` path (the `host_asleep` callback, a `HOST_ASLEEP` entry, the once-per-boot cue); BAD_ARG for another kind |
+| `0x80` | HAP_RESET | seed u32 | | the haptics synthesiser (below): everything stops at once, the queues and stream rings empty, the formats forgotten, the scripts and the drop sounds idle, captures off, the rumble's random burst gains restarted from the seed (5323 = `0x14CB` at boot) |
+| `0x81` | HAP_CAPTURE | path u8 (0 pads, 1 grips, 2 both), blocks u8 (0 stops) | | a `HAP_BLOCK` entry for each of the next blocks the path renders; BAD_ARG for a path above 2 |
+| `0x82` | HAP_STATUS | | status, 38 bytes (below) | |
+| `0x83` | HAP_PLAY | what u8; 0 cue: cue u8, level u8; 1 click: channels u8, click u8 (1 A, 2 B), gain s8; 2 script: channels u8, id u8, gain s8; 3 free fall: the random byte its drop sound will use u8; 4 stop: channels u8 | result s32 | the synthesiser's own sounds, as the application or the library would play them: how many grips a cue started on (-1: it plays nothing at that level), how many channels were queued or started, 1 when a free fall was taken (0: not armed); BAD_ARG for another `what` |
 | `0xA0` | RAW_INJECT | flags u8 (0), nonce u32, present u8 (bit 0 left stick, 1 right stick, 2 left trigger, 3 right trigger, 4 left pressure, 5 right pressure, 6 left and 7 right stick-touch and grip words), sticks LX, LY, RX, RY u16, triggers L, R u16, pressure L, R s16, stick touch L, R s16, grip L, R s16 (30 bytes) | frames u32 | builds with `CONFIG_OPENSC2_CAL` only (caps bit 21; BAD_OP without). The inputs in `present` replace the application's raw inputs before the library processes them ([api.md, Calibration and raw inputs](api.md#calibration-and-raw-inputs)), as `opensc2_set_raw()` would give them; a nonce other than 0 goes into the IMU timestamp of every frame built with them, so the reports that carry them are known. DENIED while lizard mode is on; BAD_ARG for a flag bit; frames as for `INJECT` |
 | `0xA1` | RAW_OFF | | frames u32 | the application's raw inputs again |
 | `0xA2` | CAL_STATUS | | 16 bytes: generation u32 (`opensc2_cal_generation()`); usable u8 (bit 0 left stick, 1 right stick, 2 left trigger, 3 right trigger, 4 left pressure, 5 right pressure: a stored calibration that the processing can use); raw u8 (the raw inputs the last frame processed, RAW_INJECT's bits); injected u8 (RAW_INJECT's `present`, 0 when off); flags u8 (bit 0 `CONFIG_OPENSC2_PAD_RULES`, bit 1 `CONFIG_OPENSC2_CAL_PRESSURE_CLICK`); the recordings' steps u8 × 3 (sticks `0xD8`, triggers `0xC0`, pressure `0xC3`; bit 7 while one runs); the pads' pressure filters s16 × 2 (left, right); clicks u8 (bit 0 left, bit 1 right: the pressure's click state) | reads only; also through the puck |
@@ -117,7 +121,8 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 `NO_HOST_WIRELESS_MS` not 0, the charger test build; 15 the rule word, ops `RULES` and `RULES_SET`:
 without it the firmware has OpenSC2 0.2.0's rules, the trigger bits only and none of lizard mode's
 processing; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to stops; 17 `BLE`, the Bluetooth build; 18
-`SYSTEM`, the system state machine and its ops; 21 `CAL`, the library's calibration and raw inputs with `RAW_INJECT`; the bits between are left for
+`SYSTEM`, the system state machine and its ops; 19 `HAPTICS_SYNTH`, the haptics synthesiser; 21
+`CAL`, the library's calibration and raw inputs with `RAW_INJECT`; the bits between are left for
 other options); 6 battery report interval ms u16; 8 rumble timeout ms
 u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16; 16 the
 lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
@@ -191,6 +196,20 @@ States (byte 0, the `SYS_STATE` and `SYS_END` entries): 0 `start`, 1 `battery-wa
 `keylock-held`, 10 `chord-down`, 11 `chord-up`, 12 `timer`, 13 `bootloader`, 14 `reboot`, 15
 `warm-reboot`, 16 `turn-off`, 17 `steam-up`, 18 `link-started`, 19 `unplugged`.
 
+**The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, caps bit 19; without it the ops
+`0x80`..`0x83` answer BAD_OP once their length is right). Its ring entries (`0x60`..`0x63`, link 3)
+record what its threads, its script players and the stream writes did, while armed. Its blocks are
+rendered in integers, so a block is bit for bit the same on the board and on a PC: the CRCs of
+`HAP_BLOCK` are compared with the shared vectors in `tests/vectors/hwtest/haptics.txt`. HAP_STATUS
+(38 bytes): 0 features (bit 0 the drop sounds built); 1 bit per path where something plays (bit 0
+pads, 1 grips); 2 bit per path with an output of the application's; 3 the amplifier mode (setting
+75); 4 the master gain s8 (setting 76); 5 bit per channel whose script player runs; 6 the drop
+sounds' state (0 armed, 1 a fall seen, 2 waiting for the re-arm); 7 bit per path whose thread plays
+or drains; 8 blocks rendered u32 (pads), 12 (grips); 16 underruns u16 (pads), 18 (grips); 20 commands
+lost to a full queue u16; 22 the generators running on each channel, a bit per type (u8 × 4); 26
+the bytes in each channel's stream ring (u16 × 4); 34 each channel's stream format (u8 × 4, `0xFF`
+none).
+
 ## The ring
 
 `CONFIG_OPENSC2_TEST_RING_SIZE` bytes of whole entries; when one does not fit the oldest are dropped
@@ -232,7 +251,10 @@ the dock; for `ARMED` and `MARK` the transport of the request), data length u8 (
 | `0x54` | CHORD | what u8 (1 down, 2 up, 3 STEAM pressed, 4 STEAM held, 5 the keylock's tap, 6 the keylock's hold), chord u8 |
 | `0x55` | SOURCE | from u8, to u8, the event it posted u8 (`0xFF`: none, power present did not change) |
 | `0x56` | IDLE | the idle history u16, when the idle event is posted; only while a system injection is in effect |
-
+| `0x60` | HAP_GEN | channel u8 (0 left pad, 1 right pad, 2 left grip, 3 right grip), generator type u8 (0 click A, 1 click B, 2 pulse train, 3 tone, 4 rumble, 5 sweep, 6 stream, 7 clip), what u8 (1 started, 2 stopped by a command, 3 ended, 4 refused by the sequencer, 5 lost to a full queue, 6 ignored: nothing to play), gain s8, then four u16 by type: pulse on µs, off µs, count, 0; tone Hz, ms, LFO in 0.01 Hz (0xFFFF from 655.35 Hz up), depth (bit 15: started inverted); rumble Hz, ms, burst rate in 0.01 Hz, bit 15 inverted; sweep start Hz, end Hz, ms, bit 15 inverted; clicks and clips samples, format |
+| `0x61` | HAP_BLOCK | path u8, block index u32 (0: the first after the path was idle), CRC-32 u32 of the block's bytes (pads 64, grips 256, little endian), peak u16 (the largest sample, 32767 full scale), flags u8 (bit 0 the first block, with its 4 ms lead-in; bit 1 nothing plays after it) |
+| `0x62` | HAP_STREAM | channel u8, what u8 (1 a start queued, 2 started, 3 ran dry, 4 emptied by a stop, 5 a format command answered, 6 a write, 7 a `0x44` sent), fill u16 (bytes in the ring), flags u32 (the `0x44` flags of what) |
+| `0x63` | HAP_SCRIPT | what u8 (1 started, 2 refused, 3 a step ran, 4 done, 5 a cue, 6 a free fall, 7 the drop sound due, 8 re-armed), channel u8 (a cue: the level), id u8 (a cue: the cue), gain s8, extra u16 (a step: its index; a cue: its script, 0 none; a free fall: 1 taken, 0 not; the drop sound: the random byte) |
 The system entries (`0x50` to `0x56`; `0x57` is kept) have link 3, none.
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).

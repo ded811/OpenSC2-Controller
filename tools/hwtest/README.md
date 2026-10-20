@@ -50,10 +50,12 @@ tools/hwtest/
   proto/            the wire formats, pure: reports, model (the expected-report and lizard
                     models), vendor, testproto (the 0x7E channel), sysproto (the system ops and
                     their ring entries), console (parsers), shellfmt (shell.c's line formats),
-                    steamlog
+                    steamlog, haptics (the haptics synthesiser's ops, ring entries and shared
+                    vectors)
   groups/           one module per test group (hooks, desc, cmd, inputs, battery, stream,
-                    reports, outputs, settings, flash, lizard, wireless, puck, ble, steam, modes,
-                    system, restore, cal) and base.py (checks, results, what ends a group)
+                    reports, outputs, haptics, settings, flash, lizard, wireless, puck, ble,
+                    steam, modes, system, restore, cal) and base.py (checks, results, what ends a
+                    group)
   win/              Windows access through ctypes, imported lazily: backend (WinBackend),
                     devices (listing without opening; the Bluetooth HID nodes too), hid (the
                     board, on USB or over Bluetooth), serial (its console),

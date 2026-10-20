@@ -50,3 +50,8 @@ ENTRY 000000005303040c040202                             # SYS_END shutdown (ste
 ENTRY 000000005403020401                                 # CHORD steam-hold, STEAM alone
 ENTRY 00000000550303010000                               # SOURCE USB -> battery, event power-none
 ENTRY 000000005603020000                                 # IDLE history 0000
+# the haptics synthesiser's (CONFIG_OPENSC2_HAPTICS_SYNTH), link none
+ENTRY 0001000060030c020301fac800640000000000             # HAP_GEN left grip, tone, start, -6 dB, 200 Hz, 100 ms, no LFO
+ENTRY 0002000061030c0100000000fde19dab341201             # HAP_BLOCK grips, block 0, CRC 0xab9de1fd, peak 0x1234, the first
+ENTRY 000300006203080206360108000000                     # HAP_STREAM left grip, a write, 310 bytes held, 0x08
+ENTRY 00040000630306050205f40500                         # HAP_SCRIPT cue 5 at level 2, -12 dB, script 5

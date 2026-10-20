@@ -77,8 +77,9 @@ public.
    git clone C:\src\OpenSC2-Controller C:\src\osc2-check
    cd C:\src\osc2-check
    $projects = 'app', 'app\test-charger.conf', 'app\sensors.conf', 'app\imu-stream.conf',
-       'app\expander.conf', 'samples\minimal', 'samples\buttons_sticks', 'samples\touchpad',
-       'samples\imu', 'samples\rumble', 'samples\rgb_led', 'template'
+       'app\expander.conf', 'app\haptics.conf', 'samples\minimal', 'samples\buttons_sticks',
+       'samples\touchpad', 'samples\imu', 'samples\rumble', 'samples\rgb_led', 'samples\haptics',
+       'samples\haptics\drv2605.conf', 'template'
    foreach ($p in $projects) {
        $out = 'C:\b\chk-' + (($p -replace '\.conf$', '') -replace '[\\/]', '-')
        powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project $p -OutDir $out -Pristine 2>&1 |
@@ -242,7 +243,7 @@ Before you paste it, check its numbers against the runs of step B.4.
 OpenSC2 makes an nRF52840 board act as a Steam Controller 2. Steam pairs it with Valve's puck over a
 USB-C cable, like a real controller, and it then connects through the puck. It is a library (a
 Zephyr module for nRF Connect SDK v3.4.0), a ready-to-build firmware for the SuperMini nRF52840, a
-template for your own project, six samples and an automated hardware test suite.
+template for your own project, seven samples and an automated hardware test suite.
 
 > Unofficial: not affiliated with or endorsed by Valve. Steam and Steam Controller are trademarks of
 > Valve Corporation. So that Steam recognises it, the firmware uses Valve's USB IDs (`28DE:1302`)

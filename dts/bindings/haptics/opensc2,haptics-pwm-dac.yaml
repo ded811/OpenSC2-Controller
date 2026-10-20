@@ -1,0 +1,40 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+
+description: |
+  OpenSC2's haptics synthesiser: the pads' blocks played as duty cycles by an nRF PWM instance, a
+  PWM "DAC" (CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC). Each 8-bit sample is held for 16 periods of
+  15.625 us (250 steps of the 16 MHz clock): exactly 4 kHz. Silence is half duty. Needs an H-bridge
+  or a small amplifier and an RC low-pass per pad. The instance must not be used by Zephyr's PWM
+  driver: leave its node disabled. Built; not yet tested on hardware.
+
+    haptics_pads: haptics-pads {
+            compatible = "opensc2,haptics-pwm-dac";
+            pwm = <&pwm3>;
+            left-gpios = <&gpio0 2 GPIO_ACTIVE_HIGH>;
+            right-gpios = <&gpio0 29 GPIO_ACTIVE_HIGH>;
+    };
+
+compatible: "opensc2,haptics-pwm-dac"
+
+properties:
+  pwm:
+    type: phandle
+    required: true
+    description: A "nordic,nrf-pwm" instance whose node is disabled (nrfx drives it directly).
+
+  left-gpios:
+    type: phandle-array
+    required: true
+    description: The left pad's output pin.
+
+  right-gpios:
+    type: phandle-array
+    required: true
+    description: The right pad's output pin.
+
+  enable-gpios:
+    type: phandle-array
+    description: |
+      The driver's enable pin: active while something plays, or always with controller setting
+      75 = 1.

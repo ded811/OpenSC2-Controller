@@ -146,7 +146,7 @@ class FwEmuBackend:
     models = {"firmware", "test_channel", "usb_framing", "console_test", "stream", "battery",
               "battery_cadence", "app_send", "outputs", "settings", "lease", "reboot", "radio",
               "inputs", "lizard", "watchdog", "rumble_timeout", "detach_report",
-              "app_raw_sticks", "system"}
+              "app_raw_sticks", "system", "haptics"}
 
     def __init__(self, exe, start_mode="W"):
         self.safety_ctx = None       # the Rig's live safety.Context (bound by the Rig)

@@ -63,6 +63,24 @@ zephyr_library_sources_ifdef(CONFIG_OPENSC2_BLE
 	ble.c
 	ble_rules.c
 )
+# The haptics synthesiser (Kconfig.hap), or its API answering -ENOTSUP; the pure helpers always.
+if(CONFIG_OPENSC2_HAPTICS_SYNTH)
+  zephyr_library_sources(
+	haptics.c
+	haptics_core.c
+	haptics_dsp.c
+	haptics_rules.c
+	haptics_run.c
+	haptics_sounds.c
+	haptics_tables.c
+  )
+  zephyr_library_sources_ifdef(CONFIG_OPENSC2_HAPTICS_OUT_I2S haptics_out_i2s.c)
+  zephyr_library_sources_ifdef(CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC haptics_out_pwm.c)
+  zephyr_library_sources_ifdef(CONFIG_OPENSC2_HAPTICS_OUT_DRV2605 haptics_out_drv2605.c)
+else()
+  zephyr_library_sources(haptics_off.c)
+endif()
+zephyr_library_sources(haptics_help.c)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_SHELL shell.c)
 # The calibration keys, commands and raw inputs (stand-ins without CONFIG_OPENSC2_CAL).
 zephyr_library_sources(cal_store.c)

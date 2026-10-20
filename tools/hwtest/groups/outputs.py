@@ -14,6 +14,7 @@ import struct
 
 from . import base
 from .. import config as C
+from ..proto import haptics as H
 from ..proto import model as M
 from ..proto import testproto as T
 
@@ -342,6 +343,9 @@ def run(ctx):
             replies = T.cap_flag(rig.caps, C.CAP_HAPTIC_STOP_STATUS) if rig.caps else True
             if not replies:
                 c.note("a build without CONFIG_OPENSC2_HAPTIC_STOP_STATUS: no replies expected")
+            # with the haptics synthesiser its own 0x44 reports come too (the flow control of a
+            # format or a stream: the haptics group's); only the stops' {channel, 0x02} count here
+            synth = T.cap_flag(rig.caps, H.CAP_HAPTICS_SYNTH) if rig.caps else False
             window = 0.15 if rig.path == "W" else 0.5
             for what, report, want in STOP_CASES:
                 want = want if replies else []
@@ -362,6 +366,8 @@ def run(ctx):
                     reps = rig.read_stream(duration_s=window)
                     got = [(r[1], struct.unpack_from("<I", r, 2)[0]) for _t, r in reps
                            if r[0] == C.RPT_HAPTIC_STATUS and len(r) >= 6]
+                    if synth:
+                        got = [g for g in got if g[1] & C.STATUS_STOPPED]
                     c.eq("%s: the 0x44 reports, in order" % what, got,
                          [(ch, C.STATUS_STOPPED) for ch in want])
             if replies:

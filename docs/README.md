@@ -24,7 +24,7 @@ Elsewhere in the repository:
 | [README](../README.md) | what OpenSC2 is, what works, the quick start |
 | [app/README.md](../app/README.md) | the SuperMini firmware: pins, modes, LED, shell, identity, options |
 | [template/README.md](../template/README.md) | the project to copy as the start of your own |
-| [samples/README.md](../samples/README.md) | the six samples, their parts and pins |
+| [samples/README.md](../samples/README.md) | the seven samples, their parts and pins |
 | [tools/hwtest/README.md](../tools/hwtest/README.md) | the test suite's code, for people changing the runner |
 | [CHANGELOG.md](../CHANGELOG.md), [CONTRIBUTING.md](../CONTRIBUTING.md), [SECURITY.md](../SECURITY.md) | changes, how to contribute, how to report a security problem |
 | [NOTICE.md](../NOTICE.md), [THIRD_PARTY.md](../THIRD_PARTY.md), [LICENSE](../LICENSE) | trademarks and USB IDs, what a built image contains, the MIT licence |

@@ -106,6 +106,11 @@ enum osc2_test_op {
 	OSC2_TEST_OP_BLE_STATUS = 0x60,   /* the link's state, 28 bytes */
 	OSC2_TEST_OP_BLE_DROP = 0x61,     /* end the link as if the host had, with this reason */
 	OSC2_TEST_OP_BLE_WINDOW = 0x62,   /* the next advertising window's length */
+	/* The haptics synthesiser (CONFIG_OPENSC2_HAPTICS_SYNTH; BAD_OP without it). */
+	OSC2_TEST_OP_HAP_RESET = 0x80,
+	OSC2_TEST_OP_HAP_CAPTURE = 0x81,
+	OSC2_TEST_OP_HAP_STATUS = 0x82,
+	OSC2_TEST_OP_HAP_PLAY = 0x83,
 	/* the calibration's raw inputs (CONFIG_OPENSC2_CAL) */
 	OSC2_TEST_OP_RAW_INJECT = 0xA0,
 	OSC2_TEST_OP_RAW_OFF = 0xA1,
@@ -171,9 +176,14 @@ enum osc2_test_kind {
 	OSC2_TEST_KIND_VERSION = 0x22,
 	OSC2_TEST_KIND_IDENTITY = 0x23,
 	OSC2_TEST_KIND_CHANNELS = 0x24,
-	OSC2_TEST_KIND_BLE = 0x40,   /* a Bluetooth LE link event (enum osc2_test_ble_event) */
 	/* 0x30..0x33: protocol completeness */
 	OSC2_TEST_KIND_STOP_STATUS = 0x30,   /* a 0x44 the library sent as the reply to a stop */
+	OSC2_TEST_KIND_BLE = 0x40,   /* a Bluetooth LE link event (enum osc2_test_ble_event) */
+	/* The haptics synthesiser's (haptics_run.h). */
+	OSC2_TEST_KIND_HAP_GEN = 0x60,
+	OSC2_TEST_KIND_HAP_BLOCK = 0x61,
+	OSC2_TEST_KIND_HAP_STREAM = 0x62,
+	OSC2_TEST_KIND_HAP_SCRIPT = 0x63,
 };
 
 /* BLE entries: event u8, a u8, b u16, c u32. */
@@ -295,9 +305,11 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 #define OSC2_TEST_FLAG_HAPTIC_STOP_STATUS     (1u << 16)
 /* CONFIG_OPENSC2_BLE: Bluetooth LE. */
 #define OSC2_TEST_FLAG_BLE                    (1u << 17)
-#define OSC2_TEST_FLAG_CAL                    (1u << 21)   /* CONFIG_OPENSC2_CAL: RAW_INJECT */
 /* CONFIG_OPENSC2_SYSTEM: the system state machine, with its ops and ring kinds (test_sys.h). */
 #define OSC2_TEST_FLAG_SYSTEM                 (1u << 18)
+/* CONFIG_OPENSC2_HAPTICS_SYNTH: the haptics synthesiser, its ops and ring entries. */
+#define OSC2_TEST_FLAG_HAPTICS_SYNTH          (1u << 19)
+#define OSC2_TEST_FLAG_CAL                    (1u << 21)   /* CONFIG_OPENSC2_CAL: RAW_INJECT */
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)
@@ -381,6 +393,10 @@ struct osc2_test_env {
 	/* CAL_STATUS's 16 bytes from the calibration (NULL: a build without CONFIG_OPENSC2_CAL,
 	 * where the raw ops answer BAD_OP). */
 	void (*cal_status)(uint8_t out[OSC2_TEST_CAL_STATUS_LEN]);
+	/* The haptics synthesiser's ops (haptics.c): the answer's status, the result and its length
+	 * (OSC2_TEST_BAD_OP when it is not built). */
+	uint8_t (*hap_op)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			  uint8_t *rlen);
 };
 
 /* ---- the core's state ------------------------------------------------------------------------ */

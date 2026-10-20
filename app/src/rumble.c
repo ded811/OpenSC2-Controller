@@ -11,12 +11,15 @@
  *   tone, sweep (0x83/84)  a buzz for the duration, its strength from the gain
  *   script (0x85)          a 120 ms buzz
  *   PCM stream             ignored
- * Without a "rumble" channel every function here does nothing.
+ * With the haptics synthesiser (app/haptics.conf) the motor follows what it renders instead: the
+ * duty is the louder of the two paths' block levels, every 8 ms, so PCM streams, scripts, cues and
+ * the rumble emulation all move it. Without a "rumble" channel every function here does nothing.
  */
 #include <math.h>
 #include <zephyr/kernel.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/pwm.h>
+#include <opensc2/haptics.h>
 #include "app.h"
 
 #define USER DT_PATH(zephyr_user)
@@ -75,14 +78,44 @@ static uint32_t level_from_db(int8_t db)
 	return (uint32_t)(65535.0f * MIN(powf(10.0f, (float)db / 20.0f), 1.0f));
 }
 
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+/* The synthesiser's paths call this from their two threads: each keeps its own level, and one
+ * thread at a time sets the motor, only when its duty changes (Zephyr's nRF PWM driver must not
+ * run twice at once: a start racing a stop can leave it waiting for a stop that never comes). */
+static atomic_t path_level[2];
+static K_MUTEX_DEFINE(motor_lock);
+static uint32_t motor_level = UINT32_MAX;   /* 0..255 last set; none yet */
+
+static void on_level(enum opensc2_haptics_path path, uint8_t level, void *user_data)
+{
+	uint32_t louder;
+
+	ARG_UNUSED(user_data);
+	atomic_set(&path_level[path], level);
+	(void)k_mutex_lock(&motor_lock, K_FOREVER);
+	louder = MAX((uint32_t)atomic_get(&path_level[0]), (uint32_t)atomic_get(&path_level[1]));
+	if (louder != motor_level && pwm_is_ready_dt(&motor) &&
+	    pwm_set_pulse_dt(&motor, (uint32_t)((uint64_t)motor.period * louder / 255)) == 0) {
+		motor_level = louder;
+	}
+	(void)k_mutex_unlock(&motor_lock);
+}
+#endif
+
 void rumble_set(const struct opensc2_rumble *r)
 {
+	if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_SYNTH)) {
+		return;   /* the motor follows the synthesiser */
+	}
 	rumble_level = MAX(r->left_speed, r->right_speed);
 	apply();
 }
 
 void rumble_haptic(const struct opensc2_haptic *h)
 {
+	if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_SYNTH)) {
+		return;
+	}
 	switch (h->kind) {
 	case OPENSC2_HAPTIC_COMMAND:
 		if (h->command.command == OPENSC2_HAPTIC_CMD_STOP_ALL) {
@@ -124,6 +157,10 @@ int rumble_init(void)
 	if (!pwm_is_ready_dt(&motor)) {
 		return -ENODEV;
 	}
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+	(void)opensc2_haptics_set_level_output(OPENSC2_HAPTICS_PADS, on_level, NULL);
+	(void)opensc2_haptics_set_level_output(OPENSC2_HAPTICS_GRIPS, on_level, NULL);
+#endif
 	return pwm_set_pulse_dt(&motor, 0);
 }
 

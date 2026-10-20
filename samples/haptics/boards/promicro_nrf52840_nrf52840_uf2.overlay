@@ -1,0 +1,116 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * SuperMini / Pro Micro nRF52840 with the haptics synthesiser's outputs (built; not yet tested on
+ * hardware): the grips on an I2S amplifier, the pads on a PWM "DAC", and a DRV2605 on I2C for the
+ * one-actuator build (drv2605.conf). Never drive an actuator straight from a pin.
+ *
+ *   I2S amplifier (one MAX98357A per grip, or a stereo one)     PWM DAC (the pads)
+ *     P0.17 BCLK   P0.20 LRCLK   P0.22 DIN                        P0.06 left pad    P0.08 right pad
+ *     P0.24 the amplifier's SD (shutdown) pin                     P1.04 the driver's enable
+ *   DRV2605(L) breakout (drv2605.conf)                          P0.31 pairing button (to GND)
+ *     P1.00 SDA    P0.11 SCL    P1.06 EN
+ *
+ * The PWM DAC needs an H-bridge or a small amplifier per pad, fed through an RC low-pass (for
+ * example 1 kOhm and 100 nF, about 1.6 kHz). Pins are free to change: the nRF52840 routes I2S,
+ * PWM and I2C to any GPIO.
+ */
+#include <dt-bindings/opensc2/inputs.h>
+
+/ {
+	opensc2_buttons: opensc2_buttons {
+		compatible = "gpio-keys";
+		debounce-interval-ms = <5>;
+		/* Held while plugging in: this boot is wireless. Pressed and released while wired:
+		 * back to wireless mode. Pressed while wireless: answers an open pairing window. */
+		opensc2_pair: pair {
+			gpios = <&gpio0 31 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			zephyr,code = <OPENSC2_KEY_PAIR>;
+		};
+	};
+
+	/* The grips: I2S as master, 16-bit stereo at 8 kHz. */
+	haptics_grips: haptics-grips {
+		compatible = "opensc2,haptics-i2s";
+		i2s = <&i2s0>;
+		enable-gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>;
+	};
+
+	/* The pads: nrfx drives PWM3 itself, so its node stays disabled. */
+	haptics_pads: haptics-pads {
+		compatible = "opensc2,haptics-pwm-dac";
+		pwm = <&pwm3>;
+		left-gpios = <&gpio0 6 GPIO_ACTIVE_HIGH>;
+		right-gpios = <&gpio0 8 GPIO_ACTIVE_HIGH>;
+		enable-gpios = <&gpio1 4 GPIO_ACTIVE_HIGH>;
+	};
+
+	/* Wired mode: the USB HID function of the wired Steam Controller 2 (64-byte reports, 1 ms),
+	 * and 16 KB of RAM that a soft reset keeps (the warm-restart mark, the USB session log), clear
+	 * of the RAM the UF2 bootloader uses at every reset (docs/porting.md). */
+	chosen {
+		opensc2,usb-hid = &opensc2_hid;
+		opensc2,retained-ram = &opensc2_retained;
+		opensc2,haptics-drv2605 = &drv2605;
+	};
+
+	opensc2_hid: opensc2_hid {
+		compatible = "zephyr,hid-device";
+		in-report-size = <64>;
+		in-polling-period-us = <1000>;
+		out-report-size = <64>;
+		out-polling-period-us = <1000>;
+	};
+
+	opensc2_retained: memory@2002c000 {
+		compatible = "zephyr,memory-region", "mmio-sram";
+		reg = <0x2002c000 DT_SIZE_K(16)>;
+		zephyr,memory-region = "OPENSC2_RETAINED";
+	};
+};
+
+/* The application's RAM ends below the retained area (176 KB of the 256). */
+&sram0 {
+	reg = <0x20000000 DT_SIZE_K(176)>;
+};
+
+&pinctrl {
+	i2s0_default: i2s0_default {
+		group1 {
+			psels = <NRF_PSEL(I2S_SCK_M, 0, 17)>,
+				<NRF_PSEL(I2S_LRCK_M, 0, 20)>,
+				<NRF_PSEL(I2S_SDOUT, 0, 22)>;
+		};
+	};
+	i2s0_sleep: i2s0_sleep {
+		group1 {
+			psels = <NRF_PSEL(I2S_SCK_M, 0, 17)>,
+				<NRF_PSEL(I2S_LRCK_M, 0, 20)>,
+				<NRF_PSEL(I2S_SDOUT, 0, 22)>;
+			low-power-enable;
+		};
+	};
+};
+
+&i2s0 {
+	status = "okay";
+	pinctrl-0 = <&i2s0_default>;
+	pinctrl-1 = <&i2s0_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+/* The DRV2605 on the board's I2C bus (P1.00 SDA, P0.11 SCL); used by drv2605.conf only. */
+&i2c0 {
+	drv2605: drv2605@5a {
+		compatible = "ti,drv2605";
+		reg = <0x5a>;
+		actuator-mode = "ERM";
+		en-gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;
+	};
+};
+
+/* Their pins are used above: off. */
+&uart0 { status = "disabled"; };
+&i2c1 { status = "disabled"; };
+&spi2 { status = "disabled"; };

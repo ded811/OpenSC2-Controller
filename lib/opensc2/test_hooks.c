@@ -17,6 +17,7 @@
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
 #include "cal_store.h"
+#include "haptics_glue.h"
 #include "test_hooks.h"
 
 BUILD_ASSERT((int)OSC2_LINK_RADIO == (int)OSC2_TEST_LINK_RADIO &&
@@ -185,8 +186,9 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= OSC2_TEST_FLAG_RULES;   /* ops RULES and RULES_SET */
 	flags |= IS_ENABLED(CONFIG_OPENSC2_HAPTIC_STOP_STATUS) ? OSC2_TEST_FLAG_HAPTIC_STOP_STATUS : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_BLE) ? OSC2_TEST_FLAG_BLE : 0;
-	flags |= IS_ENABLED(CONFIG_OPENSC2_CAL) ? OSC2_TEST_FLAG_CAL : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_SYSTEM) ? OSC2_TEST_FLAG_SYSTEM : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_HAPTICS_SYNTH) ? OSC2_TEST_FLAG_HAPTICS_SYNTH : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_CAL) ? OSC2_TEST_FLAG_CAL : 0;
 
 	opensc2_identity_get(&id);
 	caps->mode = osc2_wired() ? 1 : 0;
@@ -313,6 +315,12 @@ static void env_cal_status(uint8_t out[OSC2_TEST_CAL_STATUS_LEN])
 }
 #endif
 
+static uint8_t env_hap_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			  uint8_t *rlen)
+{
+	return osc2_haptics_test_op(op, args, alen, result, rlen);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -350,6 +358,7 @@ const struct osc2_test_env osc2_test_env_obj = {
 #if defined(CONFIG_OPENSC2_CAL)
 	.cal_status = env_cal_status,
 #endif
+	.hap_op = env_hap_op,
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

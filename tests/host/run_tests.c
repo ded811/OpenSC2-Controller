@@ -18,6 +18,7 @@
  *   - cal_store_cases.h: the library's calibration (cal_store.c, with the stand-ins of cal_host.c);
  *   - system_cases.h: the system state machine's pure rules (the chords, the idle monitor, the
  *     machine, the cues, the status LED's pattern player);
+ *   - haptics_cases.h: the haptics synthesiser's pure parts, on rendered samples;
  *   - hooks_cases.h, cal_hooks_cases.h and system_hooks_cases.h, only in the binary built with
  *     CONFIG_OPENSC2_TEST_HOOKS: the hardware test hooks themselves (test_core.c, test_notes.c and
  *     the stand-in glue of hooks_stub.c), the raw injection and the system ops (test_sys.c,
@@ -98,6 +99,7 @@ static void register_test(const char *name, test_fn fn)
 #include "gauge_cases.h"
 #include "cal_store_cases.h"
 #include "system_cases.h"
+#include "haptics_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 #include "hooks_cases.h"
 #include "ble_hooks_cases.h"

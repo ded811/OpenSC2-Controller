@@ -22,7 +22,7 @@ public yet) and from black-box tests; no Valve code or binaries
 OpenSC2 (Open Steam Controller 2) makes an nRF52840 board act as a Steam Controller 2. Steam pairs
 it with Valve's puck over a USB-C cable, like a real controller, and it then connects through the
 puck. It is a library (a Zephyr module for nRF Connect SDK v3.4.0), a ready-to-build firmware for
-the SuperMini nRF52840, a template for your own project, six samples and an automated hardware
+the SuperMini nRF52840, a template for your own project, seven samples and an automated hardware
 test suite.
 
 - **The library** (`lib/opensc2`, `include/opensc2`) does the protocol: the puck's 2.4 GHz link,
@@ -36,7 +36,7 @@ test suite.
   buttons, the digital triggers, one stick and the pairing button, and the other inputs are listed
   there, ready for a board with more pins. Wire what you have.
 - **The template and the samples** (`template/`, `samples/`): a small project to copy as the start
-  of your own, and six samples that each show one part.
+  of your own, and seven samples that each show one part.
 
 Who it is for: makers who want to build a controller that Steam treats as a Steam Controller 2,
 and firmware developers who want that protocol in their own nRF52840 project.
@@ -82,8 +82,8 @@ Steam on a Windows PC.
 | The rules on every state report: a stick deflected beyond 12000 counts as touched, a pad is blank while its stick is touched (setting 82), no trigger bit with raw triggers (setting 62), optionally the pads' clicks from their pressure (settings 52, 53). The blank canvas's raw stick output (setting 46). | Built; tested on the host and in the emulator, not yet on hardware |
 | Since v0.2.0, not in a release yet: the real controller's power and status rules ([docs/api.md](docs/api.md#power-and-the-system-state-machine)): the power-on decision, STEAM held 7 s, the transport chords and their pairing hold, the keylock, the idle timeout, low battery, shutdown and power-off, the status LED's modes and patterns, and the cue events. Host-tested, and run by the test suite against the firmware emulator. | Built; not yet tested on hardware |
 | Since v0.2.0: a battery build (`app/battery.conf`) that turns itself off and wakes on STEAM or USB power; an RGBW status LED and an IR LED; a charger status pin. | Built; not yet tested on hardware |
+| The haptics synthesiser (an option, `app/haptics.conf`): rumble, pulses, clicks, tones, sweeps, scripts and PCM streams rendered as the real controller's sequencers do, sounds of OpenSC2's own (scripts, cues, drop sounds), the streams' flow control, outputs for an I2S amplifier, a PWM DAC and a DRV2605. Its rendering is checked by the host tests and the emulator; the suite's `haptics` group is ready for a board. | Built; not yet tested on hardware |
 | The dock (pogo pads). | Not implemented |
-| PCM haptics playback in the samples. | Not implemented |
 
 Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
 
@@ -204,6 +204,7 @@ Every function, field and option: [docs/api.md](docs/api.md).
 | [samples/imu](samples/imu) | an MPU-6050 through Zephyr's sensor API, with the fusion helper | builds; not run on hardware |
 | [samples/rumble](samples/rumble) | rumble and haptics on a PWM-driven vibration motor | builds; not run on hardware |
 | [samples/rgb_led](samples/rgb_led) | an RGB LED that follows Steam's LED colour | builds; not run on hardware |
+| [samples/haptics](samples/haptics) | the haptics synthesiser on an I2S amplifier and a PWM DAC, or a DRV2605 | builds; not run on hardware |
 
 [samples/README.md](samples/README.md) has the parts, pins and what each sample teaches.
 
@@ -342,7 +343,8 @@ hardware report, a new board). [CHANGELOG.md](CHANGELOG.md) lists the changes, a
 ```text
 zephyr/module.yml, CMakeLists.txt, Kconfig   the Zephyr module
 include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (wire formats and USB
-                        descriptors), settings.h, led.h (the status LED), fusion.h
+                        descriptors), settings.h, led.h (the status LED), fusion.h, haptics.h (the
+                        haptics synthesiser)
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
 lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc.c (wired mode),
                         ble.c (Bluetooth LE, opt-in), transport.c (the puck or Bluetooth),
@@ -350,10 +352,10 @@ lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc
                         (lizard mode), mode.c (wired or wireless), usblog.c (the session log),
                         system.c with sys_rules.c, chord_rules.c, idle_rules.c and led_rules.c
                         (power, chords, the status LED, cues), storage.c, shell.c, test_*.c
-                        (the hardware test hooks)
+                        (the hardware test hooks), haptics*.c (the haptics synthesiser, an option)
 app/                    the blank-canvas firmware for the SuperMini; app/build.ps1 builds it
 template/               a small project to copy as the start of your own
-samples/                minimal, buttons_sticks, touchpad, imu, rumble, rgb_led
+samples/                minimal, buttons_sticks, touchpad, imu, rumble, rgb_led, haptics
 tests/host/             host tests (run.ps1, run.sh) and the firmware emulator (fwemu.c)
 tests/codec/            the pure test cases as a ztest suite (optional; native_sim on Linux)
 tests/vectors/hwtest/   vectors that the host tests and the hardware test suite both check
