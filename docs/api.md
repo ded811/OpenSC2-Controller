@@ -673,6 +673,9 @@ summary and the gaps):
   run time; MPSL (Nordic's radio scheduler, in this build also the clock driver for the radio and the
   USB console) stays initialised. Bluetooth starts once ESB is off and gives the radio back by
   disabling its stack.
+- **The low-frequency clock**: the SuperMini has no 32.768 kHz crystal, so its board file chooses
+  the internal RC oscillator with calibration (500 ppm); in the Bluetooth build MPSL calibrates it
+  every 4 s, whichever transport runs.
 
 Not built yet: high-duty directed advertising, the slot's second identity and the bond rules, the
 60 s advertising window and "wireless off" when a host ends the link (Bluetooth advertises again
