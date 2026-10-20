@@ -237,7 +237,12 @@ class VendorDenylist(unittest.TestCase):
                                 (C.VC_BY_NAME_DELETE, b"cal/foo\x00"),
                                 (C.VC_BY_NAME_SET, b"cal/foo\x00\x01"),
                                 (C.VC_BY_NAME_SET, b"cal/rgbw_r\x00\x5a"),
-                                (C.VC_BY_NAME_DELETE, b"cal/sensors/gyroscope/bias\x00")):
+                                (C.VC_BY_NAME_DELETE, b"cal/sensors/gyroscope/bias\x00"),
+                                # a cal/ name the library does not know goes to the application,
+                                # which may take it: not even the forms the library refuses
+                                (C.VC_BY_NAME_SAVE, b"cal/foo\x00\x00"),
+                                (C.VC_BY_NAME_DELETE, b"cal/foo\x00\x00"),
+                                (C.VC_BY_NAME_SET, b"cal/joy_x\x00" + bytes(17))):
             with self.assertRaises(safety.SafetyError):
                 safety.check_vendor(opcode, payload, "usb", ctx=ctx)
         # refused by the firmware: a wrong size, a byte after the NUL

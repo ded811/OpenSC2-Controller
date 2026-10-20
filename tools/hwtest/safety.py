@@ -172,9 +172,13 @@ def _check_cal(opcode, name, value):
     """0xEE/0xEF/0xF0 on a calibration key (cal/...): never, not even with --flash and a token
     (S5: a real controller's factory calibration cannot be made again). Only the forms the
     firmware refuses before it touches anything: 0xEE with a size other than the key's, 0xEF or
-    0xF0 with a byte after the NUL."""
+    0xF0 with a byte after the NUL, and those only for the keys the library knows (another cal/
+    name goes to the application, which may take it)."""
     size = C.CAL_KEY_SIZES.get(name)
-    if opcode == C.VC_BY_NAME_SET and size is not None and len(value) != size:
+    if size is None:
+        raise SafetyError("0x%02X on %r, not a calibration key the library knows, is never sent"
+                          % (opcode, name))
+    if opcode == C.VC_BY_NAME_SET and len(value) != size:
         return
     if opcode in (C.VC_BY_NAME_SAVE, C.VC_BY_NAME_DELETE) and len(value) > 0:
         return
