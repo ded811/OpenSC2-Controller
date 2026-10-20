@@ -471,15 +471,21 @@ def _processing(ctx, rig, snap):
             steps = [(state, 4) for state, _h in _flick()[2:]] + [
                 (S(), 2), (S(RPAD_TOUCH, rpad=(0, 0)), 4)]
             check_sequence(c, rig, "a new touch", steps, rules, [(11, 200), (12, 100)])
-            # 0x81 in the middle of a glide: the release pair, then nothing
+            # 0x81 in the middle of a glide: the release pair, then nothing. On a board the
+            # frames go on until the 0x81 arrives, so the glide's own mouse reports may come
+            # before the leave (in a dry run no frame runs in between)
             c.true("a glide runs before the 0x81", _start_glide(rig, rules))
             mark = rig.ring_next()
             rig.vendor_set(C.VC_LIZARD_OFF)
             rig.read_stream(count=12)
             e = [x for x in _ring_since(rig, mark) if x["kind"] in (C.RING_LIZARD,
                                                                    C.RING_LIZARD_RPT)]
+            leave = next((i for i, x in enumerate(e) if x["kind"] == C.RING_LIZARD), len(e))
+            c.true("0x81 mid-glide: only the glide's mouse reports before the leave",
+                   all(x["kind"] == C.RING_LIZARD_RPT and x["report"][:1] == MOUSE_ZERO[:1]
+                       for x in e[:leave]))
             c.eq("0x81 mid-glide: leave, keyboard empty, mouse zero, then nothing",
-                 [(x["kind"], x.get("what"), x.get("report")) for x in e],
+                 [(x["kind"], x.get("what"), x.get("report")) for x in e[leave:]],
                  [(C.RING_LIZARD, C.LIZARD_LEAVE, None), (C.RING_LIZARD_RPT, None, KEYS_EMPTY),
                   (C.RING_LIZARD_RPT, None, MOUSE_ZERO)])
             rig.write_settings([(9, 1)])
