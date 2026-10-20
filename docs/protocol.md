@@ -395,9 +395,12 @@ open, the library does what should work with Steam and the puck, and says so her
    application (the real controller hands them to its IMU unclamped), and `0x89` answers their
    defaults, as on the real controller. Whether Steam reads them back is not known. `0x89` of a
    number above 85 reads 0, as on the real controller (0.2.0 stalled it).
-7. **The quaternion's W** (offset 45): one page of the research documentation calls it always 0,
-   another the quaternion's W (since October). The library sends whatever the application
-   provides; the fusion helper fills W.
+7. **The quaternion** (offsets 45 to 52): the real controller never sends W = 0. July sent the
+   identity (W 32767, X = Y = Z = 0); October sends its fused rotation and keeps the last sample
+   while the stream is off. The library sends the application's quaternion, and its "none" (all
+   four 0, the state of a board without an IMU) as the identity; the fusion helper fills all four.
+   The blank canvas's polled IMU option sends "none", so the identity, while setting 48 is 0, where
+   the real controller keeps its last sample. (0.2.0 sent all four 0 without an IMU.)
 8. **Payload limit**: the controller's payloads are "within 127 bytes", the puck accepts 128; the
    library stays at 127.
 9. **The October firmware's change to the ESB driver** (the processor, not the radio, starts each

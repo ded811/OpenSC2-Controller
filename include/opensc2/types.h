@@ -92,7 +92,8 @@ struct opensc2_imu {
 	uint32_t timestamp_us;  /* time of the sample in microseconds, wrapping */
 	int16_t accel[3];       /* X, Y, Z; 16384 per g */
 	int16_t gyro[3];        /* X, Y, Z; 32767 = 2000 deg/s */
-	int16_t quat[4];        /* orientation quaternion W, X, Y, Z; 32767 = 1.0 (all 0: none) */
+	int16_t quat[4];        /* orientation quaternion W, X, Y, Z; 32767 = 1.0 (all 0: none,
+				 * which the state reports carry as the identity, W = 32767) */
 };
 
 struct opensc2_state {

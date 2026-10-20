@@ -490,6 +490,7 @@ static void build_report(uint8_t report[OPENSC2_STATE_REPORT_LEN], struct opensc
 	memset(s, 0, sizeof(*s));   /* nothing wired: the application's state is all zero ... */
 	app_raw_sticks(s);          /* ... but for the left stick's raw output */
 	osc2_cal_frame(s);
+	osc2_quat_none_to_identity(s);   /* ... and no rotation goes out as the identity */
 	osc2_test_input(s);
 	osc2_cal_rules(s);
 	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, s);

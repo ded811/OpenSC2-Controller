@@ -198,6 +198,17 @@ void osc2_report_init(void);
  * the shared sequence number. `s` gets the input state it was built from, for
  * osc2_report_lizard(). */
 void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_state *s);
+/* The application's "no rotation" (all four quaternion words 0) as the state reports carry it: the
+ * identity, W = 32767. No real controller sends W = 0: July sent the identity, October its fused
+ * rotation (and the last one while the stream is off). Applied to the application's state before
+ * the test hooks' injection, which keeps its bytes. */
+static inline void osc2_quat_none_to_identity(struct opensc2_state *s)
+{
+	if (s->imu.quat[0] == 0 && s->imu.quat[1] == 0 && s->imu.quat[2] == 0 &&
+	    s->imu.quat[3] == 0) {
+		s->imu.quat[0] = OPENSC2_QUAT_ONE;
+	}
+}
 /* One lizard-mode frame on `s`, its reports sent on the link in use (after the state report), its
  * haptic events to the haptic callback. Lizard mode cannot turn on or off in between:
  * osc2_lizard_set() waits, so the reports of a frame never follow the release reports of a later

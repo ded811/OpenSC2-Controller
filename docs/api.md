@@ -364,7 +364,7 @@ links.
 | IMU timestamp | `opensc2_set_imu(&imu)`, `imu.timestamp_us` | µs, wrapping u32 | 29, u32 | sensor timestamps |
 | Acceleration | `imu.accel[3]` X, Y, Z | 16384 per g (32767 = 2 g) | 33, 35, 37, s16 | accelerometer |
 | Angular rate | `imu.gyro[3]` X, Y, Z | 32767 = 2000 °/s (16.384 per °/s) | 39, 41, 43, s16 | gyroscope (gyro controls) |
-| Orientation | `imu.quat[4]` W, X, Y, Z | 32767 = 1.0; all zero = none | 45 (W), 47, 49, 51 | not read by SDL |
+| Orientation | `imu.quat[4]` W, X, Y, Z | 32767 = 1.0; all zero = none, which the reports carry as the identity (W 32767), as the real controller never sends W = 0 | 45 (W), 47, 49, 51 | not read by SDL |
 | Battery | `opensc2_set_battery(&b)` | see below | input report `0x43`, every 3.5 s | battery level and charge state (SDL power info) |
 
 Axes, as the real controller: X right, Y away from the player, Z up when it lies flat. SDL turns them
@@ -2039,7 +2039,7 @@ need no kernel and are what the host tests exercise.
 accelerometer and gyroscope readings into the orientation quaternion of report `0x42`, for an IMU
 without fusion of its own: a small Mahony filter in floating point. It has no magnetometer, so the
 heading drifts slowly, like any 6-axis "game rotation vector". Without it, or another source of
-orientation, the quaternion stays zero.
+orientation, the quaternion stays zero, "none", which the state reports carry as the identity.
 
 | Function | Does |
 | --- | --- |

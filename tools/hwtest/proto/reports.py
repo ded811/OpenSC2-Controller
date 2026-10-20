@@ -52,6 +52,9 @@ RPAD_TOUCH_BIT = 21
 LPAD_TOUCH_BIT = 25
 
 
+QUAT_ONE = 32767
+
+
 def make_state52(**fields):
     """Build a 52-byte state52 from named fields (unset = 0). Values are taken as given (no
     clamping): the firmware/model applies the rules. The IMU timestamp is the nonce field."""
@@ -66,6 +69,11 @@ def make_state52(**fields):
         else:
             struct.pack_into("<H", b, o, value & 0xFFFF)
     return bytes(b)
+
+
+# The application's state on a board with nothing wired, as its reports carry it: all zero but the
+# quaternion's W, since the library sends the application's "no rotation" as the identity.
+APP_IDLE52 = make_state52(quat_w=QUAT_ONE)
 
 
 def set_field(state52, name, value):

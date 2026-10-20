@@ -236,6 +236,8 @@ simulator); none of it has been tested on hardware yet.
   was clamped to 31).
 - Lizard mode coming back on sends its empty keyboard report `0x41` before the all-zero mouse
   report `0x40`, the real controller's order (0.2.0 sent the mouse report first).
+- Without an IMU (the application's quaternion all 0, "none") the state reports carry the identity
+  quaternion, W = 32767, as the real controller's always do; 0.2.0 sent all four words 0.
 - Report `0x81` swaps the two pads only for the exact targets 0 and 1, as the real controller does:
   targets `0x80` and `0x81` are the left and the right pad there too (0.2.0 swapped them as well).
 - A transport or puck slot chosen at run time (`opensc2_select_slot()`, the shell's `opensc2 slot`)

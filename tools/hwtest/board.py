@@ -179,7 +179,7 @@ class Rig:
         self.puck_writer_used = False
         self.slot_proven_at = None
         self.board_info = {}
-        self._baseline = R.make_state52()
+        self._baseline = R.APP_IDLE52
         self._req_id = 0
         self._lock = transport.LinkLock("link")
         self._keepalive = None
@@ -347,8 +347,8 @@ class Rig:
         return self._req_id
 
     def baseline(self):
-        """The application's own state (all zero on the unwired board), recorded before the
-        first ARM of each path."""
+        """The application's own state (all zero on the unwired board, but the identity
+        quaternion: R.APP_IDLE52), recorded before the first ARM of each path."""
         return self._baseline
 
     def record_baseline(self):
@@ -359,8 +359,9 @@ class Rig:
             last = states[-1]
             if any(s != last for s in states):
                 notes.append("the application's state changed within the second")
-            if last != R.make_state52():
-                notes.append("the application's state is not all zero (an input picks up noise?)")
+            if last != R.APP_IDLE52:
+                notes.append("the application's state is not all zero, with the identity "
+                             "quaternion (an input picks up noise?)")
             self._baseline = last
         return notes
 

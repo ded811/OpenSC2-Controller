@@ -112,6 +112,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 	}
 	opensc2_get_state(s);
 	osc2_cal_frame(s);   /* raw inputs, processed as the real controller does (cal_store.c) */
+	osc2_quat_none_to_identity(s);   /* no rotation goes out as the identity, never W = 0 */
 	/* The application's sticks, triggers and touches (raw ones processed) for the idle monitor,
 	 * never the injected ones below: the report injection does not reach the system rules. */
 	osc2_sys_frame(s);

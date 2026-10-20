@@ -687,12 +687,13 @@ class SimBoard:
 
     def app_state(self):
         """The blank canvas on a bare board: all zero, but for the left stick's raw output
-        (setting 46), which reads its biased pins at half of full scale."""
+        (setting 46), which reads its biased pins at half of full scale, and the quaternion, whose
+        "none" goes out as the identity (report.c)."""
         mode = self.settings[46]
         if mode in (1, 2):
             v = 2048 if mode == 2 else 1650
-            return R.make_state52(lstick_x=v, lstick_y=v)
-        return R.make_state52()
+            return R.make_state52(lstick_x=v, lstick_y=v, quat_w=R.QUAT_ONE)
+        return R.APP_IDLE52
 
     # ---- the frame path (report.c) ----
     def frame(self):
