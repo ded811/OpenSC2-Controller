@@ -14,6 +14,7 @@ still change between minor versions.
   for each channel they reach (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default). Steam's pair
   of zero pulses now gets `44 04 02 ...` and `44 03 02 ...`, as from the real controller. The
   test hooks record each in the ring (kind `0x30`, STOP_STATUS); hwtest `outputs.stop_status`.
+  Built and host-tested; not yet tested on hardware.
 - Every settings key of the real controller in `0xED`..`0xF0`: the library now keeps
   `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason` and
   `settings/haptics/...` (stored under `opensc2/k/`, read back where the real controller can, each
@@ -21,13 +22,15 @@ still change between minor versions.
   reset where it deletes them), and knows the `cal/` keys, which go to the application until the
   library keeps calibration. Any other name is still the application's, so a host cannot fill the
   storage partition. The test ring numbers the new keys 9 to 29; hwtest `cmd` and
-  `flash.kept_keys` cover them.
+  `flash.kept_keys` cover them. Built and host-tested; not yet tested on hardware.
 - Crash records, as on the real controller (`CONFIG_OPENSC2_CRASH_RECORD`, on by default): the
   library's fatal-error handler leaves a 33-byte record in the retained RAM region and resets; the
   next boot stores it as `debug/resetreason`, and `0xF2` selector 1 answers it, then marks it
-  seen. A crash at every boot writes flash once.
+  seen. A crash at every boot writes flash once. Built and host-tested; not yet tested on
+  hardware (nothing on the board can cause a crash on purpose yet).
 - The settings partition's recovery (`CONFIG_OPENSC2_STORAGE_RECOVERY`, on with NVS settings): a
-  partition with every sector occupied is erased at boot, as on the real controller.
+  partition with every sector occupied is erased at boot, as on the real controller. Built; not
+  yet tested on hardware.
 - The real controller's hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`, off by default; the test
   build `app/watchdog.conf`): 5 s, fed every 2.5 s from the lowest priority, and a 4.5 s warning
   that crashes on purpose so a hang leaves a crash record. Built; not yet tried on hardware, nor
@@ -36,6 +39,7 @@ still change between minor versions.
   (output reports by ID, rumble, haptic commands by kind, PCM bytes, stops) and checks the board's
   `0x44` reply to each stop; the counts go into `report.json`. The test hooks' caps build flags
   have bit 16, `HAPTIC_STOP_STATUS`, and `outputs.stop_status` expects no replies without it.
+  The new and changed tests have run only against the firmware emulator so far.
 
 ### Changed
 
@@ -50,6 +54,7 @@ still change between minor versions.
 - `0xA1` answers 18 bytes as the real controller does: selector 1 gives 1, one byte of reset-cause
   flags in its encoding (it was Zephyr's flags as a u32), the chip ID and 8 zero bytes; any other
   selector gives 0 and 17 zero bytes (it was an empty answer).
+- None of these changed answers has been tested on hardware yet (built and host-tested).
 - The test hooks' `HOST_SET` no longer takes `0xF2` with selector 1 (its GET can write flash now);
   `retained.c` is always built.
 

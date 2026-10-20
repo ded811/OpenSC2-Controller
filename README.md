@@ -73,6 +73,7 @@ Steam on a Windows PC.
 | The samples and the template: they build; none has run on hardware. | Built; not run on hardware |
 | Other boards. | Not tested |
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
+| Since 0.2.0, not in a release yet: the real controller's answers to `0x89`, `0xA1`, `0xBE` and `0xE9`, its `0x44` replies to stops, every settings key of `0xED`..`0xF0`, crash records behind `0xF2`, the settings partition's recovery, and its hardware watchdog (an opt-in test build, `app/watchdog.conf`). | Built and host-tested; not yet tested on hardware |
 | Bluetooth. The dock (pogo pads). | Not implemented |
 | Lizard mode's smoothing, glide and haptic ticks. PCM haptics playback in the samples. | Not implemented |
 

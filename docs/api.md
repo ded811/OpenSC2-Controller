@@ -397,11 +397,11 @@ The library sends one kind of `0x44` itself, as the real controller does
 (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default): every stop-all, that is output report `0x81`
 with an on time of 0, `0x82` with command 0 or a speed of 0 in `0x80` (for that grip), and `0x86`'s
 stream stop, gets `0x44 {channel, 0x02}` for each channel it reaches, whether or not anything was
-streaming, on the link the output came on, right after the `haptic` or `rumble` callback. The
-order is the real controller's: the left channel first for `0x81` and `0x82`, the right first for
-`0x86`, the right grip before the left for `0x80`. Steam's pair of all-zero `0x81` reports (target
-0, then 1) gets `44 04 02 00 00 00`, then `44 03 02 00 00 00`. Turn the option off when your
-haptics engine sends its own `0x44` reports.
+streaming, on the current link (the one a host's output came on), right after the `haptic` or
+`rumble` callback. The order is the real controller's: the left channel first for `0x81` and
+`0x82`, the right first for `0x86`, the right grip before the left for `0x80`. Steam's pair of
+all-zero `0x81` reports (target 0, then 1) gets `44 04 02 00 00 00`, then `44 03 02 00 00 00`.
+Turn the option off when your haptics engine sends its own `0x44` reports.
 
 ### Lizard mode
 
@@ -808,13 +808,15 @@ LR ..."); a crash that repeats at every boot writes flash only once, until a hos
 | 25, 29 | the program counter and the link register at the error (u32 each; find them in `zephyr.map` or with `addr2line`) |
 
 Vendor command `0xF2` with selector 1 answers the selector and the record as it is (a host sees
-whether it is new), then marks it seen and saves it again from the system work queue; `0xED
-debug/resetreason` reads it without changing it, and the factory reset deletes it. The RAM copy
-takes the first 44 bytes of the devicetree region chosen as `opensc2,retained-ram` (the USB session
-log keeps the rest), which the UF2 bootloader leaves alone; without such a region it is in no-init
-RAM, and the build warns. The option is off when `CONFIG_RESET_ON_FATAL_ERROR` (the nRF Connect
-SDK's own handler) is on; turn it off too if your application has a fatal-error handler of its own.
-Without it a fatal error halts the board (Zephyr's default).
+whether it is new), then marks it seen and saves it again from the system work queue (a flash
+write: give that queue 2048 bytes of stack, as the template does); `0xED debug/resetreason` reads
+it without changing it, and the factory reset deletes it. The RAM copy takes 44 bytes of the
+devicetree region chosen as `opensc2,retained-ram` (the USB session log keeps the rest), which the
+UF2 bootloader leaves alone; without such a region it is in no-init RAM, and the build warns. The
+option is off when `CONFIG_RESET_ON_FATAL_ERROR` (the nRF Connect SDK's own handler) is on; turn it
+off too if your application has a fatal-error handler of its own (the link fails with a multiple
+definition of `k_sys_fatal_error_handler`). Without it a fatal error halts the board (Zephyr's
+default).
 
 ### The hardware watchdog
 
@@ -834,7 +836,7 @@ causes. With a debugger attached the warning only logs. `opensc2_init()` starts 
 > running through a soft reset, so it may also run in the UF2 bootloader after the shell's `uf2` or
 > Steam's bootloader request; whether the Adafruit UF2 bootloader feeds it is not known. If it does
 > not, the bootloader resets 5 s later and a `.uf2` copy may not finish. A power cycle stops the
-> watchdog: unplug the board, plug it back in and short RST to GND twice at once.
+> watchdog: unplug the board, plug it back in and right away short RST to GND twice quickly.
 
 ### The settings partition
 
@@ -843,7 +845,8 @@ which NVS finds every sector occupied (corrupt, or left by another firmware: not
 stored) is erased and started again at boot, as on the real controller; Zephyr's
 `CONFIG_NVS_INIT_BAD_MEMORY_REGION` does it, for exactly that case. Any other error leaves the data
 alone: the board runs without its bonds until the next boot. The erase loses the bonds, the stored
-identity and the mode policy.
+identity and the mode policy. Zephyr's option applies to every NVS file system of the
+application, not only the settings.
 
 ### Reset causes
 

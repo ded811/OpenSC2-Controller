@@ -13,9 +13,9 @@ config OPENSC2_HAPTIC_STOP_STATUS
 	  command 0, a speed of 0 in 0x80 for that grip) and 0x86's stream stop with an input report
 	  0x44 {channel, 0x02} for each channel it reaches, whether or not anything was streaming:
 	  Steam's pair of all-zero 0x81 reports gets 44 04 02 00 00 00 and 44 03 02 00 00 00. The
-	  library sends the same replies, in the same order, on the link the output came on. They
-	  take room in the queue of reports that ride with the state reports through the puck.
-	  Turn this off when the application sends its own 0x44 reports for its haptics engine.
+	  library sends the same replies, in the same order, on the current link. They take room in
+	  the queue of reports that ride with the state reports through the puck. Turn this off
+	  when the application sends its own 0x44 reports for its haptics engine.
 
 config OPENSC2_CRASH_RECORD
 	bool "Crash records: a fatal error leaves a record and resets, as on the real controller"
@@ -65,4 +65,5 @@ config OPENSC2_STORAGE_RECOVERY
 	  real controller then erases the whole partition and starts the settings again; this does
 	  the same through Zephyr's NVS_INIT_BAD_MEMORY_REGION, which acts on exactly that case and
 	  no other (other errors leave the data alone, and the board runs without its bonds until
-	  the next boot). The erase loses the bonds and the stored identity.
+	  the next boot). The erase loses the bonds and the stored identity. Zephyr's option applies
+	  to every NVS file system of the application, not only the settings.

@@ -242,16 +242,22 @@ trackpads, IMU, rumble motor, RGB LED and battery hardware, which no test has ru
 ([What works](../README.md#what-works)). A release image is checked the same way before it is
 tagged ([releasing.md](releasing.md)).
 
+The tests added since v0.2.0 (`outputs.stop_status`, `settings.imu_answers`, `flash.kept_keys`,
+`steam.session`'s traffic counts, and the new checks in `cmd`, `battery` and `settings`) have run
+only against the simulator and the firmware emulator so far, not on a board.
+
 ### What `--flash` writes
 
 The `flash` rewrites store the values the board reports, and the board reports a stored value and
 the build's default alike. So where nothing was stored yet, `flash.chime`, `flash.transport` and
 `flash.policy` store the default in effect (the chime level, the selected bond slot, the mode
-policy), and the board keeps that value from then on, also under a later build with another
-default. Nothing in effect changes, and Steam stores the chime level and the bond itself when it
-pairs the controller, but the stored state can differ afterwards; `restore.as_found` compares the
-values in effect and does not see it. Each of these rows says so in its note, and every write
-counts in `report.json` (`safety.flash_writes`).
+policy), `flash.kept_keys` stores `user/keylock`, `mte/charge_level` and `debug/resetreason` as
+they read (zeros until set: no lock, no charge window, no crash), and the board keeps each value
+from then on, also under a later build with another default. Nothing in effect changes, and
+Steam stores the chime level and the bond itself when it pairs the controller, but the stored
+state can differ afterwards; `restore.as_found` compares the values in effect and does not see
+it. Each of these rows says so in its note, and every write counts in `report.json`
+(`safety.flash_writes`).
 
 ## How to read the report
 
