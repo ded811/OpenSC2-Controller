@@ -145,14 +145,15 @@ output at its own extremes. A 6 % centre dead zone (`stick-deadzone-percent` in 
 potentiometer noise. Flip an axis with `invert-left-stick-y;` and friends.
 
 The build [sensors.conf](sensors.conf) (with [sensors.overlay](sensors.overlay); untested on
-hardware) works like the real controller instead: the sticks and triggers are read right before each state report, four conversions
-averaged, and once a stick or trigger has a stored calibration the library's processing takes over
-(the real controller's two halves and bands, settings 46 and 62). Record one on the console with
-the parts connected and a link up (the recordings take one sample per state report):
-`opensc2 cal sticks 1` with the sticks released, `opensc2 cal sticks 2` while circling them fully,
-`opensc2 cal sticks 3` to save; the same with `triggers` (released, pulled). `opensc2 cal` shows what
-is stored. Steam's own calibration commands (`0xD8`, `0xC0`) do the same over the cable. The
-calibration is kept in the board's storage, through a `.uf2` reflash and a factory reset
+hardware) works like the real controller instead: the sticks and triggers are read right before each
+state report, four conversions averaged, and once a stick or trigger has a stored calibration the
+library's processing takes over (the real controller's two halves and bands, settings 46 and 62).
+Record one on the console with the parts connected and a link up (the recordings take one sample per
+state report): `opensc2 cal sticks 1` with the sticks released, `opensc2 cal sticks 2` while
+circling them fully, `opensc2 cal sticks 3` to save; the same with `triggers` (released, pulled).
+`opensc2 cal` shows what is stored. The vendor commands `0xD8` and `0xC0` do the same from a host
+tool (Steam does not send them in its sessions). The calibration is kept in the board's storage,
+through a `.uf2` reflash and a factory reset
 ([docs/api.md](../docs/api.md#calibration-and-raw-inputs)).
 
 ## Wired and wireless modes
