@@ -398,6 +398,31 @@ OPENSC2_TEST(sys_battery_wait_and_chords)
 	CHECK_EQ(sysout.transport, OSC2_TRANSPORT_PUCK1);
 }
 
+OPENSC2_TEST(sys_chord_pause_ends)
+{
+	/* The 500 ms pause of a chord state ends for good: the next event clears it, and even
+	 * without one a pause is never read as longer than 500 ms once the 32-bit clock has
+	 * wrapped (about 25 days later). */
+	sys_in_reset();
+	sysin.chord = OSC2_CHORD_PUCK1;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 1000);
+	CHECK(sm.busy);
+	CHECK_EQ(osc2_sys_wait(&sm, 1000), 500);
+	CHECK_EQ(osc2_sys_wait(&sm, 1499), 1);
+	CHECK_EQ(osc2_sys_wait(&sm, 1500), 0);
+	/* more than half the clock later the difference turns positive again: still no pause */
+	CHECK_EQ(osc2_sys_wait(&sm, 1500 + 0x80000000u + 100u), 0);
+	ev(OSC2_SYS_EV_CHORD_UP, OSC2_CHORD_PUCK1, 1600);
+	CHECK_EQ(sm.state, OSC2_SYS_BATTERY);
+	CHECK(!sm.busy);
+	CHECK_EQ(osc2_sys_wait(&sm, 1300), 0);   /* the clock back where the pause was: none */
+	/* An event that comes during the pause leaves it running. */
+	sys_boot(false, false, OSC2_SRC_BATTERY, 5000);
+	ev(OSC2_SYS_EV_LEVEL, 50, 5100);
+	CHECK(sm.busy);
+	CHECK_EQ(osc2_sys_wait(&sm, 5100), 400);
+}
+
 OPENSC2_TEST(sys_battery_rules)
 {
 	static const uint8_t to_shutdown[] = { OSC2_SYS_EV_STEAM_HELD, OSC2_SYS_EV_IDLE,

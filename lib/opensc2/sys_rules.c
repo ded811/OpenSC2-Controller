@@ -278,6 +278,9 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 	bool timer_due;
 
 	memset(out, 0, sizeof(*out));
+	if (m->busy && (int32_t)(now_ms - m->busy_until) >= 0) {
+		m->busy = false;   /* the chord state's pause is over */
+	}
 	if (ev == OSC2_SYS_EV_LEVEL) {
 		m->level = arg;
 	}
@@ -434,7 +437,9 @@ uint32_t osc2_sys_wait(const struct osc2_sys *m, uint32_t now_ms)
 		return 0;
 	}
 	left = (int32_t)(m->busy_until - now_ms);
-	return left > 0 ? (uint32_t)left : 0;
+	/* A pause is never longer than 500 ms: anything else is one long over, on a clock that has
+	 * wrapped since (about 25 days later). */
+	return left > 0 && left <= OSC2_SYS_CHORD_PAUSE_MS ? (uint32_t)left : 0;
 }
 
 int32_t osc2_sys_next(const struct osc2_sys *m, uint32_t now_ms)
