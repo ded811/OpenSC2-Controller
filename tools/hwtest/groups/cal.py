@@ -281,15 +281,29 @@ def run(ctx):
     if ctx.want("cal.raw_off"):
         with ctx.check(GROUP, "cal.raw_off") as c:
             _need_cal(rig, c)
-            f = _raw(rig, c, "on", present=C.RAW_TRIGGER_L, ltrigger=4095)
-            a = rig.raw_off()
-            c.eq("RAW_OFF", a["status"], C.ST_OK)
-            st = rig.cal_status()
-            if c.true("CAL_STATUS answers", st is not None):
-                c.eq("no raw injection", st["injected"], 0)
-            rig.flush()
-            reps = [r for _t, r in rig.read_stream(count=3) if r and r[0] == C.RPT_STATE]
-            if c.true("reports after RAW_OFF", len(reps) > 0) and f is not None:
-                c.true("the application's trigger again",
-                       _fields(reps[-1])["left_trigger"] == R.decode_state52(
-                           rig.baseline())["left_trigger"])
+            try:
+                # setting 62 = 2 shows the raw trigger's counts, where an uncalibrated raw trigger
+                # and the unwired board's own trigger would both read 0
+                _settings(rig, [(62, 2)])
+                a, n = rig.inject_raw(dict(present=C.RAW_TRIGGER_L, ltrigger=4095))
+                got = rig.nonce_reports(n, 1) if c.eq("RAW_INJECT", a["status"], C.ST_OK) \
+                    else []
+                if c.true("a report built with it", len(got) >= 1):
+                    c.eq("62 = 2 while raw: the injected counts", _fields(got[0])["left_trigger"],
+                         4095)
+                a = rig.raw_off()
+                c.eq("RAW_OFF", a["status"], C.ST_OK)
+                st = rig.cal_status()
+                if c.true("CAL_STATUS answers", st is not None):
+                    c.eq("no raw injection", st["injected"], 0)
+                rig.flush()
+                reps = [r for _t, r in rig.read_stream(count=3) if r and r[0] == C.RPT_STATE]
+                if c.true("reports after RAW_OFF", len(reps) > 0):
+                    c.true("the last one not built with the injection (no nonce)",
+                           R.nonce_of_report(reps[-1]) != n)
+                    c.eq("the application's trigger again (62 acts on raw inputs only)",
+                         _fields(reps[-1])["left_trigger"],
+                         R.decode_state52(rig.baseline())["left_trigger"])
+            finally:
+                rig.raw_off()
+                _settings(rig, [(62, 0)])
