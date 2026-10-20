@@ -7,9 +7,10 @@ still change between minor versions.
 
 ## [Unreleased]
 
-Feature parity with the real controller's firmware, built on top of 0.2.0: everything here is built
-and checked on the host (the host tests, the firmware emulator and the hardware test suite's
-simulator); none of it has been tested on hardware yet.
+Work towards feature parity with the real controller's firmware, on top of 0.2.0: everything here
+is built and checked on the host (the host tests, the firmware emulator and the hardware test
+suite's simulator); none of it has been tested on hardware yet. What still differs from the real
+controller is listed in docs/protocol.md's gaps.
 
 ### Added
 
@@ -236,10 +237,9 @@ simulator); none of it has been tested on hardware yet.
 - `0xED` answers the `cal/` keys as the real controller does even on a board without calibration,
   where 0.2.0 answered them all with length 0: the LED trims with their defaults (90, 35, 120, 80)
   and `cal/volt_offset` (2 bytes); the stick, trigger, pressure and touch keys with length 0 until
-  one with a non-zero format word is set. `0xD8`, `0xC0`, `0xC3` and `0xFE` are
-
-  answered by the library instead of the application's `vendor_command`, and `0xE2` reads its side
-  and mask whatever its length byte says.
+  one with a non-zero format word is set. `0xD8`, `0xC0`, `0xC3` and `0xFE` are answered by the
+  library instead of the application's `vendor_command`, and `0xE2` reads its side and mask
+  whatever its length byte says.
 - Attribute 11 of `0x83` is the current link's report interval, whichever link asks: the connection
   interval while Bluetooth is the transport, 64000 µs while the dock is the only link up, 4000 µs
   otherwise (0.2.0 always answered 4000).
@@ -342,11 +342,11 @@ Steam on a Windows PC.
   injected and checked wired and through the puck, battery, rumble and haptics, LEDs, settings,
   all vendor commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode
   switches, reconnects, and a run with Steam open. Only the optional soak test (`--soak S`),
-  which needs a duration, was not run.
+  which needs a duration, was not run. The suite counts one test per path (wired, wireless,
+  through the puck, with Steam); each test makes its own checks. In the report, the tests of the
+  through-puck and Steam paths carry the mode they ran in (`@R` or `@W`).
 - The charger test aid (a separate test build): on a plain USB wall charger it switches to
-  wireless and connects through the puck. The suite counts one test per path (wired,
-wireless, through the puck, with Steam); each test makes its own checks. In the report, the tests
-of the through-puck and Steam paths carry the mode they ran in (`@R` or `@W`).
+  wireless and connects through the puck.
 
 ### Not proven
 
