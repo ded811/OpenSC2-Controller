@@ -16,10 +16,11 @@
  *     bright as its peak. Amber, which only a colour could tell from green, adds a 100 ms dark
  *     blink every second on a one-colour LED (OpenSC2's own, so "no host" and "wired" differ).
  *   - PWM channels named "red", "green", "blue" (and optionally "white") in zephyr,user drive an
- *     RGB(W) LED, each channel scaled by its trim (zephyr,user `led-trims`, percent, R G B W; the
- *     real controller's factory values 90 35 120 80 by default) and by the brightness Steam sets
- *     (setting 45, through the curve of setting 38). Without a white channel, white is mixed into
- *     red, green and blue.
+ *     RGB(W) LED, each channel scaled by its trim and by the brightness Steam sets (setting 45,
+ *     through the curve of setting 38). The trims are the unit's calibration keys cal/rgbw_r, _g,
+ *     _b and _w, percent (opensc2_cal_led_trim(): the real controller's factory values 90 35 120
+ *     80 until a host stores others), or the board's own when the overlay names them (zephyr,user
+ *     `led-trims`, R G B W). Without a white channel, white is mixed into red, green and blue.
  *   - A PWM channel named "ir" is the IR LED: controller setting 36 in percent, off during every
  *     shutdown and reboot (its setting stays).
  *   - Dark once the pairing button has been held 3 s while wired: releasing it then reboots into
@@ -29,6 +30,7 @@
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/drivers/pwm.h>
+#include <opensc2/cal.h>
 #include "app.h"
 
 #define USER DT_PATH(zephyr_user)
@@ -57,13 +59,21 @@ static const struct pwm_dt_spec ir = PWM_DT_SPEC_GET_BY_NAME(USER, ir);
 #if !(HAS_RGB || HAS_WHITE)
 /* No colour LED: no trims. */
 #elif DT_NODE_HAS_PROP(USER, led_trims)
-static const uint8_t trims[4] = {
+static const uint8_t board_trims[4] = {
 	DT_PROP_BY_IDX(USER, led_trims, 0), DT_PROP_BY_IDX(USER, led_trims, 1),
 	DT_PROP_BY_IDX(USER, led_trims, 2), DT_PROP_BY_IDX(USER, led_trims, 3),
 };
+
+static uint8_t trim(int channel)
+{
+	return board_trims[channel];
+}
 #else
-static const uint8_t trims[4] = { OPENSC2_LED_TRIM_RED, OPENSC2_LED_TRIM_GREEN,
-				  OPENSC2_LED_TRIM_BLUE, OPENSC2_LED_TRIM_WHITE };
+/* The unit's calibration keys cal/rgbw_*, read at every step: a host's 0xEE shows at once. */
+static uint8_t trim(int channel)
+{
+	return opensc2_cal_led_trim((uint8_t)channel);
+}
 #endif
 
 static struct opensc2_led_player player;
@@ -128,17 +138,17 @@ static void tick_work_fn(struct k_work *work)
 	}
 #if HAS_RGB
 	{
-		uint16_t w = HAS_WHITE ? 0 : opensc2_led_duty(c[3], trims[3], st.brightness);
+		uint16_t w = HAS_WHITE ? 0 : opensc2_led_duty(c[3], trim(3), st.brightness);
 
 		for (int i = 0; i < 3; i++) {
-			uint32_t d = opensc2_led_duty(c[i], trims[i], st.brightness) + w;
+			uint32_t d = opensc2_led_duty(c[i], trim(i), st.brightness) + w;
 
 			set_duty(&rgb[i], dark ? 0 : (uint16_t)MIN(d, OPENSC2_LED_FULL_SCALE));
 		}
 	}
 #endif
 #if HAS_WHITE
-	set_duty(&white, dark ? 0 : opensc2_led_duty(c[3], trims[3], st.brightness));
+	set_duty(&white, dark ? 0 : opensc2_led_duty(c[3], trim(3), st.brightness));
 #endif
 #if HAS_IR
 	set_duty(&ir, st.shutting_down || off ? 0 : (uint16_t)(ir_percent * 10u));

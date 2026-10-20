@@ -130,7 +130,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
  * the hooks' ring with the link lizard mode runs on, then to the application. */
 static void lizard_haptics(const struct opensc2_haptic *h, uint8_t n)
 {
-	uint8_t link = osc2_wired() ? OSC2_LINK_USB : OSC2_LINK_RADIO;
+	uint8_t link = (uint8_t)osc2_mode_link();   /* USB, Bluetooth or the radio */
 
 	for (uint8_t i = 0; i < n; i++) {
 		osc2_test_note_haptic(link, &h[i]);
@@ -157,7 +157,7 @@ void osc2_report_lizard(const struct opensc2_state *s)
 		return;
 	}
 	k_mutex_lock(&lizard_lock, K_FOREVER);
-	if (!osc2_wired() && osc2_radio_backlog()) {
+	if (osc2_mode_link() == OSC2_LINK_RADIO && osc2_radio_backlog()) {
 		/* Reports wait for room in the radio's queue: lizard mode waits with them, as the real
 		 * controller's mouse and keyboard wait for a free buffer. The next frame it runs takes
 		 * up the motion (a difference of positions). */

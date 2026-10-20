@@ -125,7 +125,8 @@
 		 *          <&pwm2 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
 		 *   pwm-names = "rumble", "red", "green", "blue";
 		 * and enable &pwm1 and &pwm2 with a pinctrl group each (samples/rumble, rgb_led).
-		 * The LED channels' trims, percent R G B W (the real controller's when not set):
+		 * The LED channels' trims, percent R G B W, for the board instead of the unit's
+		 * calibration keys cal/rgbw_* (the real controller's 90 35 120 80 until stored):
 		 *   led-trims = <90 35 120 80>;
 		 * A charger module's status output (TP4056-style CHRG, active while charging) gives
 		 * report 0x43 its charge state (src/battery.c; untested):

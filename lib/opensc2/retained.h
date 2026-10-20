@@ -3,13 +3,20 @@
  * SPDX-License-Identifier: MIT
  *
  * retained.h: the layout of the RAM area that start-up does not clear. It survives a soft reset (a
- * reboot command, the reset pin, the watchdog) but not a power loss. It holds:
- *   - a header with a CRC, so a boot can tell a kept area from random power-on RAM;
- *   - the summary of the last wired session (counters and why it ended);
- *   - the warm-restart mark (outside the CRC: it carries its own complement);
- *   - the system machine's test words (outside the CRC, each with a magic word of its own);
- *   - a ring of text lines, the USB session log.
- * Pure logic on a caller's buffer; the host tests build it.
+ * reboot command, the reset pin, the watchdog) but not a power loss. Layout version 2 (OpenSC2
+ * 0.2.0 had version 1: no crash slot, no system words), in the devicetree region chosen as
+ * opensc2,retained-ram:
+ *   - with CONFIG_OPENSC2_CRASH_RECORD, first the crash record's slot, OSC2_CRASH_SLOT_SIZE (44)
+ *     bytes with a magic word and a CRC-32 of its own (crash_rules.h; crash.c, linked before
+ *     usblog.c, which takes the rest of the region);
+ *   - then struct osc2_retained: a header with a CRC, so a boot can tell a kept area from random
+ *     power-on RAM; the summary of the last wired session (counters and why it ended); the
+ *     warm-restart mark (outside the CRC: it carries its own complement); the system machine's six
+ *     test words (outside the CRC, each group with a magic word of its own: a boot-time injection
+ *     and the last shutdown's end, test_sys.h);
+ *   - then a ring of text lines, the USB session log.
+ * A boot that finds another version, or a header that does not fit the area, sets the area up
+ * empty; the crash slot checks itself. Pure logic on a caller's buffer; the host tests build it.
  */
 #ifndef OPENSC2_RETAINED_H_
 #define OPENSC2_RETAINED_H_
@@ -19,7 +26,7 @@
 #include <stdint.h>
 
 #define OSC2_RET_MAGIC    0x3243534Fu   /* "OSC2" */
-#define OSC2_RET_VERSION  2
+#define OSC2_RET_VERSION  2           /* the crash slot before the header, the system words */
 #define OSC2_RET_SYS_WORDS 6
 #define OSC2_RET_SYS_BOOT_WORDS 3   /* the first of them: the boot-time injection */
 #define OSC2_RET_END_LEN  32           /* "host: reboot into wireless" and the like */

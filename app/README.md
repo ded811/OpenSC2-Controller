@@ -257,9 +257,10 @@ the connected and wired displays breathe instead, and a [battery build](#a-batte
 for 5 % or less and the low-battery and keylock flashes of its shutdowns.
 
 An RGB or RGBW LED (PWM channels `red`, `green`, `blue` and optionally `white`, see
-[Optional parts](#optional-parts)) shows the colours, each channel scaled by its trim (`led-trims`,
-the real controller's factory values 90, 35, 120 and 80 % by default) and by the brightness Steam
-sets (controller setting 45, 50 % by default; Steam writes 100 on the cable), through the curve of
+[Optional parts](#optional-parts)) shows the colours, each channel scaled by its trim (the unit's
+calibration keys `cal/rgbw_r`, `_g`, `_b` and `_w`, which start at the real controller's factory
+values 90, 35, 120 and 80 %; or the board's own `led-trims` in the overlay) and by the brightness
+Steam sets (controller setting 45, 50 % by default; Steam writes 100 on the cable), through the curve of
 setting 38. Without a white channel, white is mixed into red, green and blue. An IR LED (a PWM
 channel `ir`) follows controller setting 36 and is off during every shutdown and reboot.
 
@@ -375,7 +376,7 @@ Each needs pins, which the default map has used up: take them from buttons you d
 | Part | In the overlay | Example |
 | --- | --- | --- |
 | Vibration motor (through a MOSFET) | a PWM channel named `rumble` | [samples/rumble](../samples/rumble/README.md) |
-| RGB or RGBW status LED: the real controller's colours and patterns, Steam's colour while its override is on ([LED](#led)) | PWM channels named `red`, `green`, `blue`, optionally `white`; optional `led-trims = <90 35 120 80>;` (percent, R G B W) | [samples/rgb_led](../samples/rgb_led/README.md) for the wiring |
+| RGB or RGBW status LED: the real controller's colours and patterns, Steam's colour while its override is on ([LED](#led)) | PWM channels named `red`, `green`, `blue`, optionally `white`; optional `led-trims = <90 35 120 80>;` (percent, R G B W; without it the unit's `cal/rgbw_*` keys) | [samples/rgb_led](../samples/rgb_led/README.md) for the wiring |
 | IR LED (controller setting 36) | a PWM channel named `ir` | the overlay's comment |
 | A charger's status output (TP4056-style CHRG, active while charging): report `0x43`'s charge state | `charger-status-gpios` in `zephyr,user` | the overlay's comment; untested |
 | A LiPo on the battery pads | the [battery build](#a-battery-build) | `battery.conf` |

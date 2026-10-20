@@ -140,7 +140,7 @@ size_t opensc2_encode_battery(const struct opensc2_battery *b,
 
 /* 0x43's charge state without the 0x80 flag the real controller adds while its supply check has
  * given up. */
-#define CHARGE_STATE_MASK 0x7F
+#define CHARGE_STATE_MASK ((uint8_t)~OPENSC2_CHARGE_GAVE_UP)
 
 size_t opensc2_encode_battery_data(const struct opensc2_battery *b,
 				   uint8_t out[OPENSC2_BATTERY_DATA_LEN])
