@@ -98,11 +98,11 @@ def run(ctx):
             c.eq("selector 0: git revision", info["git_revision"], rig.caps["git_revision"])
             c.true("selector 0: the unit serial", info["serial"] == rig.unit_serial)
             # selector 1: the crash record (debug/resetreason) as it is; a new one would then be
-            # marked seen, a flash write, which only flash.crash_record makes
+            # marked seen and saved again, a flash write the suite leaves to a host (safety.py)
             record = rig.read_named(b"debug/resetreason\0")
             if record.n == 33 and record.data[0] == 1:
-                c.note("selector 1 not read: a new crash record waits (reading it writes flash; "
-                       "flash.crash_record with --flash)")
+                c.note("selector 1 not read: a new crash record waits (reason %d; 0xED read it, "
+                       "0xF2 would mark it seen, a flash write)" % record.data[21])
             else:
                 a = rig.vendor(C.VC_DEVICE_INFO, b"\x01")
                 c.eq("selector 1: n", a.n, 34)
