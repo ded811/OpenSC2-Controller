@@ -6,7 +6,8 @@
   the transcript of the unarmed command channel; the run fails when the two differ by one byte.
   A third binary, the firmware emulator (fwemu.c: the hooks binary with a stdin/stdout main), lets
   the hardware test suite's runner run its groups against the library's own code: when Python is
-  on PATH, its self-tests and its dry run against the emulator run last (docs/testing.md), with
+  on PATH, its self-tests and its dry runs against the emulator (as is, and with --flash) run last
+  (docs/testing.md), with
   the self-tests of tools\fake_puck.py and tools\match_steam_version.py.
 .EXAMPLE
   From the repository folder. Windows does not run scripts by default; started this way,
@@ -114,6 +115,9 @@ if ($NoRunner) {
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the runner self-tests'; $failed = 1 }
     & python -I $runPy --dry-run --fw-emu $fwemu --lizard --dock --yes --results $results
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the dry run against the emulator'; $failed = 1 }
+    # ... and with --flash: the flash group and the tests that store something (system.keylock)
+    & python -I $runPy --dry-run --fw-emu $fwemu --flash --lizard --dock --yes --results $results
+    if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the --flash dry run against the emulator'; $failed = 1 }
     & python -I (Join-Path $root 'tools\fake_puck.py') --selftest
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the fake_puck.py self-tests'; $failed = 1 }
     Remove-Item Env:\OPENSC2_FWEMU

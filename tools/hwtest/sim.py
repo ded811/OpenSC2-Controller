@@ -851,8 +851,9 @@ class SimBackend:
             self.clock.sleep(C.POLL_INTERVAL_S)
         raise TimeoutError("the board did not come back within %.0f s" % timeout)
 
-    def wait_reboot(self, from_mode, to_mode, timeout):
-        """The board rebooted (a reboot asked for since the last wait) and came back."""
+    def wait_reboot(self, from_mode, to_mode, timeout, gone_timeout=None):
+        """The board rebooted (a reboot asked for since the last wait) and came back. The
+        simulator's reboots come when asked for: `gone_timeout` is not needed here."""
         self.proven_slot = None
         start = self.clock.monotonic()
         while self.clock.monotonic() - start < timeout:

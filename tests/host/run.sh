@@ -84,6 +84,10 @@ else
 	"$py" -I "$root/tools/hwtest/run.py" --dry-run --fw-emu "$emu" --lizard --dock --yes \
 		--results "$out/opensc2_hwtest_results" ||
 		{ echo "FAIL the dry run against the emulator"; rc=1; }
+	# ... and with --flash: the flash group and the tests that store something (system.keylock)
+	"$py" -I "$root/tools/hwtest/run.py" --dry-run --fw-emu "$emu" --flash --lizard --dock \
+		--yes --results "$out/opensc2_hwtest_results" ||
+		{ echo "FAIL the --flash dry run against the emulator"; rc=1; }
 	OPENSC2_FWEMU="$emu" "$py" -I "$root/tools/fake_puck.py" --selftest ||
 		{ echo "FAIL the fake_puck.py self-tests"; rc=1; }
 	"$py" -I "$root/tools/match_steam_version.py" --selftest ||

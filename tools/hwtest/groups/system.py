@@ -397,8 +397,9 @@ def run(ctx):
             start = _setup_battery(rig, c, [(77, 1)])
             # the next boot on battery meets the lock: STEAM held there keeps its shutdown
             # waiting long enough to look at it
+            hold = 60   # tenths of a second from the boot
             rig.sys_boot(S.INJECT_SOURCE | S.INJECT_BUTTONS, buttons=STEAM_X,
-                         source=S.SRC_BATTERY, hold=60)
+                         source=S.SRC_BATTERY, hold=hold)
             with rig.own_link_drop():
                 rig.sys_inject(S.INJECT_BUTTONS, buttons=S.KEYLOCK_CHORD)
                 st = _wait_state(rig, ("shutdown",), 4.0)
@@ -419,9 +420,11 @@ def run(ctx):
                        rig.read_named(b"user/keylock\0").data[:4] ==
                        (0x41FB0AC3).to_bytes(4, "little"))
                 # STEAM lets go (the boot injection's 6 s): off, which reboots; a USB power-on
-                # then deletes the lock
+                # then deletes the lock. The board leaves by itself up to the whole hold after
+                # its boot, long after this call: the window to leave covers it, plus 3 s.
                 rig._stop_keepalive()
-                rig.wait_back("R", None, rig.t(C.REENUM_TIMEOUT_S + 6.0))
+                rig.wait_back("R", None, rig.t(C.REENUM_TIMEOUT_S),
+                              gone_timeout=rig.t(hold / 10.0 + 3.0))
                 rig._after_boot()
                 _rearm(rig)
             ctx.results.safety["flash_writes"] += 1

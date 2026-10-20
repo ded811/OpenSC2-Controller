@@ -178,20 +178,21 @@ python -I tools\hwtest\run.py                       # the full run on the board
 
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
-library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
+library's own command channel and hooks on the PC, and then runs the self-tests and two dry runs of
 the suite against that emulator. Today that is 185 host tests (13,196 checks); 231 (16,407 checks)
 with the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for
-byte alike (after every test, each mutex the library took must have been let go again); a compile
-of the library files whose calibration calls become stand-ins without `CONFIG_OPENSC2_CAL`; the
-runner's 280 self-tests (a dry run of the Bluetooth path among them); its dry run against the
-library's own code in a firmware emulator (`--lizard --dock`: 233 tests pass, 26 are skipped),
-which has the system state machine, the calibration, the dock link and the haptics synthesiser
-built in (as `app/haptics.conf`), so the `system`, `cal`, `dock` and `haptics` groups run there
-too; 6 self-tests of `tools/fake_puck.py`; 9 self-tests of `tools/match_steam_version.py`. With
-every opt-in that runs offline, the emulator passes 241 tests (`--lizard --flash --dock`, 18
-skipped), the simulator 182 (`--lizard --flash`, 60 skipped: it models no calibration, system
-state machine, synthesiser or dock) and the simulator's Bluetooth path 100 (`--bluetooth --lizard
---flash`, the soak skipped). To run the emulator by hand after `run.ps1` built it:
+byte alike (after every test, each mutex the library took must have been let go again); a compile of
+the library files whose calibration calls become stand-ins without `CONFIG_OPENSC2_CAL`; the
+runner's 280 self-tests (a dry run of the Bluetooth path among them); its dry runs against the
+library's own code in a firmware emulator (`--lizard --dock`: 233 tests pass, 26 are skipped; and
+`--flash --lizard --dock`, with the `flash` group and the tests that store something, such as
+`system.keylock`: 241 pass, 18 skipped), which has the system state machine, the calibration, the
+dock link and the haptics synthesiser built in (as `app/haptics.conf`), so the `system`, `cal`,
+`dock` and `haptics` groups run there too; 6 self-tests of `tools/fake_puck.py`; 9 self-tests of
+`tools/match_steam_version.py`. With every opt-in that runs offline, the simulator passes 182
+(`--lizard --flash`, 60 skipped: it models no calibration, system state machine, synthesiser or
+dock) and the simulator's Bluetooth path 100 (`--bluetooth --lizard --flash`, the soak skipped). To
+run the emulator by hand after `run.ps1` built it:
 
 ```powershell
 python -I tools\hwtest\run.py --dry-run --fw-emu $env:TEMP\opensc2_fwemu.exe --lizard --dock

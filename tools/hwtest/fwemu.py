@@ -328,9 +328,12 @@ class FwEmuBackend:
         """The emulator never resets unplanned: it is always there."""
         return self.mode
 
-    def wait_reboot(self, from_mode, to_mode, timeout):
+    def wait_reboot(self, from_mode, to_mode, timeout, gone_timeout=None):
         """After a reboot request: the emulator reboots when the request falls due (a vendor
-        command, 20 ms) or at once (a console reboot)."""
+        command, 20 ms) or at once (a console reboot). As on hardware (win/backend.py), the board
+        must leave within `gone_timeout` (default C.GONE_TIMEOUT_S * 2) from the call; leaving
+        and coming back are one step here."""
+        gone_s = C.GONE_TIMEOUT_S * 2 if gone_timeout is None else gone_timeout
         if self.pending_boot:
             mode, self.pending_boot = self.pending_boot, None
             self.cmd("BOOT " + mode)
@@ -343,7 +346,7 @@ class FwEmuBackend:
                 self._events_seen = len(self.events)
                 self._pending = []
                 return self.events[-1][1]
-            if waited >= timeout:
-                raise TimeoutError("no reboot within %.1f s" % timeout)
+            if waited >= gone_s:
+                raise TimeoutError("the board did not leave within %.1f s (no reboot)" % gone_s)
             self.clock.sleep(0.05)
             waited += 0.05

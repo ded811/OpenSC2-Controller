@@ -138,7 +138,9 @@ class Backend:
     set_board_slot(slot)       R: keep only that slot open
     puck_writer()              P: the gated writer (set_feature1, get_feature1_answer,
                                write_output); only through safety.puck_writer()
-    wait_reboot(from_mode, to_mode, timeout)   the board gone, then back: its mode
+    wait_reboot(from_mode, to_mode, timeout, gone_timeout=None)
+                                               the board gone (within gone_timeout from the call,
+                                               default C.GONE_TIMEOUT_S * 2), then back: its mode
     find_board(timeout)        after an unplanned reset: every handle closed, the board looked
                                for on both paths until it is back: its mode (TimeoutError)
     steam_running(), sole_reader_ok(), sole_reader_selfcheck_ok(), leak_fired(),
@@ -1714,12 +1716,15 @@ class Rig:
         self._after_boot()
         return self.path
 
-    def wait_back(self, from_mode, to_mode, timeout):
-        """A planned reboot: the board gone, then back (its mode). Not back in time: BoardGone (the
-        runner looks for it 30 s more, then stops with "unplug and replug the board"); the UF2
-        bootloader: DeviceError."""
+    def wait_back(self, from_mode, to_mode, timeout, gone_timeout=None):
+        """A planned reboot: the board gone, then back (its mode). `gone_timeout`: how long it may
+        take to leave, from this call (None: C.GONE_TIMEOUT_S * 2, for a reboot that is asked for
+        right before; give more for one the board makes later by itself). Not back in time:
+        BoardGone (the runner looks for it 30 s more, then stops with "unplug and replug the
+        board"); the UF2 bootloader: DeviceError."""
         try:
-            return self.backend.wait_reboot(from_mode, to_mode, timeout)
+            return self.backend.wait_reboot(from_mode, to_mode, timeout,
+                                            gone_timeout=gone_timeout)
         except TimeoutError as e:
             raise BoardGone(str(e)) from e
         except safety.SafetyError as e:

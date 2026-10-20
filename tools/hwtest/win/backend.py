@@ -495,14 +495,15 @@ class WinBackend:
         raise TimeoutError("the board did not come back within %.0f s: unplug and replug it"
                            % timeout)
 
-    def wait_reboot(self, from_mode, to_mode, timeout):
-        """The board's device of `from_mode` gone (2 s), then the board back on any path: its
-        mode. The UF2 bootloader appearing stops the run (S11). Nothing is opened meanwhile."""
+    def wait_reboot(self, from_mode, to_mode, timeout, gone_timeout=None):
+        """The board's device of `from_mode` gone (within `gone_timeout`, default
+        C.GONE_TIMEOUT_S * 2, from the call), then the board back on any path: its mode. The UF2
+        bootloader appearing stops the run (S11). Nothing is opened meanwhile."""
         t_start = time.monotonic()
         self._close_all()
         t_closed = time.monotonic()
         trace = os.environ.get("HWTEST_TRACE")
-        gone_s = float(os.environ.get("HWTEST_GONE_S") or C.GONE_TIMEOUT_S * 2)
+        gone_s = float(os.environ.get("HWTEST_GONE_S") or gone_timeout or C.GONE_TIMEOUT_S * 2)
         gone_by = t_closed + gone_s
         gone = False
         polls = 0
