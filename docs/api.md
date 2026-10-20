@@ -1464,11 +1464,12 @@ summary and the gaps):
 With the [system state machine](#power-and-the-system-state-machine) (on by default) Bluetooth is
 one of its transports: B + right bumper and B + left bumper choose slot 1 and 2, held 4 s they ask
 for pairing mode ([Chords](#chords)); pairing mode's start and a new host raise cues 6 and 7, and
-advertising that runs out or a host that leaves end in "wireless off" as on the puck. Without the
-machine the chords are an application's (`opensc2_select_transport()`,
+advertising that runs out or a host that leaves end in "wireless off" as on the puck (the machine's
+drop that follows keeps Bluetooth's wireless-off flag and its reason for `opensc2 ble status`).
+Without the machine the chords are an application's (`opensc2_select_transport()`,
 `opensc2_select_transport_pairing()`) and the cues its own, from `link_changed`. The shell's
-`opensc2 ble status` shows the link, and the hardware test suite's `--bluetooth` path checks
-it on a board paired with Windows ([testing.md](testing.md#bluetooth)); nothing of it has run on
+`opensc2 ble status` shows the link, and the hardware test suite's `--bluetooth` path checks it on a
+board paired with Windows ([testing.md](testing.md#bluetooth)); nothing of it has run on
 hardware yet.
 
 What a project needs, as `app/ble.conf` sets it:

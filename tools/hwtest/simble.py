@@ -193,12 +193,22 @@ class BleLink:
         self.set_state(REASON_LISTEN_TIMEOUT if cause == 0 else REASON_HOST_DISCONNECTED)
         self.b.schedule_power(POWER_WIRELESS_OFF, "bluetooth: no host within the window"
                               if cause == 0 else "bluetooth: the host left", 0)
+        # The system state machine of the Bluetooth build answers the give-up with its drop: a
+        # stop that keeps the stack, which finds Bluetooth off already and changes nothing, so the
+        # flag and the reason stay (ble.c do_stop()).
+        self.stop(release=False)
 
-    def stop(self):
+    def stop(self, release=True):
+        already_off = (self.wireless_off and not self.connected and not self.advertising and
+                       self.b.link_state == LINK_OFF)
+        self.b.timers.pop("ble_readvertise", None)
+        if already_off and not release:
+            self.want = False
+            self.pair_request = False
+            return
         self.want = False
         self.pair_request = False
         self.wireless_off = False
-        self.b.timers.pop("ble_readvertise", None)
         self.adv_stop(3)
         self.end_link()
         self.set_state(REASON_DISABLED)

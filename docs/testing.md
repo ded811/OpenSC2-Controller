@@ -376,7 +376,9 @@ closed.
    `bluetooth: on; slot 1, identity 1 <its address>` and `link: advertising open to any host
    (pairing mode); N s left of the window`, N counting down from 60: the window is 60 s, as on the
    real controller. When it runs out the board stops advertising (`link: wireless off: no host
-   within the advertising window`); `opensc2 start`, or any button, advertises again.
+   within the advertising window`) and the system state machine switches wireless off, as on the
+   real controller on USB power: the LED turns amber, and STEAM then reboots the board, which comes
+   back wired. `opensc2 start` advertises again.
 4. **Pair it in Windows**: Settings, Bluetooth & devices, Add device, Bluetooth. "Steam Ctrl (BT)
    OSC..." appears; select it: it pairs without a PIN or a prompt (Just Works).
 5. **Check it**: `opensc2 ble status` shows `connected and active, security 2` (or more), an ATT MTU

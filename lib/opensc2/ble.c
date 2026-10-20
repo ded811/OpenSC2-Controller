@@ -1488,11 +1488,23 @@ static void do_start(uint8_t transport, bool pair)
 
 static void do_stop(bool release, bool then_radio)
 {
+	/* Bluetooth already went off by itself ("wireless off": the window, or the host ended the
+	 * link). A stop that keeps the stack (the system state machine's drop, which follows that
+	 * wireless off at once) changes nothing: the flag and its reason stay for BLE_STATUS, `opensc2
+	 * ble status` and the application, and no second OFF is reported. */
+	bool already_off = ble.wireless_off && !ble.conn && !ble.advertising &&
+			   ble.state == OPENSC2_LINK_OFF;
+
+	(void)k_work_cancel_delayable(&readvertise_work);
+	window_cancel();
+	if (already_off && !release) {
+		ble.want = false;
+		ble.pair_request = false;
+		return;
+	}
 	ble.want = false;
 	ble.pair_request = false;
 	ble.wireless_off = false;
-	(void)k_work_cancel_delayable(&readvertise_work);
-	window_cancel();
 	if (ble.enabled) {
 		adv_stop();
 		end_link();
