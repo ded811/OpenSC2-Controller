@@ -10,11 +10,58 @@ from . import base
 from . import stream as stream_group
 from .. import config as C
 from ..proto import console as cproto
+from ..proto import model as M
 from ..proto import steamlog
+from ..proto import testproto as T
 
 GROUP = "steam"
 TESTS = [("steam.session", "S", ["with-steam"]), ("steam.log_reconnect", "S", ["with-steam"]),
          ("steam.wired_passive", "S", ["with-steam"])]
+
+
+# steam.session's traffic counters: the ring entries of what Steam sends the board's outputs
+# through the puck (docs/test-protocol.md, kinds OUTPUT, RUMBLE, HAPTIC and STOP_STATUS)
+TRAFFIC_KINDS = (C.RING_OUTPUT, C.RING_RUMBLE, C.RING_HAPTIC, C.RING_STOP_STATUS)
+STOP_CHANNEL_NAMES = {C.STATUS_LEFT_GRIP: "left_grip", C.STATUS_RIGHT_GRIP: "right_grip",
+                      C.STATUS_LEFT_PAD: "left_pad", C.STATUS_RIGHT_PAD: "right_pad"}
+
+
+def _bump(d, key, n=1):
+    d[key] = d.get(key, 0) + n
+
+
+def traffic_counts(entries):
+    """Steam's output traffic among decoded ring entries, the radio link's only: output reports by
+    ID (and how many the decoder refused), rumble updates, haptic commands by kind and how many of
+    them were stops, the PCM sample bytes, and the 0x44 replies to stops by channel. Returns
+    (counts, the reply channels the stops call for, the reply channels sent), both in order."""
+    counts = {"outputs": {}, "refused": 0, "rumble": 0, "haptics": {}, "stops": 0,
+              "pcm_bytes": 0, "stop_replies": {}}
+    want, got = [], []
+    for e in entries:
+        if e["link"] != 0:
+            continue
+        kind = e["kind"]
+        if kind == C.RING_OUTPUT:
+            _bump(counts["outputs"], "0x%02x" % e["report_id"])
+            if e["decode_result"] < 0:
+                counts["refused"] += 1
+        elif kind in (C.RING_RUMBLE, C.RING_HAPTIC):
+            if kind == C.RING_RUMBLE:
+                counts["rumble"] += 1
+                calls = M.stop_status("rumble", e)
+            else:
+                _bump(counts["haptics"], e.get("kind_name", "?"))
+                if e["haptic_kind"] == 6:
+                    counts["pcm_bytes"] += e.get("len", 0)
+                calls = M.stop_status("haptic", e)
+            if calls:
+                counts["stops"] += 1
+            want += calls
+        elif kind == C.RING_STOP_STATUS:
+            _bump(counts["stop_replies"], STOP_CHANNEL_NAMES.get(e["channel"], str(e["channel"])))
+            got.append(e["channel"])
+    return counts, want, got
 
 
 def _skip_all(ctx, why):
@@ -36,14 +83,17 @@ def wireless(ctx):
             rig.arm(restore=False)
             s9_start = rig.settings_read()[9]
             start = 0
-            vendor = []
+            vendor, traffic, lost = [], [], 0
             t_end = rig.clock.monotonic() + 60.0
             while rig.clock.monotonic() < t_end:
                 rig.sleep(2.0)
                 first, nxt, entries = rig.ring_all(start)
                 if first > start:
-                    c.warn("%d ring entries lost to Steam's traffic" % (first - start))
+                    lost += first - start
+                    c.warn("%d ring entries lost to Steam's traffic (the traffic counts are lower "
+                           "bounds)" % (first - start))
                 vendor += [e for e in entries if e["kind"] == C.RING_VENDOR and e["link"] == 0]
+                traffic += base.of_kind(entries, *TRAFFIC_KINDS)
                 start = nxt
             writes = [e for e in vendor if e["opcode"] == C.VC_SETTINGS_SET]
             pairs = []
@@ -73,9 +123,17 @@ def wireless(ctx):
                        "mode back on (setting 9 = %d at the end). Open: whether the real controller "
                        "sees the same, or the puck holds back its lizard reports while Steam has "
                        "the slot" % (len(offs), s9_end))
+            # what Steam sent the outputs meanwhile, and the board's 0x44 replies to its stops
+            counts, want, got = traffic_counts(traffic)
+            if rig.caps and not T.cap_flag(rig.caps, C.CAP_HAPTIC_STOP_STATUS):
+                want = []                   # a build without the replies
+            if lost == 0:
+                c.eq("a 0x44 reply for each stop Steam sent (%d stops)" % counts["stops"],
+                     got, want)
             c.observe(lizard_off_intervals_s=gaps[:20], settings_written=sorted(set(pairs))[:40],
                       opcodes=sorted(set("0x%02x" % e["opcode"] for e in vendor)),
-                      setting9_start=s9_start, setting9_end=s9_end)
+                      setting9_start=s9_start, setting9_end=s9_end, traffic=counts,
+                      traffic_entries_lost=lost)
             rig.disarm()
     if ctx.want("steam.log_reconnect"):
         with ctx.check(GROUP, "steam.log_reconnect") as c:

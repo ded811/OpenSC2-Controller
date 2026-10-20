@@ -225,6 +225,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+/* CONFIG_OPENSC2_HAPTIC_STOP_STATUS: a stop's 0x44 replies {channel, 0x02}. */
+#define OSC2_TEST_FLAG_HAPTIC_STOP_STATUS     (1u << 16)
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)

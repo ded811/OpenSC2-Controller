@@ -31,6 +31,10 @@ still change between minor versions.
   build `app/watchdog.conf`): 5 s, fed every 2.5 s from the lowest priority, and a 4.5 s warning
   that crashes on purpose so a hang leaves a crash record. Built; not yet tried on hardware, nor
   with the UF2 bootloader.
+- hwtest `steam.session` counts what Steam sends the outputs through the puck while it runs
+  (output reports by ID, rumble, haptic commands by kind, PCM bytes, stops) and checks the board's
+  `0x44` reply to each stop; the counts go into `report.json`. The test hooks' caps build flags
+  have bit 16, `HAPTIC_STOP_STATUS`, and `outputs.stop_status` expects no replies without it.
 
 ### Changed
 

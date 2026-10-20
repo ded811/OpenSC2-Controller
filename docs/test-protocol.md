@@ -88,12 +88,12 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 (bit 0 `TRIGGER_CLICK_AUTO`, 1 `LIZARD_MODE`, 2 `STEAM_WATCHDOG`, 3 `USB`, 4 `USB_PROFILE_OCTOBER`,
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
-`NO_HOST_WIRELESS_MS` not 0, the charger test build); 6 battery report interval ms u16; 8 rumble
-timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16;
-16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
-revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
-does not fit; the suite checks the USB product string against it). Firmware before the product name
-sent the first 32 bytes only.
+`NO_HOST_WIRELESS_MS` not 0, the charger test build; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to
+stops); 6 battery report interval ms u16; 8 rumble timeout ms u16; 10 ring size u16; 12 sequence
+depth; 13 counters (27); 14 radio report delay µs u16; 16 the lease in effect s u16; 18 the stored
+mode policy (0 auto, 1 wireless); 19 zero; 20 the git revision, 12 bytes NUL padded; 32 the CRC-32
+of the identity's product name u32 (the name itself does not fit; the suite checks the USB product
+string against it). Firmware before the product name sent the first 32 bytes only.
 
 Status (the STATUS result): 0 flags (bit 0 armed, 1 guard, 2 static injection, 3 battery injected, 4
 sequence running, 5 lizard mode on, 6 the end of a disarm in progress, 7 a settings snapshot held); 1

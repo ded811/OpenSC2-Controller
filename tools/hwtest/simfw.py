@@ -598,6 +598,8 @@ class SimBoard:
             else:
                 self.hooks.note(C.RING_HAPTIC, lk, T._encode_entry_data(
                     dict(fields, kind=C.RING_HAPTIC)))
+            if self.world.cleared_build_flags & (1 << C.CAP_HAPTIC_STOP_STATUS):
+                continue     # a build without CONFIG_OPENSC2_HAPTIC_STOP_STATUS (a test)
             for channel in M.stop_status(kind, fields):
                 # the 0x44 reply to a stop (CONFIG_OPENSC2_HAPTIC_STOP_STATUS, on in the app)
                 self.hooks.note(C.RING_STOP_STATUS, lk,
@@ -957,10 +959,12 @@ class Hooks:
         self.note_lizard(C.LIZARD_RESYNC, link)
         return C.ST_OK, T.encode_caps({
             "version": 1, "mode": 1 if self.b.mode == "W" else 0,
-            "build_flags": (1 << C.CAP_TRIGGER_CLICK_AUTO) | (1 << C.CAP_LIZARD_MODE) |
-            (1 << C.CAP_STEAM_WATCHDOG) | (1 << C.CAP_USB) | (1 << C.CAP_USB_CONSOLE) |
-            (1 << C.CAP_STORAGE) | (1 << C.CAP_USB_LOG) | (1 << C.CAP_USB_PLUG_IN_REBOOT) |
-            (1 << C.CAP_SHELL) | self.b.world.extra_build_flags,
+            "build_flags": ((1 << C.CAP_TRIGGER_CLICK_AUTO) | (1 << C.CAP_LIZARD_MODE) |
+                            (1 << C.CAP_STEAM_WATCHDOG) | (1 << C.CAP_USB) |
+                            (1 << C.CAP_USB_CONSOLE) | (1 << C.CAP_STORAGE) |
+                            (1 << C.CAP_USB_LOG) | (1 << C.CAP_USB_PLUG_IN_REBOOT) |
+                            (1 << C.CAP_SHELL) | (1 << C.CAP_HAPTIC_STOP_STATUS) |
+                            self.b.world.extra_build_flags) & ~self.b.world.cleared_build_flags,
             "battery_interval_ms": C.BATTERY_INTERVAL_MS, "rumble_timeout_ms": C.RUMBLE_TIMEOUT_MS,
             "ring_size": self.ring_size, "sequence_depth": 8, "counter_count": C.COUNTER_COUNT,
             "radio_report_delay_us": 2000, "lease_s": lease, "policy": self.b.world.policy,

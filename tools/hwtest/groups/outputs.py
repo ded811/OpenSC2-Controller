@@ -327,8 +327,12 @@ def run(ctx):
                                                  or not rig.models("puck"))
             if not stream:
                 c.note("the ring only (the board's slot on the puck is not proven)")
+            replies = T.cap_flag(rig.caps, C.CAP_HAPTIC_STOP_STATUS) if rig.caps else True
+            if not replies:
+                c.note("a build without CONFIG_OPENSC2_HAPTIC_STOP_STATUS: no replies expected")
             window = 0.15 if rig.path == "W" else 0.5
             for what, report, want in STOP_CASES:
+                want = want if replies else []
                 if stream:
                     rig.flush()
                 start = rig.ring_next()
@@ -348,6 +352,7 @@ def run(ctx):
                            if r[0] == C.RPT_HAPTIC_STATUS and len(r) >= 6]
                     c.eq("%s: the 0x44 reports, in order" % what, got,
                          [(ch, C.STATUS_STOPPED) for ch in want])
-            c.note("%d reports: every stop-all (0x81 on time 0, 0x82 command 0, a zero speed in "
-                   "0x80) and 0x86's stream stop answered with 0x44 {channel, 0x02}" %
-                   len(STOP_CASES))
+            if replies:
+                c.note("%d reports: every stop-all (0x81 on time 0, 0x82 command 0, a zero speed "
+                       "in 0x80) and 0x86's stream stop answered with 0x44 {channel, 0x02}" %
+                       len(STOP_CASES))
