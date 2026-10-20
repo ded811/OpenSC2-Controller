@@ -29,7 +29,10 @@ test suite.
   the wired USB device, pairing over the cable and the vendor commands Steam sends, and the real
   controller's power, chord and status-LED rules. Your code hands it the inputs (buttons, sticks,
   triggers, trackpads, IMU, battery) and gets the outputs (rumble, haptics, the status LED's mode
-  and Steam's LED colour, settings, cues, power-off) as callbacks. It has no pins of its own.
+  and Steam's LED colour, settings, cues, power-off) as callbacks. It has no pins of its own. New
+  since v0.2.0 and not yet tested on hardware: Bluetooth LE and a haptics synthesiser as options,
+  the dock's protocol, and the real controller's input processing and calibration
+  ([below](#since-v020-not-in-a-release-yet)).
 - **The firmware** (`app/`, "the blank canvas") is a complete Steam Controller 2 for the SuperMini
   nRF52840, a Pro Micro-sized nRF52840 board with the nice!nano pinout and the Adafruit nRF52 UF2
   bootloader. Every input is set up in one devicetree file: the SuperMini's pins carry the
@@ -357,18 +360,22 @@ hardware report, a new board). [CHANGELOG.md](CHANGELOG.md) lists the changes, a
 ```text
 zephyr/module.yml, CMakeLists.txt, Kconfig   the Zephyr module
 include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (wire formats and USB
-                        descriptors), settings.h, led.h (the status LED), fusion.h, haptics.h (the
-                        haptics synthesiser), dock.h (the dock's frames)
+                        descriptors), settings.h, led.h (the status LED), cal.h (calibration and
+                        raw inputs), sensor_helpers.h and gauge.h (sensor and battery helpers),
+                        fusion.h, haptics.h (the haptics synthesiser), dock.h (the dock's frames)
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
-dts/bindings/           the devicetree binding of the dock's UART and pilot (opensc2,dock)
+dts/bindings/           the devicetree bindings of the dock's UART and pilot (opensc2,dock) and of
+                        the synthesiser's I2S and PWM DAC outputs (haptics/)
 lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc.c (wired mode),
-                        ble.c (Bluetooth LE, opt-in), transport.c (the puck or Bluetooth),
-                        commands.c (vendor commands), report.c (reports on every link), lizard.c
-                        (lizard mode), mode.c (wired or wireless), usblog.c (the session log),
-                        system.c with sys_rules.c, chord_rules.c, idle_rules.c and led_rules.c
-                        (power, chords, the status LED, cues), dock_*.c and dock.c (the dock),
-                        storage.c, shell.c, test_*.c (the hardware test hooks), haptics*.c (the
-                        haptics synthesiser, an option)
+                        ble.c (Bluetooth LE, opt-in), wireless.c (the puck or Bluetooth),
+                        commands.c (vendor commands), report.c (reports on every link),
+                        input_rules.c (the rules on every report), lizard.c (lizard mode), cal*.c
+                        (calibration and raw inputs), mode.c (wired or wireless), usblog.c (the
+                        session log), system.c with sys_rules.c, chord_rules.c, idle_rules.c and
+                        led_rules.c (power, chords, the status LED, cues), crash.c and hwdt.c
+                        (crash records, the watchdog), dock_*.c and dock.c (the dock), storage.c
+                        and key_store.c (what is stored), shell.c, test_*.c (the hardware test
+                        hooks), haptics*.c (the haptics synthesiser, an option)
 app/                    the blank-canvas firmware for the SuperMini; app/build.ps1 builds it;
                         app/*.conf its variants (app/README.md)
 template/               a small project to copy as the start of your own
@@ -378,6 +385,7 @@ tests/codec/            the pure test cases as a ztest suite (optional; native_s
 tests/vectors/hwtest/   vectors that the host tests and the hardware test suite both check
 tools/hwtest/           the hardware test suite (Python; hardware runs on Windows)
 tools/fake_puck.py      the puck's end of the dock link, played by the PC
+tools/gen_haptics_tables.py   writes the haptics synthesiser's constant tables
 tools/match_steam_version.py   gives a board the build time of Steam's current controller firmware
 tools/check_links.py    checks the links and anchors in the documentation
 tools/collect_licenses.py   writes THIRD_PARTY_LICENSES.txt for a release
