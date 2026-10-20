@@ -62,7 +62,12 @@ simulator); none of it has been tested on hardware yet.
   and `0xF0`, kept by the factory reset; the recordings `0xD8` (sticks), `0xC0` (triggers) and
   `0xC3` (pad pressure); `0xE2` saves one side's values and `0xFE` erases them, only with its key.
   The console's `opensc2 cal` does the same. The blank canvas takes its LED trims from
-  `cal/rgbw_*` unless its overlay sets `led-trims`.
+  `cal/rgbw_*` unless its overlay sets `led-trims`, and uses any stored trim as the real
+  controller does (0 leaves a channel dark). `0xEF` and `0xF0` of a `cal/` key wait for an erase
+  or a save asked for before them, so a host's "erase, then store" keeps the new keys. The pad
+  pressure filter steps only while the pad is calibrated, and the stored gyro bias is taken as the
+  real controller takes it (a NaN as 0; 2^31 or more refused, which keeps the IMU stream of
+  `app/imu-stream.conf` off at boot).
 - Raw inputs (`opensc2_set_stick_raw()`, `_trigger_raw()`, `_pressure_raw()`, `_touch_raw()`,
   `opensc2_set_raw()`): the library processes them at every state report as the real controller
   does, with the stored calibration and controller settings 30, 31, 34, 35, 46, 52, 53, 60 and 62
@@ -100,7 +105,9 @@ simulator); none of it has been tested on hardware yet.
   with an empty slot, link reason `OPENSC2_REASON_NO_BOND_TIMEOUT`). Without the option a board
   never switches itself off: every shutdown reboots.
 - The status LED: the library selects the real controller's modes (the `led_status` callback,
-  `opensc2_led_status()`), and `<opensc2/led.h>` has its patterns as a pure player, the brightness
+  `opensc2_led_status()`, also after a transport chosen at run time), and `<opensc2/led.h>` has its
+  patterns as a pure player (the steady link colour chosen again every 2 s, the breathing patterns
+  starting from dark, as on the real controller), the brightness
   curve (setting 38), the channel trims, the fully-charged display
   (`user/fully_charged_led_intensity`) and the IR LED (setting 36). The blank canvas shows them on
   its one-colour LED, an optional RGB or RGBW LED and an optional IR LED.
@@ -203,7 +210,11 @@ simulator); none of it has been tested on hardware yet.
 - Safety: the suite never writes, saves or deletes a `cal/` key (rule S5), and a dock frame that
   runs a command is held to the test link's allowlist. The firmware emulator runs the system state
   machine, the synthesiser, the calibration and the dock link, so the dry run checks those groups
-  against the library's own code.
+  against the library's own code. The dock never carries the test channel (a `0x7E` in a dock frame
+  answers -22); the end of arming drops a boot-time injection that no reboot has used yet, and the
+  runner clears one after an unplanned reset; a failure line never prints serial or chip ID bytes
+  or a bare Bluetooth address; a reboot the board makes by itself gets a window to leave that
+  covers it.
 
 ### Changed
 
@@ -268,10 +279,11 @@ simulator); none of it has been tested on hardware yet.
 - The hardware test suite's lizard group runs its mapping tests with lizard mode's processing
   switched off, and follows every sequence until lizard mode goes quiet (a glide keeps the reports
   going); `outputs.stop_status` expects the replies by the build's caps.
-- Host tests: 185 (13,196 checks), and 231 (16,407 checks) with the hardware test hooks built in;
-  each test also checks that every mutex the library took was let go again. The runner has 280
-  self-tests; its dry run against the firmware emulator (`--lizard --dock`) passes 233 tests and
-  skips 26; `tools/fake_puck.py` has 6 self-tests.
+- Host tests: 188 (25,251 checks), and 235 (28,483 checks) with the hardware test hooks built in;
+  each test also checks that every mutex the library took was let go again. The runner has 281
+  self-tests; its dry runs against the firmware emulator pass 233 tests and skip 26
+  (`--lizard --dock`), and pass 241 and skip 18 with `--flash` (the flash group and
+  `system.keylock`), both run by the host tests; `tools/fake_puck.py` has 6 self-tests.
 
 ### Not proven
 

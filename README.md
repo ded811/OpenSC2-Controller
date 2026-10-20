@@ -260,13 +260,13 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 185 host tests (13,196 checks); 231 (16,407 checks) with the hardware
+- **Host tests**, no hardware: 188 host tests (25,251 checks); 235 (28,483 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 280 self-tests; its dry run against the library's own code in a firmware emulator (233
-  tests pass, 26 skipped); 6 self-tests of `tools/fake_puck.py` and 9 of
-  `tools/match_steam_version.py`. Run
-  `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc
-  on PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
+  runner's 281 self-tests; its dry runs against the library's own code in a firmware emulator (233
+  tests pass, 26 skipped; with `--flash` 241 pass, 18 skipped); 6 self-tests of `tools/fake_puck.py`
+  and 9 of `tools/match_steam_version.py`. Run
+  `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc on
+  PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
   tested with gcc; clang (also what `gcc` runs on macOS) is not tested.
 - **The hardware test suite** (`tools/hwtest`) checks a board with nothing wired, from the PC. On the
   v0.2.0 release image (2026-10-19), with every opt-in on
