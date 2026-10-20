@@ -7,6 +7,34 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Added
+
+- The dock, the controller's end of Valve's puck's charging pads (built; not yet tested on
+  hardware): the 73-byte frames with their CRC-16/KERMIT (`<opensc2/dock.h>`); the dock link
+  (`CONFIG_OPENSC2_DOCK_LINK`, on with the test hooks): sessions that a failed frame ends, the
+  identity record for the probe, Steam's vendor commands on a stored request of the dock's own
+  (`0x81` and `0x85` acknowledged and ignored there), GET input from the copy of the latest state
+  report or, with the dock alone, from a new one, attribute 11 = 64000 while the dock is the only
+  link; the dock's rules (the pilot's window, dock or USB power, the docked states), which the
+  library does not act on yet.
+- `CONFIG_OPENSC2_DOCK`, the dock's UART and pilot sense from the devicetree alias `opensc2-dock`
+  (`dts/bindings/opensc2,dock.yaml`), and `app/dock.conf` with `app/dock.overlay`, a SuperMini
+  variant: built, never run on hardware. Nothing may be connected to Valve's puck's pads without
+  the owner's go-ahead.
+- Test hooks: the dock ops `0x90` to `0x93` (a frame loaded in two parts, run, its answer read back
+  with serials and bonds masked; the pilot check, the supply rule and the docked states on injected
+  values), the dock's ring entries `0x70` to `0x73` on link 5, caps bit 20.
+- The hardware test suite's opt-in `dock` group (`--dock`), with its safety rule (a dock frame that
+  runs a command is held to the test link's allowlist); `tools/fake_puck.py`, the puck's end of the
+  dock link through the firmware emulator, a board's test hooks or a USB-UART adapter (untested).
+
+### Changed
+
+- Vendor commands run one at a time across links (a mutex in the command channel), now that the
+  dock can run them beside USB or the radio.
+- The host tests are now 63 (3,034 checks), and 95 (5,778 checks) with the hardware test hooks; the
+  runner has 215 self-tests and its dry run includes `--dock`.
+
 ## [0.2.0] - 2026-10-19
 
 First public release.

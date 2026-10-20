@@ -71,6 +71,10 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x42` | HOST_GET | | opcode u8, n u8, flags u8 (bit 0 masked, bit 1 cut), then the first min(n, 54) answer bytes, or for a masked answer the CRC-32 of its n bytes | a vendor GET on the test link; masked: `0xED` of `esb/bond` or `esb/bond_2`, `0xAE` tags 0, 1 and 4, `0xF2` selector 0, `0xA1` selector 1 |
 | `0x43` | APP_SEND | kind u8; kind 0: an input report, ID first, 1..53 bytes; kind 1: channel u8, flags u32 | result s32 | as the application would (`opensc2_send_report()`, `opensc2_send_haptic_status()`), through the guard like every report; DENIED for a `0x42` |
 | `0x44` | RADIO_DEAF | ms u16 (100..5000) | | the radio hears nothing that long, so the link times out the normal way; BUSY while one is pending, NO_LINK unless wireless and connected |
+| `0x90` | DOCK_LOAD | offset u8, then 1..53 bytes | | part of a 73-byte [dock frame](api.md#the-dock-link) to hand to the dock link; BAD_ARG past byte 73. The suite loads 53 bytes at 0 and 20 at 53 |
+| `0x91` | DOCK_RUN | length u8 (0..73), flags u8 (bit 0: start a session when none runs) | outcome u8 (0 answered, 1 too short: the session ends, 2 bad CRC: the session ends, 3 nothing arrived: the session goes on), session u8 (1 still running), then the answer's start byte u8, type u8, result s32, flags u8 (bit 0 its CRC checks, bit 1 bytes masked), CRC-32 of the whole answer u32, CRC-32 of the masked bytes in order u32 (0 if none), the handling time µs u32 (21 bytes) | the first `length` loaded bytes as if they had arrived from the puck. NO_LINK when no session runs and bit 0 is clear; DENIED for a SET (type 2) of 73 bytes whose opcode `HOST_SET` would refuse, before anything runs. A session the hooks start ends with their arming |
+| `0x92` | DOCK_READ | offset u8, count u8 (1..55) | offset u8, count u8, the answer's bytes | the last answer; masked bytes read as zeros: a probe's two serials (bytes 24 to 51), the data of a GET answer `HOST_GET` would mask. BUSY before any answer |
+| `0x93` | DOCK_CTRL | what u8, then by `what`: 0 STATUS; 1 END; 2 PILOT: three readings mV u16 (`0xFFFF` a failed conversion); 3 SUPPLY: usb, plus, pilot u8 (0 or 1), entry u8 (how the controller comes onto the dock while outside the dock states: 0 at power-on, 1 in the battery wait, 2 on battery), warm u8; 4 EVENT: event u8, chord u8; 5 RESET | STATUS: flags u8 (bit 0 a session runs, 1 the dock is the only link, 2 the hooks' session, 3 built with the UART), the last session end u8, sessions u32, frames u32, errors u32, the slowest handling µs u32, the docked state u8, the supply u8, the dock's stored request's opcode u8, a report copied u8 (22 bytes); PILOT: present u8, inside u8 (a bit per reading), session u8; SUPPLY and EVENT: the event posted u8 (`0xFF` none), from u8, to u8, handled u8, actions u32 | END ends a session; PILOT runs the check between sessions (one that passes starts a session); SUPPLY and EVENT step the supply rule and the docked states on these values only, and record each step; nothing they decide is done. Numbers: [proto/dock.py](../tools/hwtest/proto/dock.py) |
 
 The **test link** is a third command link of the library with a stored request of its own, used only
 by `HOST_SET` and `HOST_GET`, so emulating a host on the board never disturbs the stored request of
@@ -88,7 +92,7 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 (bit 0 `TRIGGER_CLICK_AUTO`, 1 `LIZARD_MODE`, 2 `STEAM_WATCHDOG`, 3 `USB`, 4 `USB_PROFILE_OCTOBER`,
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
-`NO_HOST_WIRELESS_MS` not 0, the charger test build); 6 battery report interval ms u16; 8 rumble
+`NO_HOST_WIRELESS_MS` not 0, the charger test build; 20 `DOCK_LINK`, the dock ops exist); 6 battery report interval ms u16; 8 rumble
 timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16;
 16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
 revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
@@ -109,8 +113,9 @@ first u32; 20 next u32; 24 frames since ARM u32; 28 the step in use (`0xFF` idle
 resync of the ARM); `RING_READ`'s `first` is the oldest still there and `next` the one the next entry
 gets, so a reader that asked from `from` and gets `first` > `from` lost entries. An entry: time u32 (µs
 since ARM), kind u8, link u8 (0 radio, 1 USB, 2 test: the host emulation and everything the console
-causes, 3 none: work queue events such as the rumble timeout or the Steam watchdog; for `ARMED` and
-`MARK` the transport of the request), data length u8 (at most 41), data:
+causes, 3 none: work queue events such as the rumble timeout or the Steam watchdog, 5 dock: the dock
+link and the commands it ran; for `ARMED` and `MARK` the transport of the request), data length u8
+(at most 41), data:
 
 | Kind | Name | Data |
 | --- | --- | --- |
@@ -134,6 +139,10 @@ causes, 3 none: work queue events such as the rumble timeout or the Steam watchd
 | `0x22` | VERSION | the protocol version answered |
 | `0x23` | IDENTITY | product ID u16, build time u32, bootloader build time u32, revision u32, git revision 12 bytes (never the serials) |
 | `0x24` | CHANNELS | the four channel bytes of `0xE4` |
+| `0x70` | DOCK_SESSION | what u8 (0 start, 1 end), reason u8 (a start: 0 the pilot, 1 the test hooks; an end: 1 too short, 2 bad CRC, 3 a receive error, 4 the receiver not armed, 5 stopped), frames u32 (an end: answered in that session) |
+| `0x71` | DOCK_FRAME | the request's type u8 (`0xFF` below 2 bytes), outcome u8 (0 answered, 1 size, 2 CRC), length u8, the answer's result s32 (0 without one), the handling time µs u32 |
+| `0x72` | DOCK_PILOT | three readings mV s16 (−1 a failed conversion), inside u8 (a bit per reading), present u8 (a passing check, or one the hooks fed) |
+| `0x73` | DOCK_STATE | what u8 (0 a supply event, 1 an entry into the dock states, 2 another event), event u8 (the event, or the entry), chord u8, from u8, to u8 (0 away, 1 radio off, 2 lifted off, 3 a chord, 4 link up), handled u8, actions u32 (bits in `dock_rules.h`'s order: stop link, start link, pairing, select, cue, power-off chime, 4 s timer, 5 s timer, timer stop, pause, reboot, shutdown, update window, to battery, to a battery chord, LED charging, LED transport, LED colour, LED off, keylock cleared) |
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).
 
@@ -162,7 +171,7 @@ A command that ends with 0 while armed refreshes the lease.
 | `status` | | `STATUS armed= guard= inject= battery= seq=idle\|run mode=wired\|wireless reason= link=off\|no-bond\|pairing\|listening\|connected usb=off\|attached\|no-host\|configured slot=1\|2 lizard= frames= ring=<first>..<next> up= nonce=<8 hex digits> policy=auto\|wireless snapshot=` (new keys may follow) | no |
 | `arm` | `<key hex8> [<lease s>]` (the key is `7e57ab1e`; nonce 0, no restore) | `ARMED nonce=00000000 lease=<s>` | no |
 | `disarm` | | `DISARMED` | yes |
-| `ring` | `[<from>]` | `EV <seq> <t ms>.<µs> <radio\|usb\|test\|none> <KIND> <field=value ...>` per entry, then `RING first=<n> next=<n>` | yes |
+| `ring` | `[<from>]` | `EV <seq> <t ms>.<µs> <radio\|usb\|test\|none\|dock> <KIND> <field=value ...>` per entry, then `RING first=<n> next=<n>` | yes |
 | `cnt` | | `CNT <name>=<value>` per counter | yes |
 | `settings` | | `SETTINGS <first> <v> ...`, 16 values a line, 86 in all | no |
 | `inject off`, `battery off`, `seq stop` | | `OK` | yes |

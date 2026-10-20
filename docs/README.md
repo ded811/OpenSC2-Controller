@@ -81,6 +81,12 @@ reboot (not a power loss). In wireless mode, `opensc2 usb log` prints it.
 **Mode policy.** The stored rule for boots with USB power: `auto` (the real controller's rule: USB
 power at power-up means wired) or `wireless` (never wired). `opensc2 mode` shows and sets it.
 
+**The dock.** The puck's other job: a controller resting on it charges through three pogo pads,
+`+`, `−` and `P`, and the puck talks to it over a slow serial link on the same contacts, in 73-byte
+frames. `P` carries the **pilot**, a level that tells the puck a controller is there. OpenSC2 has
+the controller's end of the protocol; its UART build has never run on hardware
+([api.md](api.md#the-dock)).
+
 **The blank canvas.** The firmware in `app/`: every input of a Steam Controller 2 set up in one
 devicetree overlay, so you wire only what you have. The SuperMini's pins carry the buttons, the
 digital triggers, one stick and the pairing button; the other inputs are listed in the overlay,

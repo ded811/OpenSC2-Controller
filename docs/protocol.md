@@ -32,7 +32,7 @@ study of the controller's firmware, not from that documentation; the gaps below 
 | The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
 | Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
 | Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
-| The dock (not implemented here) | [The puck's end](#overview-the-pucks-end) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md) |
+| The dock: the frames over the puck's charging pads, the pilot, dock power, the docked states (the protocol here; its UART build has never run on hardware) | [The dock](#overview-the-dock), [api.md, The dock](api.md#the-dock) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md), [docs/puck/05-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/05-dock.md) |
 | What the puck shows Steam (feature report pass-through, attribute cache) | [The puck's end](#overview-the-pucks-end) | [docs/puck/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/03-usb-and-hid.md) |
 
 The puck's side as an open firmware, public: [Counterpuck](https://github.com/ded811/Counterpuck)
@@ -113,7 +113,8 @@ What OpenSC2 counts on from Valve's puck (`28DE:1304`), which it does not implem
   report, so nothing stays held.
 - **The dock**: the puck is also a charging dock. A controller resting on it gets power through
   three pogo pads, and the puck talks to it over a slow serial link on the same contacts. OpenSC2
-  does not implement the dock.
+  has the controller's end of that protocol ([The dock](#overview-the-dock)); its UART build has
+  never run on hardware.
 
 ## Overview: the cable
 
@@ -222,6 +223,48 @@ usable without Steam. OpenSC2 does the same, on every link:
   while setting 37 is on); the library hands both to the application. The real controller's
   status LED shows its mode by colour: green while wired, white with a little blue on the puck's
   link, amber on the dock.
+
+## Overview: the dock
+
+From the research documentation's dock pages (the controller's and the puck's); nothing of it has
+been seen on a wire. The puck's three pogo pads are `+` (a rail at about USB voltage the puck
+switches on itself), `−` (ground) and `P`, the **pilot**: an analog level that tells the puck a
+controller is there, and (inferred) the line of a half-duplex serial link too.
+
+- **The puck's side**: idle, it keeps `+` off and reads the pilot every 100 ms; once the pilot has
+  been inside its window for 200 readings in a row, it switches `+` on, checks both voltages every
+  5 ms, and after 1 s sends a probe. An answer means attached (the puck reports it to the PC as
+  input report `0x79` = 2 on its fifth HID interface); no answer is a fault (`+` off for 10 s). While
+  attached it relays the PC's feature report 1 and, with nothing pending for 64 ms, polls the
+  controller's input; a failed poll that a probe 10 ms later does not forgive sends it back to idle.
+  Each exchange: send, throw away the first frame back within 100 ms (its own echo), wait up to
+  64 ms for the answer, wait 10 ms; one retry. The puck answers Steam's `0x83` and `0xAE` for a
+  docked controller itself, from the probe's record (attribute 11 = 64000).
+- **The link**: 115200 baud, 8N1, no flow control. Every message is a 73-byte frame: the start byte
+  (`0x5A` from the puck, `0xAC` from the controller, checked by nobody), the request type, two unused
+  bytes, the result (s32), 63 payload bytes and a CRC-16/KERMIT of bytes 0 to 70, low byte first.
+  The receiver runs the CRC over all 73 bytes and accepts 0.
+- **The requests**: 0 probe (the answer: the 57-byte identity record, as radio packet `0xF5`); 1 GET
+  of a vendor command (`{opcode, length, data}` of the command last set on the dock, result 63 or a
+  negative error); 2 SET (`{opcode, length, data}` through the same command channel as every link,
+  result 0 or a negative error); 3 GET input (the latest state report `0x42`, its 53 bytes after the
+  ID). The dock keeps its own stored request, `0x83` after a boot. `0x81` and `0x85` from the dock
+  are acknowledged and do nothing.
+- **The controller's session**: it checks the pilot (three readings 3 ms apart, present when two lie
+  inside 2000 to 3300 mV at its pin), then serves one request at a time with no time limit for the
+  first byte; a 64 ms silence inside a frame, a bad length or CRC, or a receive error ends the
+  session and it checks the pilot again. It arms its receiver only after its answer has left.
+- **Input over the dock**: with another link up, the dock gets a copy of that link's latest state
+  report; with the dock alone, each GET input takes one sample. Nothing else goes to the dock (no
+  lizard mode, no `0x43` or `0x44`), and nothing comes back but vendor commands: no output reports.
+- **Dock power**: the controller tells the dock from USB power by the pilot at the moment the supply
+  appears; its state machine then has docked states: with the radio off (charging; a transport
+  chord or STEAM starts the link), with the link up (turn-off goes back to radio-off with the
+  power-off chime), and lifted off (5 s, then off). A warm reboot on the dock starts the stored
+  link again.
+
+What OpenSC2 does with it, and what it leaves out: [api.md, The dock](api.md#the-dock) and gaps 22
+to 27 below.
 
 ## Where this library had to fill gaps
 
@@ -345,6 +388,33 @@ open, the library does what should work with Steam and the puck, and says so her
     or reboot (`OPENSC2_POWER_USB_UNPLUGGED`); without a callback it reboots, which comes back
     wireless on a battery, and the blank canvas does the same, having no power-off of its own. A
     board without a battery has lost its power anyway.
+22. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
+    not write as it was in its previous answer: a probe's type and result, a SET's payload, the bytes
+    after a shorter answer, and the whole frame for a request type it does not know. OpenSC2 writes
+    zeros there, answers a probe with type 0 and result 0, and an unknown type with its type and
+    `-22`. The puck reads only what each answer defines and never sends another type, so neither it
+    nor Steam can tell.
+23. **GET input with the dock alone** answers with the report built for that request. The real
+    controller (inferred from its thread priorities) answers with the one its previous request
+    built, one poll old (about 90 ms).
+24. **Result codes on the dock** are the real controller's numbers whatever this platform's errno
+    values are: `-22` for an opcode nobody knows or a length above 61, `-95` for a GET whose
+    command has nothing to read.
+25. **One command at a time.** The real controller runs each link's commands in that link's own
+    thread, with no lock between links. OpenSC2 runs one command at a time across links, so a command
+    from the dock waits for one from USB or the radio and the other way round; a flash write on one
+    link can delay another link's command by its length. A host sees no other difference.
+26. **Dock power and the docked states** exist as rules ([api.md](api.md#the-docks-rules)), tested on
+    injected values only; the library does not act on them yet. On the real controller the dock's
+    `+` reaches the chip's USB supply input; on OpenSC2 it must not (a board would boot wired on the
+    dock), so the rule takes `+` on an input of its own, and the dock and USB at once count as the
+    dock, as on the real controller. A cold boot on the dock still starts the radio when the
+    application asks, where the real controller charges with the radio off.
+27. **The dock's wire is untried.** The pilot's window is at the controller's pin with no divider;
+    how the pilot and the serial link share the `P` pad, the pad's idle level and its load are not
+    known. The SuperMini dock build (`app/dock.conf`) is a guess at the controller's side (an
+    open-drain TX, RX without a pull, the pilot on an analog pin), built and never run; nothing may
+    be connected to Valve's puck's pads without the owner's go-ahead.
 
 ## What this library adds for development boards
 
