@@ -7,6 +7,9 @@
  * overlay as imu0. Read at about 250 Hz, converted to report 0x42's units, with the orientation
  * quaternion from the library's fusion helper. Like the real controller it only streams while
  * Steam has the IMU switched on (controller setting 48), unless CONFIG_APP_IMU_ALWAYS is set.
+ * With the haptics synthesiser's drop sounds (app/haptics.conf), every sample also goes through the
+ * library's free-fall detector, and a fall is reported to the synthesiser (as on the real
+ * controller, only while the IMU streams).
  *
  * Axes: the controller's X points right, Y forward (away from the player), Z up, when it lies flat.
  * Mount the sensor that way, or swap and negate axes in to_controller_axes().
@@ -21,6 +24,7 @@ LOG_MODULE_REGISTER(imu, LOG_LEVEL_INF);
 #if DT_NODE_EXISTS(DT_ALIAS(imu0)) && defined(CONFIG_SENSOR) && defined(CONFIG_OPENSC2_FUSION)
 #include <zephyr/drivers/sensor.h>
 #include <opensc2/fusion.h>
+#include <opensc2/haptics.h>
 
 #define IMU_PERIOD_MS 4
 
@@ -35,6 +39,7 @@ static void to_controller_axes(float v[3])
 static void imu_thread(void *p1, void *p2, void *p3)
 {
 	struct opensc2_fusion fusion;
+	struct opensc2_freefall fall;
 	int64_t last = k_uptime_ticks();
 	bool streaming = false;
 
@@ -46,6 +51,7 @@ static void imu_thread(void *p1, void *p2, void *p3)
 		return;
 	}
 	opensc2_fusion_init(&fusion);
+	opensc2_freefall_init(&fall);
 
 	for (;;) {
 		struct sensor_value a[3], g[3];
@@ -87,6 +93,10 @@ static void imu_thread(void *p1, void *p2, void *p3)
 		}
 		opensc2_fusion_quat(&fusion, out.quat);
 		opensc2_set_imu(&out);
+		if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS) &&
+		    opensc2_freefall_update(&fall, out.accel, k_uptime_get_32())) {
+			opensc2_haptics_free_fall();
+		}
 	}
 }
 

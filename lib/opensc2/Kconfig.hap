@@ -66,6 +66,7 @@ config OPENSC2_HAPTICS_OUT_PWM_DAC
 	bool "Pads: PWM as a DAC on nrfx (untested)"
 	depends on $(dt_compat_enabled,$(DT_COMPAT_OPENSC2_HAPTICS_PWM_DAC))
 	depends on SOC_SERIES_NRF52
+	select NRFX_PWM
 	help
 	  The pads' blocks played as duty cycles by an nRF PWM instance through nrfx's sequence
 	  playback: a 15.625 us period (250 steps of the 16 MHz clock), each sample held 16 periods

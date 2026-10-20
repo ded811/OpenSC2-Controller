@@ -1,0 +1,29 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+
+description: |
+  OpenSC2's haptics synthesiser: the grips' blocks played by an I2S amplifier
+  (CONFIG_OPENSC2_HAPTICS_OUT_I2S). The I2S controller runs as master, 16-bit stereo at 8 kHz, the
+  left grip on the left word: one I2S class-D amplifier per channel (for example a MAX98357A set
+  to the left or the right word) or a stereo one, each driving a wideband voice-coil exciter.
+  Built; not yet tested on hardware.
+
+    haptics_grips: haptics-grips {
+            compatible = "opensc2,haptics-i2s";
+            i2s = <&i2s0>;
+            enable-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+    };
+
+compatible: "opensc2,haptics-i2s"
+
+properties:
+  i2s:
+    type: phandle
+    required: true
+    description: The I2S controller (enabled, with its pins in a pinctrl group).
+
+  enable-gpios:
+    type: phandle-array
+    description: |
+      The amplifier's enable (shutdown) pin: active while something plays, or always with
+      controller setting 75 = 1.
