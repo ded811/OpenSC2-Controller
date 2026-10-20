@@ -18,11 +18,12 @@ OpenSC2 is original code written from the protocol documentation the same author
 published in
 [steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered),
 the research repository; not public yet), plus black-box tests and USB captures of Steam with a
-real controller ([How it was made](README.md#how-it-was-made)). A few facts come directly from the
-same authors' study of the controller's firmware, not from that documentation: the ranges of seven
-settings, details of the report descriptor, and lizard mode's key-slot rule, its scales and when
-its mouse reports go out ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps)
-lists each). It is not a clean-room implementation, and it says so. Contributions keep it that way:
+real controller ([How it was made](README.md#how-it-was-made)). A few facts first came directly
+from the same authors' study of the controller's firmware rather than from that documentation:
+details of the report descriptor, which it does not give in full yet, and the ranges of seven
+settings and lizard mode's key-slot rule, its scales and when its mouse reports go out, which it
+has now ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps) lists each). It
+is not a clean-room implementation, and it says so. Contributions keep it that way:
 
 - Write your change yourself, from public documentation: this repository's docs,
   [Counterpuck](https://github.com/ded811/Counterpuck)'s docs, SDL's public driver (its names and

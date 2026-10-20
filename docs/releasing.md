@@ -205,9 +205,10 @@ Later, once `ded811/steam-controller-2-reverse-engineered` is public, after its 
 provenance check:
 
 1. **Optional: complete its documentation** with what OpenSC2's pages say is not in it yet: the
-   ranges of settings 9, 11, 12, 14, 45, 70 and 71; the form of the report descriptor's vendor
-   items and the order of its reports (its collection sizes are already there, on the puck's USB
-   page); lizard mode's key-slot rule, its scales and when its mouse reports go out.
+   form of the report descriptor's vendor items and the order of its reports (its collection sizes
+   are already there, on the puck's USB page). The ranges of settings 9, 11, 12, 14, 45, 70 and 71
+   and lizard mode's key-slot rule, its scales and when its mouse reports go out, which also first
+   came from the same authors' study, are in it now.
 2. **Reword the notes that say it is not public.** This lists every one:
 
    ```powershell
@@ -220,8 +221,7 @@ provenance check:
    The list includes this page: bring its introduction, step A.1 and step C.3 up to date too. If
    you did step 1, also reword the sentences that say those facts are not in that documentation,
    with links to where they now are (in `README.md`, `NOTICE.md`, `CONTRIBUTING.md`,
-   `docs/protocol.md`, `docs/api.md`, `include/opensc2/settings.h`, `include/opensc2/codec.h`,
-   `lib/opensc2/settings_defaults.c`, `lib/opensc2/usb_desc.c`, `lib/opensc2/lizard.c` and
+   `docs/protocol.md`, `include/opensc2/codec.h`, `lib/opensc2/usb_desc.c` and
    `tests/codec/src/cases_usb.h`).
 3. **Check every research link** against a fresh clone of the published repository, not against
    your working tree:

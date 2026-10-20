@@ -10,8 +10,9 @@ a Steam Controller 2 is on its cable. It was written from the protocol documenta
 authors wrote (to be published in
 [steam-controller-2-reverse-engineered](https://github.com/ded811/steam-controller-2-reverse-engineered);
 not public yet), plus black-box tests and USB captures of Steam with a real controller
-([How it was made](../README.md#how-it-was-made)). A few facts come directly from the same authors'
-study of the controller's firmware, not from that documentation; the gaps below say which.
+([How it was made](../README.md#how-it-was-made)). A few facts first came directly from the same
+authors' study of the controller's firmware rather than from that documentation; the gaps below
+say which, and which of them the documentation has now.
 
 > [!NOTE]
 > The research repository is not public yet, so the links to it on this page do not open until it
@@ -391,7 +392,9 @@ open, the library does what should work with Steam and the puck, and says so her
 6. **Controller settings** follow the documentation: every one of the 86 has its documented default
    and range, and `0x87` clamps each value to its range ([api.md](api.md#controller-settings)),
    also for the 49 settings nothing reads (0.2.0 knew nine ranges and stored the rest as sent, with
-   0 as the default where it knew none). Settings 48, 84 and 85 are stored as sent, for the
+   0 as the default where it knew none; seven of those nine, the ranges of settings 9, 11, 12, 14,
+   45, 70 and 71, first came from the same authors' study of the controller's firmware, and the
+   documentation has them now). Settings 48, 84 and 85 are stored as sent, for the
    application (the real controller hands them to its IMU unclamped), and `0x89` answers their
    defaults, as on the real controller. Whether Steam reads them back is not known. `0x89` of a
    number above 85 reads 0, as on the real controller (0.2.0 stalled it).
