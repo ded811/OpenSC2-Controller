@@ -27,6 +27,10 @@ still change between minor versions.
   seen. A crash at every boot writes flash once.
 - The settings partition's recovery (`CONFIG_OPENSC2_STORAGE_RECOVERY`, on with NVS settings): a
   partition with every sector occupied is erased at boot, as on the real controller.
+- The real controller's hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`, off by default; the test
+  build `app/watchdog.conf`): 5 s, fed every 2.5 s from the lowest priority, and a 4.5 s warning
+  that crashes on purpose so a hang leaves a crash record. Built; not yet tried on hardware, nor
+  with the UF2 bootloader.
 
 ### Changed
 

@@ -20,6 +20,7 @@ zephyr_library_sources(
 	commands.c
 	crash.c
 	crash_rules.c
+	hwdt.c
 	id_rules.c
 	key_rules.c
 	keys.c

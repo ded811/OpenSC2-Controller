@@ -22,7 +22,8 @@ library into a project: [integration.md](integration.md).
 - [Controller settings](#controller-settings), and the other state Steam sets
 - [Kconfig options](#kconfig-options)
 - [Threads and timing](#threads-and-timing)
-- [Reliability](#reliability): crash records, the settings partition's recovery, reset causes
+- [Reliability](#reliability): crash records, the hardware watchdog, the settings partition's
+  recovery, reset causes
 - [Shell commands](#shell-commands)
 - [Hardware test hooks](#hardware-test-hooks): input injection, output capture, the lizard guard
 - [Pure helpers](#pure-helpers), and [the IMU fusion helper](#the-imu-fusion-helper)
@@ -750,6 +751,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE` | n | identity through `0xEE` |
 | `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` | y | `0x44 {channel, 0x02}` after every stop, as the real controller ([Other input reports](#other-input-reports)) |
 | `CONFIG_OPENSC2_CRASH_RECORD` | y (n with `CONFIG_RESET_ON_FATAL_ERROR`) | the fatal-error handler: a crash record, then a reset ([Crash records](#crash-records)) |
+| `CONFIG_OPENSC2_WATCHDOG` | n (not yet tried with the UF2 bootloader) | the real controller's hardware watchdog with its warning crash ([The hardware watchdog](#the-hardware-watchdog)) |
 | `CONFIG_OPENSC2_STORAGE_RECOVERY` | y with NVS settings | erase a settings partition with every sector occupied ([The settings partition](#the-settings-partition)) |
 | `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH` | 8, 6 | |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
@@ -812,6 +814,26 @@ log keeps the rest), which the UF2 bootloader leaves alone; without such a regio
 RAM, and the build warns. The option is off when `CONFIG_RESET_ON_FATAL_ERROR` (the nRF Connect
 SDK's own handler) is on; turn it off too if your application has a fatal-error handler of its own.
 Without it a fatal error halts the board (Zephyr's default).
+
+### The hardware watchdog
+
+`CONFIG_OPENSC2_WATCHDOG` (off by default; `app/watchdog.conf` builds the blank canvas with it)
+runs the real controller's watchdog: the hardware watchdog (the devicetree alias `watchdog0`)
+resets the chip 5 s after the last feed and pauses while a debugger halts the CPU; a work queue at
+the lowest application priority (`opensc2_wdt`) feeds it every 2.5 s, and each feed re-arms a 4.5 s
+warning on the system work queue. When the feeds stop (a thread keeps the CPU busy at the
+feeder's priority or above), the warning comes first: it logs "Watchdog about to expire" and
+raises a kernel oops, so the [crash record](#crash-records) names the hang (reason 3); a hang that
+also stops the system work queue ends in a plain watchdog reset, seen only in `0xA1`'s reset
+causes. With a debugger attached the warning only logs. `opensc2_init()` starts it; it needs
+`CONFIG_OPENSC2_CRASH_RECORD`.
+
+> [!WARNING]
+> Not yet tried on hardware. The nRF52's watchdog cannot be stopped once it runs and may keep
+> running through a soft reset, so it may also run in the UF2 bootloader after the shell's `uf2` or
+> Steam's bootloader request; whether the Adafruit UF2 bootloader feeds it is not known. If it does
+> not, the bootloader resets 5 s later and a `.uf2` copy may not finish. A power cycle stops the
+> watchdog: unplug the board, plug it back in and short RST to GND twice at once.
 
 ### The settings partition
 

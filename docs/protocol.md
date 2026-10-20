@@ -380,6 +380,11 @@ open, the library does what should work with Steam and the puck, and says so her
     repeated at every boot writes flash once until a host reads it (the documentation names no
     such guard), and that `0xF2` saves the record it marked seen from the system work queue rather
     than inside the request.
+26. **The hardware watchdog** follows the documented timings (5 s, a feed every 2.5 s from the
+    lowest priority, the 4.5 s warning that raises a kernel oops, only a log with a debugger
+    attached), but is off by default (`CONFIG_OPENSC2_WATCHDOG`): the real controller's own
+    bootloader is not there, and how the UF2 bootloader copes with a watchdog left running has
+    not been checked ([api.md](api.md#the-hardware-watchdog)).
 
 ## What this library adds for development boards
 

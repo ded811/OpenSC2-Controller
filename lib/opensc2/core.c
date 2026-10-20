@@ -15,6 +15,7 @@
 #endif
 #include "internal.h"
 #include "crash.h"
+#include "hwdt.h"
 #include "keys.h"
 #include "test_hooks.h"
 
@@ -548,6 +549,7 @@ int opensc2_init(const struct opensc2_config *config)
 		LOG_WRN("Could not load stored bonds and identity (%d)", err);
 	}
 	osc2_crash_boot();   /* a record a fatal error left in RAM: stored now */
+	(void)osc2_hwdt_start();   /* CONFIG_OPENSC2_WATCHDOG: the hardware watchdog from here on */
 	if (config->bond_slot < OPENSC2_BOND_SLOTS) {
 		osc2.slot = config->bond_slot;
 	}
