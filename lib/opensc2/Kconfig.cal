@@ -18,7 +18,7 @@ config OPENSC2_CAL
 	  stored calibration and controller settings 30, 31, 34, 35, 46, 52, 53, 60 and 62 to raw ADC
 	  counts, pressure and capacitive words at every state report, as the real controller does,
 	  and the recordings take their samples from them. An application that gives finished values
-	  only is not affected. About 400 bytes of RAM.
+	  only is not affected. About 0.7 KB of RAM and 9.5 KB of flash (the blank canvas's build).
 
 if OPENSC2_CAL
 
