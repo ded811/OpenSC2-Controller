@@ -10,7 +10,7 @@
 # A third binary, the firmware emulator (fwemu.c: the hooks binary with a stdin/stdout main), lets
 # the hardware test suite's runner run its groups against the library's own code: when python3 is
 # on PATH, its self-tests and its dry run against the emulator run last (docs/testing.md), with
-# the self-tests of tools/match_steam_version.py.
+# the self-tests of tools/fake_puck.py and tools/match_steam_version.py.
 # NO_RUNNER=1 sh tests/host/run.sh runs the C tests only.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
@@ -68,6 +68,8 @@ else
 	"$py" -I "$root/tools/hwtest/run.py" --dry-run --fw-emu "$emu" --lizard --dock --yes \
 		--results "$out/opensc2_hwtest_results" ||
 		{ echo "FAIL the dry run against the emulator"; rc=1; }
+	OPENSC2_FWEMU="$emu" "$py" -I "$root/tools/fake_puck.py" --selftest ||
+		{ echo "FAIL the fake_puck.py self-tests"; rc=1; }
 	"$py" -I "$root/tools/match_steam_version.py" --selftest ||
 		{ echo "FAIL the match_steam_version.py self-tests"; rc=1; }
 fi

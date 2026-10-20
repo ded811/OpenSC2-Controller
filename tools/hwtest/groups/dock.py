@@ -144,6 +144,11 @@ def _run(ctx, rig):
             a = _answered(c, "a probe with start byte 0x00", _frame(rig, D.seal(odd, 0x00)))
             if a:
                 c.eq("its type", a["type"], D.PROBE)
+            # a type the puck never sends: its number back with -22 (OpenSC2's choice; the real
+            # controller repeats its previous answer)
+            a = _answered(c, "type 4", _frame(rig, D.build_request(4)))
+            if a:
+                c.eq("type 4: (type, result)", (a["type"], a["result"]), (4, D.RESULT_INVALID))
             r = _frame(rig, INPUT, length=0)
             c.eq("nothing arrives: outcome", D.RUN_OUTCOMES.get(r.get("outcome")), "nothing")
             c.true("... and the session goes on", r.get("session") is True)
@@ -160,7 +165,7 @@ def _run(ctx, rig):
             frames = base.of_kind(ring, C.RING_DOCK_FRAME)
             c.eq("DOCK_SESSION entries (start, end, start, end)",
                  [(e["what"], e["reason"]) for e in sessions], [(0, 1), (1, 1), (0, 1), (1, 2)])
-            c.eq("DOCK_FRAME outcomes", [e["outcome"] for e in frames], [0, 0, 1, 2])
+            c.eq("DOCK_FRAME outcomes", [e["outcome"] for e in frames], [0, 0, 0, 1, 2])
             c.true("every dock entry carries link 5",
                    all(e["link"] == C.RING_LINK_DOCK for e in sessions + frames))
             st = rig.dock_status()
@@ -239,6 +244,11 @@ def _run(ctx, rig):
                       if e["link"] == C.RING_LINK_DOCK]
             c.true("VENDOR entries on link 5 for the dock's commands (%d)" % len(vendor),
                    len(vendor) >= 8)
+            # the puck waits 64 ms for an answer, after its own 6.3 ms frame: well inside that
+            slowest = rig.dock_status()["slowest_us"]
+            c.observe(slowest_us=slowest)
+            c.true("every answer within 50 ms of its frame (slowest %d us)" % slowest,
+                   slowest < 50000)
 
     if ctx.want("dock.lizard"):
         with ctx.check(GROUP, "dock.lizard") as c:

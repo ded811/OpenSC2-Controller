@@ -7,7 +7,7 @@
   A third binary, the firmware emulator (fwemu.c: the hooks binary with a stdin/stdout main), lets
   the hardware test suite's runner run its groups against the library's own code: when Python is
   on PATH, its self-tests and its dry run against the emulator run last (docs/testing.md), with
-  the self-tests of tools\match_steam_version.py.
+  the self-tests of tools\fake_puck.py and tools\match_steam_version.py.
 .EXAMPLE
   From the repository folder. Windows does not run scripts by default; started this way,
   PowerShell runs this one (no administrator rights needed):
@@ -88,6 +88,8 @@ if ($NoRunner) {
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the runner self-tests'; $failed = 1 }
     & python -I $runPy --dry-run --fw-emu $fwemu --lizard --dock --yes --results $results
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the dry run against the emulator'; $failed = 1 }
+    & python -I (Join-Path $root 'tools\fake_puck.py') --selftest
+    if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the fake_puck.py self-tests'; $failed = 1 }
     Remove-Item Env:\OPENSC2_FWEMU
     & python -I (Join-Path $root 'tools\match_steam_version.py') --selftest
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the match_steam_version.py self-tests'; $failed = 1 }
