@@ -26,12 +26,12 @@ the SuperMini nRF52840, a template for your own project, seven samples and an au
 test suite.
 
 - **The library** (`lib/opensc2`, `include/opensc2`) does the protocol: the puck's 2.4 GHz link,
-  the wired USB device, pairing over the cable and the vendor commands Steam sends, and the real
-  controller's power, chord and status-LED rules. Your code hands it the inputs (buttons, sticks,
-  triggers, trackpads, IMU, battery) and gets the outputs (rumble, haptics, the status LED's mode
-  and Steam's LED colour, settings, cues, power-off) as callbacks. It has no pins of its own. New
-  since v0.2.0 and not yet tested on hardware: Bluetooth LE and a haptics synthesiser as options,
-  the dock's protocol, and the real controller's input processing and calibration
+  the wired USB device, pairing over the cable and the vendor commands Steam sends. Your code hands
+  it the inputs (buttons, sticks, triggers, trackpads, IMU, battery) and gets the outputs (rumble,
+  haptics, the status LED's mode and Steam's LED colour, settings, cues, power-off) as callbacks.
+  It has no pins of its own. New since v0.2.0 and not yet tested on hardware: the real
+  controller's power, chord and status-LED rules, its input processing and calibration, the
+  dock's protocol, and, as options, Bluetooth LE and a haptics synthesiser
   ([below](#since-v020-not-in-a-release-yet)).
 - **The firmware** (`app/`, "the blank canvas") is a complete Steam Controller 2 for the SuperMini
   nRF52840, a Pro Micro-sized nRF52840 board with the nice!nano pinout and the Adafruit nRF52 UF2
