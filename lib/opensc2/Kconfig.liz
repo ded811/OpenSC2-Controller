@@ -69,8 +69,11 @@ config OPENSC2_LIZARD_TICKS
 	  As on the real controller, while setting 70 is 1: moving across a pad makes a tick
 	  (click A at +8 dB) once the steps of 1500 pad units add up to more than setting 14 (every
 	  fourth step at the default 5500), and each press and release of a pad's click makes
-	  click B (+6 dB). The library has no actuator: each one is an event for the haptic callback
-	  (report ID 0: made by the library). Nothing plays once Steam has turned lizard mode off.
+	  click B (+6 dB). Each one is an event for the haptic callback (report ID 0: made by the
+	  library). With CONFIG_OPENSC2_HAPTICS_SYNTH the library also plays them itself on the
+	  pads (while setting 70 is 1 and the dock is not the current link); the haptic callback
+	  still gets them, so do not play them again on the synthesiser's actuators. Nothing plays
+	  once Steam has turned lizard mode off.
 
 config OPENSC2_REPORT_WAIT_DEPTH
 	int "Radio: lizard and application reports that wait when the report queue is full"
