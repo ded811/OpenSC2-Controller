@@ -134,6 +134,7 @@ causes, 3 none: work queue events such as the rumble timeout or the Steam watchd
 | `0x22` | VERSION | the protocol version answered |
 | `0x23` | IDENTITY | product ID u16, build time u32, bootloader build time u32, revision u32, git revision 12 bytes (never the serials) |
 | `0x24` | CHANNELS | the four channel bytes of `0xE4` |
+| `0x30` | STOP_STATUS | channel u8 (`0x44`'s numbering: left grip 0, right grip 1, left pad 3, right pad 4), flags u32 (`0x02`): a `0x44` the library sent as the reply to a stop, with the link the output came on |
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).
 

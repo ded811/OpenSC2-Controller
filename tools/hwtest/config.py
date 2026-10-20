@@ -106,7 +106,16 @@ RING_USB = 0x21
 RING_VERSION = 0x22
 RING_IDENTITY = 0x23
 RING_CHANNELS = 0x24
+# 0x30..0x33: protocol completeness
+RING_STOP_STATUS = 0x30      # a 0x44 the library sent as the reply to a stop
 RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none"}
+
+# 0x44 channel IDs and the "stopped" flag (docs/api.md, Other input reports)
+STATUS_LEFT_GRIP = 0
+STATUS_RIGHT_GRIP = 1
+STATUS_LEFT_PAD = 3
+STATUS_RIGHT_PAD = 4
+STATUS_STOPPED = 0x02
 
 # LIZARD "what" values (docs/test-protocol.md, The ring).
 LIZARD_LEAVE = 0

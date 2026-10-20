@@ -562,6 +562,12 @@ class SimBoard:
             else:
                 self.hooks.note(C.RING_HAPTIC, lk, T._encode_entry_data(
                     dict(fields, kind=C.RING_HAPTIC)))
+            for channel in M.stop_status(kind, fields):
+                # the 0x44 reply to a stop (CONFIG_OPENSC2_HAPTIC_STOP_STATUS, on in the app)
+                self.hooks.note(C.RING_STOP_STATUS, lk,
+                                bytes([channel]) + struct.pack("<I", C.STATUS_STOPPED))
+                self.input_send(bytes([C.RPT_HAPTIC_STATUS, channel]) +
+                                struct.pack("<I", C.STATUS_STOPPED))
         return n
 
     def rumble_off(self):

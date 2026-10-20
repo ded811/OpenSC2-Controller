@@ -89,6 +89,8 @@ void osc2_test_note_host_asleep(void);
 void osc2_test_note_version(uint8_t version);
 void osc2_test_note_identity(const struct opensc2_identity *id);
 void osc2_test_note_channels(const uint8_t channels[4]);
+/* A haptic stream status 0x44 the library sent itself (the reply to a stop) on `link`. */
+void osc2_test_note_status(uint8_t link, uint8_t channel, uint32_t flags);
 
 /* ---- what the glue provides (test_hooks.c; the host tests have a stand-in) ----
  * test_notes.c implements everything above on the core with these. */
@@ -284,6 +286,13 @@ static inline void osc2_test_note_identity(const struct opensc2_identity *id)
 static inline void osc2_test_note_channels(const uint8_t channels[4])
 {
 	(void)channels;
+}
+
+static inline void osc2_test_note_status(uint8_t link, uint8_t channel, uint32_t flags)
+{
+	(void)link;
+	(void)channel;
+	(void)flags;
 }
 
 #endif /* CONFIG_OPENSC2_TEST_HOOKS */

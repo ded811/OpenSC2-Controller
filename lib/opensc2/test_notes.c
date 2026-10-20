@@ -247,3 +247,14 @@ void osc2_test_note_channels(const uint8_t channels[4])
 		note(OSC2_TEST_KIND_CHANNELS, OSC2_TEST_LINK_RADIO, channels, 4);
 	}
 }
+
+void osc2_test_note_status(uint8_t link, uint8_t channel, uint32_t flags)
+{
+	uint8_t d[5];
+
+	if (osc2_test_core_armed(CORE)) {
+		d[0] = channel;
+		opensc2_put_le32(&d[1], flags);
+		note(OSC2_TEST_KIND_STOP_STATUS, link, d, sizeof(d));
+	}
+}

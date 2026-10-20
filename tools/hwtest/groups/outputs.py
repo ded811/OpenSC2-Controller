@@ -5,7 +5,9 @@
 # sends each report as a host does (W: WriteFile on interrupt OUT, which Windows pads to 64 bytes;
 # R: HOST_OUT on the test link) and checks, byte for byte, the ring entries the library made: an
 # OUTPUT entry with the decode result, then the RUMBLE or HAPTIC entries with the decoded fields and
-# the channels the target selects. Nothing is wired, so the ring is the only place these show.
+# the channels the target selects. Nothing is wired, so the ring is the only place these show. A
+# stop (0x81 with an on time of 0, 0x82 command 0, a zero speed in 0x80, 0x86's stream stop) also
+# brings the real controller's 0x44 replies: a STOP_STATUS entry and the report, per channel.
 import struct
 
 from . import base
@@ -17,11 +19,33 @@ GROUP = "outputs"
 TESTS = [("outputs.rumble", "WR", []), ("outputs.rumble_timeout", "WR", []),
          ("outputs.rumble_linkdown", "R", []), ("outputs.haptics", "WR", []),
          ("outputs.pcm", "WR", []), ("outputs.ignored", "WR", []), ("outputs.short", "WR", []),
-         ("outputs.exact_length", "WR", [])]
+         ("outputs.exact_length", "WR", []), ("outputs.stop_status", "WR", [])]
 
 RUMBLE_A = bytes.fromhex("8000E80310270020" "4E00")
 RUMBLE_B = bytes.fromhex("8007E8031027FD20" "4E04")
 RUMBLE_STOP = bytes([0x80]) + bytes(9)
+
+# outputs.stop_status: a report, and the 0x44 replies {channel, 0x02} the real controller sends for
+# it, in order (proto_rules.c; left grip 0, right grip 1, left pad 3, right pad 4)
+LG, RG, LP, RP = C.STATUS_LEFT_GRIP, C.STATUS_RIGHT_GRIP, C.STATUS_LEFT_PAD, C.STATUS_RIGHT_PAD
+STOP_CASES = (
+    ("Steam's zero pulse, target 0 (the right pad)", bytes([0x81, 0]) + bytes(6), [RP]),
+    ("Steam's zero pulse, target 1 (the left pad)", bytes([0x81, 1]) + bytes(6), [LP]),
+    ("0x81 on time 0, both pads: left first", bytes([0x81, 2, 0, 0, 1, 0, 3, 0]), [LP, RP]),
+    ("0x81 on time 0, both grips", bytes([0x81, 5]) + bytes(6), [LG, RG]),
+    ("0x82 stop all, both pads", bytes([0x82, 6, 0, 0]), [LP, RP]),
+    ("0x82 stop all, the left grip", bytes([0x82, 3, 0, 0]), [LG]),
+    ("0x80 with both speeds (no stop)", RUMBLE_A, []),
+    ("0x80, the right speed 0", bytes([0x80, 0]) + struct.pack("<HHbHb", 1000, 10000, 0, 0, 0),
+     [RG]),
+    ("0x80, both speeds 0: the right grip first", RUMBLE_STOP, [RG, LG]),
+    ("0x86 stream stop, both pads: right first", bytes([0x86, 1, 5, 0]), [RP, LP]),
+    ("0x86 stream stop, both grips", bytes([0x86, 1, 2, 0]), [RG, LG]),
+    ("0x81 pulse train (no stop)", bytes([0x81, 2]) + struct.pack("<HHH", 1000, 1000, 2), []),
+    ("0x82 click A (no stop)", bytes([0x82, 2, 1, 0]), []),
+    ("0x86 set format (no stop)", bytes([0x86, 2, 5, 1]), []),
+    ("0x81 on time 0, a target that selects nothing", bytes([0x81, 8]) + bytes(6), []),
+)
 
 # one report per ID with distinct field values (the target byte is filled in), and what the HAPTIC
 # entry decodes from it
@@ -294,3 +318,36 @@ def run(ctx):
                    len(got[0]) == len(got[1]) == 1 and
                    {k: v for k, v in got[0][0].items() if k not in ("time_us", "raw", "seq")} ==
                    {k: v for k, v in got[1][0].items() if k not in ("time_us", "raw", "seq")})
+
+    if ctx.want("outputs.stop_status"):
+        with ctx.check(GROUP, "outputs.stop_status") as c:
+            base.need(rig, "outputs")
+            # the reports themselves: on W the board's collection, on R the board's proven slot
+            stream = rig.models("app_send") and (rig.path == "W" or rig.slot_proven_at is not None
+                                                 or not rig.models("puck"))
+            if not stream:
+                c.note("the ring only (the board's slot on the puck is not proven)")
+            window = 0.15 if rig.path == "W" else 0.5
+            for what, report, want in STOP_CASES:
+                if stream:
+                    rig.flush()
+                start = rig.ring_next()
+                _send(rig, report)
+                _f, _n, entries = rig.ring_wait(
+                    start, lambda es, k=len(want): len(base.of_kind(es, C.RING_OUTPUT)) >= 1 and
+                    len(base.of_kind(es, C.RING_STOP_STATUS)) >= k)
+                stops = base.of_kind(entries, C.RING_STOP_STATUS)
+                c.eq("%s: STOP_STATUS entries" % what, [e["channel"] for e in stops], want)
+                if stops:
+                    c.eq("%s: flag 0x02, on the output's link" % what,
+                         {(e["flags"], e["link"]) for e in stops},
+                         {(C.STATUS_STOPPED, _link(rig))})
+                if stream:
+                    reps = rig.read_stream(duration_s=window)
+                    got = [(r[1], struct.unpack_from("<I", r, 2)[0]) for _t, r in reps
+                           if r[0] == C.RPT_HAPTIC_STATUS and len(r) >= 6]
+                    c.eq("%s: the 0x44 reports, in order" % what, got,
+                         [(ch, C.STATUS_STOPPED) for ch in want])
+            c.note("%d reports: every stop-all (0x81 on time 0, 0x82 command 0, a zero speed in "
+                   "0x80) and 0x86's stream stop answered with 0x44 {channel, 0x02}" %
+                   len(STOP_CASES))

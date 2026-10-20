@@ -15,7 +15,8 @@
  * rules and encoding, lizard mode (lizard.c), the battery report, output report decoding. Done
  * here the way report.c, core.c and radio.c do it, in a few lines each: the order of lizard mode's
  * reports, the frame and battery cadence, the Steam watchdog's expiry, the rumble timeout, the
- * radio link (connected, or off after "opensc2 stop" or a turn-off), reboots, and the reports the
+ * haptic stream status replies to a stop (the rule is proto_rules.c's), the radio link
+ * (connected, or off after "opensc2 stop" or a turn-off), reboots, and the reports the
  * application sends. Not here: USB descriptors, the radio protocol, the other shell commands.
  *
  * One command per line; every reply ends with a line ".":
@@ -42,6 +43,7 @@
 #include <string.h>
 #include "internal.h"
 #include "lizard.h"
+#include "proto_rules.h"
 #include "report_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
@@ -436,6 +438,22 @@ static void frame(void)
 
 /* ---- output reports: report.c's osc2_output_dispatch() without the callbacks ------------------ */
 
+/* report.c's stop_status() (CONFIG_OPENSC2_HAPTIC_STOP_STATUS, on in the app): the 0x44 replies
+ * to a stop, on the mode's link. */
+static void stop_status(enum osc2_link link, const struct opensc2_output *out)
+{
+	uint8_t ids[4];
+	uint8_t n = osc2_stop_status(out, ids);
+
+	for (uint8_t i = 0; i < n; i++) {
+		uint8_t report[OPENSC2_HAPTIC_STATUS_LEN];
+
+		opensc2_encode_haptic_status(ids[i], OSC2_STATUS_STOPPED, report);
+		osc2_test_note_status(link, ids[i], OSC2_STATUS_STOPPED);
+		(void)input_send(report, sizeof(report));
+	}
+}
+
 static int output(enum osc2_link link, const uint8_t *report, size_t len)
 {
 	struct opensc2_output out[2];
@@ -459,6 +477,7 @@ static int output(enum osc2_link link, const uint8_t *report, size_t len)
 		} else if (out[i].type == OPENSC2_OUTPUT_HAPTIC) {
 			osc2_test_note_haptic(link, &out[i].haptic);
 		}
+		stop_status(link, &out[i]);
 	}
 	return n;
 }

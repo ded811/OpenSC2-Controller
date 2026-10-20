@@ -330,3 +330,25 @@ def setting_answer(number, value):
 def led_readback(percent):
     """One channel of 0xE9 as the real controller reads it back: 100 stays, anything else is 0."""
     return 100 if percent == 100 else 0
+
+
+# 0x44 channel IDs by channel bit, left first (proto_rules.c)
+_STATUS_IDS = ((CH_LPAD, 3), (CH_RPAD, 4), (CH_LGRIP, 0), (CH_RGRIP, 1))
+
+
+def stop_status(kind, fields):
+    """The 0x44 channel IDs a decoded output brings back with flag 0x02 (proto_rules.c): every
+    stop-all (0x81 on time 0, 0x82 command 0, a zero speed in 0x80 for that grip) and 0x86's
+    stream stop, in the order the real controller queues them: left first for 0x81 and 0x82,
+    right first for 0x86, the right grip before the left for 0x80. `kind` and `fields` as the
+    simulator's decoder gives them ("rumble" or "haptic")."""
+    if kind == "rumble":
+        return ([1] if fields["right"] == 0 else []) + ([0] if fields["left"] == 0 else [])
+    hk = fields.get("haptic_kind")
+    stop = (hk == 0 and fields.get("on_us") == 0) or (hk == 1 and fields.get("command") == 0)
+    if stop:
+        return [sid for bit, sid in _STATUS_IDS if fields["channels"] & bit]
+    if hk == 5 and fields.get("operation") == 1:
+        order = ((CH_RPAD, 4), (CH_LPAD, 3), (CH_RGRIP, 1), (CH_LGRIP, 0))
+        return [sid for bit, sid in order if fields["channels"] & bit]
+    return []

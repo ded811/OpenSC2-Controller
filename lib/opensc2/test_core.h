@@ -150,6 +150,8 @@ enum osc2_test_kind {
 	OSC2_TEST_KIND_VERSION = 0x22,
 	OSC2_TEST_KIND_IDENTITY = 0x23,
 	OSC2_TEST_KIND_CHANNELS = 0x24,
+	/* 0x30..0x33: protocol completeness */
+	OSC2_TEST_KIND_STOP_STATUS = 0x30,   /* a 0x44 the library sent as the reply to a stop */
 };
 
 /* LIZARD entries. */

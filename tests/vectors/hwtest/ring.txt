@@ -24,6 +24,7 @@ ENTRY 00000000210103030100                               # USB configured, activ
 ENTRY 0000000022000101                                   # VERSION 1, radio
 ENTRY 00000000190000                                     # HOST_ASLEEP, radio
 ENTRY 00000000240004031b2fff                             # CHANNELS 3 27 47 and one unused, radio
+ENTRY 000000003001050402000000                           # STOP_STATUS right pad (4), flags 0x02, USB
 ENTRY 0000000023001a02135983626af2f9d2684b0000006f7363322d6170702d302e32 # IDENTITY 0x1302, build 0x6a628359, bootloader 0x68d2f9f2, rev 0x4b, osc2-app-0.2
 ENTRY 0000000012020c02830203fd2c0164000a0032             # HAPTIC tone, 0x83 target 2 (both pads), gain -3, 300 Hz, 100 ms, LFO 10 Hz, depth 50
 ENTRY 0000000012020c0384050c0564006400e80301             # HAPTIC sweep, 0x84 target 5 (both grips), gain 5, 100 ms, 100 to 1000 Hz, antiphase

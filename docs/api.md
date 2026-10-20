@@ -391,6 +391,16 @@ pad 3, right pad 4; flags `0x01` bytes dropped, `0x02` ran dry or stopped, `0x04
 mark (send more), `0x08` at the water mark (pause), `0x10` the format needs an 8 kHz channel, `0x20`
 format set, `0x40` format cannot change while playing.
 
+The library sends one kind of `0x44` itself, as the real controller does
+(`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default): every stop-all, that is output report `0x81`
+with an on time of 0, `0x82` with command 0 or a speed of 0 in `0x80` (for that grip), and `0x86`'s
+stream stop, gets `0x44 {channel, 0x02}` for each channel it reaches, whether or not anything was
+streaming, on the link the output came on, right after the `haptic` or `rumble` callback. The
+order is the real controller's: the left channel first for `0x81` and `0x82`, the right first for
+`0x86`, the right grip before the left for `0x80`. Steam's pair of all-zero `0x81` reports (target
+0, then 1) gets `44 04 02 00 00 00`, then `44 03 02 00 00 00`. Turn the option off when your
+haptics engine sends its own `0x44` reports.
+
 ### Lizard mode
 
 Lizard mode: until Steam takes over, a Steam Controller 2 acts as a plain mouse and keyboard (the
@@ -711,6 +721,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_SHELL` | y with `CONFIG_SHELL` | |
 | `CONFIG_OPENSC2_FUSION` | n | the IMU fusion helper |
 | `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE` | n | identity through `0xEE` |
+| `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` | y | `0x44 {channel, 0x02}` after every stop, as the real controller ([Other input reports](#other-input-reports)) |
 | `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH` | 8, 6 | |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
 | `CONFIG_OPENSC2_USB` | y with the `opensc2,usb-hid` node | wired mode |

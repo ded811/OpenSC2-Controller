@@ -326,10 +326,16 @@ open, the library does what should work with Steam and the puck, and says so her
     reboots into wireless mode when STEAM is pressed before a host configures it. The library
     attaches at once and counts a STEAM press only after it has seen STEAM released, so a button
     held through power-up does not count.
-19. **Haptic stream status after Steam's zero pulses.** The real controller answers each pair with
-    two `0x44` reports (right pad, then left pad, flag `0x02`); Steam does not appear to need them
-    ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it)).
-    The library does not send them; an application can (`opensc2_send_haptic_status()`).
+19. **Haptic stream status after a stop** (closed). The real controller answers each pair of
+    Steam's zero pulses with two `0x44` reports (right pad, then left pad, flag `0x02`)
+    ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it));
+    the documentation of its haptics explains them: every stop-all stops the channel's stream,
+    which reports `0x02`, whether or not anything was streaming. The library sends the same
+    replies for the same stops, in the documented order, with `CONFIG_OPENSC2_HAPTIC_STOP_STATUS`
+    (on by default; [api.md](api.md#other-input-reports)). They go out as soon as the output is
+    decoded; the real controller sends them when its haptics thread takes the stop, within about a
+    millisecond while idle and up to one 8 ms block later while something plays. Steam does not
+    appear to need them.
 20. **Identity on the cable.** The USB strings are the real ones by default and the serial string is
     the identity's unit serial, kept equal to `0xAE` tag 1 and the radio identity record. A
     development board reports its own "OSC..." serial, which no real controller has. With the

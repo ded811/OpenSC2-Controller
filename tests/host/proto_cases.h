@@ -57,6 +57,100 @@ OPENSC2_TEST(proto_led_readback)
 	CHECK_EQ(osc2_led_readback(255), 0);
 }
 
+/* The 0x44 replies of one output report, decoded as the library decodes it: their channel IDs,
+ * in order, as a number (12 = left grip then right pad... read digit by digit, +1 each: 0 none). */
+static uint32_t stop_ids(const uint8_t *report, size_t len)
+{
+	struct opensc2_output out[2];
+	uint32_t code = 0;
+	int n = opensc2_decode_output(report, len, out);
+
+	for (int i = 0; i < n; i++) {
+		uint8_t ids[4];
+		uint8_t k = osc2_stop_status(&out[i], ids);
+
+		for (uint8_t j = 0; j < k; j++) {
+			code = code * 10 + ids[j] + 1;
+		}
+	}
+	return code;
+}
+
+OPENSC2_TEST(proto_stop_status)
+{
+	/* IDs + 1, digit by digit: left grip 1, right grip 2, left pad 4, right pad 5. */
+	static const struct {
+		uint8_t report[10];
+		uint8_t len;
+		uint32_t want;
+	} cases[] = {
+		/* Steam's zero pulses: target 0 is the right pad for 0x81, target 1 the left */
+		{ { 0x81, 0, 0, 0, 0, 0, 0, 0 }, 8, 5 },
+		{ { 0x81, 1, 0, 0, 0, 0, 0, 0 }, 8, 4 },
+		/* on time 0 is a stop whatever else is there; two channels: the left first */
+		{ { 0x81, 2, 0, 0, 0xFF, 0xFF, 3, 0 }, 8, 45 },
+		{ { 0x81, 7, 0, 0, 0, 0, 0, 0 }, 8, 12 },
+		{ { 0x81, 8, 0, 0, 0, 0, 0, 0 }, 8, 0 },      /* a target that selects nothing */
+		/* a pulse train, a click: no stop */
+		{ { 0x81, 2, 0xE8, 3, 0xE8, 3, 2, 0 }, 8, 0 },
+		{ { 0x81, 2, 0xE8, 3, 0, 0, 2, 0 }, 8, 0 },
+		/* 0x82: command 0 stops, the clicks do not */
+		{ { 0x82, 6, 0, 0 }, 4, 45 },
+		{ { 0x82, 3, 0, 0xF6 }, 4, 1 },
+		{ { 0x82, 2, 1, 0 }, 4, 0 },
+		{ { 0x82, 2, 2, 0 }, 4, 0 },
+		/* 0x80: a zero speed stops that grip, the right one first */
+		{ { 0x80, 0, 0xE8, 3, 0x10, 0x27, 0, 0, 0, 0 }, 10, 2 },
+		{ { 0x80, 0, 0xE8, 3, 0, 0, 0, 0x10, 0x27, 0 }, 10, 1 },
+		{ { 0x80, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 10, 21 },
+		{ { 0x80, 0, 0xE8, 3, 0x10, 0x27, 0, 0x20, 0x4E, 0 }, 10, 0 },
+		/* 0x86: the stream stop, the right channel first, in 0x86's own numbering */
+		{ { 0x86, 1, 5, 0 }, 4, 54 },
+		{ { 0x86, 1, 2, 0 }, 4, 21 },
+		{ { 0x86, 1, 0x40, 0 }, 4, 2 },
+		{ { 0x86, 1, 0x80, 0 }, 4, 21 },
+		{ { 0x86, 1, 3, 0 }, 4, 4 },
+		{ { 0x86, 2, 5, 1 }, 4, 0 },
+		{ { 0x86, 0, 5, 0 }, 4, 0 },
+		/* nothing else: a tone, a sweep, a script, PCM data */
+		{ { 0x83, 2, 0, 0, 0, 0, 0, 0, 0, 0 }, 10, 0 },
+		{ { 0x84, 2, 0, 0, 0, 0, 0, 0, 0 }, 9, 0 },
+		{ { 0x85, 2, 0, 0 }, 4, 0 },
+		{ { 0x87, 2, 0, 0 }, 4, 0 },
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(cases); i++) {
+		uint32_t got = stop_ids(cases[i].report, cases[i].len);
+
+		if (got != cases[i].want) {
+			printf("  case %u: report 0x%02x target 0x%02x\n", (unsigned int)i,
+			       cases[i].report[0], cases[i].report[1]);
+		}
+		CHECK_EQ(got, cases[i].want);
+	}
+	/* The IDs are 0x44's (opensc2_send_haptic_status()). */
+	CHECK_EQ(OSC2_STATUS_LEFT_GRIP, 0);
+	CHECK_EQ(OSC2_STATUS_RIGHT_GRIP, 1);
+	CHECK_EQ(OSC2_STATUS_LEFT_PAD, 3);
+	CHECK_EQ(OSC2_STATUS_RIGHT_PAD, 4);
+	CHECK_EQ(OSC2_STATUS_STOPPED, 0x02);
+}
+
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+#include "test_core.h"
+
+OPENSC2_TEST(proto_stop_status_entry)
+{
+	uint8_t e[OSC2_TEST_ENTRY_MAX], d[5] = { OSC2_STATUS_RIGHT_PAD, 0x02, 0, 0, 0 };
+	char text[160];
+	uint8_t n = osc2_test_entry(e, 1500, OSC2_TEST_KIND_STOP_STATUS, OSC2_TEST_LINK_USB, d, 5);
+
+	CHECK_EQ(n, OSC2_TEST_ENTRY_HEADER + 5);
+	osc2_test_fmt_entry(text, sizeof(text), 9, e, n);
+	CHECK(strcmp(text, "9 1.500 usb STOP_STATUS channel=4 flags=0x2") == 0);
+}
+#endif
+
 OPENSC2_TEST(proto_cmd_imu_settings)
 {
 	const uint8_t writes[9] = { 48, 0x18, 0, 84, 0, 0, 85, 50, 0 };

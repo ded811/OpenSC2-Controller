@@ -7,6 +7,14 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Added
+
+- The real controller's haptic stream status replies: every stop-all (`0x81` with an on time of 0,
+  `0x82` command 0, a zero speed in `0x80`) and `0x86`'s stream stop send `0x44 {channel, 0x02}`
+  for each channel they reach (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default). Steam's pair
+  of zero pulses now gets `44 04 02 ...` and `44 03 02 ...`, as from the real controller. The
+  test hooks record each in the ring (kind `0x30`, STOP_STATUS); hwtest `outputs.stop_status`.
+
 ### Changed
 
 - Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller

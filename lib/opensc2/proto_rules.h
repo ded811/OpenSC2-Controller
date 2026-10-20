@@ -2,15 +2,17 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * proto_rules.h: small rules of the vendor commands that are pure logic, so the host tests run
- * them as the library does: the answers in which the real controller reports something other than
- * the value it keeps (0x89 for the IMU's settings, 0xE9's read-back of the LED colour).
+ * proto_rules.h: small rules of the vendor commands and reports that are pure logic, so the host
+ * tests run them as the library does: the answers in which the real controller reports something
+ * other than the value it keeps (0x89 for the IMU's settings, 0xE9's read-back of the LED colour),
+ * and the haptic stream status reports a stop sends.
  */
 #ifndef OPENSC2_PROTO_RULES_H_
 #define OPENSC2_PROTO_RULES_H_
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <opensc2/types.h>
 
 /* 0x89: what the answer carries for setting `number` holding `value`. Settings 48 (IMU mode), 84
  * (gyro bias subtraction) and 85 (gyro threshold) are handed to the IMU on the real controller,
@@ -23,5 +25,21 @@ int16_t osc2_setting_answer(uint8_t number, int16_t value);
  * back. Its conversion truncates before it scales, so a channel reads 100 when it is exactly 100
  * and 0 otherwise. The library copies that, since a host can see it (docs/protocol.md, gaps). */
 uint8_t osc2_led_readback(uint8_t percent);
+
+/* The channel IDs of input report 0x44 (opensc2_send_haptic_status()). */
+#define OSC2_STATUS_LEFT_GRIP   0
+#define OSC2_STATUS_RIGHT_GRIP  1
+#define OSC2_STATUS_LEFT_PAD    3
+#define OSC2_STATUS_RIGHT_PAD   4
+/* Flag 0x02 of report 0x44: the stream ran dry, or was stopped. */
+#define OSC2_STATUS_STOPPED     0x02u
+
+/* The 0x44 replies a decoded output report brings on the real controller. Every stop-all (0x81
+ * with an on time of 0, 0x82 command 0, a speed of 0 in 0x80 for that grip) stops the stream of
+ * each channel it reaches, and so does 0x86's stream stop; stopping a stream reports flag 0x02
+ * for its channel, streaming or not. The replies come in the order the real controller queues the
+ * stops: the left channel first for 0x81 and 0x82, the right first for 0x86, the right grip before
+ * the left for 0x80. Writes the channel IDs (OSC2_STATUS_*) to `ids`; returns how many (0 to 4). */
+uint8_t osc2_stop_status(const struct opensc2_output *out, uint8_t ids[4]);
 
 #endif /* OPENSC2_PROTO_RULES_H_ */

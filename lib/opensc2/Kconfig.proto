@@ -1,0 +1,17 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# Protocol completeness and reliability: the haptic stream status after a stop. Sourced from
+# lib/opensc2/Kconfig inside "if OPENSC2".
+
+config OPENSC2_HAPTIC_STOP_STATUS
+	bool "Haptic stream status 0x44 after a stop, as the real controller sends it"
+	default y
+	help
+	  The real controller answers every stop-all (output report 0x81 with an on time of 0, 0x82
+	  command 0, a speed of 0 in 0x80 for that grip) and 0x86's stream stop with an input report
+	  0x44 {channel, 0x02} for each channel it reaches, whether or not anything was streaming:
+	  Steam's pair of all-zero 0x81 reports gets 44 04 02 00 00 00 and 44 03 02 00 00 00. The
+	  library sends the same replies, in the same order, on the link the output came on. They
+	  take room in the queue of reports that ride with the state reports through the puck.
+	  Turn this off when the application sends its own 0x44 reports for its haptics engine.
