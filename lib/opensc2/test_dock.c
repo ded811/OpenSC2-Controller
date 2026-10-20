@@ -106,8 +106,8 @@ void osc2_test_note_dock_pilot(const int32_t mv[OSC2_DOCK_PILOT_READS], uint8_t 
 
 	if (osc2_test_core_armed(CORE)) {
 		for (int i = 0; i < OSC2_DOCK_PILOT_READS; i++) {
-			/* s16: -1 for a failed conversion; an injected reading above 32767 mV (the
-			 * op takes u16) is kept at 32767 rather than wrapping to a negative value */
+			/* s16: -1 for a failed conversion; an injected reading above 32767 mV
+			 * (the op takes u16) is kept at 32767 rather than wrapping to below 0 */
 			int32_t v = mv[i] < 0 ? -1 : MIN(mv[i], (int32_t)INT16_MAX);
 
 			opensc2_put_le16(&d[2 * i], (uint16_t)(int16_t)v);
