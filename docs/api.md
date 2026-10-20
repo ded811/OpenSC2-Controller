@@ -37,6 +37,8 @@ library into a project: [integration.md](integration.md).
   recovery, reset causes
 - [Shell commands](#shell-commands)
 - [Hardware test hooks](#hardware-test-hooks): input injection, output capture, the lizard guard
+- [The dock](#the-dock): the controller's end of the puck's charging pads (the protocol; its
+  UART build has never run on hardware)
 - [Pure helpers](#pure-helpers), [the IMU fusion helper](#the-imu-fusion-helper), the
   [calibration](#calibration-helpers), [sensor](#sensor-helpers) and [battery](#battery-helpers)
   helpers
@@ -84,6 +86,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_cap_sample()`, `opensc2_pad_rotate()`, `opensc2_stabiliser_step()`, `opensc2_imu_mount()`, ... | sensor processing as pure functions (`<opensc2/sensor_helpers.h>`) | [Sensor helpers](#sensor-helpers) |
 | `opensc2_gauge_step()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
 | `opensc2_haptics_set_output(path, &out)`, `opensc2_haptics_play_cue(cue, level)`, ... | with `CONFIG_OPENSC2_HAPTICS_SYNTH`: the haptics synthesiser's outputs and its own sounds (`<opensc2/haptics.h>`) | [The haptics synthesiser](#the-haptics-synthesiser) |
+| `opensc2_dock_crc16()`, `opensc2_dock_frame_check()`, `opensc2_dock_frame_seal()`, `opensc2_dock_build_request()` | the dock's 73-byte frames (`<opensc2/dock.h>`, pure) | [The dock](#the-frame-functions) |
 
 The callbacks your application can register are in [Outputs](#outputs).
 
@@ -1476,15 +1479,15 @@ over Bluetooth. The library answers these itself:
 
 | Opcode | Kind | Answer / action |
 | --- | --- | --- |
-| `0x83` | get | six `{tag, u32}`: 1 product ID, 2 capabilities (0), 10 bootloader build time, 4 build time, 9 board revision, 11 the link's report interval: 4000 µs on USB and through the puck, the connection interval over Bluetooth once it is active (0 before) |
+| `0x83` | get | six `{tag, u32}`: 1 product ID, 2 capabilities (0), 10 bootloader build time, 4 build time, 9 board revision, 11 the current link's report interval, whichever link asks: 4000 µs on USB and through the puck, the connection interval over Bluetooth once it is active (0 before), 64000 µs while the [dock](#the-dock) is the only link |
 | `0xAE` | get | the tag (only the tag byte counts, whatever the length), then a string zero padded to 20 bytes: 1 unit serial, 0 and 4 board serial, 3 git revision, others "NA" |
 | `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: the last crash record as it is (33 bytes, zeros when there is none), after which a new record is marked seen and saved again ([Crash records](#crash-records)); 2: uptime in ms (u32) and the last disconnect reason (u32) |
 | `0xA1` | get | 18 bytes. Selector 1: 1, a byte of reset-cause flags in the real controller's encoding (`0x01` power-on, `0x02` brown-out, `0x08` debug, a low-power wake, a CPU lock-up or any other cause, `0x10` the reset pin, `0x20` the watchdog, `0x40` software), the chip's 8-byte device ID, 8 zero bytes; any other selector: 0 and 17 zero bytes. The flags come from Zephyr's `hwinfo_get_reset_cause()`; nothing clears the chip's register, so the causes of several resets add up until a power-on, as on the real controller |
 | `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`; byte 13 is 1 while charging, byte 14 the charge state without a `0x80` flag: [Battery](#battery)) |
-| `0xE9` / `0xC5` | get / set | LED colour, four percentages (`0xC5` clamps each to 100 and calls `led`). `0xE9` reads it back as the real controller does, cut to whole hundreds: a channel reads 100 when it is exactly 100, otherwise 0 (`opensc2_led_get()` has the colour as kept; [protocol.md, gap 25](protocol.md#where-this-library-had-to-fill-gaps)) |
+| `0xE9` / `0xC5` | get / set | LED colour, four percentages (`0xC5` clamps each to 100 and calls `led`). `0xE9` reads it back as the real controller does, cut to whole hundreds: a channel reads 100 when it is exactly 100, otherwise 0 (`opensc2_led_get()` has the colour as kept; [protocol.md, gap 24](protocol.md#where-this-library-had-to-fill-gaps)) |
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
-| `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate) |
+| `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate); from the dock acknowledged and ignored |
 | `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock` and `user/fully_charged_led_intensity`, which the system state machine acts on: [The keylock](#the-keylock), [Status LED](#status-led); `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`: with `CONFIG_OPENSC2_CAL` the library's, [Calibration and raw inputs](#calibration-and-raw-inputs); without it the application's). `0xED` answers length 0 for an empty bond, an analog calibration key whose format word is 0, an LED trim outside 1..199 and the gyro bias; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond, an analog calibration key whose format word is 0 and the gyro bias; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
 | `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 |
 | `0xD8`, `0xC0`, `0xC3`, `0xFE` | set | with `CONFIG_OPENSC2_CAL`: the stick, trigger and pressure recordings and the calibration erase ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
@@ -1651,6 +1654,8 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_USB_LOG`, `_LOG_SIZE`, `_LOG_ZEPHYR`, `_LOG_SETUP` | y, 8192, y, y | the USB session log (`_LOG_ZEPHYR` needs `CONFIG_LOG_PROCESS_THREAD_STACK_SIZE=1536`, checked at build time) |
 | `CONFIG_OPENSC2_WARM_MARK_RAM` / `_GPREGRET2` | RAM; GPREGRET2 on nRF52 when no `opensc2,retained-ram` region is chosen | where the warm-restart mark is kept |
 | `CONFIG_OPENSC2_TEST_HOOKS`, `CONFIG_OPENSC2_TEST_RING_SIZE`, `CONFIG_OPENSC2_TEST_SEQ_DEPTH` | n (the blank canvas turns it on), 2048, 8 | the [hardware test hooks](#hardware-test-hooks); with them, Zephyr's `CONFIG_SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE` defaults to 256 |
+| `CONFIG_OPENSC2_DOCK_LINK` | y with the test hooks | the [dock link](#the-dock-link): the dock's protocol without pins |
+| `CONFIG_OPENSC2_DOCK` (`_THREAD_PRIORITY`, `_THREAD_STACK_SIZE`) | n (9, 2048) | the dock's UART and pilot sense, from the devicetree alias `opensc2-dock`; **built, never run on hardware** ([The UART build](#the-uart-build-untested)) |
 | identity: `_UNIT_SERIAL`, `_BOARD_SERIAL`, `_SERIAL_FROM_CHIP`, `_GIT_REVISION`, `_PRODUCT_ID`, `_BOARD_REVISION`, `_BUILD_TIME`, `_BOOTLOADER_BUILD_TIME` | see [Identity](#identity) | |
 | `CONFIG_OPENSC2_BLE` | n | Bluetooth LE, built and not yet tested on hardware ([the Bluetooth build](#the-bluetooth-build)) |
 | `CONFIG_OPENSC2_BLE_NAME_PREFIX` | "Steam Ctrl (BT) " | the name before the unit serial |
@@ -1683,6 +1688,13 @@ The functions for the settings and the other state Steam sets:
   a frame waits while reports wait for room in the radio's queue.
 - With the haptics synthesiser: two more threads, one per haptic path
   ([its threads](#settings-threads-and-memory)).
+- Vendor commands run one at a time, whichever link they come on (a mutex in the command
+  channel): a command from the dock waits for one from USB or the radio, and the other way round.
+  Callbacks a command calls (`vendor_command`, `setting_changed`, `led`) run with it held: do not
+  wait there for another thread that sends a command. The real controller has no such lock.
+- With `CONFIG_OPENSC2_DOCK`, one dock thread (`osc2_dock_tid`, priority
+  `CONFIG_OPENSC2_DOCK_THREAD_PRIORITY`, 9) checks the pilot and serves the dock's requests; it runs
+  the dock's vendor commands itself.
 - A flash write (storing a bond) stalls the CPU for a few milliseconds; the radio link tolerates
   500 ms without a packet, so it should ride that out (not measured); on USB state reports pause.
 - The library needs the 32 MHz crystal while the radio is on and requests it itself; the USB driver
@@ -1822,6 +1834,10 @@ board with nothing wired to it. While the PC has the hooks **armed**:
   chords, the power source and how a shutdown ended (which survives the reboot it causes). While
   the hooks are armed, or in a boot a boot-time injection started, a shutdown never turns the board
   off: it reboots.
+- **the dock** (with the [dock link](#the-dock-link)): frames handed to the dock link as if the puck
+  had sent them, their answers read back, and the pilot check, the supply rule and the docked
+  states fed values of the PC's own, so the dock's protocol is tested on a board with nothing
+  wired.
 
 Unarmed, the board behaves exactly as without the option, byte for byte, including the STALL of every
 unknown opcode (the host tests compare the two builds request by request). Arming is RAM only: it ends
@@ -1847,9 +1863,11 @@ Safety rules the firmware enforces itself:
   at the end of arming and at the next `ARM`.
 - **The host emulation is an allowlist.** `HOST_SET` runs only commands that write no flash and reach
   no bootloader ([the list](test-protocol.md#the-test-channel-vendor-command-0x7e)); everything else
-  answers DENIED without running.
+  answers DENIED without running. A dock frame that is a SET is held to the same list.
 - **Nothing identifying leaves.** The ring never keeps bond values, serials or answers; `HOST_GET`
-  replaces bond, serial and chip-ID answers with their CRC-32; the console prints no serial.
+  replaces bond, serial and chip-ID answers with their CRC-32; the dock's answers come back with
+  their serials, bonds and chip ID as zeros (and a CRC-32 of what was hidden); the console prints
+  no serial.
 
 The key (`0x7E57AB1E`) is published with the code. It stops accidents, not an attacker: anything that
 can send feature reports to the board or to the puck can arm the hooks and inject controller state
@@ -1869,6 +1887,121 @@ Kconfig: `CONFIG_OPENSC2_TEST_HOOKS` (off by default), `CONFIG_OPENSC2_TEST_RING
 must be 160 or more (checked at build time). The bytes of the test channel, the ring and the
 console: [test-protocol.md](test-protocol.md). How the suite uses them: [testing.md](testing.md).
 
+## The dock
+
+Valve's puck is also a charging dock. A controller resting on it gets power through three pogo
+pads (`+`, `−` and `P`, the "pilot"), and the puck talks to it over a slow serial link on the same
+contacts: it asks for the controller's identity, relays Steam's vendor commands, and polls the
+latest state report. OpenSC2 has the controller's end of that protocol without pins (the dock
+link), the frames as pure functions, the dock's rules (the pilot check, dock or USB power, the
+docked states), and a UART build for the SuperMini. The protocol is checked by the host tests,
+the firmware emulator and, on a board with nothing wired, the hardware test suite's `dock` group;
+**the UART build has never run on hardware**.
+
+> [!WARNING]
+> Nothing may be connected to Valve's puck's pads without the owner's step-by-step go-ahead. The
+> pads' voltages and loads have not been measured, and the `+` pad carries about 5 V once the puck
+> switches it on ([testing.md, The dock](testing.md#the-dock)).
+
+### The dock link
+
+`CONFIG_OPENSC2_DOCK_LINK`, on by default with the hardware test hooks. It needs no pins: the
+UART build feeds it frames, and so do the test hooks. While no session runs, nothing changes on USB
+or the radio.
+
+- **Sessions.** A session starts when the pilot check passes (the UART build) or when the test hooks
+  start one; while it runs the dock is an active link and the controller counts as docked. The
+  controller serves one request at a time, with no time limit for the first byte; any frame that
+  fails (fewer than 73 bytes before a 64 ms silence, a bad CRC, a receive error) ends the session,
+  and the pilot is checked again. A frame that never comes keeps the session waiting.
+- **Frames.** 73 bytes both ways: the start byte (`0x5A` from the puck, `0xAC` from the controller;
+  nobody checks it), the request type, two unused bytes, the result (s32), 63 payload bytes, and a
+  CRC-16/KERMIT of bytes 0 to 70, low byte first ([the frame functions](#the-frame-functions)).
+- **Requests.**
+
+  | Type | Request | The answer |
+  | --- | --- | --- |
+  | 0 | probe | the 57-byte identity record (as radio packet `0xF5`), type and result 0 |
+  | 1 | GET | `{opcode, length, data}` of the dock's stored request; result 63, `-95` when the command has nothing to read (after a SET of `0x87`), or the command's negative error |
+  | 2 | SET | runs `{opcode, length, data}` through the same command channel as USB and the radio; result 0 or a negative error (`-22` for an opcode nobody knows or a length above 61) |
+  | 3 | GET input | the latest state report `0x42` without its ID (53 bytes), result 0 |
+  | other | | its type and `-22` (the puck never sends one) |
+
+- **Commands.** The dock keeps its own stored request (`0x83` after a boot). `0x81` and `0x85` are
+  acknowledged and do nothing there, as on the real controller; everything else, `0x87` included,
+  acts as on the other links. Attribute 11 of `0x83` is 64000 µs while the dock is the only link,
+  otherwise the other link's interval.
+- **Input.** With another link up (USB configured while wired, the radio connected while wireless)
+  GET input answers the copy of that link's latest state report, so the dock takes no sequence
+  number from its stream. With the dock alone, each GET input builds one new report (the
+  application's `sample` callback runs, from the thread that serves the dock).
+- **Nothing else goes to the dock**: no lizard mode reports, no battery report `0x43`, no `0x44`.
+  `0xBE` answers over the dock as on any link.
+- **Timing.** An answer is built at once (well under a millisecond) unless the command writes flash;
+  the puck waits 64 ms for it. The dock link logs a warning for an answer that took over 50 ms, and
+  the test hooks report the slowest.
+
+### The dock's rules
+
+Pure functions (`lib/opensc2/dock_rules.c`), from the protocol documentation (not public yet;
+[protocol.md](protocol.md#overview-the-dock) sums it up):
+
+- **The pilot**: one check is three readings 3 ms apart, present when two lie inside 2000 to
+  3300 mV at the pin (no divider; a failed conversion counts as outside); 10 ms between checks that
+  fail.
+- **Dock or USB power**: the first reading and every change of "a supply is present" posts an event;
+  the supply is the dock when the dock's `+` is there and the pilot passes as it appears, USB
+  otherwise. On OpenSC2 the `+` rail must stay off the chip's VBUS pin (a board would otherwise boot
+  wired on the dock), so the rule takes it on an input of its own.
+- **The docked states**: on the dock with the radio off (charging), a transport chord held (up to
+  4 s), on the dock with the link up, and lifted off with the radio off (5 s, then a silent
+  power-off), with what each does on each event (turn-off on the dock means back to radio-off with
+  the power-off chime, never a power-off).
+
+The library does not act on the last two yet: there is no dock-power input, and the power state
+machine they belong to (chords, chimes, LED patterns) is still to come. The test hooks run them on
+the PC's values and record each step in the ring.
+
+### The UART build (untested)
+
+`CONFIG_OPENSC2_DOCK` (default n) serves the dock on a UART and senses the pilot on an ADC channel,
+both named by the devicetree node aliased `opensc2-dock` ([dts/bindings/opensc2,dock.yaml](../dts/bindings/opensc2,dock.yaml)):
+
+```dts
+/ {
+    aliases { opensc2-dock = &opensc2_dock; };
+    opensc2_dock: opensc2-dock {
+        compatible = "opensc2,dock";
+        uart = <&uart1>;            /* 115200 baud, 8N1, no flow control, async API */
+        io-channels = <&adc 2>;     /* gain 1/6, internal reference, 12 bits, no divider */
+    };
+};
+```
+
+It needs `CONFIG_UART_ASYNC_API` and the instance's `CONFIG_UART_<n>_ASYNC`. One thread checks the
+pilot between sessions and serves the requests during one; it arms the receiver for one 73-byte
+frame with a 64 ms gap timeout, answers, waits until the answer has left, and only then arms again,
+so it never hears its own answer on a shared line. A receive error (framing, break, overrun) that
+cuts a frame short ends the session with its own reason; an answer still not sent after 50 ms is
+aborted. The TX pin should leave the line alone between answers (open drain, as the SuperMini build
+has it). The UART and the test hooks' dock ops share the one dock link: the thread leaves a session
+the test hooks started alone, so use one at a time. A pilot pin with nothing connected floats and
+may read inside the window now and then, which starts sessions nobody asked for (harmless, but the
+`dock` group expects none): give it a defined level (a resistor to ground) when nothing is attached.
+`app/dock.conf` with `app/dock.overlay` is a SuperMini variant; its pins, and how they would meet the
+puck's `P` pad, are untried guesses.
+
+### The frame functions
+
+`<opensc2/dock.h>`, pure, for tools, tests and the library:
+
+| Function | Does |
+| --- | --- |
+| `opensc2_dock_crc16(crc, data, len)` | CRC-16/KERMIT (polynomial `0x1021` bit-reversed, no final XOR); `crc` 0 to start; "123456789" gives `0x2189` |
+| `opensc2_dock_frame_check(frame, len)` | a received frame: `OPENSC2_DOCK_FRAME_OK`, `_BAD_SIZE` (not 73 bytes) or `_BAD_CRC` (the CRC over all 73 bytes is not 0) |
+| `opensc2_dock_frame_seal(frame, start)` | the start byte and the CRC of bytes 0 to 70 at 71 and 72 |
+| `opensc2_dock_build_request(type, payload, len, out)` | a request as the puck builds it (`0x5A`, the type, up to 63 payload bytes) |
+
 ## Pure helpers
 
 `<opensc2/codec.h>` has every wire format as a pure function (encode the state, battery and identity
@@ -1876,7 +2009,8 @@ records; decode output reports; parse connection requests, channel changes, prot
 pairing packets and records; build acknowledgement payloads), and the USB device's: the report
 descriptor (`opensc2_hid_report_desc`), the two profiles, the device, configuration and HID
 descriptors they give, the check of a feature SET and the build of a feature GET reply, and a text
-for a setup packet. They need no kernel and are what the host tests exercise.
+for a setup packet. `<opensc2/dock.h>` has the dock's frames ([above](#the-frame-functions)). They
+need no kernel and are what the host tests exercise.
 
 ### The IMU fusion helper
 

@@ -104,6 +104,13 @@ RAW_STICK_L, RAW_STICK_R, RAW_TRIGGER_L, RAW_TRIGGER_R = 0x01, 0x02, 0x04, 0x08
 RAW_PRESSURE_L, RAW_PRESSURE_R, RAW_TOUCH_L, RAW_TOUCH_R = 0x10, 0x20, 0x40, 0x80
 RAW_ARGS_LEN = 30
 CAL_STATUS_LEN = 16
+# The dock (proto/dock.py has their arguments and results).
+OP_DOCK_LOAD = 0x90
+OP_DOCK_RUN = 0x91
+OP_DOCK_READ = 0x92
+OP_DOCK_CTRL = 0x93
+OP_NAMES.update({OP_DOCK_LOAD: "DOCK_LOAD", OP_DOCK_RUN: "DOCK_RUN", OP_DOCK_READ: "DOCK_READ",
+                 OP_DOCK_CTRL: "DOCK_CTRL"})
 
 # Answer status codes (docs/test-protocol.md).
 ST_OK = 0
@@ -161,6 +168,11 @@ RING_SYS_END = 0x53
 RING_CHORD = 0x54
 RING_SOURCE = 0x55
 RING_IDLE = 0x56
+# the haptics synthesiser's (0x60..0x63) are in proto/haptics.py; the dock's (link 5):
+RING_DOCK_SESSION = 0x70
+RING_DOCK_FRAME = 0x71
+RING_DOCK_PILOT = 0x72
+RING_DOCK_STATE = 0x73
 # BLE events (docs/test-protocol.md, The ring): a, b, c as each one says.
 BLE_EVENT_NAMES = {1: "state", 2: "security", 3: "mtu", 4: "params", 5: "gate", 6: "trigger",
                    7: "disconnect", 8: "adv", 9: "adv_end", 10: "identity", 11: "bond",
@@ -181,7 +193,10 @@ BLE_EV_OFF = 12
 BLE_FORM_NAMES = {0: "pairing", 1: "allow-listed", 2: "directed", 0xFF: "none"}
 # what follows a disconnect (BLE disconnect entries)
 BLE_AFTER_NAMES = {0: "advertise again", 1: "wireless off", 2: "nothing"}
-RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none", 4: "ble", 5: "dock"}
+RING_LINK_BLE = 4
+RING_LINK_DOCK = 5
+RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none", RING_LINK_BLE: "ble",
+                   RING_LINK_DOCK: "dock"}
 
 # 0x44 channel IDs and the "stopped" flag (docs/api.md, Other input reports)
 STATUS_LEFT_GRIP = 0
@@ -329,6 +344,9 @@ CAP_RULES = 15                 # the rule word (ops RULES, RULES_SET): the input
 CAP_HAPTIC_STOP_STATUS = 16    # a stop's 0x44 replies (CONFIG_OPENSC2_HAPTIC_STOP_STATUS)
 CAP_BLE = 17                   # Bluetooth LE (CONFIG_OPENSC2_BLE)
 CAP_SYSTEM = 18                # CONFIG_OPENSC2_SYSTEM: the system state machine and its ops
+CAP_HAPTICS_SYNTH = 19         # CONFIG_OPENSC2_HAPTICS_SYNTH: the haptics synthesiser, its ops
+                               # 0x80 to 0x83 and ring kinds 0x60 to 0x63 (proto/haptics.py)
+CAP_DOCK = 20                  # the dock link and its test ops (0x90 to 0x93)
 CAP_CAL = 21                   # CONFIG_OPENSC2_CAL: the cal/ keys, raw inputs, RAW_INJECT
 
 # ---- timings and thresholds -----------------------------------------------------------------

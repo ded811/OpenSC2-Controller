@@ -22,32 +22,35 @@ from . import results as results_mod
 from . import safety
 from .board import BoardGone, DeviceError, NoLink, Rig, RigError
 from .groups import base as gbase
-from .groups import (battery, ble, cal, cmd, desc, flash, haptics, hooks, inputs, lizard, modes,
-                     outputs, puck, reports, restore, settings, steam, stream, system, wireless)
+from .groups import (battery, ble, cal, cmd, desc, dock, flash, haptics, hooks, inputs, lizard,
+                     modes, outputs, puck, reports, restore, settings, steam, stream, system,
+                     wireless)
 
 CATALOG = [
     ("hooks", hooks), ("desc", desc), ("cmd", cmd), ("inputs", inputs), ("battery", battery),
     ("stream", stream), ("reports", reports), ("outputs", outputs), ("haptics", haptics),
     ("settings", settings),
-    ("flash", flash), ("lizard", lizard), ("wireless", wireless), ("puck", puck),
+    ("flash", flash), ("lizard", lizard), ("wireless", wireless), ("dock", dock), ("puck", puck),
     ("ble", ble), ("steam", steam), ("modes", modes), ("restore", restore), ("cal", cal),
     ("system", system),
 ]
 MODULES = dict(CATALOG)
-INJECTION_GROUPS = {"inputs", "reports", "lizard", "wireless", "ble", "cal", "system"}
+INJECTION_GROUPS = {"inputs", "reports", "lizard", "wireless", "ble", "cal", "system", "dock"}
 STEAM_CLOSED_GROUPS = {"hooks", "cmd", "inputs", "battery", "reports", "outputs", "settings",
                        "flash", "lizard", "modes", "wireless", "puck", "desc", "stream", "ble",
-                       "cal", "system", "haptics"}
+                       "cal", "system", "haptics", "dock"}
 W_GROUPS = ("hooks", "desc", "cmd", "inputs", "battery", "stream", "reports", "outputs",
-            "haptics", "settings", "cal", "flash", "lizard", "system")
+            "haptics", "settings", "cal", "dock", "flash", "lizard", "system")
 R_GROUPS = ("hooks", "inputs", "battery", "stream", "reports", "outputs", "haptics", "settings",
-            "cmd", "wireless", "cal", "flash", "puck", "lizard", "system")
-# --bluetooth: the board over Bluetooth, through the HID device Windows made of it (TST-1)
+            "cmd", "wireless", "cal", "dock", "flash", "puck", "lizard", "system")
+# --bluetooth: the board over Bluetooth, through the HID device Windows made of it (TST-1). The
+# dock group is not among them: its checks are written for USB or the radio being the other link.
 B_GROUPS = ("hooks", "desc", "cmd", "inputs", "battery", "stream", "reports", "outputs",
             "settings", "ble", "lizard")
 PHASE_GROUPS = {"W": W_GROUPS, "R": R_GROUPS, "B": B_GROUPS}
 # the R groups that read the board's reports from its slot on the puck (proved by wireless.slot)
-SLOT_GROUPS = {"inputs", "battery", "stream", "reports", "wireless", "lizard", "puck", "cal"}
+SLOT_GROUPS = {"inputs", "battery", "stream", "reports", "wireless", "lizard", "puck", "cal",
+               "dock"}
 STEAM_WAIT_S = 600.0                 # how long an interactive run waits for Steam to close
 
 

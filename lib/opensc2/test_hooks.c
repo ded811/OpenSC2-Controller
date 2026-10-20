@@ -18,8 +18,10 @@
 #include "internal.h"
 #include "cal_store.h"
 #include "haptics_glue.h"
+#include "test_dock.h"
 #include "test_hooks.h"
 
+/* The links after the test link (Bluetooth, the dock) hold no answers of the test channel. */
 BUILD_ASSERT((int)OSC2_LINK_RADIO == (int)OSC2_TEST_LINK_RADIO &&
 	     (int)OSC2_LINK_USB == (int)OSC2_TEST_LINK_USB &&
 	     (int)OSC2_LINK_TEST == (int)OSC2_TEST_LINK_TEST &&
@@ -37,8 +39,8 @@ static atomic_t counters[OSC2_TEST_CNT_COUNT];
 /* ---- which link this thread's command came on ------------------------------------------------- */
 
 /* radio, USB stack, USB report, shell, system work queue, the Bluetooth host's receive thread and
- * report thread, one spare */
-#define CTX_SLOTS 8
+ * report thread, the dock's UART thread, one spare */
+#define CTX_SLOTS 9
 
 static struct {
 	k_tid_t thread;
@@ -188,6 +190,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= IS_ENABLED(CONFIG_OPENSC2_BLE) ? OSC2_TEST_FLAG_BLE : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_SYSTEM) ? OSC2_TEST_FLAG_SYSTEM : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_HAPTICS_SYNTH) ? OSC2_TEST_FLAG_HAPTICS_SYNTH : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_DOCK_LINK) ? OSC2_TEST_FLAG_DOCK : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_CAL) ? OSC2_TEST_FLAG_CAL : 0;
 
 	opensc2_identity_get(&id);
@@ -359,6 +362,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.cal_status = env_cal_status,
 #endif
 	.hap_op = env_hap_op,
+#if defined(CONFIG_OPENSC2_DOCK_LINK)
+	.dock_op = osc2_test_dock_op,
+#endif
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

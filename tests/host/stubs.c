@@ -11,11 +11,14 @@
 #include "internal.h"
 #include "cal_store.h"
 #include "cal_host.h"
+#include "dock_link.h"
+#include "dock_stub.h"
 #include "stubs.h"
 #include "test_hooks.h"
 
 struct osc2_ctx osc2;
 struct stub_record stub;
+int osc2_host_mutexes_held;   /* shim/zephyr/kernel.h's mutexes taken and not let go */
 
 int64_t k_uptime_get(void)
 {
@@ -306,6 +309,8 @@ void stub_reset(void)
 	}
 	cal_host_erase_all();   /* a new board: no calibration stored */
 	osc2_cal_reset();
+	osc2_dock_reset();
+	memset(&dock_stub, 0, sizeof(dock_stub));
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	hooks_reset();
 #endif

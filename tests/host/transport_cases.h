@@ -4,10 +4,11 @@
  *
  * Host tests only: the link plumbing and the wireless transport. The transport rules
  * (transport_rules.c) on their own; then commands.c with the stand-ins of stubs.c: the values 0 to
- * 3 of user/wireless_transport (0xED, 0xEE, 0xEF, 0xF0), attribute 11 of 0x83 per link, the
- * Bluetooth and dock links' stored requests, 0x81 and 0x85 per link, and the strict GET the
- * Bluetooth link uses. Included by run_tests.c after commands_cases.h (its helpers).
+ * 3 of user/wireless_transport (0xED, 0xEE, 0xEF, 0xF0), attribute 11 of 0x83 (the current
+ * link's), the Bluetooth and dock links' stored requests, 0x81 and 0x85 per link, and the strict
+ * GET the Bluetooth link uses. Included by run_tests.c after commands_cases.h (its helpers).
  */
+#include "dock_link.h"
 #include "transport_rules.h"
 
 /* A SET {opcode, n, payload} on any link, as a record of 63 bytes (the form USB and Bluetooth
@@ -133,14 +134,22 @@ OPENSC2_TEST(transport_key_without_ble)
 	CHECK_EQ(osc2.slot, 0);
 }
 
-/* Attribute 11 follows the link (CMD-3): 4000 on USB and the radio, the connection interval on
- * Bluetooth once it is active (0 before), 64000 on the dock. */
+/* Attribute 11 is the current link's report interval, whichever link asks (CMD-3): 4000 while USB
+ * or the radio is the current link, the connection interval while Bluetooth is (0 until it is past
+ * its gate), 64000 while the dock is the only link up. */
 OPENSC2_TEST(transport_attribute_11)
 {
 	stub_reset();
 	CHECK_EQ(attr11(OSC2_LINK_USB), 4000);
 	CHECK_EQ(attr11(OSC2_LINK_RADIO), 4000);
-	CHECK_EQ(attr11(OSC2_LINK_DOCK), 64000);
+	CHECK_EQ(attr11(OSC2_LINK_DOCK), 4000);   /* the dock asks, USB is the current link */
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+	CHECK_EQ(attr11(OSC2_LINK_TEST), 4000);
+#endif
+	/* Bluetooth the wireless transport */
+	osc2.mode = OPENSC2_MODE_WIRELESS;
+	stub.link_active[OSC2_LINK_USB] = false;
+	stub.ble_running = true;
 	stub.ble_interval_us = 7500;
 	CHECK_EQ(attr11(OSC2_LINK_BLE), 0);   /* not past its gate */
 	stub.link_active[OSC2_LINK_BLE] = true;
@@ -148,22 +157,28 @@ OPENSC2_TEST(transport_attribute_11)
 	stub.ble_interval_us = 15000;
 	CHECK_EQ(attr11(OSC2_LINK_BLE), 15000);
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
-	/* The test link reports its mode's real link: USB while wired, else the running one. */
-	CHECK_EQ(attr11(OSC2_LINK_TEST), 4000);
-	osc2.mode = OPENSC2_MODE_WIRELESS;
-	stub.ble_running = true;
 	CHECK_EQ(attr11(OSC2_LINK_TEST), 15000);
-	stub.link_active[OSC2_LINK_BLE] = false;   /* connected, not past its gate yet */
-	CHECK_EQ(attr11(OSC2_LINK_TEST), 0);
-	stub.link_active[OSC2_LINK_BLE] = true;
-	stub.ble_running = false;
-	CHECK_EQ(attr11(OSC2_LINK_TEST), 4000);
 #endif
+	/* Docked with Bluetooth up: Bluetooth is the current link. */
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(attr11(OSC2_LINK_DOCK), 15000);
+	/* The dock alone (Bluetooth gone): 64000, whichever link asks. */
+	stub.link_active[OSC2_LINK_BLE] = false;
+	CHECK_EQ(attr11(OSC2_LINK_DOCK), 64000);
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+	CHECK_EQ(attr11(OSC2_LINK_TEST), 64000);
+#endif
+	/* The puck's radio comes up: its interval again. */
+	stub.ble_running = false;
+	stub.link_active[OSC2_LINK_RADIO] = true;
+	CHECK_EQ(attr11(OSC2_LINK_DOCK), 4000);
+	CHECK_EQ(attr11(OSC2_LINK_RADIO), 4000);
+	osc2_dock_session_end(OSC2_DOCK_END_STOPPED);
 }
 
 /* The Bluetooth and dock links keep stored requests of their own; 0x81 and 0x85 act only from an
- * active link (Bluetooth past its gate), never from the dock; the strict GET refuses a command
- * without an answer. */
+ * active link (Bluetooth past its gate); from the dock they answer 0 and do nothing; the strict
+ * GET refuses a command without an answer. */
 OPENSC2_TEST(transport_links)
 {
 	uint8_t out[63];
@@ -190,8 +205,12 @@ OPENSC2_TEST(transport_links)
 	CHECK_EQ(link_set(OSC2_LINK_BLE, 0x81, NULL, 0), 0);
 	CHECK_EQ(osc2.settings[OPENSC2_SETTING_LIZARD_MODE], 0);
 	stub.link_active[OSC2_LINK_DOCK] = true;   /* even so, the dock never counts */
-	CHECK(link_set(OSC2_LINK_DOCK, 0x81, NULL, 0) < 0);
-	CHECK(link_set(OSC2_LINK_DOCK, 0x85, NULL, 0) < 0);
+	osc2.settings[OPENSC2_SETTING_LIZARD_MODE] = 2;
+	CHECK_EQ(link_set(OSC2_LINK_DOCK, 0x81, NULL, 0), 0);   /* acknowledged ... */
+	CHECK_EQ(osc2.settings[OPENSC2_SETTING_LIZARD_MODE], 2);   /* ... and nothing happens */
+	CHECK_EQ(link_set(OSC2_LINK_DOCK, 0x85, NULL, 0), 0);
+	CHECK_EQ(osc2.settings[OPENSC2_SETTING_LIZARD_MODE], 2);
+	osc2.settings[OPENSC2_SETTING_LIZARD_MODE] = 0;
 	/* Every other command works on the dock link, 0x87 included. */
 	CHECK_EQ(link_set(OSC2_LINK_DOCK, 0x87, (const uint8_t[]){ 45, 30, 0 }, 3), 0);
 	CHECK_EQ(osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS], 30);

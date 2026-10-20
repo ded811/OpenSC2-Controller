@@ -13,7 +13,7 @@
  * rule, every op, held answers, the lease and the end of arming), the console's "opensc2 test"
  * lines, the ring and the counters, the settings and the LED, input injection, the state report's
  * rules (input_rules.c) and encoding, lizard mode (lizard.c) with its haptic events, the battery
- * report, output report decoding. Done
+ * report, output report decoding, the dock link and its test ops (dock_link.c, test_dock.c). Done
  * here the way report.c, core.c and radio.c do it, in a few lines each: the order of lizard mode's
  * reports, the frame and battery cadence, the Steam watchdog's expiry, the rumble timeout, the
  * haptic stream status replies to a stop (the rule is proto_rules.c's), the radio link
@@ -49,6 +49,8 @@
 #include "internal.h"
 #include "cal_store.h"
 #include "cal_host.h"
+#include "dock_link.h"
+#include "dock_stub.h"
 #include "haptics_glue.h"
 #include "input_rules.h"
 #include "lizard.h"
@@ -67,6 +69,7 @@
 #define QUEUE_MAX      64
 
 void osc2_stub_lizard_note(char what);
+static void dock_sample(uint8_t report[OPENSC2_STATE_REPORT_LEN]);
 static int output_hook(uint8_t link, const uint8_t *report, uint8_t len);
 
 static uint64_t now_us;
@@ -447,6 +450,7 @@ static void boot(bool to_wireless, bool warm)
 	hk.release_hook = lizard_release;
 	hk.resync_hook = lizard_resync;
 	hk.output_hook = output_hook;
+	osc2_dock_stub_sampler = dock_sample;
 	boot_us = now_us;
 	opensc2_lizard_reset(&lizard);
 	osc2_input_rules_reset(&input_rules);
@@ -483,6 +487,20 @@ static void app_raw_sticks(struct opensc2_state *s)
 	}
 }
 
+/* osc2_report_state(): one report built, its copy left with the dock while a session runs. */
+static void build_report(uint8_t report[OPENSC2_STATE_REPORT_LEN], struct opensc2_state *s)
+{
+	memset(s, 0, sizeof(*s));   /* nothing wired: the application's state is all zero ... */
+	app_raw_sticks(s);          /* ... but for the left stick's raw output */
+	osc2_cal_frame(s);
+	osc2_test_input(s);
+	osc2_cal_rules(s);
+	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, s);
+	opensc2_encode_state(s, sequence++, report);
+	osc2_test_frame(report);
+	osc2_dock_cache_report(report);
+}
+
 static void frame(void)
 {
 	uint8_t report[OPENSC2_STATE_REPORT_LEN];
@@ -491,17 +509,18 @@ static void frame(void)
 	if (wireless && !hk.radio_connected) {
 		return;   /* no keep-alives from the puck, no reports */
 	}
-	memset(&s, 0, sizeof(s));   /* nothing wired: the application's state is all zero ... */
-	app_raw_sticks(&s);         /* ... but for the left stick's raw output */
-	osc2_cal_frame(&s);
-	osc2_test_input(&s);
-	osc2_cal_rules(&s);
-	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, &s);
-	opensc2_encode_state(&s, sequence++, report);
-	osc2_test_frame(report);
+	build_report(report, &s);
 	enqueue(report, sizeof(report));
 	osc2_test_count(wireless ? OSC2_TEST_CNT_RADIO_SENT : OSC2_TEST_CNT_USB_SENT);
 	lizard_frame(&s);
+}
+
+/* dock.c's osc2_dock_sample(): GET input with the dock alone builds a report, sent nowhere. */
+static void dock_sample(uint8_t report[OPENSC2_STATE_REPORT_LEN])
+{
+	struct opensc2_state s;
+
+	build_report(report, &s);
 }
 
 /* ---- output reports: report.c's osc2_output_dispatch() without the callbacks ------------------ */

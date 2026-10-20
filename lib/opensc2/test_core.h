@@ -111,6 +111,11 @@ enum osc2_test_op {
 	OSC2_TEST_OP_HAP_CAPTURE = 0x81,
 	OSC2_TEST_OP_HAP_STATUS = 0x82,
 	OSC2_TEST_OP_HAP_PLAY = 0x83,
+	/* The dock (CONFIG_OPENSC2_DOCK_LINK, test_dock.c; the environment's dock_op). */
+	OSC2_TEST_OP_DOCK_LOAD = 0x90,
+	OSC2_TEST_OP_DOCK_RUN = 0x91,
+	OSC2_TEST_OP_DOCK_READ = 0x92,
+	OSC2_TEST_OP_DOCK_CTRL = 0x93,
 	/* the calibration's raw inputs (CONFIG_OPENSC2_CAL) */
 	OSC2_TEST_OP_RAW_INJECT = 0xA0,
 	OSC2_TEST_OP_RAW_OFF = 0xA1,
@@ -179,11 +184,17 @@ enum osc2_test_kind {
 	/* 0x30..0x33: protocol completeness */
 	OSC2_TEST_KIND_STOP_STATUS = 0x30,   /* a 0x44 the library sent as the reply to a stop */
 	OSC2_TEST_KIND_BLE = 0x40,   /* a Bluetooth LE link event (enum osc2_test_ble_event) */
-	/* The haptics synthesiser's (haptics_run.h). */
+	/* 0x50..0x56: the system state machine's (test_sys.h). The haptics synthesiser's
+	 * (haptics_run.h): */
 	OSC2_TEST_KIND_HAP_GEN = 0x60,
 	OSC2_TEST_KIND_HAP_BLOCK = 0x61,
 	OSC2_TEST_KIND_HAP_STREAM = 0x62,
 	OSC2_TEST_KIND_HAP_SCRIPT = 0x63,
+	/* The dock (test_dock.c), link 5. */
+	OSC2_TEST_KIND_DOCK_SESSION = 0x70,
+	OSC2_TEST_KIND_DOCK_FRAME = 0x71,
+	OSC2_TEST_KIND_DOCK_PILOT = 0x72,
+	OSC2_TEST_KIND_DOCK_STATE = 0x73,
 };
 
 /* BLE entries: event u8, a u8, b u16, c u32. */
@@ -309,6 +320,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 #define OSC2_TEST_FLAG_SYSTEM                 (1u << 18)
 /* CONFIG_OPENSC2_HAPTICS_SYNTH: the haptics synthesiser, its ops and ring entries. */
 #define OSC2_TEST_FLAG_HAPTICS_SYNTH          (1u << 19)
+/* CONFIG_OPENSC2_DOCK_LINK: the dock link, and with it the dock ops 0x90 to 0x93. */
+#define OSC2_TEST_FLAG_DOCK                   (1u << 20)
 #define OSC2_TEST_FLAG_CAL                    (1u << 21)   /* CONFIG_OPENSC2_CAL: RAW_INJECT */
 
 /* STATUS flags (byte 0). */
@@ -397,6 +410,10 @@ struct osc2_test_env {
 	 * (OSC2_TEST_BAD_OP when it is not built). */
 	uint8_t (*hap_op)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
 			  uint8_t *rlen);
+	/* The dock ops 0x90 to 0x93 (test_dock.c), the argument lengths checked: the status, the
+	 * result into `result`. NULL in a build without the dock link: BAD_OP. */
+	uint8_t (*dock_op)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			   uint8_t *rlen);
 };
 
 /* ---- the core's state ------------------------------------------------------------------------ */

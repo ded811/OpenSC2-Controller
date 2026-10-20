@@ -29,7 +29,7 @@ change a pin there, or delete an input you do not wire.
 | [Wired and wireless modes](#wired-and-wireless-modes), [LED](#led) | what the board does and shows |
 | [The serial console](#the-serial-console-wireless-mode), [Identity](#identity), [Steam's firmware update](#steams-firmware-update) | looking inside and changing what Steam sees |
 | [Optional parts](#optional-parts), [Build options](#build-options), [A battery build](#a-battery-build) | more hardware, other settings |
-| [The hardware test hooks](#the-hardware-test-hooks), [Test build: the charger fallback](#test-build-the-charger-fallback) | testing |
+| [The hardware test hooks](#the-hardware-test-hooks), [Test build: the charger fallback](#test-build-the-charger-fallback), [The dock build](#the-dock-build-untested) | testing |
 | [Test build: Bluetooth LE](#test-build-bluetooth-le) | the opt-in Bluetooth build (not yet tested on hardware) |
 
 ## Build and flash
@@ -622,5 +622,35 @@ once connected (a slow fade on an RGB LED); dark while wireless is off. To pair 
 host, or again after removing it in Windows: `opensc2 ble pair` first. The whole procedure, and the
 hardware test suite's Bluetooth path: [docs/testing.md](../docs/testing.md#bluetooth). What is
 built and what is not: [docs/api.md](../docs/api.md#the-bluetooth-build).
+
+## The dock build (untested)
+
+> [!WARNING]
+> The dock build (`app/dock.conf`, with `app/dock.overlay`) has never run on hardware. Nothing may be
+> connected to Valve's puck's pads without the owner's step-by-step go-ahead: the pads' voltages and
+> loads have not been measured, and the puck's `+` pad carries about 5 V once it switches it on
+> ([docs/testing.md](../docs/testing.md#the-dock)).
+
+The default build already has the dock's protocol without pins (with the test hooks), which the
+hardware test suite checks through the test hooks (`--dock`). The dock build adds the dock's UART
+and pilot sense (`CONFIG_OPENSC2_DOCK`) on four pins that are buttons in the default build:
+
+| Pin | In the dock build | In the default build |
+| --- | --- | --- |
+| P0.31 (AIN7) | the pilot sense: an analog input, no divider (gain 1/6, internal reference) | the pairing button |
+| P1.06 | the pairing button | QAM |
+| P1.01 | the dock UART's TX (UARTE1, 115200 8N1), open drain | RT (digital) |
+| P1.02 | the dock UART's RX, no pull | R3 |
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\dock.conf -OutDir C:\b\osc2-dock -Pristine
+```
+
+`app/CMakeLists.txt` adds the overlay whenever the fragment is built. Try it first against a 3.3 V
+USB-UART adapter that plays the puck ([tools/fake_puck.py](../tools/fake_puck.py)), never against
+the puck itself. With nothing on P0.31 the pin floats and may now and then read inside the pilot's
+window, which starts dock sessions nobody asked for: on a board with nothing attached, tie it to
+ground through a resistor (100 kΩ, say) before running the `dock` group on this build. What the
+library does on the dock: [docs/api.md](../docs/api.md#the-dock).
 
 Back to the [documentation map](../docs/README.md)

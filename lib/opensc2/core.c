@@ -354,7 +354,9 @@ bool osc2_link_active(enum osc2_link link)
 		return !osc2_wired() && osc2_ble_active();
 	}
 	if (link == OSC2_LINK_DOCK) {
-		return false;   /* the real controller's 0x81 and 0x85 do nothing from the dock */
+		/* The dock carries no lizard mode, and the real controller's 0x81 and 0x85 do nothing
+		 * from it (dock_link.h says when it is up). */
+		return false;
 	}
 	return !osc2_wired() && osc2_radio_connected();
 }

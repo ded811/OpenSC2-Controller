@@ -1,0 +1,88 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * The dock build's pins (app/dock.conf; app/CMakeLists.txt adds this overlay with that fragment),
+ * on top of boards/promicro_nrf52840_nrf52840_uf2.overlay. BUILT, NEVER RUN ON HARDWARE.
+ *
+ * The SuperMini has no free pins, so four change jobs:
+ *
+ *   P0.31 (AIN7)  the pilot sense, an analog input with no divider   (was the pairing button)
+ *   P1.06         the pairing button                                  (was QAM)
+ *   P1.01         the dock UART's TX, open drain: it pulls the line low for a 0 bit and leaves it
+ *                 alone otherwise, so it never holds the pilot at 3.3 V   (was RT, digital)
+ *   P1.02         the dock UART's RX, no pull                          (was R3)
+ *
+ * How these meet the puck's P pad (the pilot and the UART share it on the puck's side, inferred)
+ * is not known: the pad's idle voltage and load have not been measured. A front end with series
+ * resistors and clamps comes first, tried against a USB-UART adapter acting as the puck
+ * (tools/fake_puck.py). NOTHING MAY BE CONNECTED TO VALVE'S PUCK'S PADS without the owner's
+ * step-by-step go-ahead (docs/testing.md, The dock).
+ */
+
+/ {
+	aliases {
+		opensc2-dock = &opensc2_dock;
+	};
+
+	/* The dock link's UART and pilot channel (dts/bindings/opensc2,dock.yaml). */
+	opensc2_dock: opensc2-dock {
+		compatible = "opensc2,dock";
+		uart = <&uart1>;
+		io-channels = <&adc 2>;
+	};
+};
+
+/* The pairing button moves from P0.31 to QAM's pin; QAM, RT (digital) and R3 give theirs up. */
+&opensc2_pair {
+	gpios = <&gpio1 6 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+};
+
+&opensc2_buttons {
+	/delete-node/ qam;
+	/delete-node/ trigger_r;
+	/delete-node/ stick_r;
+};
+
+&pinctrl {
+	opensc2_dock_uart_default: opensc2_dock_uart_default {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 1)>;
+			nordic,drive-mode = <NRF_DRIVE_S0D1>;   /* open drain */
+		};
+		group2 {
+			psels = <NRF_PSEL(UART_RX, 1, 2)>;
+			bias-disable;
+		};
+	};
+
+	opensc2_dock_uart_sleep: opensc2_dock_uart_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 1)>,
+				<NRF_PSEL(UART_RX, 1, 2)>;
+			low-power-enable;
+		};
+	};
+};
+
+/* 115200 baud, 8N1, no flow control, as the puck's end. */
+&uart1 {
+	status = "okay";
+	current-speed = <115200>;
+	pinctrl-0 = <&opensc2_dock_uart_default>;
+	pinctrl-1 = <&opensc2_dock_uart_sleep>;
+	pinctrl-names = "default", "sleep";
+};
+
+/* The pilot: gain 1/6 of the internal 0.6 V reference, 12 bits (3600 mV full scale), no
+ * divider; present inside 2000 to 3300 mV at the pin. */
+&adc {
+	channel@2 {
+		reg = <2>;
+		zephyr,gain = "ADC_GAIN_1_6";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 10)>;
+		zephyr,input-positive = <NRF_SAADC_AIN7>;   /* P0.31 */
+		zephyr,resolution = <12>;
+	};
+};

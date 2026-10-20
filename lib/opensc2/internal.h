@@ -14,10 +14,10 @@
 #include "retained.h"    /* the retained area's layout (the session summary) */
 #include "transport_rules.h"   /* the wireless transport values (OSC2_TRANSPORT_*) */
 
-/* Report interval of the links, attribute 11 of vendor command 0x83 (the puck link and USB both
- * report 4000 µs; Bluetooth its connection interval, the dock 64000 µs). */
+/* Report interval of the puck's radio and USB, attribute 11 of vendor command 0x83 while one of
+ * them is the current link (Bluetooth reports its connection interval, the dock 64000 µs:
+ * OPENSC2_DOCK_INTERVAL_US). */
 #define OSC2_REPORT_INTERVAL_US 4000
-#define OSC2_DOCK_INTERVAL_US   64000
 
 /* The charger test build (a testing aid, not the real controller's behaviour, off by default): a
  * wired boot that no host talks to within this many ms goes wireless (usb_rules.h). 0: off, and
@@ -39,8 +39,11 @@ enum osc2_link {
 	 * host, with a stored request of their own; active exactly when the mode's real link is. */
 	OSC2_LINK_TEST = 2,
 #endif
+	/* 3 is "no link" in the test hooks' ring (OSC2_TEST_LINK_NONE). */
 	OSC2_LINK_BLE = 4,    /* Bluetooth LE (CONFIG_OPENSC2_BLE) */
-	OSC2_LINK_DOCK = 5,   /* the puck's dock contacts: no dock code yet, never active */
+	/* The dock (dock_link.c): commands and the latest state report over the puck's charging pads;
+	 * never "active" for lizard mode. */
+	OSC2_LINK_DOCK = 5,
 	OSC2_LINK_COUNT,
 };
 
@@ -163,6 +166,9 @@ int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_le
  * `out` ({opcode, length, data}); returns the bytes written ({opcode, 0} when the command has no
  * answer). The record's own byte is not used: Valve's puck does not set it. */
 uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63]);
+/* The same, with the command's own result in `*rc` (0, or a negative errno; -ENOTSUP when the
+ * stored command has nothing to read), for the dock, which answers it. */
+uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc);
 /* A link whose transport can refuse a read (Bluetooth): the stored request's GET as 63 bytes
  * {opcode, length, data, zeros}; returns 63, or a negative errno for a command without an answer
  * or a failed GET (an ATT error there, the counterpart of a STALL on USB). */

@@ -87,6 +87,10 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x81` | HAP_CAPTURE | path u8 (0 pads, 1 grips, 2 both), blocks u8 (0 stops) | | a `HAP_BLOCK` entry for each of the next blocks the path renders; BAD_ARG for a path above 2 |
 | `0x82` | HAP_STATUS | | status, 38 bytes (below) | |
 | `0x83` | HAP_PLAY | what u8; 0 cue: cue u8, level u8; 1 click: channels u8, click u8 (1 A, 2 B), gain s8; 2 script: channels u8, id u8, gain s8; 3 free fall: the random byte its drop sound will use u8; 4 stop: channels u8 | result s32 | the synthesiser's own sounds, as the application or the library would play them: how many grips a cue started on (-1: it plays nothing at that level), how many channels were queued or started, 1 when a free fall was taken (0: not armed); BAD_ARG for another `what` |
+| `0x90` | DOCK_LOAD | offset u8, then 1..53 bytes | | part of a 73-byte [dock frame](api.md#the-dock-link) to hand to the dock link; BAD_ARG past byte 73. The suite loads 53 bytes at 0 and 20 at 53 |
+| `0x91` | DOCK_RUN | length u8 (0..73), flags u8 (bit 0: start a session when none runs) | outcome u8 (0 answered, 1 too short: the session ends, 2 bad CRC: the session ends, 3 nothing arrived: the session goes on), session u8 (1 still running), then the answer's start byte u8, type u8, result s32, flags u8 (bit 0 its CRC checks, bit 1 bytes masked), CRC-32 of the whole answer u32, CRC-32 of the masked bytes in order u32 (0 if none), the handling time µs u32 (21 bytes) | the first `length` loaded bytes as if they had arrived from the puck. NO_LINK when no session runs and bit 0 is clear; DENIED for a SET (type 2) of 73 bytes whose opcode `HOST_SET` would refuse, before anything runs. A session the hooks start ends with their arming |
+| `0x92` | DOCK_READ | offset u8, count u8 (1..55) | offset u8, count u8, the answer's bytes | the last answer; masked bytes read as zeros: a probe's two serials (bytes 24 to 51), the data of a GET answer `HOST_GET` would mask. BUSY before any answer |
+| `0x93` | DOCK_CTRL | what u8, then by `what`: 0 STATUS; 1 END; 2 PILOT: three readings mV u16 (`0xFFFF` a failed conversion); 3 SUPPLY: usb, plus, pilot u8 (0 or 1), entry u8 (how the controller comes onto the dock while outside the dock states: 0 at power-on, 1 in the battery wait, 2 on battery), warm u8; 4 EVENT: event u8, chord u8; 5 RESET | STATUS: flags u8 (bit 0 a session runs, 1 the dock is the only link, 2 the hooks' session, 3 built with the UART), the last session end u8, sessions u32, frames u32, errors u32, the slowest handling µs u32, the docked state u8, the supply u8, the dock's stored request's opcode u8, a report copied u8 (22 bytes); PILOT: present u8, inside u8 (a bit per reading), session u8; SUPPLY and EVENT: the event posted u8 (`0xFF` none), from u8, to u8, handled u8, actions u32 | END ends a session; PILOT runs the check between sessions (one that passes starts a session); SUPPLY and EVENT step the supply rule and the docked states on these values only, and record each step; nothing they decide is done. Numbers: [proto/dock.py](../tools/hwtest/proto/dock.py) |
 | `0xA0` | RAW_INJECT | flags u8 (0), nonce u32, present u8 (bit 0 left stick, 1 right stick, 2 left trigger, 3 right trigger, 4 left pressure, 5 right pressure, 6 left and 7 right stick-touch and grip words), sticks LX, LY, RX, RY u16, triggers L, R u16, pressure L, R s16, stick touch L, R s16, grip L, R s16 (30 bytes) | frames u32 | builds with `CONFIG_OPENSC2_CAL` only (caps bit 21; BAD_OP without). The inputs in `present` replace the application's raw inputs before the library processes them ([api.md, Calibration and raw inputs](api.md#calibration-and-raw-inputs)), as `opensc2_set_raw()` would give them; a nonce other than 0 goes into the IMU timestamp of every frame built with them, so the reports that carry them are known. DENIED while lizard mode is on; BAD_ARG for a flag bit; frames as for `INJECT` |
 | `0xA1` | RAW_OFF | | frames u32 | the application's raw inputs again |
 | `0xA2` | CAL_STATUS | | 16 bytes: generation u32 (`opensc2_cal_generation()`); usable u8 (bit 0 left stick, 1 right stick, 2 left trigger, 3 right trigger, 4 left pressure, 5 right pressure: a stored calibration that the processing can use); raw u8 (the raw inputs the last frame processed, RAW_INJECT's bits); injected u8 (RAW_INJECT's `present`, 0 when off); flags u8 (bit 0 `CONFIG_OPENSC2_PAD_RULES`, bit 1 `CONFIG_OPENSC2_CAL_PRESSURE_CLICK`); the recordings' steps u8 × 3 (sticks `0xD8`, triggers `0xC0`, pressure `0xC3`; bit 7 while one runs); the pads' pressure filters s16 × 2 (left, right); clicks u8 (bit 0 left, bit 1 right: the pressure's click state) | reads only; also through the puck |
@@ -98,7 +102,8 @@ from lizard mode, as injected ones are.
 
 Ops `0x70` to `0x74` answer DENIED in a build without the system state machine
 (`CONFIG_OPENSC2_SYSTEM=n`, caps build flag 18 clear); `0x75` to `0x77` are kept for it and answer
-BAD_OP.
+BAD_OP. The dock ops `0x90` to `0x93` answer BAD_OP in a build without the dock link (caps build
+flag 20 clear).
 
 The **test link** is a third command link of the library with a stored request of its own, used only
 by `HOST_SET` and `HOST_GET`, so emulating a host on the board never disturbs the stored request of
@@ -121,8 +126,9 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 `NO_HOST_WIRELESS_MS` not 0, the charger test build; 15 the rule word, ops `RULES` and `RULES_SET`:
 without it the firmware has OpenSC2 0.2.0's rules, the trigger bits only and none of lizard mode's
 processing; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to stops; 17 `BLE`, the Bluetooth build; 18
-`SYSTEM`, the system state machine and its ops; 19 `HAPTICS_SYNTH`, the haptics synthesiser; 21
-`CAL`, the library's calibration and raw inputs with `RAW_INJECT`; the bits between are left for
+`SYSTEM`, the system state machine and its ops; 19 `HAPTICS_SYNTH`, the haptics synthesiser; 20
+`DOCK_LINK`, the dock link and its ops; 21 `CAL`, the library's calibration and raw inputs with
+`RAW_INJECT`; the bits between are left for
 other options); 6 battery report interval ms u16; 8 rumble timeout ms
 u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16; 16 the
 lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
@@ -218,7 +224,8 @@ resync of the ARM); `RING_READ`'s `first` is the oldest still there and `next` t
 gets, so a reader that asked from `from` and gets `first` > `from` lost entries. An entry: time u32 (µs
 since ARM), kind u8, link u8 (0 radio, 1 USB, 2 test: the host emulation and everything the console
 causes, 3 none: work queue events such as the rumble timeout or the Steam watchdog, 4 Bluetooth, 5
-the dock; for `ARMED` and `MARK` the transport of the request), data length u8 (at most 41), data:
+the dock: the dock link and the commands it ran; for `ARMED` and `MARK` the transport of the
+request), data length u8 (at most 41), data:
 
 | Kind | Name | Data |
 | --- | --- | --- |
@@ -255,7 +262,13 @@ the dock; for `ARMED` and `MARK` the transport of the request), data length u8 (
 | `0x61` | HAP_BLOCK | path u8, block index u32 (0: the first after the path was idle), CRC-32 u32 of the block's bytes (pads 64, grips 256, little endian), peak u16 (the largest sample, 32767 full scale), flags u8 (bit 0 the first block, with its 4 ms lead-in; bit 1 nothing plays after it) |
 | `0x62` | HAP_STREAM | channel u8, what u8 (1 a start queued, 2 started, 3 ran dry, 4 emptied by a stop, 5 a format command answered, 6 a write, 7 a `0x44` sent), fill u16 (bytes in the ring), flags u32 (the `0x44` flags of what) |
 | `0x63` | HAP_SCRIPT | what u8 (1 started, 2 refused, 3 a step ran, 4 done, 5 a cue, 6 a free fall, 7 the drop sound due, 8 re-armed), channel u8 (a cue: the level), id u8 (a cue: the cue), gain s8, extra u16 (a step: its index; a cue: its script, 0 none; a free fall: 1 taken, 0 not; the drop sound: the random byte) |
-The system entries (`0x50` to `0x56`; `0x57` is kept) have link 3, none.
+| `0x70` | DOCK_SESSION | what u8 (0 start, 1 end), reason u8 (a start: 0 the pilot, 1 the test hooks; an end: 1 too short, 2 bad CRC, 3 a receive error that cut the frame short (the UART build; its DOCK_FRAME, outcome 1, follows), 4 the receiver not armed, 5 stopped), frames u32 (an end: answered in that session) |
+| `0x71` | DOCK_FRAME | the request's type u8 (`0xFF` below 2 bytes), outcome u8 (0 answered, 1 size, 2 CRC), length u8, the answer's result s32 (0 without one), the handling time µs u32 |
+| `0x72` | DOCK_PILOT | three readings mV s16 (−1 a failed conversion; a reading the hooks fed above 32767 shows as 32767), inside u8 (a bit per reading), present u8 (a passing check, or one the hooks fed) |
+| `0x73` | DOCK_STATE | what u8 (0 a supply event, 1 an entry into the dock states, 2 another event), event u8 (the event, or the entry), chord u8, from u8, to u8 (0 away, 1 radio off, 2 lifted off, 3 a chord, 4 link up), handled u8, actions u32 (bits in `dock_rules.h`'s order: stop link, start link, pairing, select, cue, power-off chime, 4 s timer, 5 s timer, timer stop, pause, reboot, shutdown, update window, to battery, to a battery chord, LED charging, LED transport, LED colour, LED off, keylock cleared) |
+
+The system entries (`0x50` to `0x56`; `0x57` is kept) have link 3, none. The dock's (`0x70` to `0x73`) have link
+5, the dock.
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).
 

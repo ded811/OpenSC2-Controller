@@ -10,7 +10,7 @@
 # A third binary, the firmware emulator (fwemu.c: the hooks binary with a stdin/stdout main), lets
 # the hardware test suite's runner run its groups against the library's own code: when python3 is
 # on PATH, its self-tests and its dry run against the emulator run last (docs/testing.md), with
-# the self-tests of tools/match_steam_version.py.
+# the self-tests of tools/fake_puck.py and tools/match_steam_version.py.
 # NO_RUNNER=1 sh tests/host/run.sh runs the C tests only.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
@@ -21,6 +21,7 @@ out="${TMPDIR:-/tmp}"
 compile() {
 	${CC:-gcc} -std=c11 -Wall -Wextra -Wshadow -Werror -I"$here/shim" -I"$root/include" -I"$lib" \
 		-DCONFIG_OPENSC2_CAL=1 -DCONFIG_OPENSC2_CAL_PRESSURE_CLICK=1 -DCONFIG_OPENSC2_PAD_RULES=1 \
+		-DCONFIG_OPENSC2_DOCK_LINK=1 \
 		"$here/stubs.c" "$here/cal_host.c" "$lib/codec.c" "$lib/lizard.c" \
 		"$lib/settings_defaults.c" "$lib/fusion.c" "$lib/usb_desc.c" "$lib/usb_rules.c" \
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
@@ -31,20 +32,21 @@ compile() {
 		"$lib/sys_rules.c" "$lib/chord_rules.c" "$lib/idle_rules.c" "$lib/led_rules.c" \
 		"$lib/test_sys.c" "$lib/haptics_dsp.c" "$lib/haptics_tables.c" \
 		"$lib/haptics_core.c" "$lib/haptics_rules.c" "$lib/haptics_sounds.c" \
-		"$lib/haptics_run.c" "$lib/haptics_help.c" "$@" -lm
+		"$lib/haptics_run.c" "$lib/haptics_help.c" \
+		"$lib/dock_codec.c" "$lib/dock_rules.c" "$lib/dock_link.c" "$here/dock_stub.c" "$@" -lm
 }
 
 compile "$here/run_tests.c" -o "$out/opensc2_host_tests_plain"
 compile "$here/run_tests.c" -DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=512 \
 	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$lib/test_sys_notes.c" \
-	"$here/hooks_stub.c" -o "$out/opensc2_host_tests_hooks"
+	"$lib/test_dock.c" "$here/hooks_stub.c" -o "$out/opensc2_host_tests_hooks"
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps), the system state
-# machine, and the haptics synthesiser as app/haptics.conf has it
+# machine, the haptics synthesiser as app/haptics.conf has it, and the dock link (on with the hooks)
 compile "$here/fwemu.c" "$here/fwemu_sys.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_SYSTEM=1 \
 	-DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=2048 \
 	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 -DCONFIG_OPENSC2_HAPTICS_SYNTH=1 \
-	"$lib/test_notes.c" "$lib/test_sys_notes.c" "$here/hooks_stub.c" "$here/haptics_emu.c" \
-	-o "$out/opensc2_fwemu"
+	"$lib/test_notes.c" "$lib/test_sys_notes.c" "$lib/test_dock.c" "$here/hooks_stub.c" \
+	"$here/haptics_emu.c" -o "$out/opensc2_fwemu"
 # Without CONFIG_OPENSC2_CAL the calibration's calls are stand-ins: those files must still compile.
 for f in "$lib/commands.c" "$lib/cal_store.c" "$lib/test_core.c"; do
 	${CC:-gcc} -std=c11 -Wall -Wextra -Wshadow -Werror -I"$here/shim" -I"$root/include" -I"$lib" \
@@ -79,9 +81,11 @@ elif [ -z "$py" ]; then
 else
 	OPENSC2_FWEMU="$emu" "$py" -I "$root/tools/hwtest/run.py" --selftest ||
 		{ echo "FAIL the runner self-tests"; rc=1; }
-	"$py" -I "$root/tools/hwtest/run.py" --dry-run --fw-emu "$emu" --lizard --yes \
+	"$py" -I "$root/tools/hwtest/run.py" --dry-run --fw-emu "$emu" --lizard --dock --yes \
 		--results "$out/opensc2_hwtest_results" ||
 		{ echo "FAIL the dry run against the emulator"; rc=1; }
+	OPENSC2_FWEMU="$emu" "$py" -I "$root/tools/fake_puck.py" --selftest ||
+		{ echo "FAIL the fake_puck.py self-tests"; rc=1; }
 	"$py" -I "$root/tools/match_steam_version.py" --selftest ||
 		{ echo "FAIL the match_steam_version.py self-tests"; rc=1; }
 fi

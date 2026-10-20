@@ -86,6 +86,7 @@ static void register_test(const char *name, test_fn fn)
 #include "../codec/src/cases.h"
 #include "../codec/src/cases_usb.h"
 #include "../codec/src/cases_input.h"
+#include "../codec/src/cases_dock.h"
 #include "commands_cases.h"
 #include "proto_cases.h"
 #include "keys_cases.h"
@@ -106,6 +107,7 @@ static void register_test(const char *name, test_fn fn)
 #include "cal_hooks_cases.h"
 #include "system_hooks_cases.h"
 #endif
+#include "dock_cases.h"   /* after hooks_cases.h: its hooks part uses those helpers */
 
 int main(int argc, char **argv)
 {
@@ -127,6 +129,10 @@ int main(int argc, char **argv)
 	for (int i = 0; i < test_count; i++) {
 		current_failed = 0;
 		tests[i].fn();
+		/* Every path through the library let go of the mutexes it took (a command channel or
+		 * dock link left locked would hang the firmware at the next command). */
+		CHECK_EQ(osc2_host_mutexes_held, 0);
+		osc2_host_mutexes_held = 0;
 		printf("%s %s\n", current_failed ? "FAIL" : "PASS", tests[i].name);
 		failures += current_failed;
 	}

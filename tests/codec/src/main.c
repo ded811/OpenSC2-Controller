@@ -2,7 +2,7 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * The pure test cases (cases.h, cases_usb.h, cases_input.h) as a Zephyr ztest suite.
+ * The pure test cases (cases.h, cases_usb.h, cases_input.h, cases_dock.h) as a Zephyr ztest suite.
  */
 #include <zephyr/ztest.h>
 
@@ -15,5 +15,6 @@
 #include "cases.h"
 #include "cases_usb.h"
 #include "cases_input.h"
+#include "cases_dock.h"
 
 ZTEST_SUITE(opensc2_codec, NULL, NULL, NULL, NULL, NULL);

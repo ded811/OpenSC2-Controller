@@ -83,7 +83,8 @@ Steam on a Windows PC.
 | Since v0.2.0, not in a release yet: the real controller's power and status rules ([docs/api.md](docs/api.md#power-and-the-system-state-machine)): the power-on decision, STEAM held 7 s, the transport chords and their pairing hold, the keylock, the idle timeout, low battery, shutdown and power-off, the status LED's modes and patterns, and the cue events. Host-tested, and run by the test suite against the firmware emulator. | Built; not yet tested on hardware |
 | Since v0.2.0: a battery build (`app/battery.conf`) that turns itself off and wakes on STEAM or USB power; an RGBW status LED and an IR LED; a charger status pin. | Built; not yet tested on hardware |
 | The haptics synthesiser (an option, `app/haptics.conf`): rumble, pulses, clicks, tones, sweeps, scripts and PCM streams rendered as the real controller's sequencers do, sounds of OpenSC2's own (scripts, cues, drop sounds), the streams' flow control, outputs for an I2S amplifier, a PWM DAC and a DRV2605. Its rendering is checked by the host tests and the emulator; the suite's `haptics` group is ready for a board. | Built; not yet tested on hardware |
-| The dock (pogo pads). | Not implemented |
+| The dock's protocol (the controller's end of the puck's charging pads): the 73-byte frames, sessions, the identity probe, Steam's commands and the state report over the dock, and its rules (the pilot, dock or USB power, the docked states). Checked by the host tests and the firmware emulator; the hardware test suite's opt-in `dock` group feeds it frames on a bare board through the test hooks. The library does not yet act on dock power. | Built; not yet tested on hardware |
+| The dock's UART and pilot sense (`app/dock.conf`, a SuperMini variant), and `tools/fake_puck.py` for a USB-UART adapter. Nothing may be connected to Valve's puck's pads without the owner's go-ahead ([docs/testing.md](docs/testing.md#the-dock)). | Built; never run on hardware |
 
 Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
 
@@ -248,10 +249,10 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 65 host tests (2,610 checks); 94 (5,164 checks) with the hardware
+- **Host tests**, no hardware: 184 host tests (13,185 checks); 230 (16,396 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 233 self-tests; its dry run against the library's own code in a firmware emulator; 9
-  self-tests of `tools/match_steam_version.py`. Run
+  runner's 276 self-tests; its dry run against the library's own code in a firmware emulator; 6
+  self-tests of `tools/fake_puck.py` and 9 of `tools/match_steam_version.py`. Run
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc
   on PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
   tested with gcc; clang (also what `gcc` runs on macOS) is not tested.
@@ -304,9 +305,9 @@ In more detail, it was written from:
 
 - that documentation's pages on the controller's radio link to the puck, its USB device, the wired
   session and pairing over the cable, the reports, the vendor commands, the controller settings,
-  lizard mode and its Bluetooth link, and on the puck's end of the link: its slots, pairing window,
-  connecting, channel choice, suspend and what it shows Steam ([docs/protocol.md](docs/protocol.md)
-  sums up each one and links its page);
+  lizard mode, its Bluetooth link and the dock, and on the puck's end of the link: its slots,
+  pairing window, connecting, channel choice, suspend, its dock and what it shows Steam
+  ([docs/protocol.md](docs/protocol.md) sums up each one and links its page);
 - a few facts that come directly from the same authors' study of the controller's firmware, not
   from that documentation: the ranges of seven settings and details of the report descriptor (the
   sizes of its mouse and keyboard collections, the form of its items, the order of its reports)
@@ -344,22 +345,26 @@ hardware report, a new board). [CHANGELOG.md](CHANGELOG.md) lists the changes, a
 zephyr/module.yml, CMakeLists.txt, Kconfig   the Zephyr module
 include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (wire formats and USB
                         descriptors), settings.h, led.h (the status LED), fusion.h, haptics.h (the
-                        haptics synthesiser)
+                        haptics synthesiser), dock.h (the dock's frames)
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
+dts/bindings/           the devicetree binding of the dock's UART and pilot (opensc2,dock)
 lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc.c (wired mode),
                         ble.c (Bluetooth LE, opt-in), transport.c (the puck or Bluetooth),
                         commands.c (vendor commands), report.c (reports on every link), lizard.c
                         (lizard mode), mode.c (wired or wireless), usblog.c (the session log),
                         system.c with sys_rules.c, chord_rules.c, idle_rules.c and led_rules.c
-                        (power, chords, the status LED, cues), storage.c, shell.c, test_*.c
-                        (the hardware test hooks), haptics*.c (the haptics synthesiser, an option)
-app/                    the blank-canvas firmware for the SuperMini; app/build.ps1 builds it
+                        (power, chords, the status LED, cues), dock_*.c and dock.c (the dock),
+                        storage.c, shell.c, test_*.c (the hardware test hooks), haptics*.c (the
+                        haptics synthesiser, an option)
+app/                    the blank-canvas firmware for the SuperMini; app/build.ps1 builds it;
+                        app/*.conf its variants (app/README.md)
 template/               a small project to copy as the start of your own
 samples/                minimal, buttons_sticks, touchpad, imu, rumble, rgb_led, haptics
 tests/host/             host tests (run.ps1, run.sh) and the firmware emulator (fwemu.c)
 tests/codec/            the pure test cases as a ztest suite (optional; native_sim on Linux)
 tests/vectors/hwtest/   vectors that the host tests and the hardware test suite both check
 tools/hwtest/           the hardware test suite (Python; hardware runs on Windows)
+tools/fake_puck.py      the puck's end of the dock link, played by the PC
 tools/match_steam_version.py   gives a board the build time of Steam's current controller firmware
 tools/check_links.py    checks the links and anchors in the documentation
 tools/collect_licenses.py   writes THIRD_PARTY_LICENSES.txt for a release

@@ -28,4 +28,6 @@ target_sources(app PRIVATE
 	${OPENSC2_ROOT}/lib/opensc2/mode_rules.c
 	${OPENSC2_ROOT}/lib/opensc2/retained.c
 	${OPENSC2_ROOT}/lib/opensc2/id_rules.c
+	${OPENSC2_ROOT}/lib/opensc2/dock_codec.c
+	${OPENSC2_ROOT}/lib/opensc2/dock_rules.c
 )

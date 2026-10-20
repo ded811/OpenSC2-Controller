@@ -55,3 +55,9 @@ ENTRY 0001000060030c020301fac800640000000000             # HAP_GEN left grip, to
 ENTRY 0002000061030c0100000000fde19dab341201             # HAP_BLOCK grips, block 0, CRC 0xab9de1fd, peak 0x1234, the first
 ENTRY 000300006203080206360108000000                     # HAP_STREAM left grip, a write, 310 bytes held, 0x08
 ENTRY 00040000630306050205f40500                         # HAP_SCRIPT cue 5 at level 2, -12 dB, script 5
+# the dock's entries (link 5)
+ENTRY 00010000 70 05 06 00 01 00000000                   # DOCK_SESSION start, by the test hooks
+ENTRY 00020000 70 05 06 01 02 03000000                   # DOCK_SESSION end, a bad CRC, after 3 frames
+ENTRY 00030000 71 05 0b 01 00 49 3f000000 96000000       # DOCK_FRAME GET answered, 73 bytes, result 63, 150 us
+ENTRY 00040000 72 05 08 c409 cf07 ffff 01 00             # DOCK_PILOT 2500, 1999, a failed conversion: inside 0x01, absent
+ENTRY 00050000 73 05 0a 01 00 00 00 01 01 00800800       # DOCK_STATE entry at power-on, away to radio off: keylock cleared, LED charging

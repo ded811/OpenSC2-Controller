@@ -34,6 +34,9 @@ def _parse(argv):
                    help="the Bluetooth path only (B): a board of the Bluetooth build, wireless on "
                         "its Bluetooth transport and paired with Windows, through the HID device "
                         "Windows made of it (docs/testing.md, Bluetooth)")
+    p.add_argument("--dock", action="store_true",
+                   help="also run group dock: the board's dock link fed frames through the test "
+                        "hooks (nothing wired, never the puck's pads)")
     p.add_argument("--with-steam", action="store_true", help="also run group steam (passive)")
     p.add_argument("--steam-control", action="store_true",
                    help="let the runner close and start Steam")
@@ -63,7 +66,7 @@ def _options(a):
         "groups": set(g for g in a.group.split(",") if g) or None,
         "tests": set(t for t in a.test.split(",") if t) or None,
         "wired_only": a.wired_only, "wireless_only": a.wireless_only, "bluetooth": a.bluetooth,
-        "through_puck": a.through_puck, "flash": a.flash, "lizard": a.lizard,
+        "through_puck": a.through_puck, "flash": a.flash, "lizard": a.lizard, "dock": a.dock,
         "with_steam": a.with_steam, "steam_control": a.steam_control, "soak": a.soak,
         "board": a.board, "timeout_scale": a.timeout_scale, "max_minutes": a.max_minutes,
         "fail_fast": a.fail_fast, "yes": a.yes, "verbose": a.verbose,

@@ -56,6 +56,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, the kept keys `user/keylock`, `mte/charge_level` and `debug/resetreason` saved as they read, restating the mode policy); see [the note below](#what---flash-writes) |
 | `lizard` | W R B | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, also from the click by pressure switched on for the test, thumb on the stick by its sensor's bit or the stick-touch fallback, lizard mode off and back, with its processing switched off), then its processing part by part (the touch stabilisers with setting 80 at 0, 1 and 2, the 8-frame average, the glide after a flick and what ends it: a new touch, `0x81`, an `ARM`, and the haptic ticks and clicks) and all together as the build has it, each sequence followed until lizard mode goes quiet, with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path (before the `system` group, whose reboots come at the very end), and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
 | `puck` | P | opt-in `--through-puck`: rumble, haptics, vendor commands and the test channel through the puck ([below](#the---through-puck-opt-in)) |
+| `dock` | W R | opt-in `--dock`: the board's dock link, fed 73-byte frames through the test hooks as if the puck had sent them over its pads, nothing wired ([below](#the-dock)): the frame rules (the CRC, a short frame, nothing arriving, the start byte ignored, a type the puck never sends), the probe's identity record against the board's identity (its serials by CRC-32 only), commands on the dock's own stored request, `0x81` and `0x85` doing nothing there, GET input from the stream's latest report without taking a sequence number, every answer within 50 ms; on R the dock alone with the radio stopped (attribute 11 = 64000, one new report per request, no `0x43`, `0xBE` answered); the pilot's 2-of-3 rule; the docked states on injected supply and events, recorded and not acted on |
 | `steam` | S | opt-in `--with-steam`: what Steam sends to the board through the puck (the vendor commands, and `steam.session` counts the output reports by ID, rumble, haptic commands by kind, PCM bytes and stops, and checks the `0x44` reply to each stop; the counts go into `report.json`), the lines it logs on a reconnect (masked), the wired stream with Steam open; passive |
 
 Because nothing is wired, the board's own inputs read neutral; the inputs come from the test
@@ -64,7 +65,8 @@ fields the library decoded; with the haptics synthesiser, what it renders, as CR
 Not covered: the physical inputs and outputs of a board that has them (the samples' drivers, the
 synthesiser's I2S, PWM and DRV2605 outputs), the USB cable rules on a real cable (unplugging,
 plugging in: the `system` group injects the power source instead), a real power-off (the board has
-no battery, so every shutdown reboots) and the dock. Bluetooth is a run of its own, `--bluetooth`
+no battery, so every shutdown reboots) and the dock's wire (its UART and pilot: the `dock` group
+reaches the dock link through the test hooks only). Bluetooth is a run of its own, `--bluetooth`
 ([Bluetooth](#bluetooth)); of it the suite does not cover Valve's vendor GATT service, other hosts
 (phones, SDL) or Steam over Bluetooth, which are checked by hand.
 
@@ -140,7 +142,10 @@ They are rules in code, each with its own self-test, not conventions:
   or the mode policy, except the value-preserving rewrites of `--flash`, each allowed by a one-shot
   token for exactly the value just read back. The console
   accepts only an allowlist of commands, each exactly as the runner builds it (a line with a
-  control character, which could start a second command, is never sent).
+  control character, which could start a second command, is never sent). A dock frame that runs a
+  vendor command (a SET) is held to the test link's allowlist, where the frame is built and again
+  where it leaves the PC, and the firmware checks it a third time; dock frames never go through
+  the puck, and nothing is ever connected to the puck's pads ([The dock](#the-dock)).
 - **It leaves the board as it found it.** A snapshot at the start (the 86 settings, the LED colour,
   a CRC-32 of each bond, a hash of the identity, the slot, the chime level, the policy), the
   restore at the end (also after a failure or Ctrl-C), and a comparison: any difference is exit
@@ -174,16 +179,18 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 65 host tests (2,610 checks); 94 (5,164 checks) with
-the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
-alike; a compile of the library files whose calibration calls become stand-ins without
-`CONFIG_OPENSC2_CAL`; the runner's 233 self-tests (a dry run of the Bluetooth path among them); its
-dry run against the library's own code in a firmware emulator, which has the haptics synthesiser
-built in (as `app/haptics.conf`), so the `haptics` group runs there too; 9 self-tests of
+the suite against that emulator. Today that is 184 host tests (13,185 checks); 230 (16,396 checks)
+with the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for
+byte alike (after every test, each mutex the library took must have been let go again); a compile
+of the library files whose calibration calls become stand-ins without `CONFIG_OPENSC2_CAL`; the
+runner's 276 self-tests (a dry run of the Bluetooth path among them); its dry run against the
+library's own code in a firmware emulator, `--dock` included, which has the haptics synthesiser
+built in (as `app/haptics.conf`), so the `haptics` group runs there too; 6 self-tests of
+`tools/fake_puck.py`; 9 self-tests of
 `tools/match_steam_version.py`. To run the emulator by hand after `run.ps1` built it:
 
 ```powershell
-python -I tools\hwtest\run.py --dry-run --fw-emu $env:TEMP\opensc2_fwemu.exe --lizard
+python -I tools\hwtest\run.py --dry-run --fw-emu $env:TEMP\opensc2_fwemu.exe --lizard --dock
 ```
 
 The host tests need a C compiler for the PC itself: the compiler of the nRF Connect SDK's toolchain
@@ -227,6 +234,7 @@ python -I tools\hwtest\run.py --with-steam --steam-control
 | `--through-puck` | allow writes through the puck to the board's slot ([below](#the---through-puck-opt-in)) |
 | `--flash` | allow the value-preserving flash rewrites of group `flash` ([what they write](#what---flash-writes)) |
 | `--lizard` | run group `lizard`: lizard mode on injected inputs, only the guard holding its reports back (needs the canary, the leak detector watching that path, and `inputs.lizard_lock` passed on it in the same run, for example `--group hooks,inputs,lizard`) |
+| `--dock` | run group `dock`: the board's dock link through the test hooks, nothing wired ([The dock](#the-dock)); on the wireless path it stops and restarts the radio once |
 | `--with-steam`, `--steam-control` | the passive `steam` group at the end; with `--steam-control` the runner starts and closes Steam itself, without it you start Steam when asked |
 | `--soak S` | `stream.soak` for S seconds |
 | `--board N` | the board to use when more than one is connected (the runner lists them) |
@@ -436,15 +444,45 @@ it), **only with Steam closed**, and **never feature report 2** (the puck's own 
 Every one of these writes is printed as a `[through-puck]` line, kept in `console.log`, and counted
 in `report.json` (`safety.puck_writes`).
 
+## The dock
+
+> [!WARNING]
+> **Nothing may be connected to Valve's puck's pads without the owner's step-by-step go-ahead**: not
+> a board, not a USB-UART adapter, not a meter's probe. The pads' voltages and loads have not been
+> measured; the `+` pad carries about 5 V once the puck switches it on, and a load on `P` can make
+> the puck switch it on. Each step towards the real puck (looking at its pads with nothing touching
+> them, a high-impedance meter, a current-limited pilot, charging) needs that go-ahead first.
+
+What can be tested without the puck, and how:
+
+- **The protocol, on a bare board** (`--dock`, the `dock` group above): the test hooks' dock ops
+  hand the board's dock link 73-byte frames as if the puck had sent them, and read the answers
+  back ([the ops](test-protocol.md#the-test-channel-vendor-command-0x7e)). Nothing is wired; the
+  frames never leave the PC except to the board's own test channel, and through the puck never.
+  Built: the dock link is in the default `app/` image, with the test hooks. Not yet run on
+  hardware; the dry run checks the group against the library's own code.
+- **The wire, against a fake puck**: [tools/fake_puck.py](../tools/fake_puck.py) plays the puck's end
+  (a probe, polls 64 ms apart, a vendor command, a short frame and a bad CRC) through the firmware
+  emulator (`--fw-emu`), a board's test hooks (`--test-op`), or a 3.3 V USB-UART adapter wired to
+  the dock UART of a board built with `app/dock.conf` (`--port COMn`, with `--pilot dtr` or `rts`
+  to present the pilot through a divider). The adapter path is untested; the tool refuses Valve's
+  devices, the board's console and a UF2 bootloader as its port, and only sends commands the test
+  link's allowlist has.
+
+```powershell
+python -I tools\fake_puck.py --fw-emu $env:TEMP\opensc2_fwemu.exe --command 89:2d --errors
+python -I tools\fake_puck.py --test-op --polls 20
+```
+
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 233 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 276 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking (Bluetooth addresses too), every
   safety rule (including the source scan of the puck reader, that every function that sends checks
   the exact bytes, and which Bluetooth node is the board's), the link lock against a racing
   keep-alive, the leak detector's filter and watch list, the Windows backend's slot handling on
-  synthetic device lists (nothing opened), the writers, and the whole runner against the simulator,
-  the Bluetooth path included.
+  synthetic device lists (nothing opened), the writers, the dock's frames, rules and safety, and
+  the whole runner against the simulator, the Bluetooth path included.
 - **The dry run** (`--dry-run`): every group against a simulator with a virtual clock (seconds,
   not minutes), which models the board in both modes, the puck, the console with log noise, Steam
   and the reboots; with `--bluetooth`, the board's Bluetooth link and a Windows host bonded to it. `--sim-fault NAME` makes it misbehave in exactly one way, and each fault must
@@ -457,12 +495,12 @@ in `report.json` (`safety.puck_writes`).
   pad clicks).
 - **The firmware emulator** (`--fw-emu`): the same groups against the library's own code
   (commands, test channel, ring, injection, lizard mode, the battery and state reports, the
-  calibration's raw inputs and pad rules, and the system state machine's rules with their test ops
-  and reboots), so the runner and the firmware cannot drift apart unnoticed. The simulator has no
-  calibration (no caps bit 21), so group `cal` runs against the emulator only.
+  calibration's raw inputs and pad rules, the system state machine's rules with their test ops and
+  reboots, and the dock link), so the runner and the firmware cannot drift apart unnoticed. The
+  simulator has no calibration (no caps bit 21), so group `cal` runs against the emulator only.
 - **The shared vectors** in `tests/vectors/hwtest/`: the C host tests and the runner's self-tests
   read the same files (the state report rules with every rule word, lizard mode with its processing
-  and haptic events, ring entries, the test channel, the settings), so both sides agree on every
-  byte.
+  and haptic events, ring entries, the test channel, the settings, the dock's frames and rules), so
+  both sides agree on every byte.
 
 Back to the [documentation map](README.md).

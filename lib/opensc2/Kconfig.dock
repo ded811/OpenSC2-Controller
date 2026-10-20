@@ -1,0 +1,52 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# The dock: the controller's end of Valve's puck's charging pads (docs/api.md, "The dock").
+# Sourced from lib/opensc2/Kconfig, inside "if OPENSC2".
+
+config OPENSC2_DOCK_LINK
+	bool "Dock link: vendor commands and the state report over the puck's charging pads"
+	default y if OPENSC2_TEST_HOOKS
+	help
+	  The dock's protocol, with no pins of its own: the 73-byte frames and their CRC, a
+	  session (one request at a time; any frame that fails ends it), the probe's identity
+	  record, vendor commands on a stored request of the dock's own (0x81 and 0x85 do nothing
+	  there), the latest state report for GET input, attribute 11 of 0x83 = 64000 while the
+	  dock is the only link, and the dock's pure rules (the pilot check, the supply rule, the
+	  docked states). Its frames come from OPENSC2_DOCK's UART, or from the hardware test
+	  hooks' dock ops, which test the protocol on a board with nothing wired; that is why it is
+	  on by default with the hooks. While no session runs, nothing changes on USB or the radio.
+	  About 3 KB of flash.
+
+config OPENSC2_DOCK
+	bool "Dock UART and pilot sense (BUILT, UNTESTED on hardware)"
+	depends on $(dt_alias_enabled,opensc2-dock)
+	depends on UART_ASYNC_API && ADC
+	select OPENSC2_DOCK_LINK
+	help
+	  BUILT, NEVER RUN ON HARDWARE. Serves the puck's dock requests on a UART, 115200 baud 8N1,
+	  and senses the pilot on an ADC channel (gain 1/6 of the internal reference, 12 bits, no
+	  divider: present inside 2000 to 3300 mV at the pin), both named by the devicetree node
+	  aliased opensc2-dock (compatible "opensc2,dock"). app/dock.conf and app/dock.overlay are
+	  a SuperMini variant. The pads' voltages and loads have not been measured: nothing may be
+	  connected to Valve's puck's pads without the owner's step-by-step go-ahead
+	  (docs/testing.md, The dock). Needs the UART instance's async API
+	  (CONFIG_UART_ASYNC_API, the instance's CONFIG_UART_<n>_ASYNC).
+
+if OPENSC2_DOCK
+
+config OPENSC2_DOCK_THREAD_PRIORITY
+	int "Dock thread priority"
+	default 9
+	help
+	  The real controller serves the dock at priority 9, just below its input sampling.
+
+config OPENSC2_DOCK_THREAD_STACK_SIZE
+	int "Dock thread stack size"
+	default 2048
+	help
+	  The thread runs vendor commands, flash writes included (a pairing over the dock saves the
+	  bond), as the USB stack's thread does on the cable (the blank canvas gives that one 2048
+	  bytes for the same reason).
+
+endif # OPENSC2_DOCK

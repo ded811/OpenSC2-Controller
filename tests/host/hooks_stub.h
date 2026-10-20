@@ -55,6 +55,7 @@ struct hooks_record {
 	/* report.c's rule word (input_rules.h): the build's is OSC2_RULES_DEFAULT */
 	uint32_t rules;
 	int rules_set_calls;
+	int dock_op_calls;              /* the dock ops 0x90 to 0x93 */
 };
 
 extern struct hooks_record hk;

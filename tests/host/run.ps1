@@ -7,7 +7,7 @@
   A third binary, the firmware emulator (fwemu.c: the hooks binary with a stdin/stdout main), lets
   the hardware test suite's runner run its groups against the library's own code: when Python is
   on PATH, its self-tests and its dry run against the emulator run last (docs/testing.md), with
-  the self-tests of tools\match_steam_version.py.
+  the self-tests of tools\fake_puck.py and tools\match_steam_version.py.
 .EXAMPLE
   From the repository folder. Windows does not run scripts by default; started this way,
   PowerShell runs this one (no administrator rights needed):
@@ -28,7 +28,7 @@ $shim = Join-Path $PSScriptRoot 'shim'
 $vectors = Join-Path $root 'tests\vectors\hwtest'
 $flags = @('-std=c11', '-Wall', '-Wextra', '-Wshadow', '-Werror', "-I$shim", "-I$root\include",
     "-I$lib", '-DCONFIG_OPENSC2_CAL=1', '-DCONFIG_OPENSC2_CAL_PRESSURE_CLICK=1',
-    '-DCONFIG_OPENSC2_PAD_RULES=1')
+    '-DCONFIG_OPENSC2_PAD_RULES=1', '-DCONFIG_OPENSC2_DOCK_LINK=1')
 $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\codec.c", "$lib\lizard.c", "$lib\settings_defaults.c", "$lib\fusion.c",
     "$lib\usb_desc.c", "$lib\usb_rules.c", "$lib\mode_rules.c", "$lib\retained.c",
@@ -47,18 +47,21 @@ $libSources += @("$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c",
 $libSources += @("$lib\haptics_dsp.c", "$lib\haptics_tables.c", "$lib\haptics_core.c",
     "$lib\haptics_rules.c", "$lib\haptics_sounds.c", "$lib\haptics_run.c",
     "$lib\haptics_help.c")
+# the dock link
+$libSources += @("$lib\dock_codec.c", "$lib\dock_rules.c", "$lib\dock_link.c",
+    (Join-Path $PSScriptRoot 'dock_stub.c'))
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',
     '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c", "$lib\test_sys_notes.c",
-    (Join-Path $PSScriptRoot 'hooks_stub.c'))
+    "$lib\test_dock.c", (Join-Path $PSScriptRoot 'hooks_stub.c'))
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps), the system state
 # machine, and the haptics synthesiser as app\haptics.conf has it
 $emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_SYSTEM=1',
     '-DCONFIG_OPENSC2_TEST_HOOKS=1',
     '-DCONFIG_OPENSC2_TEST_RING_SIZE=2048', '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8',
     '-DCONFIG_OPENSC2_HAPTICS_SYNTH=1',
-    "$lib\test_notes.c", "$lib\test_sys_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
-    (Join-Path $PSScriptRoot 'haptics_emu.c'),
+    "$lib\test_notes.c", "$lib\test_sys_notes.c", "$lib\test_dock.c",
+    (Join-Path $PSScriptRoot 'hooks_stub.c'), (Join-Path $PSScriptRoot 'haptics_emu.c'),
     (Join-Path $PSScriptRoot 'fwemu.c'), (Join-Path $PSScriptRoot 'fwemu_sys.c'))
 
 $plain = Join-Path $tmp 'opensc2_host_tests_plain.exe'
@@ -109,8 +112,10 @@ if ($NoRunner) {
     $env:OPENSC2_FWEMU = $fwemu
     & python -I $runPy --selftest
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the runner self-tests'; $failed = 1 }
-    & python -I $runPy --dry-run --fw-emu $fwemu --lizard --yes --results $results
+    & python -I $runPy --dry-run --fw-emu $fwemu --lizard --dock --yes --results $results
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the dry run against the emulator'; $failed = 1 }
+    & python -I (Join-Path $root 'tools\fake_puck.py') --selftest
+    if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the fake_puck.py self-tests'; $failed = 1 }
     Remove-Item Env:\OPENSC2_FWEMU
     & python -I (Join-Path $root 'tools\match_steam_version.py') --selftest
     if ($LASTEXITCODE -ne 0) { Write-Host 'FAIL the match_steam_version.py self-tests'; $failed = 1 }

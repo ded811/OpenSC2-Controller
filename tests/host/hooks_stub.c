@@ -15,6 +15,7 @@
 #include "input_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
+#include "test_dock.h"
 
 struct osc2_test_core osc2_test_core_obj;
 struct hooks_record hk;
@@ -70,6 +71,7 @@ void hooks_reset(void)
 	hk.usb_state = OPENSC2_USB_CONFIGURED;
 	hk.rules = OSC2_RULES_DEFAULT;
 	osc2_test_core_init(&osc2_test_core_obj);
+	osc2_test_dock_reset();
 }
 
 /* ---- the fake environment ---- */
@@ -149,6 +151,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 			    OSC2_TEST_FLAG_HAPTIC_STOP_STATUS;   /* the emulator sends them (fwemu.c) */
 #if defined(OSC2_HOST_FWEMU)
 	caps->build_flags |= OSC2_TEST_FLAG_SYSTEM;   /* fwemu_sys.c: the system state machine */
+	caps->build_flags |= OSC2_TEST_FLAG_DOCK;   /* the emulator has the dock link, as the app */
 #endif
 #if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
 	caps->build_flags |= OSC2_TEST_FLAG_HAPTICS_SYNTH;   /* the firmware emulator has it */
@@ -364,6 +367,15 @@ static uint8_t env_hap_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t
 	return osc2_haptics_test_op(op, args, alen, result, rlen);
 }
 
+/* The dock ops: the real ones (test_dock.c on dock_link.c and commands.c). */
+static uint8_t env_dock_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			   uint8_t *rlen)
+{
+	library_call();
+	hk.dock_op_calls++;
+	return osc2_test_dock_op(op, args, alen, result, rlen);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -398,4 +410,5 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.rules_set = env_rules_set,
 	.cal_status = osc2_cal_status,
 	.hap_op = env_hap_op,
+	.dock_op = env_dock_op,
 };

@@ -20,6 +20,7 @@
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
 #include "cal_store.h"
+#include "dock_link.h"
 #include "haptics_glue.h"
 #include "input_rules.h"
 #include "lizard.h"
@@ -124,6 +125,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 	osc2_input_rules_apply(&input_rules, osc2_rules(), osc2.settings, s);
 	opensc2_encode_state(s, sequence++, state);
 	osc2_test_frame(state);
+	osc2_dock_cache_report(state);   /* the dock's copy, while a dock session runs */
 }
 
 #if defined(CONFIG_OPENSC2_LIZARD_MODE)

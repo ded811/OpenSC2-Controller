@@ -470,4 +470,7 @@ endmenu
 
 rsource "Kconfig.ble"
 
+# The dock (the puck's charging pads).
+rsource "Kconfig.dock"
+
 endif # OPENSC2

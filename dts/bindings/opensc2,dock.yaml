@@ -1,0 +1,40 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+
+description: |
+  OpenSC2's dock link (CONFIG_OPENSC2_DOCK; built, UNTESTED on hardware): the UART and the pilot
+  sense a board uses on Valve's puck's charging pads. The library finds the node through the
+  alias opensc2-dock. app/dock.overlay is an example for the SuperMini nRF52840.
+
+  The pads' voltages and loads have not been measured. Nothing may be connected to Valve's
+  puck's pads without the owner's step-by-step go-ahead (docs/testing.md, The dock).
+
+    aliases {
+      opensc2-dock = &opensc2_dock;
+    };
+    opensc2_dock: opensc2-dock {
+      compatible = "opensc2,dock";
+      uart = <&uart1>;
+      io-channels = <&adc 2>;
+    };
+
+compatible: "opensc2,dock"
+
+include: base.yaml
+
+properties:
+  uart:
+    type: phandle
+    required: true
+    description: |
+      The dock's UART, with its async API on (CONFIG_UART_ASYNC_API, the instance's
+      CONFIG_UART_<n>_ASYNC): 115200 baud, 8N1, no flow control. Its TX should leave the line
+      alone between answers (open drain, or high impedance) and its RX have no pull: the puck's
+      side holds the line.
+
+  io-channels:
+    required: true
+    description: |
+      The pilot sense: one ADC channel on the pin that sees the pilot, with no divider, set up
+      as gain 1/6 of the internal 0.6 V reference, 12 bits (3600 mV full scale). The pilot is
+      present while a reading lies inside 2000 to 3300 mV.

@@ -22,6 +22,7 @@
 #include "internal.h"
 #include "cal_store.h"
 #include "crash.h"
+#include "dock_link.h"
 #include "keys.h"
 #include "proto_rules.h"
 #include "system.h"
@@ -56,6 +57,14 @@ struct stored_request {
 };
 
 static struct stored_request stored[OSC2_LINK_COUNT];
+
+/* One command at a time, whichever link it came on: the dock runs commands in a thread of its own
+ * beside the radio's (or USB's), and the handlers share the settings, the bonds and the identity.
+ * The real controller has no such lock; nothing it does can be told apart from the outside. The
+ * test channel's own requests (opcode 0x7E) run outside it: they take the hooks' request lock
+ * first and may then run a command (HOST_SET, the dock frame op), so this lock always comes
+ * second. A mutex, so a command that calls back into this file from the same thread is fine. */
+static K_MUTEX_DEFINE(command_lock);
 
 void osc2_commands_reset(enum osc2_link link)
 {
@@ -491,8 +500,14 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		load_defaults();
 		return 0;
 	case 0x81:   /* ID_CLEAR_DIGITAL_MAPPINGS: lizard mode off */
+		if (link == OSC2_LINK_DOCK) {
+			return 0;   /* from the dock: acknowledged, and nothing happens */
+		}
 		return lizard_off(link);
 	case 0x85:   /* ID_SET_DEFAULT_DIGITAL_MAPPINGS: lizard mode's keyboard and buttons back */
+		if (link == OSC2_LINK_DOCK) {
+			return 0;
+		}
 		if (!osc2_link_active(link)) {
 			return -EINVAL;
 		}
@@ -641,6 +656,7 @@ int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_le
 {
 	struct stored_request *r = &stored[link];
 	uint8_t opcode, len, ctx;
+	bool locked;
 	int rc;
 
 	if (rec_len < 2) {
@@ -651,6 +667,10 @@ int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_le
 	if (len > rec_len - 2 || len > OPENSC2_ANSWER_MAX) {
 		note_set(link, rec, rec_len, -EINVAL);
 		return -EINVAL;
+	}
+	locked = opcode != OSC2_TEST_OPCODE;   /* the test channel locks on its own (above) */
+	if (locked) {
+		(void)k_mutex_lock(&command_lock, K_FOREVER);
 	}
 	ctx = osc2_test_ctx_enter(link);
 	rc = run_set(link, opcode, &rec[2], len, (size_t)rec_len - 2);
@@ -664,6 +684,9 @@ int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_le
 	}
 	note_set(link, rec, rec_len, rc);
 	osc2_test_ctx_leave(ctx);
+	if (locked) {
+		(void)k_mutex_unlock(&command_lock);
+	}
 	return rc;
 }
 
@@ -679,24 +702,16 @@ uint8_t osc2_command_stored(enum osc2_link link, uint8_t rec[2 + OPENSC2_ANSWER_
 
 /* ---- GET ------------------------------------------------------------------------------------- */
 
-/* Attribute 11 of 0x83, the report interval of `link` in µs: 4000 on USB and the puck's radio,
- * the connection interval on Bluetooth once it is the active transport (0 before, as on the real
- * controller), 64000 on the dock. The test link reports its mode's real link. */
-static uint32_t link_interval_us(enum osc2_link link)
+/* Attribute 11 of 0x83: the report interval of the controller's current link in µs, whichever
+ * link asks (the real controller keeps one): 64000 while the dock is the only link up
+ * (dock_link.h); on Bluetooth the connection interval once it is the active transport (0 before,
+ * as on the real controller); 4000 on USB and the puck's radio. */
+static uint32_t link_interval_us(void)
 {
-#if defined(CONFIG_OPENSC2_TEST_HOOKS)
-	if (link == OSC2_LINK_TEST) {
-		link = osc2_mode_link();
-	}
-#endif
-	switch (link) {
-	case OSC2_LINK_BLE:
-		return osc2_ble_interval_us();
-	case OSC2_LINK_DOCK:
-		return OSC2_DOCK_INTERVAL_US;
-	default:
-		return OSC2_REPORT_INTERVAL_US;
-	}
+	uint32_t us = osc2_mode_link() == OSC2_LINK_BLE ? osc2_ble_interval_us() :
+							  OSC2_REPORT_INTERVAL_US;
+
+	return osc2_dock_interval_us(us);
 }
 
 static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, uint8_t len,
@@ -708,8 +723,8 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 	*out_len = 0;
 	opensc2_identity_get(&id);
 	switch (opcode) {
-	case 0x83:   /* ID_GET_ATTRIBUTES_VALUES */
-		*out_len = (uint8_t)opensc2_encode_attributes(&id, link_interval_us(link), out);
+	case 0x83:   /* ID_GET_ATTRIBUTES_VALUES: attribute 11 is the current link's interval */
+		*out_len = (uint8_t)opensc2_encode_attributes(&id, link_interval_us(), out);
 		return 0;
 	case 0xAE:   /* ID_GET_STRING_ATTRIBUTE: only the tag byte counts, whatever the length */
 		*out_len = (uint8_t)opensc2_encode_string_attribute(&id, sel, out);
@@ -821,20 +836,27 @@ static void note_get(enum osc2_link link, const struct stored_request *r, int rc
 	osc2_test_note_vendor(link, true, r->opcode, n, rc, r->payload, r->len, r->len);
 }
 
-uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
+uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc)
 {
 	const struct stored_request *r = &stored[link];
+	bool locked = r->opcode != OSC2_TEST_OPCODE;   /* the test channel's held answer */
 	uint8_t data_len = 0;
-	uint8_t ctx = osc2_test_ctx_enter(link);
-	int rc;
+	uint8_t ctx;
 
+	if (locked) {
+		(void)k_mutex_lock(&command_lock, K_FOREVER);
+	}
+	ctx = osc2_test_ctx_enter(link);
 	memset(out, 0, 63);
 	out[0] = r->opcode;
-	rc = run_get(link, r->opcode, r->payload, r->len, &out[2], &data_len);
-	note_get(link, r, rc, rc ? 0 : data_len);
+	*rc = run_get(link, r->opcode, r->payload, r->len, &out[2], &data_len);
+	note_get(link, r, *rc, *rc ? 0 : data_len);
 	osc2_test_ctx_leave(ctx);
-	if (rc) {
-		LOG_DBG("GET 0x%02x failed (%d)", r->opcode, rc);
+	if (locked) {
+		(void)k_mutex_unlock(&command_lock);
+	}
+	if (*rc) {
+		LOG_DBG("GET 0x%02x failed (%d)", out[0], *rc);
 		out[1] = 0;
 		return 2;
 	}
@@ -842,22 +864,21 @@ uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
 	return 2 + data_len;
 }
 
-int osc2_command_get_strict(enum osc2_link link, uint8_t out[63])
+uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
 {
-	const struct stored_request *r = &stored[link];
-	uint8_t data_len = 0;
-	uint8_t ctx = osc2_test_ctx_enter(link);
 	int rc;
 
-	memset(out, 0, 63);
-	out[0] = r->opcode;
-	rc = run_get(link, r->opcode, r->payload, r->len, &out[2], &data_len);
-	note_get(link, r, rc, rc ? 0 : data_len);
-	osc2_test_ctx_leave(ctx);
+	return osc2_command_get_rc(link, out, &rc);
+}
+
+int osc2_command_get_strict(enum osc2_link link, uint8_t out[63])
+{
+	int rc;
+
+	(void)osc2_command_get_rc(link, out, &rc);
 	if (rc) {
 		return rc < 0 ? rc : -EIO;
 	}
-	out[1] = data_len;
 	return 63;
 }
 
@@ -887,13 +908,22 @@ int osc2_usb_feature_get(uint8_t *out, uint16_t wlength, uint8_t reply_len, uint
 			 uint8_t *n)
 {
 	const struct stored_request *r = &stored[OSC2_LINK_USB];
+	bool locked = r->opcode != OSC2_TEST_OPCODE;
 	uint8_t answer[OPENSC2_ANSWER_MAX] = { 0 };
 	uint8_t answer_len = 0;
-	uint8_t ctx = osc2_test_ctx_enter(OSC2_LINK_USB);
-	int rc = run_get(OSC2_LINK_USB, r->opcode, r->payload, r->len, answer, &answer_len);
+	uint8_t ctx;
+	int rc;
 
+	if (locked) {
+		(void)k_mutex_lock(&command_lock, K_FOREVER);
+	}
+	ctx = osc2_test_ctx_enter(OSC2_LINK_USB);
+	rc = run_get(OSC2_LINK_USB, r->opcode, r->payload, r->len, answer, &answer_len);
 	note_get(OSC2_LINK_USB, r, rc, rc ? 0 : answer_len);
 	osc2_test_ctx_leave(ctx);
+	if (locked) {
+		(void)k_mutex_unlock(&command_lock);
+	}
 	*opcode = r->opcode;
 	*n = answer_len;
 	if (rc) {
