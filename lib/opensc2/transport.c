@@ -41,7 +41,10 @@ void osc2_transport_init(void)
 
 uint8_t osc2_transport_running(void)
 {
-	return running;
+	/* The puck's slot is always the radio's (osc2.slot), which a host's 0xEE of
+	 * user/wireless_transport, its 0xF0 or a factory reset change at once while the puck runs. */
+	return osc2_transport_is_puck(running) ? (uint8_t)(OSC2_TRANSPORT_PUCK_1 + osc2.slot) :
+						 running;
 }
 
 enum osc2_link osc2_mode_link(void)
@@ -186,5 +189,5 @@ int opensc2_select_transport_pairing(enum opensc2_transport transport)
 
 enum opensc2_transport opensc2_selected_transport(void)
 {
-	return (enum opensc2_transport)running;
+	return (enum opensc2_transport)osc2_transport_running();
 }
