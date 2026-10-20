@@ -3,8 +3,9 @@
 #
 # test_numbering.py: one numbering for the test channel. The ops, ring entry kinds and caps build
 # flags of the firmware's headers (lib/opensc2/test_core.h, test_sys.h) against the runner's
-# (config.py, proto/haptics.py, proto/sysproto.py): each number used once, the same numbers on both
-# sides, and each op and ring kind in docs/test-protocol.md's tables exactly once, by its name.
+# (config.py, proto/haptics.py, proto/sysproto.py): each number used once, the same name for the
+# same number on both sides (OSC2_TEST_OP_X is OP_X, OSC2_TEST_KIND_X is RING_X, OSC2_TEST_FLAG_X
+# is CAP_X), and each op and ring kind in docs/test-protocol.md's tables exactly once, by its name.
 import os
 import re
 import unittest
@@ -59,6 +60,21 @@ def py_numbers(prefix, modules, skip=()):
     return out
 
 
+def py_names(prefix, modules, skip=()):
+    """{name without the prefix: value} of the runner's constants; a name with two values fails."""
+    out = {}
+    for mod in modules:
+        for k, v in vars(mod).items():
+            if k.startswith(prefix) and isinstance(v, int) and not isinstance(v, bool) and \
+                    not any(k.startswith(s) for s in skip):
+                name = k[len(prefix):]
+                if name in out and out[name] != v:
+                    raise AssertionError("%s%s is %s in one module, %s in another"
+                                         % (prefix, name, out[name], v))
+                out[name] = v
+    return out
+
+
 def doc_rows(start, end):
     """{name: [values]} of the table rows "| `0xNN` | NAME |" between two headings."""
     text = _read("docs", "test-protocol.md")
@@ -87,6 +103,8 @@ class Numbering(unittest.TestCase):
             self.assertEqual(len(names), 1, "op 0x%02x has the names %s" % (value, sorted(names)))
         self.assertEqual(sorted(c.values()), sorted(py),
                          "the firmware's ops and the runner's differ")
+        # each op under the same name: a swapped pair of numbers fails here
+        self.assertEqual(py_names("OP_", (C, H)), c, "the ops' names and numbers differ")
         docs = doc_rows("## The test channel", "## The ring")
         for name, value in c.items():
             self.assertEqual(docs.get(name), [value],
@@ -103,6 +121,8 @@ class Numbering(unittest.TestCase):
                                                                                  sorted(names)))
         self.assertEqual(sorted(c.values()), sorted(py),
                          "the firmware's ring kinds and the runner's differ")
+        self.assertEqual(py_names("RING_", (C, H), skip=("RING_LINK_",)), c,
+                         "the ring kinds' names and numbers differ")
         self.assertEqual(sorted(S.KINDS), sorted(v for k, v in c.items()
                                                  if 0x50 <= v <= 0x57))
         self.assertEqual(sorted(H.RING_KINDS), sorted(v for k, v in c.items()
@@ -122,6 +142,7 @@ class Numbering(unittest.TestCase):
             self.assertEqual(len(names), 1, "caps bit %d has the names %s" % (bit, sorted(names)))
         self.assertEqual(sorted(c.values()), sorted(py),
                          "the firmware's caps bits and the runner's differ")
+        self.assertEqual(py_names("CAP_", (C, H)), c, "the caps bits' names and numbers differ")
         self.assertEqual(H.CAP_HAPTICS_SYNTH, C.CAP_HAPTICS_SYNTH)
 
     def test_links(self):
