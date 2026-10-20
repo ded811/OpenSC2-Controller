@@ -14,6 +14,7 @@ struct dock_stub_record {
 	int samples;        /* osc2_dock_sample() calls */
 	uint8_t sequence;   /* of the reports it built */
 	uint32_t extra_us;  /* added to the clock */
+	uint32_t step_us;   /* added to extra_us at every reading: a request that takes this long */
 };
 
 extern struct dock_stub_record dock_stub;

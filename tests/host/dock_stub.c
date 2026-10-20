@@ -33,5 +33,9 @@ void osc2_dock_sample(uint8_t report[OPENSC2_STATE_REPORT_LEN])
 
 uint32_t osc2_dock_now_us(void)
 {
-	return (uint32_t)(stub.now_ms * 1000) + dock_stub.extra_us;
+	uint32_t now = (uint32_t)(stub.now_ms * 1000) + dock_stub.extra_us;
+
+	/* The dock link reads the clock before and after a request: step_us is its handling time. */
+	dock_stub.extra_us += dock_stub.step_us;
+	return now;
 }

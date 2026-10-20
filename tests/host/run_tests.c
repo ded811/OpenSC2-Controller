@@ -103,6 +103,10 @@ int main(int argc, char **argv)
 	for (int i = 0; i < test_count; i++) {
 		current_failed = 0;
 		tests[i].fn();
+		/* Every path through the library let go of the mutexes it took (a command channel or
+		 * dock link left locked would hang the firmware at the next command). */
+		CHECK_EQ(osc2_host_mutexes_held, 0);
+		osc2_host_mutexes_held = 0;
 		printf("%s %s\n", current_failed ? "FAIL" : "PASS", tests[i].name);
 		failures += current_failed;
 	}

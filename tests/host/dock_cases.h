@@ -406,6 +406,77 @@ OPENSC2_TEST(dock_link_session_errors)
 	CHECK_EQ(info.last_end, OSC2_DOCK_END_STOPPED);
 }
 
+OPENSC2_TEST(dock_link_timing)
+{
+	uint8_t req[OPENSC2_DOCK_FRAME_LEN];
+	struct osc2_dock_info info;
+	uint32_t us = 0;
+
+	stub_reset();
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	(void)opensc2_dock_build_request(OPENSC2_DOCK_PROBE, NULL, 0, req);
+	/* the handling time: the clock from the frame to its answer */
+	dock_stub.step_us = 1200;
+	CHECK_EQ(osc2_dock_receive(req, sizeof(req), dk_ans, &us), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(us, 1200);
+	/* one slower than the 50 ms the dock link warns at stays the slowest */
+	dock_stub.step_us = 60000;
+	CHECK_EQ(osc2_dock_receive(req, sizeof(req), dk_ans, &us), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(us, 60000);
+	dock_stub.step_us = 300;
+	CHECK_EQ(osc2_dock_receive(req, sizeof(req), dk_ans, &us), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(us, 300);
+	osc2_dock_info(&info);
+	CHECK_EQ(info.slowest_us, 60000);
+	CHECK_EQ(info.frames, 3);
+	/* the microsecond clock wrapping during a request */
+	dock_stub.extra_us = 0xFFFFFF00u;
+	dock_stub.step_us = 0x200;
+	CHECK_EQ(osc2_dock_receive(req, sizeof(req), dk_ans, &us), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(us, 0x200);
+	/* a frame that fails is timed too */
+	dock_stub.step_us = 80;
+	CHECK_EQ(osc2_dock_receive(req, 50, dk_ans, &us), OSC2_DOCK_BAD_SIZE);
+	CHECK_EQ(us, 80);
+	osc2_dock_info(&info);
+	CHECK_EQ(info.slowest_us, 60000);
+	CHECK_EQ(info.errors, 1);
+}
+
+OPENSC2_TEST(dock_link_copy_between_sessions)
+{
+	uint8_t report[OPENSC2_STATE_REPORT_LEN];
+	struct osc2_dock_info info;
+
+	stub_reset();
+	memset(report, 0, sizeof(report));
+	report[0] = OPENSC2_RPT_STATE;
+	report[1] = 9;
+	report[2] = 0x11;
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	osc2_dock_cache_report(report);
+	osc2_dock_session_end(OSC2_DOCK_END_STOPPED);
+	/* between sessions no copy is kept ... */
+	report[2] = 0x22;
+	osc2_dock_cache_report(report);
+	/* ... and a new session's first GET input answers the last one kept, from the session
+	 * before (another link is up: no new sample) */
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_INPUT, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dk_ans[8], 9);
+	CHECK_EQ(dk_ans[9], 0x11);
+	CHECK_EQ(dock_stub.samples, 0);
+	osc2_dock_info(&info);
+	CHECK(info.cache_valid);
+	/* a boot (the reset) forgets it */
+	osc2_dock_reset();
+	osc2_dock_info(&info);
+	CHECK(!info.cache_valid);
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_INPUT, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dk_ans[9], 0);
+}
+
 /* ---- the dock ops of the test hooks ---------------------------------------------------------- */
 
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
@@ -760,6 +831,122 @@ OPENSC2_TEST(dock_ops_console_text)
 	}
 	CHECK(session);
 	CHECK(frame);
+}
+
+OPENSC2_TEST(dock_ops_timing)
+{
+	uint8_t req[OPENSC2_DOCK_FRAME_LEN];
+	uint8_t args[1] = { 0 };   /* DOCK_CTRL STATUS */
+	int i;
+
+	stub_reset();
+	dk_arm();
+	(void)opensc2_dock_build_request(OPENSC2_DOCK_PROBE, NULL, 0, req);
+	dk_load(req);
+	dock_stub.step_us = 1500;   /* the dock link's clock moves 1.5 ms during the request */
+	CHECK_EQ(dk_run(73, 1), OSC2_TEST_OK);
+	CHECK_EQ(opensc2_get_le32(&RES[17]), 1500);   /* DOCK_RUN's handling time */
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 1), OSC2_TEST_OK);
+	CHECK_EQ(opensc2_get_le32(&RES[14]), 1500);   /* STATUS: the slowest */
+	read_ring(0);
+	i = find_kind(OSC2_TEST_KIND_DOCK_FRAME, 0);
+	CHECK(i >= 0);
+	if (i >= 0) {
+		CHECK_EQ(opensc2_get_le32(&ents[i].d[7]), 1500);   /* the DOCK_FRAME entry's */
+	}
+}
+
+OPENSC2_TEST(dock_ops_over_usb)
+{
+	uint8_t req[OPENSC2_DOCK_FRAME_LEN], args[54];
+	uint8_t rec[OPENSC2_DOCK_PAYLOAD_LEN] = { 0x89, 1, 45 };
+	int16_t want = 0;
+
+	stub_reset();
+	CHECK_EQ(arm_on(true, 0xD0C0D0C1u, 0, 0), OSC2_TEST_OK);
+	/* The test channel on USB (unlocked, under the hooks' request lock) runs the dock link,
+	 * which runs 0x89 under the command channel's lock: both let go, nothing nests wrongly. */
+	for (int k = 0; k < 2; k++) {
+		(void)opensc2_dock_build_request(k == 0 ? OPENSC2_DOCK_SET : OPENSC2_DOCK_GET,
+						 k == 0 ? rec : NULL, k == 0 ? sizeof(rec) : 0, req);
+		args[0] = 0;
+		memcpy(&args[1], req, 53);
+		CHECK_EQ(usb_op(OSC2_TEST_OP_DOCK_LOAD, args, 54), OSC2_TEST_OK);
+		args[0] = 53;
+		memcpy(&args[1], &req[53], 20);
+		CHECK_EQ(usb_op(OSC2_TEST_OP_DOCK_LOAD, args, 21), OSC2_TEST_OK);
+		args[0] = 73;
+		args[1] = 1;
+		CHECK_EQ(usb_op(OSC2_TEST_OP_DOCK_RUN, args, 2), OSC2_TEST_OK);
+		CHECK_EQ(RES[0], 0);
+		CHECK_EQ(RES[3], k == 0 ? OPENSC2_DOCK_SET : OPENSC2_DOCK_GET);
+		CHECK_EQ((int32_t)opensc2_get_le32(&RES[4]), k == 0 ? 0 : 63);
+	}
+	/* the GET answered setting 45 from the dock's own stored request */
+	args[0] = 8;
+	args[1] = 5;
+	CHECK_EQ(usb_op(OSC2_TEST_OP_DOCK_READ, args, 2), OSC2_TEST_OK);
+	want = osc2.settings[45];
+	CHECK_EQ(RES[2], 0x89);
+	CHECK_EQ(RES[3], 3);
+	CHECK_EQ(RES[4], 45);
+	CHECK_EQ((int16_t)opensc2_get_le16(&RES[5]), want);
+	CHECK_EQ(hk.violations, 0);
+	CHECK_EQ(osc2_host_mutexes_held, 0);
+}
+
+OPENSC2_TEST(dock_ops_ctrl_args)
+{
+	uint8_t args[8] = { 0 };
+	int i;
+
+	stub_reset();
+	dk_arm();
+	/* SUPPLY: usb, plus and pilot 0 or 1, the entry 0 to 2, warm 0 or 1; nothing recorded */
+	args[0] = 3;
+	for (int k = 1; k <= 5; k++) {
+		memset(&args[1], 0, 5);
+		args[k] = k == 4 ? OSC2_DOCK_ON_BATTERY + 1 : 2;
+		CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 6), OSC2_TEST_BAD_ARG);
+	}
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 5), OSC2_TEST_BAD_LEN);
+	/* EVENT: an event past the last one */
+	args[0] = 4;
+	args[1] = OSC2_DOCK_EV_COUNT;
+	args[2] = 0;
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 3), OSC2_TEST_BAD_ARG);
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 2), OSC2_TEST_BAD_LEN);
+	/* onto the dock (radio off), then a chord number past the last: ignored, not refused */
+	args[0] = 3;
+	memset(&args[1], 0, 5);
+	args[2] = 1;
+	args[3] = 1;
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 6), OSC2_TEST_OK);
+	CHECK_EQ(RES[2], OSC2_DOCK_RADIO_OFF);
+	args[0] = 4;
+	args[1] = OSC2_DOCK_EV_CHORD;
+	args[2] = OSC2_DOCK_CHORDS;
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 3), OSC2_TEST_OK);
+	CHECK_EQ(RES[2], OSC2_DOCK_RADIO_OFF);
+	CHECK_EQ(RES[3], 0);
+	/* PILOT: a reading above 32767 mV is outside the window, and kept at 32767 in the ring */
+	args[0] = 2;
+	opensc2_put_le16(&args[1], 40000);
+	opensc2_put_le16(&args[3], 2500);
+	opensc2_put_le16(&args[5], 2600);
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 7), OSC2_TEST_OK);
+	CHECK_EQ(RES[0], 1);
+	CHECK_EQ(RES[1], 0x06);
+	read_ring(0);
+	CHECK_EQ(count_kind(OSC2_TEST_KIND_DOCK_STATE), 2);   /* the refused ones left none */
+	i = find_kind(OSC2_TEST_KIND_DOCK_PILOT, 0);
+	CHECK(i >= 0);
+	if (i >= 0) {
+		CHECK_EQ((int16_t)opensc2_get_le16(&ents[i].d[0]), 32767);
+		CHECK_EQ((int16_t)opensc2_get_le16(&ents[i].d[2]), 2500);
+	}
+	args[0] = 1;
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 1), OSC2_TEST_OK);   /* END */
 }
 
 #endif /* CONFIG_OPENSC2_TEST_HOOKS */

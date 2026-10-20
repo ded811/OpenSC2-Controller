@@ -15,6 +15,7 @@
 
 struct osc2_ctx osc2;
 struct stub_record stub;
+int osc2_host_mutexes_held;   /* shim/zephyr/kernel.h's mutexes taken and not let go */
 
 int64_t k_uptime_get(void)
 {
