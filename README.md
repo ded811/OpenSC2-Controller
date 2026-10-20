@@ -300,10 +300,11 @@ In more detail, it was written from:
   choice, suspend and what it shows Steam ([docs/protocol.md](docs/protocol.md) sums up each one
   and links its page);
 - a few facts that come directly from the same authors' study of the controller's firmware, not
-  from that documentation: the ranges of seven settings, details of the report descriptor (the
-  sizes of its mouse and keyboard collections, the form of its items, the order of its reports),
-  and lizard mode's key-slot rule, its scales and when its mouse reports go out
-  ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps) lists each);
+  from that documentation: the ranges of seven settings and details of the report descriptor (the
+  sizes of its mouse and keyboard collections, the form of its items, the order of its reports)
+  ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps) lists each); lizard
+  mode's key-slot rule, its scales and when its mouse reports go out came from that study too,
+  and the documentation has them now;
 - the documentation and black-box tests of [Counterpuck](https://github.com/ded811/Counterpuck),
   the same authors' open firmware for the puck side of the link;
 - the public names, and a few enum values and layouts, declared in SDL's open-source Steam

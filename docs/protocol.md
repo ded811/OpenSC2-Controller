@@ -306,11 +306,13 @@ open, the library does what should work with Steam and the puck, and says so her
     | The keyboard | evaluated once per report frame; the real controller sends a key report as soon as its button driver sees the change, so on the cable a key can come up to one frame (4 ms) later here; through the puck both ride the same acknowledgement |
     | A dropped link | the trackers are not started over (as documented): a pad held across a reconnect moves the pointer by the distance it moved meanwhile |
 
-    The key-slot rule and the scales (128 pad units per pointer count, 1024 per scroll step, pad up
-    scrolls with a negative wheel value) are documented now too; the ranges of 9, 11, 12, 14 and
-    71 likewise. All of this is built and tested on the host (the library against the runner's
-    model, and in the firmware emulator); it is not yet tested on hardware, and its feel needs a
-    trackpad, which no test has had.
+    The key-slot rule, the scales (128 pad units per pointer count, 1024 per scroll step, pad up
+    scrolls with a negative wheel value) and the rule that a mouse report goes out every frame
+    while anything is non-zero first came from the same authors' study of the controller's
+    firmware; the documentation has them now too (the ranges of the settings: gap 6). All of this
+    is built and tested on the host (the library against the runner's model, and in the firmware
+    emulator); it is not yet tested on hardware, and its feel needs a trackpad, which no test has
+    had.
 12. **A bond written with `0xA2`** takes effect at once here; the documented controller only reads
     it at the next boot.
 13. **The report descriptor's bytes.** Each detail has one source:
