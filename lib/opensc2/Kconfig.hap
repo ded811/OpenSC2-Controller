@@ -9,6 +9,7 @@ DT_CHOSEN_OPENSC2_HAPTICS_DRV2605 := opensc2,haptics-drv2605
 
 menuconfig OPENSC2_HAPTICS_SYNTH
 	bool "Haptics synthesiser: the output reports rendered for actuators"
+	select OPENSC2_HAPTIC_STOP_STATUS
 	help
 	  Render what Steam plays on the controller's four haptic actuators (rumble 0x80, pulse
 	  trains, clicks, tones, sweeps, scripts and PCM streams 0x81..0x89) into sample blocks, as
@@ -18,7 +19,9 @@ menuconfig OPENSC2_HAPTICS_SYNTH
 	  below; without an output a path still renders, paced by a timer, so the test hooks can check
 	  it. Also plays OpenSC2's own built-in sounds (report 0x85's scripts, the cues, the drop
 	  sounds) and sends the PCM streams' flow control (input report 0x44: 0x01, 0x02 when a
-	  stream runs dry, 0x04, 0x08, 0x10, 0x20, 0x40). Applies controller settings 76 (master
+	  stream runs dry, 0x04, 0x08, 0x10, 0x20, 0x40); the 0x02 after a stop comes from
+	  OPENSC2_HAPTIC_STOP_STATUS, which this selects. It also plays lizard mode's ticks and pad
+	  clicks and the system state machine's cues. Applies controller settings 76 (master
 	  gain), 75 (amplifier mode) and 27 (rumble gain offset). The application's rumble and haptic
 	  callbacks are still called. About 10 KB of RAM (two thread stacks, four 512-byte stream rings,
 	  the generators and queues) and 14 KB of flash. Built; not yet tested on hardware.

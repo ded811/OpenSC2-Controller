@@ -14,8 +14,10 @@ config OPENSC2_HAPTIC_STOP_STATUS
 	  0x44 {channel, 0x02} for each channel it reaches, whether or not anything was streaming:
 	  Steam's pair of all-zero 0x81 reports gets 44 04 02 00 00 00 and 44 03 02 00 00 00. The
 	  library sends the same replies, in the same order, on the current link. They take room in
-	  the queue of reports that ride with the state reports through the puck. Turn this off
-	  when the application sends its own 0x44 reports for its haptics engine.
+	  the queue of reports that ride with the state reports through the puck. An application
+	  with a haptics engine of its own that sends its own 0x44 reports for stops can turn this
+	  off; the library's haptics synthesiser (OPENSC2_HAPTICS_SYNTH) selects it, as it sends no
+	  0x02 for a stop itself.
 
 config OPENSC2_CRASH_RECORD
 	bool "Crash records: a fatal error leaves a record and resets, as on the real controller"

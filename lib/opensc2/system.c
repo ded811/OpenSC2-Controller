@@ -46,6 +46,7 @@ int opensc2_set_power_source(enum opensc2_power_source source)
 
 #if defined(CONFIG_OPENSC2_SYSTEM)
 
+#include <opensc2/haptics.h>
 #include "chord_rules.h"
 #include "idle_rules.h"
 #include "sys_rules.h"
@@ -325,7 +326,11 @@ static void play_cue(uint8_t cue)
 		return;
 	}
 	LOG_DBG("Cue %u: script %u at %d dB", cue, e.script, e.gain_db);
-	/* A haptics renderer plays OpenSC2's own sound for the cue here, through the callback. */
+	/* With the haptics synthesiser the library plays OpenSC2's own sound for the cue itself; the
+	 * callback hears of it either way (an application's own haptics would play it there). */
+	if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_SYNTH)) {
+		(void)opensc2_haptics_play_cue(cue, osc2.chime);
+	}
 	if (osc2.cb && osc2.cb->cue) {
 		osc2.cb->cue(&e, osc2.user_data);
 	}

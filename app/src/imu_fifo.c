@@ -27,6 +27,7 @@
 #include <zephyr/rtio/rtio.h>
 #include <zephyr/sys/mem_blocks.h>
 #include <opensc2/cal.h>
+#include <opensc2/haptics.h>
 #include <opensc2/sensor_helpers.h>
 
 LOG_MODULE_REGISTER(imu_fifo, LOG_LEVEL_INF);
@@ -59,6 +60,7 @@ static struct rtio_sqe *stream;   /* the standing read, or NULL */
 static uintptr_t stream_id;       /* its id; ids start at 1 */
 static uintptr_t cancelled_id;    /* a cancelled read not completed yet, or 0 */
 static bool wanted = true;        /* setting 48: on from boot */
+static struct opensc2_freefall fall;   /* the drop sounds' detector, afresh at each start */
 
 static const struct sensor_chan_spec accel_chan = { SENSOR_CHAN_ACCEL_XYZ, 0 };
 static const struct sensor_chan_spec gyro_chan = { SENSOR_CHAN_GYRO_XYZ, 0 };
@@ -79,6 +81,7 @@ static void stream_start(void)
 
 		if (sensor_stream(&imu_iodev, &imu_ctx, (void *)id, &stream) == 0) {
 			stream_id = id;
+			opensc2_freefall_init(&fall);   /* no fall carried over a pause */
 		} else {
 			stream = NULL;
 		}
@@ -150,6 +153,12 @@ static void decode(const struct sensor_decoder_api *dec, const uint8_t *buf)
 	/* the buffer's time, nanoseconds rounded to the nearest microsecond */
 	out.timestamp_us = (uint32_t)((accel.header.base_timestamp_ns + 500) / 1000);
 	opensc2_set_imu(&out);
+	/* The haptics synthesiser's drop sounds (app/haptics.conf): every streamed sample through the
+	 * library's free-fall detector, as imu.c does for a polled IMU. */
+	if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS) &&
+	    opensc2_freefall_update(&fall, out.accel, k_uptime_get_32())) {
+		opensc2_haptics_free_fall();
+	}
 }
 
 /* The stored gyro bias (rad/s, the chip's axes) as the fusion block's starting bias. */

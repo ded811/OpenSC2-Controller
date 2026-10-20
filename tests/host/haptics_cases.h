@@ -15,6 +15,7 @@
 #include "haptics_core.h"
 #include "haptics_rules.h"
 #include "haptics_run.h"
+#include "sys_rules.h"
 #include "retained.h"
 
 /* ---- helpers ---------------------------------------------------------------------------------- */
@@ -1573,4 +1574,25 @@ OPENSC2_TEST(haptics_helpers)
 	CHECK(!opensc2_freefall_update(&ff, still, 410));    /* landed: armed again */
 	CHECK(!opensc2_freefall_update(&ff, falling, 420));
 	CHECK(opensc2_freefall_update(&ff, falling, 570));
+}
+
+/* The system state machine's cue events and the synthesiser that plays them (system.c's
+ * play_cue() hands each cue to opensc2_haptics_play_cue()) map every cue and chime level alike. */
+OPENSC2_TEST(haptics_cue_map_is_the_machines)
+{
+	CHECK_EQ(OSC2_HAP_CUE_COUNT, OSC2_CUE_COUNT);
+	for (uint8_t cue = 0; cue <= OSC2_CUE_COUNT; cue++) {
+		for (uint8_t level = 0; level <= 3; level++) {
+			uint8_t s1 = 0, s2 = 0;
+			int8_t g1 = 0, g2 = 0;
+			bool a = osc2_cue_map(cue, level, &s1, &g1);
+			bool b = osc2_hap_cue(cue, level, &s2, &g2);
+
+			CHECK_EQ(a, b);
+			if (a && b) {
+				CHECK_EQ(s1, s2);
+				CHECK_EQ(g1, g2);
+			}
+		}
+	}
 }

@@ -470,6 +470,8 @@ streaming, on the current link (the one a host's output came on), right after th
 `rumble` callback. The order is the real controller's: the left channel first for `0x81` and
 `0x82`, the right first for `0x86`, the right grip before the left for `0x80`. Steam's pair of
 all-zero `0x81` reports (target 0, then 1) gets `44 04 02 00 00 00`, then `44 03 02 00 00 00`.
+An application whose own haptics engine sends these can turn the option off; the library's
+[haptics synthesiser](#the-haptics-synthesiser) selects it, as it sends no `0x02` for a stop.
 Turn the option off when your haptics engine sends its own `0x44` reports.
 
 ### Lizard mode
@@ -906,9 +908,11 @@ The `cue` callback gets `struct opensc2_cue_event`: the cue, the real controller
 it stands for (the `0x85` script numbers) and a gain from the chime level Steam stores
 (`opensc2_chime_level()`, `user/haptic_boot_level`): 1 (quiet) −18 dB, 2 (normal, the default)
 −12 dB, one dB less for cues 6 and 7; any other level is silent, and the callback is not called.
-Cue 8 would play at +2 dB whatever the level. The sound is the application's: OpenSC2 has no copy
-of the real controller's scripts, so a renderer plays sounds of its own for each cue. The blank
-canvas logs each cue.
+Cue 8 would play at +2 dB whatever the level. OpenSC2 has no copy of the real controller's scripts:
+with the [haptics synthesiser](#the-haptics-synthesiser) (`CONFIG_OPENSC2_HAPTICS_SYNTH`) the library
+plays OpenSC2's own sound for each cue itself (`opensc2_haptics_play_cue()`), and the callback still
+reports it; without it the sound is the application's, played from the callback. The blank canvas
+logs each cue.
 
 ## Status LED
 
@@ -1147,14 +1151,18 @@ in OpenSC2. The synthesiser has sounds of its own instead:
   | 9 | (nothing plays it on the real controller) | 3 | the level |
   | 10 | the PC is asleep | 4 | the level |
 
-  When to play them is the application's choice, or the library's power and link rules'.
+  The [system state machine](#power-and-the-system-state-machine) plays them when it raises
+  them ([Cues](#cues)); an application can play them too.
 - **The drop sounds** (`CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS`, on with the synthesiser):
   `opensc2_haptics_free_fall()` reports a fall; 250 ms later a random byte picks script 16 (below
   48), script 17 (48 to 127) or nothing, on the left grip at 0 dB whatever the chime level; falls
   count again 5 s after the one taken. `opensc2_freefall_update()` is a detector for IMUs without
   one: the acceleration below 0.35 g for 150 ms (OpenSC2's own thresholds).
 - **Lizard mode's pad feedback**: the real controller plays click A at +8 dB per tick and click B at
-  +6 dB per pad press and release; `opensc2_haptics_click()` plays them.
+  +6 dB per pad press and release. The synthesiser plays lizard mode's events
+  ([Lizard mode](#lizard-mode)) itself, as the real controller does: while lizard mode is on and
+  setting 70 is exactly 1, never on the dock (the power source `OPENSC2_POWER_SOURCE_DOCK`);
+  `opensc2_haptics_click()` plays a click of the application's.
 
 ### Functions
 

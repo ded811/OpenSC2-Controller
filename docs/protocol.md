@@ -442,7 +442,7 @@ open, the library does what should work with Steam and the puck, and says so her
     the documentation of its haptics explains them: every stop-all stops the channel's stream,
     which reports `0x02`, whether or not anything was streaming. The library sends the same
     replies for the same stops, in the documented order, with `CONFIG_OPENSC2_HAPTIC_STOP_STATUS`
-    (on by default; [api.md](api.md#other-input-reports)). They go out as soon as the output is
+    (on by default, and always with the haptics synthesiser; [api.md](api.md#other-input-reports)). They go out as soon as the output is
     decoded; the real controller sends them when its haptics thread takes the stop, within about a
     millisecond while idle and up to one 8 ms block later while something plays. Steam does not
     appear to need them.
@@ -642,8 +642,9 @@ open, the library does what should work with Steam and the puck, and says so her
       controller's pairing routine has them, but nothing there reaches it. Cue 8 (the factory
       charge window) is never raised. Cue 0 is also raised at a remote wakeup
       (`CONFIG_OPENSC2_USB_REMOTE_WAKEUP`), as on the real controller's wake-up path (unreachable
-      in its October firmware). Any sound is the application's own (OpenSC2 has none of the real
-      scripts); the cue event names the real script it stands for.
+      in its October firmware). OpenSC2 has none of the real scripts: the cue event names the real
+      script it stands for, and the sound is OpenSC2's own, played by the haptics synthesiser when
+      it is built in (gap 36), else by the application.
     - **The keylock chord** saves the lock for the next power-on and leaves the value in RAM as it
       is, so `0xED user/keylock` reads the old value until the next boot, as documented (a quirk
       Steam could see, copied).
@@ -667,7 +668,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | Kept correct where only a sound would differ | gains added without wrapping round (the real controller adds in 8 bits, so `0x85` near -128 dB plays at +30 dB); a pulse train shorter than one sample plays nothing (the real arithmetic plays -1 for 65,536 samples); a sweep with 0 Hz at an end plays nothing and one with equal ends a plain tone with the fades (the real arithmetic produces invalid numbers); long sweeps do not wrap at 16 bits; a generator that ends leaves the mix at once (the real one lingers 1 or 4 silent samples); setting 75 going to 0 does not cut a playing sound (the real one drops the enable at once); a fall's drop sound is not cancelled for good when the IMU stops |
     | Arithmetic | integers only, a sine table of OpenSC2's own (peak 1.0; the real polynomial peaks at about 1.0045), so blocks are bit for bit reproducible; the PWM DAC plays the pads at exactly 4 kHz (the real one at about 3906 Hz) |
     | Not documented, chosen | an 8 kHz format on a pad is refused (`0x10`) before a format change while playing (`0x40`); a channel that never had a format plays formats 12 and above as s16le at 8 kHz; a tone's first sample is sin(0); a clip's last sample holds through its interpolated steps; the free-fall helper's thresholds (0.35 g for 150 ms; the real controller uses its IMU's detector); the DRV2605's amplitude is the louder path's block peak |
-    | Stops and `0x44` | the synthesiser sends `0x01`, `0x08`, `0x04`, `0x02` when a stream runs dry, `0x10`, `0x20` and `0x40`, in the order they happen; it does not send the `0x02` the real controller sends after every stop: those replies are gap 19's, so they never come twice, and where the library does not send them a stop gets no reply |
+    | Stops and `0x44` | the synthesiser sends `0x01`, `0x08`, `0x04`, `0x02` when a stream runs dry, `0x10`, `0x20` and `0x40`, in the order they happen; it does not send the `0x02` the real controller sends after every stop: those are gap 19's replies (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, which the synthesiser selects), so they never come twice |
     | Setting 70 | does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
 
