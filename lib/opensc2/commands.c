@@ -631,6 +631,12 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		uint8_t answer[OPENSC2_ANSWER_MAX];
 		uint8_t answer_len;
 
+		/* The dock never carries the test channel: a 0x7E there is an opcode nobody knows
+		 * (-22 on the dock), and it never reaches the application, which a 0x7E would do
+		 * outside the command lock (osc2_command_set()). */
+		if (opcode == OSC2_TEST_OPCODE && link == OSC2_LINK_DOCK) {
+			return -EINVAL;
+		}
 		/* The hardware test channel (CONFIG_OPENSC2_TEST_HOOKS) claims a keyed 0x7E. */
 		if (osc2_test_claim(link, opcode, payload, len)) {
 			return 0;

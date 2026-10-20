@@ -43,6 +43,10 @@ held answer lasts until the next successful SET on that link (claimed or not) re
 request; a failed SET keeps it. The end of arming drops every link's held answer, except that a
 `DISARM` then holds its own. With no held answer a GET takes the usual path. Each claimed request
 refreshes the lease. Claimed requests are counted in the USB session log but not logged line by line.
+The dock never carries the test channel: a `0x7E` SET in a dock frame (the puck passes a PC's
+feature report on to a docked controller) is never claimed and never reaches the application; the
+dock answers it -22, as an opcode nobody knows. The dock's own ops (`DOCK_RUN` and the others) are
+the way to test the dock.
 
 **The console** has nothing to fall through to: a `raw` request shorter than 7 bytes or with the wrong
 key or version prints `HWT <id> ERR not a test request` and `HWT <id> END -22`; every other request

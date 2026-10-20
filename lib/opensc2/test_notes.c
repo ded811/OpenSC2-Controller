@@ -69,7 +69,9 @@ bool osc2_test_claim(uint8_t link, uint8_t opcode, const uint8_t *payload, uint8
 	uint8_t previous;
 	bool claimed;
 
-	if (opcode != OSC2_TEST_OPCODE || !osc2_test_is_request(payload, len)) {
+	/* The dock never carries the test channel (osc2_test_core_claim()). */
+	if (opcode != OSC2_TEST_OPCODE || link == OSC2_TEST_LINK_DOCK ||
+	    !osc2_test_is_request(payload, len)) {
 		return false;
 	}
 	previous = osc2_test_ctx_set(link);

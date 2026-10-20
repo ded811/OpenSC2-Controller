@@ -1316,7 +1316,11 @@ bool osc2_test_core_claim(struct osc2_test_core *c, const struct osc2_test_env *
 	uint8_t answer[OSC2_TEST_ANSWER_MAX];
 	uint8_t m;
 
-	if (link >= OSC2_TEST_LINKS || !osc2_test_is_request(payload, n)) {
+	/* Never on the dock (docs/test-protocol.md): its frames are answered under the dock link's
+	 * frame lock, and a claim would take the request lock inside it, the reverse of DOCK_RUN's
+	 * order (the request lock, then the frame lock). */
+	if (link >= OSC2_TEST_LINKS || link == OSC2_TEST_LINK_DOCK ||
+	    !osc2_test_is_request(payload, n)) {
 		return false;
 	}
 	env->req_lock();

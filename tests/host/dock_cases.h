@@ -746,6 +746,45 @@ OPENSC2_TEST(dock_ops_errors)
 	CHECK_EQ(dk_run(73, 1), OSC2_TEST_NOT_ARMED);
 }
 
+/* The dock never carries the test channel: a test request in a dock SET frame (the puck passes a
+ * PC's 64-byte feature report on to a docked controller) is an opcode nobody knows there, armed or
+ * not. Claiming it would take the request lock inside the dock's frame lock, the reverse of
+ * DOCK_RUN's order. */
+OPENSC2_TEST(dock_test_channel_refused)
+{
+	uint8_t rec[OPENSC2_DOCK_PAYLOAD_LEN];
+	uint8_t args[7] = { 0 };
+	uint32_t requests;
+
+	stub_reset();
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	/* unarmed, an ARM: refused (-22), still unarmed, nothing held for the dock */
+	memset(rec, 0, sizeof(rec));
+	rec[0] = OSC2_TEST_OPCODE;
+	rec[1] = make_req(&rec[2], OSC2_TEST_OP_ARM, args, sizeof(args));
+	CHECK_EQ(dk_request(OPENSC2_DOCK_SET, rec, sizeof(rec)), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dk_result(), -22);
+	CHECK(!osc2_test_core_armed(CORE));
+	CHECK(!CORE->held[OSC2_TEST_LINK_DOCK].valid);
+	CHECK_EQ(hk.req_depth, 0);
+	/* armed (on the console): a STATUS over the dock is refused too, and not counted */
+	dk_arm();
+	requests = hk.counters[OSC2_TEST_CNT_TEST_REQUESTS];
+	memset(rec, 0, sizeof(rec));
+	rec[0] = OSC2_TEST_OPCODE;
+	rec[1] = make_req(&rec[2], OSC2_TEST_OP_STATUS, NULL, 0);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_SET, rec, sizeof(rec)), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dk_result(), -22);
+	CHECK(!CORE->held[OSC2_TEST_LINK_DOCK].valid);
+	CHECK_EQ(hk.counters[OSC2_TEST_CNT_TEST_REQUESTS], requests);
+	CHECK(osc2_test_core_armed(CORE));
+	/* ... while the same request on USB is claimed */
+	CHECK_EQ(usb_op(OSC2_TEST_OP_STATUS, NULL, 0), OSC2_TEST_OK);
+	CHECK_EQ(hk.req_depth, 0);
+	CHECK_EQ(hk.violations, 0);
+	osc2_dock_session_end(OSC2_DOCK_END_STOPPED);
+}
+
 OPENSC2_TEST(dock_ops_ctrl)
 {
 	uint8_t args[8];
