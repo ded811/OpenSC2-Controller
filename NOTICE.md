@@ -29,6 +29,12 @@ ranges of seven settings and lizard mode's key-slot rule, its scales and when it
 out, which it has now ([docs/protocol.md](docs/protocol.md#where-this-library-had-to-fill-gaps)
 lists each). It is not a clean-room implementation. It contains no Valve code or binaries.
 
+The haptics synthesiser (`CONFIG_OPENSC2_HAPTICS_SYNTH`) plays sounds of OpenSC2's own: its two
+clicks, built-in scripts 1 to 17, the cues and the two drop sounds are made by its own code and
+`tools/gen_haptics_tables.py`. None of the real controller's recordings, click samples or script
+step data are in this repository; what follows the real controller is how the output reports are
+played (their formats, timings and gains), as the protocol documentation describes it.
+
 In wireless mode the board's debug serial port uses other USB IDs: `2FE3:0004` by default. `2FE3`
 is the Zephyr Project's vendor ID, which Zephyr uses for its own samples and asks products not to
 use; `0004` is the ID of Zephyr's USB console sample. Change them with
