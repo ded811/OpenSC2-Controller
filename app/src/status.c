@@ -191,10 +191,11 @@ void status_hold_cue(bool on)
 
 void status_off(void)
 {
-	struct k_work_sync sync;
-
 	off = true;
-	(void)k_work_cancel_delayable_sync(&tick_work, &sync);
+	/* Called in the system work queue, which also runs the tick: waiting for the tick there is
+	 * undefined in Zephyr, and not needed. A tick that still runs sees `off`, shows dark and does
+	 * not come back. */
+	(void)k_work_cancel_delayable(&tick_work);
 	if (led.port) {
 		gpio_pin_set_dt(&led, 0);
 	}
