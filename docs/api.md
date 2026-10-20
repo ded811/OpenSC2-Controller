@@ -1793,7 +1793,7 @@ runs the real controller's watchdog: the hardware watchdog (the devicetree alias
 resets the chip 5 s after the last feed and pauses while a debugger halts the CPU; a work queue at
 the lowest application priority (`opensc2_wdt`) feeds it every 2.5 s, and each feed re-arms a 4.5 s
 warning on the system work queue. When the feeds stop (a thread keeps the CPU busy at the
-feeder's priority or above), the warning comes first: it logs "Watchdog about to expire" and
+feeder's priority or above), the warning comes first: it logs that the watchdog went unfed and
 raises a kernel oops, so the [crash record](#crash-records) names the hang (reason 3); a hang that
 also stops the system work queue ends in a plain watchdog reset, seen only in `0xA1`'s reset
 causes. With a debugger attached the warning only logs. `opensc2_init()` starts it; it needs

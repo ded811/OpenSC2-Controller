@@ -1046,7 +1046,8 @@ static void trigger_set(bool on)
 	ble.trigger = err == 0;
 	osc2_test_note_ble(OSC2_TEST_BLE_TRIGGER, ble.trigger, (uint16_t)err, 0);
 	if (err) {
-		LOG_WRN("Connection event trigger failed (%d): a timer paces the reports", err);
+		LOG_WRN("Bluetooth: no connection-event trigger (%d); a timer paces the reports",
+			err);
 		nrf_egu_int_disable(EGU, NRF_EGU_INT_TRIGGERED0);
 		k_timer_start(&pace_timer, K_USEC(interval_us), K_USEC(interval_us));
 	}
@@ -1436,7 +1437,8 @@ static void interval_update(void)
 		interval_us = info.le.interval_us;
 		osc2_test_note_ble(OSC2_TEST_BLE_PARAMS, 0, info.le.latency, interval_us);
 		if (osc2_ble_interval_suboptimal(interval_us)) {
-			LOG_WRN("Suboptimal connection interval: %u us (7500 wanted)", interval_us);
+			LOG_WRN("Bluetooth: the host set a %u us interval (7500 asked for)",
+				interval_us);
 		} else {
 			LOG_INF("Connection interval %u us", interval_us);
 		}

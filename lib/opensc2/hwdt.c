@@ -45,10 +45,10 @@ static void warn_fn(struct k_work *work)
 {
 	ARG_UNUSED(work);
 	if (debugger_attached()) {
-		LOG_WRN("Watchdog about to expire, skipped for debugging");
+		LOG_WRN("Watchdog: no feed for 4.5 s; a debugger is attached, so no crash");
 		return;
 	}
-	LOG_ERR("Watchdog about to expire");
+	LOG_ERR("Watchdog: no feed for 4.5 s; crashing on purpose to leave a crash record");
 	k_oops();   /* the crash record names the hang, before the hardware resets without one */
 }
 static K_WORK_DELAYABLE_DEFINE(warn_work, warn_fn);
