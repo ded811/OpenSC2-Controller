@@ -222,8 +222,11 @@ bool osc2_test_host_set_allowed(uint8_t opcode, const uint8_t *payload, uint8_t 
 {
 	switch (opcode) {
 	case 0x81: case 0x83: case 0x85: case 0x87: case 0x89: case 0x8E: case 0x9F: case 0xA1:
-	case 0xAE: case 0xBE: case 0xC5: case 0xDB: case 0xE9: case 0xED: case 0xF2:
+	case 0xAE: case 0xBE: case 0xC5: case 0xDB: case 0xE9: case 0xED:
 		return true;
+	case 0xF2:
+		/* Not selector 1: its GET marks a new crash record seen, which writes flash. */
+		return n == 0 || payload[0] != 1;
 	case 0x95: {
 		/* Only the turn-off key, read as the command channel reads it: the first four payload
 		 * bytes of the record, zero padded. */

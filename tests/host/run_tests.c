@@ -10,6 +10,7 @@
  *     stand-ins in shim/ and stubs.c;
  *   - proto_cases.h: the vendor commands' answer rules (proto_rules.c) and their answers;
  *   - keys_cases.h: the settings keys of 0xED..0xF0 (key_rules.c) and the values kept for them;
+ *   - crash_cases.h: the crash record (crash_rules.c) and 0xF2 selector 1;
  *   - vectors_cases.h: the hardware test suite's shared vectors through the library's own code;
  *   - differential_cases.h: the unarmed command channel, request by request, into a transcript;
  *   - hooks_cases.h, only in the binary built with CONFIG_OPENSC2_TEST_HOOKS: the hardware test
@@ -79,6 +80,7 @@ static void register_test(const char *name, test_fn fn)
 #include "commands_cases.h"
 #include "proto_cases.h"
 #include "keys_cases.h"
+#include "crash_cases.h"
 #include "vectors_cases.h"
 #include "differential_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)

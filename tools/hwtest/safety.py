@@ -279,6 +279,16 @@ def check_vendor(opcode, payload, transport, ctx=None, key_u32=None, consume=Tru
             raise SafetyError("0xDC type 1 (chime) needs --flash and a token")
         _check_named(opcode, bytes(payload), ctx, consume)
         return
+    if opcode == C.VC_DEVICE_INFO and bytes(payload)[:1] == b"\x01":   # 0xF2 selector 1
+        # its GET marks a new crash record seen, a flash write: allowed when the record 0xED read
+        # last is not new (or there is none), or with --flash and a token
+        record = ctx.read_values.get("debug/resetreason")
+        if record is not None and (len(record) == 0 or record[0] == 0):
+            return
+        if ctx.flash_allowed and ctx._take_token(opcode, "debug/resetreason", b"\x01", consume):
+            return
+        raise SafetyError("0xF2 selector 1 with a new or unread crash record writes flash: read "
+                          "debug/resetreason first, or --flash and a token")
     # everything else (reads, settings, lizard, LED, reboots already handled) is allowed
 
 
@@ -369,6 +379,9 @@ def check_host_set(opcode, payload, ctx=None):
         return
     if opcode not in HOST_SET_ALLOW:
         raise SafetyError("opcode 0x%02X is not on the HOST_SET allowlist" % opcode)
+    if opcode == C.VC_DEVICE_INFO and bytes(payload)[:1] == b"\x01":
+        raise SafetyError("0xF2 selector 1 is not on the HOST_SET allowlist (its GET marks a "
+                          "crash record seen, a flash write)")
     # reads and the harmless setters above never write flash; still run the shared denylist for
     # the few that could carry a forbidden shape (none here), to keep one rule.
     if opcode in _HARD_REFUSE or opcode in _FLASH_OPCODES:

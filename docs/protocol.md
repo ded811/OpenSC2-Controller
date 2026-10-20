@@ -373,6 +373,13 @@ open, the library does what should work with Steam and the puck, and says so her
     never set answers its whole size in zeros (the real controller's RAM value), `0xEF` saves
     whatever value is in RAM, and the calibration keys go to the application until the library
     keeps calibration, so without one `0xED` answers length 0 and the others are refused.
+25. **Crash records.** The record and `0xF2`'s rules follow the documentation
+    ([api.md](api.md#crash-records)). OpenSC2's own: where the record waits for the next boot (the
+    retained RAM region, with a magic word and a CRC-32 of its own), the build time and revision it
+    names (the firmware's own, not a build time stored on the board for Steam), that a crash
+    repeated at every boot writes flash once until a host reads it (the documentation names no
+    such guard), and that `0xF2` saves the record it marked seen from the system work queue rather
+    than inside the request.
 
 ## What this library adds for development boards
 

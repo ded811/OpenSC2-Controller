@@ -21,6 +21,7 @@
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
 #include "internal.h"
+#include "crash.h"
 #include "mode_rules.h"
 #include "retained.h"
 #if defined(CONFIG_OPENSC2_WARM_MARK_GPREGRET2)
@@ -36,7 +37,8 @@
 #if DT_HAS_CHOSEN(opensc2_retained_ram)
 #include <zephyr/linker/devicetree_regions.h>
 #define AREA_NODE DT_CHOSEN(opensc2_retained_ram)
-#define AREA_SIZE DT_REG_SIZE(AREA_NODE)
+/* The region less the crash record's slot (crash.c), which lives in it too. */
+#define AREA_SIZE (DT_REG_SIZE(AREA_NODE) - OSC2_CRASH_SLOT_SIZE)
 static uint8_t area[AREA_SIZE] __aligned(4)
 	__attribute__((__section__(LINKER_DT_NODE_REGION_NAME(AREA_NODE))));
 #else

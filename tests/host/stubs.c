@@ -125,6 +125,21 @@ int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save)
 	return err || !save ? err : osc2_keys_save(id);
 }
 
+/* crash.c's 0xF2 selector 1, on the stand-in store: the save is recorded. */
+uint8_t osc2_crash_read(uint8_t out[OSC2_CRASH_ANSWER_LEN])
+{
+	uint8_t record[OSC2_KEY_VALUE_MAX], len = 0;
+
+	if (osc2_keys_get(OSC2_KEY_RESET_REASON, record, &len) != 0 || len != OSC2_CRASH_LEN) {
+		memset(record, 0, OSC2_CRASH_LEN);
+	}
+	if (osc2_crash_answer(record, out)) {
+		(void)osc2_keys_set(OSC2_KEY_RESET_REASON, record, OSC2_CRASH_LEN);
+		(void)osc2_keys_save(OSC2_KEY_RESET_REASON);
+	}
+	return OSC2_CRASH_ANSWER_LEN;
+}
+
 int osc2_keys_factory_reset(void)
 {
 	stub.key_factory_resets++;

@@ -223,6 +223,27 @@ class VendorDenylist(unittest.TestCase):
         safety.check_vendor(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\x00", "usb", ctx=ctx)
         safety.check_vendor(C.VC_BY_NAME_SET, b"esb/bond\x00\x00", "usb", ctx=ctx)
 
+    def test_crash_record_read(self):
+        """0xF2 selector 1 marks a new crash record seen (a flash write): only after 0xED showed
+        no new record, or with a token; never on the test link."""
+        ctx = safety.Context()
+        safety.check_vendor(C.VC_DEVICE_INFO, b"\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_DEVICE_INFO, b"\x02", "usb", ctx=ctx)
+        with self.assertRaises(safety.SafetyError):
+            safety.check_vendor(C.VC_DEVICE_INFO, b"\x01", "usb", ctx=ctx)   # not read first
+        ctx.read_values["debug/resetreason"] = b"\x01" + bytes(32)
+        with self.assertRaises(safety.SafetyError):
+            safety.check_vendor(C.VC_DEVICE_INFO, b"\x01", "usb", ctx=ctx)   # a new record
+        ctx.read_values["debug/resetreason"] = bytes(33)
+        safety.check_vendor(C.VC_DEVICE_INFO, b"\x01", "usb", ctx=ctx)
+        ctx.read_values["debug/resetreason"] = b"\x01" + bytes(32)
+        ctx.flash_allowed = True
+        ctx.add_token(C.VC_DEVICE_INFO, "debug/resetreason", b"\x01")
+        safety.check_vendor(C.VC_DEVICE_INFO, b"\x01", "usb", ctx=ctx)
+        with self.assertRaises(safety.SafetyError):
+            safety.check_host_set(C.VC_DEVICE_INFO, b"\x01")
+        safety.check_host_set(C.VC_DEVICE_INFO, b"\x02")
+
     def test_calibration_keys_never_written(self):
         """S5: calibration keys are never written, saved or deleted, whatever the tokens; only the
         forms every firmware refuses first (another size for 0xEE, a byte after the NUL for 0xEF)."""

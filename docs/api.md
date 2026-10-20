@@ -22,6 +22,7 @@ library into a project: [integration.md](integration.md).
 - [Controller settings](#controller-settings), and the other state Steam sets
 - [Kconfig options](#kconfig-options)
 - [Threads and timing](#threads-and-timing)
+- [Reliability](#reliability): crash records, the settings partition's recovery, reset causes
 - [Shell commands](#shell-commands)
 - [Hardware test hooks](#hardware-test-hooks): input injection, output capture, the lizard guard
 - [Pure helpers](#pure-helpers), and [the IMU fusion helper](#the-imu-fusion-helper)
@@ -622,7 +623,7 @@ The library answers these itself:
 | --- | --- | --- |
 | `0x83` | get | six `{tag, u32}`: 1 product ID, 2 capabilities (0), 10 bootloader build time, 4 build time, 9 board revision, 11 report interval (4000 µs) |
 | `0xAE` | get | the tag (only the tag byte counts, whatever the length), then a string zero padded to 20 bytes: 1 unit serial, 0 and 4 board serial, 3 git revision, others "NA" |
-| `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: an empty crash record (33 zero bytes); 2: uptime in ms (u32) and the last disconnect reason (u32) |
+| `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: the last crash record as it is (33 bytes, zeros when there is none), after which a new record is marked seen and saved again ([Crash records](#crash-records)); 2: uptime in ms (u32) and the last disconnect reason (u32) |
 | `0xA1` | get | 18 bytes. Selector 1: 1, a byte of reset-cause flags in the real controller's encoding (`0x01` power-on, `0x02` brown-out, `0x08` debug, a low-power wake, a CPU lock-up or any other cause, `0x10` the reset pin, `0x20` the watchdog, `0x40` software), the chip's 8-byte device ID, 8 zero bytes; any other selector: 0 and 17 zero bytes. The flags come from Zephyr's `hwinfo_get_reset_cause()`; nothing clears the chip's register, so the causes of several resets add up until a power-on, as on the real controller |
 | `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`; byte 13 is 1 while charging, byte 14 the charge state without a `0x80` flag: [Battery](#battery)) |
 | `0xE9` / `0xC5` | get / set | LED colour, four percentages (`0xC5` clamps each to 100 and calls `led`). `0xE9` reads it back as the real controller does: a channel reads 100 when it is exactly 100, otherwise 0 (`opensc2_led_get()` has the colour as kept) |
@@ -679,7 +680,7 @@ names of its own:
 `0xEE` takes exactly the key's size (another length is refused, as on the real controller). The
 values of `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level` and the haptics
 keys are kept and read back but nothing in the library acts on them yet; `debug/resetreason` holds
-the crash record of vendor command `0xF2` selector 1. With `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`,
+the [crash record](#crash-records). With `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`,
 `0xEE` also takes OpenSC2's identity keys ([Identity](#identity)).
 
 ## Controller settings
@@ -748,6 +749,8 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_FUSION` | n | the IMU fusion helper |
 | `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE` | n | identity through `0xEE` |
 | `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` | y | `0x44 {channel, 0x02}` after every stop, as the real controller ([Other input reports](#other-input-reports)) |
+| `CONFIG_OPENSC2_CRASH_RECORD` | y (n with `CONFIG_RESET_ON_FATAL_ERROR`) | the fatal-error handler: a crash record, then a reset ([Crash records](#crash-records)) |
+| `CONFIG_OPENSC2_STORAGE_RECOVERY` | y with NVS settings | erase a settings partition with every sector occupied ([The settings partition](#the-settings-partition)) |
 | `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH` | 8, 6 | |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
 | `CONFIG_OPENSC2_USB` | y with the `opensc2,usb-hid` node | wired mode |
@@ -781,6 +784,51 @@ The functions for the settings and the other state Steam sets:
   500 ms without a packet, so it should ride that out (not measured); on USB state reports pause.
 - The library needs the 32 MHz crystal while the radio is on and requests it itself; the USB driver
   does the same while wired.
+
+## Reliability
+
+### Crash records
+
+With `CONFIG_OPENSC2_CRASH_RECORD` (on by default) the library is the application's fatal-error
+handler (Zephyr's `k_sys_fatal_error_handler()`), as the real controller's firmware is its own: a
+fault, `k_oops()`, `k_panic()` or a failed stack check writes a 33-byte record into RAM that a reset
+keeps, and the chip resets at once (no log flush, no flash write). `opensc2_init()` then stores the
+record as the settings key `debug/resetreason` and logs it ("New crash record: reason ..., PC ...,
+LR ..."); a crash that repeats at every boot writes flash only once, until a host has read it.
+
+| Offset | Field |
+| --- | --- |
+| 0 | 1 for a new record, 0 once a host has read it with `0xF2` selector 1 |
+| 1 | the firmware's build time (u32; `CONFIG_OPENSC2_BUILD_TIME` or the configure time, not a build time stored on the board) |
+| 5 | its revision (`CONFIG_OPENSC2_GIT_REVISION`, 16 bytes, zero padded) |
+| 21 | Zephyr's fatal-error reason (u32: 0 a CPU exception, 2 a stack check, 3 a kernel oops, 4 a panic) |
+| 25, 29 | the program counter and the link register at the error (u32 each; find them in `zephyr.map` or with `addr2line`) |
+
+Vendor command `0xF2` with selector 1 answers the selector and the record as it is (a host sees
+whether it is new), then marks it seen and saves it again from the system work queue; `0xED
+debug/resetreason` reads it without changing it, and the factory reset deletes it. The RAM copy
+takes the first 44 bytes of the devicetree region chosen as `opensc2,retained-ram` (the USB session
+log keeps the rest), which the UF2 bootloader leaves alone; without such a region it is in no-init
+RAM, and the build warns. The option is off when `CONFIG_RESET_ON_FATAL_ERROR` (the nRF Connect
+SDK's own handler) is on; turn it off too if your application has a fatal-error handler of its own.
+Without it a fatal error halts the board (Zephyr's default).
+
+### The settings partition
+
+With `CONFIG_OPENSC2_STORAGE_RECOVERY` (on by default with NVS settings) a settings partition in
+which NVS finds every sector occupied (corrupt, or left by another firmware: nothing could be
+stored) is erased and started again at boot, as on the real controller; Zephyr's
+`CONFIG_NVS_INIT_BAD_MEMORY_REGION` does it, for exactly that case. Any other error leaves the data
+alone: the board runs without its bonds until the next boot. The erase loses the bonds, the stored
+identity and the mode policy.
+
+### Reset causes
+
+`0xA1` answers the reset causes in the real controller's encoding ([Vendor
+commands](#vendor-commands)). The library never clears the chip's reset-reason register, so on the
+nRF52 the causes of several resets add up until a power-on, as on the real controller; an
+application that wants one reset's cause can read and clear it itself (Zephyr's
+`hwinfo_get_reset_cause()` and `hwinfo_clear_reset_cause()`).
 
 ## Shell commands
 

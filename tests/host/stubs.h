@@ -8,6 +8,7 @@
 #define OSC2_HOST_STUBS_H_
 
 #include "internal.h"
+#include "crash.h"
 #include "keys.h"
 
 struct stub_record {

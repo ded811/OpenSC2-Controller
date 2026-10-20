@@ -21,6 +21,12 @@ still change between minor versions.
   which go to the application until the library keeps calibration. Any other name is still the
   application's, so a host cannot fill the storage partition. The test ring numbers the new keys
   9 to 29; hwtest `cmd` and `flash.kept_keys` cover them.
+- Crash records, as on the real controller (`CONFIG_OPENSC2_CRASH_RECORD`, on by default): the
+  library's fatal-error handler leaves a 33-byte record in the retained RAM region and resets; the
+  next boot stores it as `debug/resetreason`, and `0xF2` selector 1 answers it, then marks it
+  seen. A crash at every boot writes flash once.
+- The settings partition's recovery (`CONFIG_OPENSC2_STORAGE_RECOVERY`, on with NVS settings): a
+  partition with every sector occupied is erased at boot, as on the real controller.
 
 ### Changed
 
@@ -34,6 +40,8 @@ still change between minor versions.
 - `0xA1` answers 18 bytes as the real controller does: selector 1 gives 1, one byte of reset-cause
   flags in its encoding (it was Zephyr's flags as a u32), the chip ID and 8 zero bytes; any other
   selector gives 0 and 17 zero bytes (it was an empty answer).
+- The test hooks' `HOST_SET` no longer takes `0xF2` with selector 1 (its GET can write flash now);
+  `retained.c` is always built.
 
 ## [0.2.0] - 2026-10-19
 

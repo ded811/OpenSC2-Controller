@@ -456,8 +456,13 @@ class SimBoard:
                 out[9:9 + len(g)] = g
                 out[25:25 + 13] = ident.unit.encode("ascii")
                 return 0, bytes(out)
-            if sel == 1:
-                return 0, bytes([1]) + bytes(33)
+            if sel == 1:   # the crash record as it is; a new one is then marked seen and saved
+                record = self.kept.get("debug/resetreason", bytes(33))
+                if record[0] == 1:
+                    self.kept["debug/resetreason"] = bytes([0]) + record[1:]
+                    self.world.kept_saved["debug/resetreason"] = self.kept["debug/resetreason"]
+                    self.world.kept_writes += 1
+                return 0, bytes([1]) + record
             if sel == 2:
                 return 0, struct.pack("<BII", 2, self.uptime() & 0xFFFFFFFF, self.last_reason)
             return 0, b""
@@ -1141,6 +1146,8 @@ def _length_ok(op, args):
 
 
 def host_set_allowed(opcode, payload):
+    if opcode == 0xF2:            # not selector 1: its GET writes flash (a crash record seen)
+        return bytes(payload[:1]) != b"\x01"
     if opcode in HOST_SET_ALLOW:
         return True
     if opcode == 0x95:

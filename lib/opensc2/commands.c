@@ -20,6 +20,7 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "crash.h"
 #include "keys.h"
 #include "proto_rules.h"
 #include "test_hooks.h"
@@ -663,7 +664,8 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 			memcpy(&out[25], id.unit_serial, OPENSC2_SERIAL_LEN);
 			*out_len = 41;
 		} else if (sel == 1) {
-			*out_len = 34;   /* no crash record */
+			/* the crash record as it is (zeros without one); a new one is then marked seen */
+			*out_len = osc2_crash_read(out);
 		} else if (sel == 2) {
 			/* uptime in ms, the last radio disconnect reason (u32) */
 			opensc2_put_le32(&out[1], (uint32_t)k_uptime_get());

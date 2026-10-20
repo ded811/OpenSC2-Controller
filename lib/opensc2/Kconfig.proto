@@ -1,8 +1,8 @@
 # Copyright (c) 2026 the OpenSC2-Controller authors
 # SPDX-License-Identifier: MIT
 #
-# Protocol completeness and reliability: the haptic stream status after a stop. Sourced from
-# lib/opensc2/Kconfig inside "if OPENSC2".
+# Protocol completeness and reliability: the haptic stream status after a stop, crash records,
+# the settings partition's recovery. Sourced from lib/opensc2/Kconfig inside "if OPENSC2".
 
 config OPENSC2_HAPTIC_STOP_STATUS
 	bool "Haptic stream status 0x44 after a stop, as the real controller sends it"
@@ -15,3 +15,31 @@ config OPENSC2_HAPTIC_STOP_STATUS
 	  library sends the same replies, in the same order, on the link the output came on. They
 	  take room in the queue of reports that ride with the state reports through the puck.
 	  Turn this off when the application sends its own 0x44 reports for its haptics engine.
+
+config OPENSC2_CRASH_RECORD
+	bool "Crash records: a fatal error leaves a record and resets, as on the real controller"
+	default y
+	depends on !RESET_ON_FATAL_ERROR
+	help
+	  The library's fatal-error handler (Zephyr's k_sys_fatal_error_handler()) writes a 33-byte
+	  record of the error (the firmware's build time and revision, Zephyr's reason, the program
+	  counter and link register) into RAM that a reset keeps, and resets the chip at once,
+	  without flushing logs or writing flash. The next boot stores it as the settings key
+	  debug/resetreason; vendor command 0xF2 with selector 1 answers it and then marks it seen,
+	  as on the real controller. A crash that repeats at every boot writes flash once. The RAM
+	  copy takes 44 bytes of the devicetree region chosen as opensc2,retained-ram, which the UF2
+	  bootloader leaves alone. Without this option a fatal error halts the board, Zephyr's
+	  default. Turn it off when the application has a fatal-error handler of its own.
+
+config OPENSC2_STORAGE_RECOVERY
+	bool "Erase the settings partition when every sector is occupied, as the real controller"
+	default y
+	depends on OPENSC2_STORAGE && NVS && SETTINGS_NVS
+	select NVS_INIT_BAD_MEMORY_REGION
+	help
+	  When NVS finds every sector of the settings partition occupied, the partition holds no
+	  usable NVS (corrupt, or left over by another firmware) and nothing could be stored. The
+	  real controller then erases the whole partition and starts the settings again; this does
+	  the same through Zephyr's NVS_INIT_BAD_MEMORY_REGION, which acts on exactly that case and
+	  no other (other errors leave the data alone, and the board runs without its bonds until
+	  the next boot). The erase loses the bonds and the stored identity.
