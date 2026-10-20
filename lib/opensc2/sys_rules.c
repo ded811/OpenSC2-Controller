@@ -204,15 +204,15 @@ void osc2_sys_boot(struct osc2_sys *m, const struct osc2_sys_in *in,
 	m->boot_cue = 0xFF;
 
 	if (boot->wired) {
-		/* "USB connected operation": the wired start. */
+		/* The wired start. */
 		if (in->keylock) {
 			out->actions |= OSC2_SYS_DO_KEYLOCK_DEL;
 		}
 		enter(m, in, OSC2_SYS_WIRED_WAIT, OSC2_SYS_EV_POWER_USB, now_ms, out);
 	} else if (boot->source == OSC2_SRC_USB) {
-		/* "Continue wireless operation (USB)": the stored transport's cue, its link started.
-		 * OpenSC2 boots wireless on USB power after the warm restart, or when the policy or
-		 * the application chose wireless: each starts the same way. */
+		/* Wireless on USB power: the stored transport's cue, its link started. OpenSC2 boots
+		 * wireless on USB power after the warm restart, or when the policy or the application
+		 * chose wireless: each starts the same way. */
 		if (in->keylock) {
 			out->actions |= OSC2_SYS_DO_KEYLOCK_DEL;
 		}
@@ -225,12 +225,12 @@ void osc2_sys_boot(struct osc2_sys *m, const struct osc2_sys_in *in,
 			out->actions |= OSC2_SYS_DO_KEYLOCK_DEL;
 		}
 		if (boot->warm) {
-			/* "Continue wireless operation (PUCK)": the stored link, no cue. */
+			/* Back on the dock after the warm restart: the stored link, no cue. */
 			m->chosen = usable_transport(in->stored);
 			start_link(m, out, false);
 			enter(m, in, OSC2_SYS_DOCK_ON, OSC2_SYS_EV_POWER_DOCK, now_ms, out);
 		} else {
-			/* "Charging dongle operation": the radio stays off. */
+			/* Charging on the dock: the radio stays off. */
 			enter(m, in, OSC2_SYS_DOCK_OFF, OSC2_SYS_EV_POWER_DOCK, now_ms, out);
 		}
 	} else if (in->level == 0) {
