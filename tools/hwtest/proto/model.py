@@ -316,3 +316,17 @@ def default_settings():
 
 def setting_range(number):
     return _RANGES.get(number)
+
+
+# settings the real controller hands to its IMU: 0x89 answers their defaults (proto_rules.c)
+IMU_SETTINGS = (48, 84, 85)
+
+
+def setting_answer(number, value):
+    """What 0x89 answers for a setting that holds `value` (the library keeps the written value)."""
+    return setting_default(number) if number in IMU_SETTINGS else value
+
+
+def led_readback(percent):
+    """One channel of 0xE9 as the real controller reads it back: 100 stays, anything else is 0."""
+    return 100 if percent == 100 else 0

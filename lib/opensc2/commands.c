@@ -20,6 +20,7 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "proto_rules.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -666,14 +667,14 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		*out_len = (uint8_t)opensc2_encode_battery_data(&b, out);
 		return 0;
 	}
-	case 0xE9: { /* ID_GET_LED_COLOR */
+	case 0xE9: { /* ID_GET_LED_COLOR: as the real controller reads it back (proto_rules.h) */
 		struct opensc2_led led;
 
 		opensc2_led_get(&led);
-		out[0] = led.red;
-		out[1] = led.green;
-		out[2] = led.blue;
-		out[3] = led.white;
+		out[0] = osc2_led_readback(led.red);
+		out[1] = osc2_led_readback(led.green);
+		out[2] = osc2_led_readback(led.blue);
+		out[3] = osc2_led_readback(led.white);
 		*out_len = 4;
 		return 0;
 	}
@@ -687,7 +688,8 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 			return -EINVAL;
 		}
 		out[0] = sel;
-		opensc2_put_le16(&out[1], (uint16_t)osc2.settings[sel]);
+		/* 48, 84 and 85 answer their defaults, as the real controller's IMU keeps them */
+		opensc2_put_le16(&out[1], (uint16_t)osc2_setting_answer(sel, osc2.settings[sel]));
 		*out_len = 3;
 		return 0;
 	case 0xED: { /* read a setting by name: length 0 for a key without a value */

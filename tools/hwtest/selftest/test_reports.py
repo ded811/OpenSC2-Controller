@@ -39,12 +39,21 @@ class Reports(unittest.TestCase):
         self.assertEqual(d["input_mv"], 5000)
 
     def test_be_decode(self):
-        be = bytes.fromhex("34123c0fe40c881306fff40137a502")
+        be = bytes.fromhex("34123c0fe40c881306fff401370102")
         d = R.decode_be(be)
         self.assertEqual(d["level"], 55)
-        self.assertEqual(d["gauge_flags"], 0xA5)
+        self.assertEqual(d["charging"], 1)
         self.assertEqual(d["charge_state"], 2)
         self.assertEqual(d["current_ma"], -250)
+
+    def test_be_charging_bytes(self):
+        """0xBE: byte 13 is 1 for state 2, byte 14 the state without 0x80; gauge flags not sent."""
+        base = dict(R.BATTERY_DEFAULT_FIELDS, gauge_flags=0xA5)
+        for state, charging, sent in ((0, 0, 0), (1, 0, 1), (2, 1, 2), (3, 0, 3), (4, 0, 4),
+                                      (0x81, 0, 1), (0x82, 1, 2), (0x84, 0, 4)):
+            be = R.encode_be(dict(base, charge_state=state))
+            self.assertEqual((be[13], be[14]), (charging, sent), hex(state))
+            self.assertEqual(R.encode_battery(dict(base, charge_state=state))[1], state)
 
     def test_0x44_0x79_0x7b(self):
         self.assertEqual(R.decode_haptic_status(bytes([0x44, 3, 2, 0, 0, 0])),

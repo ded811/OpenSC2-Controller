@@ -138,9 +138,15 @@ size_t opensc2_encode_battery(const struct opensc2_battery *b,
 	return OPENSC2_BATTERY_REPORT_LEN;
 }
 
+/* 0x43's charge state without the 0x80 flag the real controller adds while its supply check has
+ * given up. */
+#define CHARGE_STATE_MASK 0x7F
+
 size_t opensc2_encode_battery_data(const struct opensc2_battery *b,
 				   uint8_t out[OPENSC2_BATTERY_DATA_LEN])
 {
+	uint8_t state = b->charge_state & CHARGE_STATE_MASK;
+
 	opensc2_put_le16(&out[0], b->temperature);
 	opensc2_put_le16(&out[2], b->battery_mv);
 	opensc2_put_le16(&out[4], b->system_mv);
@@ -148,8 +154,8 @@ size_t opensc2_encode_battery_data(const struct opensc2_battery *b,
 	opensc2_put_le16(&out[8], (uint16_t)b->current_ma);
 	opensc2_put_le16(&out[10], b->input_current_ma);
 	out[12] = b->level > 100 ? 100 : b->level;
-	out[13] = b->gauge_flags;
-	out[14] = b->charge_state;
+	out[13] = state == OPENSC2_CHARGE_CHARGING ? 1 : 0;   /* 1 while charging */
+	out[14] = state;
 	return OPENSC2_BATTERY_DATA_LEN;
 }
 

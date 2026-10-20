@@ -7,6 +7,16 @@ still change between minor versions.
 
 ## [Unreleased]
 
+### Changed
+
+- Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller
+  does (it hands them to its IMU); the application still sees the values Steam wrote.
+- `0xE9` reads the LED colour back the way the real controller does: a channel reads 100 when it
+  is exactly 100, otherwise 0. The colour itself is kept as sent.
+- `0xBE`: byte 13 is 1 while the charge state is "charging" (else 0) and byte 14 is the charge
+  state without its `0x80` flag, as on the real controller. The `gauge_flags` field of
+  `struct opensc2_battery` is no longer sent.
+
 ## [0.2.0] - 2026-10-19
 
 First public release.

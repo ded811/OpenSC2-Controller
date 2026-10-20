@@ -263,9 +263,9 @@ open, the library does what should work with Steam and the puck, and says so her
    research documentation gives the ranges of settings 36 and 68; the ranges of 9, 11, 12, 14, 45,
    70 and 71 come from the same authors' study of the controller's firmware (not in that
    documentation yet). These are the ranges the library knows ([api.md](api.md#controller-settings)
-   lists them). Other settings are stored as sent. Settings 48, 84 and 85 are stored too (the real
-   controller hands them to its IMU and `0x89` answers their defaults); the library answers what
-   was written.
+   lists them). Other settings are stored as sent. Settings 48, 84 and 85 are stored too, for the
+   application (the real controller hands them to its IMU instead), and `0x89` answers their
+   defaults, as on the real controller. Whether Steam reads them back is not known.
 7. **The quaternion's W** (offset 45): one page of the research documentation calls it always 0,
    another the quaternion's W (since October). The library sends whatever the application
    provides; the fusion helper fills W.
@@ -345,6 +345,16 @@ open, the library does what should work with Steam and the puck, and says so her
     or reboot (`OPENSC2_POWER_USB_UNPLUGGED`); without a callback it reboots, which comes back
     wireless on a battery, and the blank canvas does the same, having no power-off of its own. A
     board without a battery has lost its power anyway.
+22. **`0xE9`'s read-back, copied.** The real controller converts the stored colour in a way that
+    truncates before it scales, so each channel of `0xE9` reads 0 unless it is exactly 100. A host
+    can see that answer, so the library gives the same one; the colour itself is kept as sent
+    (clamped to 100), and the application gets it unchanged (`led` callback, `opensc2_led_get()`).
+    Whether Steam reads `0xE9` at all is not known.
+23. **`0xBE`'s bytes 13 and 14.** The documentation gives byte 13 as "1 while charging" and byte 14
+    as `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the
+    application's charge state (1 for state 2, charging, with or without the flag), its simplest
+    reading; on the real controller it may come from the charger's own status, which no host has
+    been seen to compare.
 
 ## What this library adds for development boards
 

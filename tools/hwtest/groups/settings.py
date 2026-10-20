@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: MIT
 #
 # settings: the LED and the controller settings (docs/testing.md, group "settings"). 0xC5 and 0x87
-# make LED and SETTING entries in the ring and change what 0xE9, 0x89 and SETTINGS_READ read back;
-# 0x8E restores the defaults; the ranged settings clamp; the Steam watchdog brings lizard mode and
+# make LED and SETTING entries in the ring and change what 0xE9, 0x89 and SETTINGS_READ read back
+# (0xE9 and 0x89 with the real controller's read-back rules: a colour channel reads 0 unless it is
+# 100, and 0x89 answers the defaults of the IMU's settings 48, 84 and 85); 0x8E restores the
+# defaults; the ranged settings clamp; the Steam watchdog brings lizard mode and
 # the defaults back 10 s after the last 0x81. Exact ring comparisons start right after a fresh 0x81
 # (which leaves 10 s before the watchdog could add entries of its own). Every setting a test
 # changes is written back before the next test.
@@ -15,7 +17,8 @@ from ..proto import model as M
 from ..proto import vendor as V
 
 GROUP = "settings"
-TESTS = [("settings.led_color", "WR", []), ("settings.led_settings", "WR", []),
+TESTS = [("settings.led_color", "WR", []), ("settings.imu_answers", "WR", []),
+         ("settings.led_settings", "WR", []),
          ("settings.defaults", "WR", []), ("settings.clamps", "WR", []),
          ("settings.changes", "WR", []), ("settings.invalid", "WR", []),
          ("settings.watchdog", "WR", []), ("settings.watchdog_rearm", "W", []),
@@ -63,18 +66,42 @@ def run(ctx):
             colour = rig.led_color()
             rig.lizard_off()
             start = rig.ring_next()
-            rig.vendor_set(C.VC_LED_SET, bytes([100, 0, 50, 10]))
-            c.eq("0xE9 after 64 00 32 0A", rig.led_color(), (100, 0, 50, 10))
-            rig.vendor_set(C.VC_LED_SET, bytes([0xFF, 0, 0, 0]))
-            c.eq("0xE9 after FF 00 00 00 (red clamped to 100)", rig.led_color(), (100, 0, 0, 0))
+            # sent, kept (each channel clamped to 100); 0xE9 reads the kept colour back as the
+            # real controller does: a channel of exactly 100 reads 100, anything else 0
+            steps = (((100, 0, 50, 10), (100, 0, 50, 10)), ((0xFF, 0, 0, 0), (100, 0, 0, 0)),
+                     ((100, 100, 100, 100), (100, 100, 100, 100)), ((99, 1, 100, 50),
+                                                                    (99, 1, 100, 50)))
+            for sent, kept in steps:
+                rig.vendor_set(C.VC_LED_SET, bytes(sent))
+                c.eq("0xE9 after %02X %02X %02X %02X" % sent, rig.led_color(),
+                     tuple(M.led_readback(v) for v in kept))
             leds = base.of_kind(_entries(rig, start), C.RING_LED)
-            c.eq("LED entries", [(e["red"], e["green"], e["blue"], e["white"]) for e in leds],
-                 [(100, 0, 50, 10), (100, 0, 0, 0)])
+            c.eq("LED entries (the colour as kept)",
+                 [(e["red"], e["green"], e["blue"], e["white"]) for e in leds],
+                 [kept for _sent, kept in steps])
             if leds:
                 c.eq("LED override and brightness as set", (leds[0]["override"],
                                                             leds[0]["brightness"]),
                      (1 if snap[37] else 0, max(0, min(100, snap[45]))))
             rig.vendor_set(C.VC_LED_SET, bytes(colour))
+
+    if ctx.want("settings.imu_answers"):
+        with ctx.check(GROUP, "settings.imu_answers") as c:
+            base.need(rig, "settings")
+            rig.lizard_off()
+            rig.write_settings([(48, 0x18), (84, 0), (85, 50)])
+            s = rig.settings_read()
+            c.eq("SETTINGS_READ: the written values (what the application sees)",
+                 (s[48], s[84], s[85]), (0x18, 0, 50))
+            for n in M.IMU_SETTINGS:
+                a = rig.vendor(C.VC_SETTINGS_GET, bytes([n]))
+                c.eq("0x89 %d answers its default, as the real controller's IMU keeps it" % n,
+                     (a.n, a.data[:1], V.decode_setting(a.data + bytes(3))["value"]),
+                     (3, bytes([n]), M.setting_default(n)))
+            rig.write_settings([(49, 2)])
+            a = rig.vendor(C.VC_SETTINGS_GET, bytes([49]))
+            c.eq("0x89 49 answers what was written", V.decode_setting(a.data + bytes(3))["value"], 2)
+            _restore(rig, snap, (48, 49, 84, 85))
 
     if ctx.want("settings.led_settings"):
         with ctx.check(GROUP, "settings.led_settings") as c:

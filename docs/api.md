@@ -372,7 +372,12 @@ from boot on whatever link is up (dropped while there is none), and answered to 
 | `battery_mv`, `system_mv`, `input_mv` | mV | |
 | `current_ma`, `input_current_ma` | mA | battery current signed |
 | `temperature` | raw | the charger's raw value on the real controller |
-| `gauge_flags` | | only in `0xBE` |
+| `gauge_flags` | | not sent (it was `0xBE`'s byte 13 in 0.2.0); `0xBE` now derives that byte from `charge_state`, as the real controller does |
+
+`0xBE` answers 15 bytes: temperature, battery, system and input mV, current, input current, the
+level, then 1 while `charge_state` is `OPENSC2_CHARGE_CHARGING` (else 0) and `charge_state` without
+a `0x80` flag. `0x43` sends `charge_state` as given (the real controller adds `0x80` while its
+supply check has given up; [protocol.md, gap 3](protocol.md#where-this-library-had-to-fill-gaps)).
 
 ### Other input reports
 
@@ -609,10 +614,10 @@ The library answers these itself:
 | `0xAE` | get | the tag (only the tag byte counts, whatever the length), then a string zero padded to 20 bytes: 1 unit serial, 0 and 4 board serial, 3 git revision, others "NA" |
 | `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: an empty crash record (33 zero bytes); 2: uptime in ms (u32) and the last disconnect reason (u32) |
 | `0xA1` | get | selector 1: reset cause (u32, Zephyr's `RESET_*` flags), the chip's 8-byte device ID, 8 zero bytes |
-| `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`) |
-| `0xE9` / `0xC5` | get / set | LED colour, four percentages (calls `led`) |
+| `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`; byte 13 is 1 while charging, byte 14 the charge state without a `0x80` flag: [Battery](#battery)) |
+| `0xE9` / `0xC5` | get / set | LED colour, four percentages (`0xC5` clamps each to 100 and calls `led`). `0xE9` reads it back as the real controller does: a channel reads 100 when it is exactly 100, otherwise 0 (`opensc2_led_get()` has the colour as kept) |
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
-| `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`) |
+| `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link |
 | `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | `esb/bond`, `esb/bond_2`, `user/wireless_transport` (2 = the first slot, 3 = the second), `user/haptic_boot_level`. `0xED` answers length 0 for an empty bond; `0xEE` refuses an empty value and a bond that is not 24 bytes; `0xEF` needs the key's NUL as the last byte and refuses an empty bond; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
 | `0xE2` | set | persist calibration: acknowledged for side 0 or 1 (after `vendor_command`, which may do something with it), refused above |
@@ -671,7 +676,9 @@ not public yet); the ranges of 9, 11, 12, 14, 45, 70 and 71 come from the same a
 the controller's firmware (not in that documentation yet). `setting_changed` is called only when a
 value changes.
 `0x8E` and the Steam watchdog keep settings 48, 84 and 85 (the real controller passes those to its
-IMU instead of storing them).
+IMU instead of storing them), and `0x89` answers their defaults (0, 1, 100) whatever was written,
+as the real controller does; `opensc2_setting_get()` and the `setting_changed` callback give the
+application the values Steam wrote.
 
 The functions for the settings and the other state Steam sets:
 

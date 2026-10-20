@@ -22,6 +22,7 @@ zephyr_library_sources(
 	lizard.c
 	mode.c
 	mode_rules.c
+	proto_rules.c
 	radio.c
 	report.c
 	report_rules.c

@@ -1012,13 +1012,14 @@ OPENSC2_TEST(hooks_app_send)
 OPENSC2_TEST(hooks_battery)
 {
 	/* The battery line of the shared vectors: charging, 55 %, 3900 / 3300 / 5000 mV, -250 mA,
-	 * 500 mA, temperature 0x1234, gauge flags 0xA5, send now. */
+	 * 500 mA, temperature 0x1234, gauge flags 0xA5 (not sent: 0xBE's byte 13 is 1 for
+	 * "charging"), send now. */
 	static const uint8_t args[16] = { 0x02, 0x37, 0x3c, 0x0f, 0xe4, 0x0c, 0x88, 0x13,
 					  0x06, 0xff, 0xf4, 0x01, 0x34, 0x12, 0xa5, 0x01 };
 	static const uint8_t r43[15] = { 0x43, 0x02, 0x37, 0x3c, 0x0f, 0xe4, 0x0c, 0x88,
 					 0x13, 0x06, 0xff, 0xf4, 0x01, 0x34, 0x12 };
 	static const uint8_t rbe[15] = { 0x34, 0x12, 0x3c, 0x0f, 0xe4, 0x0c, 0x88, 0x13,
-					 0x06, 0xff, 0xf4, 0x01, 0x37, 0xa5, 0x02 };
+					 0x06, 0xff, 0xf4, 0x01, 0x37, 0x01, 0x02 };
 	struct opensc2_battery b = { .charge_state = 4, .level = 100 }, kept = b;
 	uint8_t report[OPENSC2_BATTERY_REPORT_LEN], reply[64];
 
@@ -1472,7 +1473,7 @@ OPENSC2_TEST(hooks_paging)
 	args[0] = 0;
 	args[1] = 28;
 	CHECK_EQ(con_op(OSC2_TEST_OP_SETTINGS_READ, args, 2), OSC2_TEST_BAD_ARG);
-	/* The same values as 0x89. */
+	/* The same values as 0x89 (whose answers for the IMU's 48, 84 and 85 are their defaults). */
 	for (uint8_t number = 0; number < 86; number += 9) {
 		args[0] = number;
 		args[1] = 1;

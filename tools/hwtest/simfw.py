@@ -441,15 +441,14 @@ class SimBoard:
             b = dict(self.battery)
             self.hooks.battery(b)
             return 0, R.encode_be(b)
-        if opcode == 0xE9:
-            return 0, bytes([self.led["red"], self.led["green"], self.led["blue"],
-                             self.led["white"]])
+        if opcode == 0xE9:      # read back as the real controller does (proto_rules.c)
+            return 0, bytes(M.led_readback(self.led[k]) for k in ("red", "green", "blue", "white"))
         if opcode == 0xDB:
             return 0, bytes([1, self.world.chime])
         if opcode == 0x89:
             if sel >= 86:
                 return EINVAL, b""
-            return 0, bytes([sel]) + struct.pack("<h", self.settings[sel])
+            return 0, bytes([sel]) + struct.pack("<h", M.setting_answer(sel, self.settings[sel]))
         if opcode == 0xED:
             key, _value = self._named(payload)
             if key is not None and key in (0, 1):

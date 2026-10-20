@@ -492,7 +492,7 @@ static const char *const builtin_testproto[] = {
 	"REQ 1eab577e0106 ARMED 1 -> CLAIM 0",
 	"REQ 1eab577e010924efbeadde ARMED 1 -> CLAIM 1 OP 24 ARGS 4",
 	"BATTERY 1eab577e010b1202373c0fe40c881306fff4013412a501 -> R43 4302373c0fe40c881306fff4013412 "
-	"RBE 34123c0fe40c881306fff40137a502",
+	"RBE 34123c0fe40c881306fff401370102",
 };
 
 static void testproto_line(char *tok[], int n, void *ctx)
