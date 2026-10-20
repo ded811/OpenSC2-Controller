@@ -1,0 +1,73 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * The devicetree half of the build expander.conf (app/CMakeLists.txt adds it with that fragment):
+ * every button of the real controller on a SuperMini. The real controller reads most of its
+ * buttons through an I2C input expander, debounced 16 ms; here an NXP PCA9555 (16 inputs with
+ * their own pull-ups) on I2C, SDA P0.17 and SCL P0.20, the pins of the left and right D-pad
+ * buttons (as in sensors.overlay). Those two D-pad buttons and the four grip buttons go to the
+ * expander's port 0, each between its pin and GND:
+ *
+ *   pin 0  D-pad left     pin 2  L4 (left upper grip)    pin 4  R4 (right upper grip)
+ *   pin 1  D-pad right    pin 3  L5 (left lower grip)    pin 5  R5 (right lower grip)
+ *
+ * Pins 6 to 15 are free for more. gpio-keys reads the expander in polling mode, every 16 ms; the
+ * buttons on the nRF52840's own pins are debounced 16 ms too. Untested on hardware: check the
+ * address (0x20 with A0, A1 and A2 low) and the pins against your module.
+ */
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <dt-bindings/opensc2/inputs.h>
+
+/ {
+	opensc2_buttons_polled: opensc2_buttons_polled {
+		compatible = "gpio-keys";
+		polling-mode;
+		debounce-interval-ms = <16>;
+		/* the expander's pins cannot be disconnected on suspend */
+		no-disconnect;
+
+		dpad_left  { gpios = <&expander 0 GPIO_ACTIVE_LOW>; zephyr,code = <OPENSC2_KEY_DPAD_LEFT>; };
+		dpad_right { gpios = <&expander 1 GPIO_ACTIVE_LOW>; zephyr,code = <OPENSC2_KEY_DPAD_RIGHT>; };
+		grip_l4    { gpios = <&expander 2 GPIO_ACTIVE_LOW>; zephyr,code = <OPENSC2_KEY_L4>; };
+		grip_l5    { gpios = <&expander 3 GPIO_ACTIVE_LOW>; zephyr,code = <OPENSC2_KEY_L5>; };
+		grip_r4    { gpios = <&expander 4 GPIO_ACTIVE_LOW>; zephyr,code = <OPENSC2_KEY_R4>; };
+		grip_r5    { gpios = <&expander 5 GPIO_ACTIVE_LOW>; zephyr,code = <OPENSC2_KEY_R5>; };
+	};
+};
+
+&opensc2_buttons {
+	debounce-interval-ms = <16>;
+	/delete-node/ dpad_left;
+	/delete-node/ dpad_right;
+};
+
+&pinctrl {
+	i2c0_expander_default: i2c0_expander_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 17)>, <NRF_PSEL(TWIM_SCL, 0, 20)>;
+		};
+	};
+	i2c0_expander_sleep: i2c0_expander_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 17)>, <NRF_PSEL(TWIM_SCL, 0, 20)>;
+			low-power-enable;
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_expander_default>;
+	pinctrl-1 = <&i2c0_expander_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	expander: gpio@20 {
+		compatible = "nxp,pca95xx";
+		reg = <0x20>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		ngpios = <16>;
+	};
+};

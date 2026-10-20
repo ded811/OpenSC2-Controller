@@ -131,6 +131,12 @@ three digits: "006" is P0.06, "111" is P1.11.
 - **Not assigned** (no pins left on the SuperMini): the right stick, analog triggers, L4, L5, R4,
   R5, the touch bits, trackpads and the IMU. They are listed in the overlay, ready to enable on a
   board with more pins, or in place of buttons you do not need.
+- **Every button**: the build [expander.conf](expander.conf) (with
+  [expander.overlay](expander.overlay); untested on hardware) adds L4, L5, R4 and R5 through an
+  I2C port expander, as the real controller reads most of its buttons: an NXP PCA9555 on P0.17
+  (SDA) and P0.20 (SCL), which also takes the D-pad's left and right buttons from those pins. The
+  expander is polled every 16 ms and every button is debounced 16 ms; the overlay's header lists
+  the expander's pins.
 
 Unwired inputs read neutral. Analog pins that are listed but left open are held at mid-scale
 (sticks) or at their released end (triggers) by the nRF52840's own bias resistors, so they do not

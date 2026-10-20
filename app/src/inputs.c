@@ -5,7 +5,9 @@
  * inputs.c: buttons, sticks and triggers, all described in the board overlay.
  *
  *  - Buttons are a gpio-keys node labelled opensc2_buttons; each key's zephyr,code is a bit of
- *    the controller's button word (dt-bindings/opensc2/inputs.h).
+ *    the controller's button word (dt-bindings/opensc2/inputs.h). A second one labelled
+ *    opensc2_buttons_polled may add keys that gpio-keys polls, for example on an I2C port
+ *    expander (expander.overlay).
  *  - Sticks and analog triggers are ADC channels named in zephyr,user's io-channel-names. An axis
  *    that is not named reads neutral.
  *
@@ -89,7 +91,8 @@ static const struct gpio_dt_spec vcc = GPIO_DT_SPEC_GET(USER, vcc_enable_gpios);
 
 /* ---- buttons --------------------------------------------------------------------------------- */
 
-#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons))
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons)) || \
+	DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled))
 static void on_button(struct input_event *evt, void *user_data)
 {
 	uint32_t bit;
@@ -119,7 +122,13 @@ static void on_button(struct input_event *evt, void *user_data)
 		opensc2_set_buttons(bit, evt->value ? bit : 0);
 	}
 }
+#endif
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons))
 INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_NODELABEL(opensc2_buttons)), on_button, NULL);
+#endif
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled))
+INPUT_CALLBACK_DEFINE_NAMED(DEVICE_DT_GET(DT_NODELABEL(opensc2_buttons_polled)), on_button, NULL,
+			    on_polled_button);
 #endif
 
 /* ---- analog ---------------------------------------------------------------------------------- */
