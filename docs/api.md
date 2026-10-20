@@ -1080,15 +1080,20 @@ the real controller's polynomial.
 
 ### PCM streams and input report `0x44`
 
-Each channel has a 512-byte ring. `0x86` operation 2 sets a channel's format (format / 4: s16le,
-s8, mu-law; format % 4: 8, 4, 2, 1 kHz); the format stays set across stops, and a stream never
-starts before one is set. `0x87`, `0x88` and `0x89` write their bytes into the rings (the right
-channel first for two-channel targets, the right grip's bytes of `0x88` before the left's; `0x88`
-with more than 31 bytes a side is ignored). A write starts the stream once the ring already held
-more than 16 ms of audio before it (8 ms on a pad); lower rates are interpolated linearly up to the
-channel's rate, samples scaled to ±1 (s16le by 1/32767, s8 by 1/127, mu-law through its 16-bit
-G.711 value). The stream stops when it runs dry. `0x86` operation 1, and every stop of everything
-on the channel, empties its ring.
+Each channel has a 512-byte ring. `0x86` operation 2 sets a channel's format (format / 4: s16le, s8,
+mu-law; format % 4: 8, 4, 2, 1 kHz); the format stays set across stops, and a stream never starts
+before one is set. `0x87`, `0x88` and `0x89` write their bytes into the rings (the right channel
+first for two-channel targets, the right grip's bytes of `0x88` before the left's; `0x88` with more
+than 31 bytes a side is ignored). A write starts the stream once the ring already held more than 16
+ms of audio before it (8 ms on a pad); lower rates are interpolated linearly up to the channel's
+rate, samples scaled to ±1 (s16le by 1/32767, s8 by 1/127, mu-law through its 16-bit G.711 value).
+The stream stops when it runs dry. `0x86` operation 1, and every stop of everything on the channel,
+empties its ring. The data's length is the report's own on every link: `0x87` takes the bytes after
+its target, `0x89` needs its n + 2 bytes. Through the puck the real controller is handed the
+record's length, which counts the report ID too, so there its `0x87` takes one byte from beyond the
+report and its `0x89` accepts an n one larger (with a junk byte); OpenSC2 does not copy that, since
+the extra byte would put a 16-bit stream out of step
+([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 35).
 
 The synthesiser sends `0x44` {channel, flags} (channel ids: left grip 0, right grip 1, left pad 3,
 right pad 4) on the link in use:

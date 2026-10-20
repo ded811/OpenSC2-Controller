@@ -707,6 +707,10 @@ static void handle_records(const struct rx_item *it)
 			break;
 		}
 		case OPENSC2_REC_OUTPUT:
+			/* The report's own length, as on USB. The real controller's handlers get the
+			 * record's, one more (it counts the report ID): its 0x87 takes a byte from
+			 * beyond the report, its 0x89 allows n one larger; not copied (protocol.md,
+			 * gap 35). */
 			if (rec.len >= 1) {
 				(void)osc2_output_dispatch(OSC2_LINK_RADIO, rec.data, rec.len);
 			}

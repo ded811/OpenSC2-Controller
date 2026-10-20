@@ -733,6 +733,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | Stops and `0x44` | the synthesiser sends `0x01`, `0x08`, `0x04`, `0x02` when a stream runs dry, `0x10`, `0x20` and `0x40`, in the order they happen; it does not send the `0x02` the real controller sends after every stop: those are gap 19's replies (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, which the synthesiser selects), so they never come twice |
     | Setting 70 | does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
+    | `0x87` and `0x89` through the puck | the report's own length on every link. The real controller's handlers are told the radio record's length, which counts the report ID too, so through the puck its `0x87` takes one byte from beyond the report (63 in a full one, the last a junk byte) and its `0x89` accepts n one larger (n = 62 in a full report, with a junk byte), which OpenSC2 drops. Not copied: the extra byte would put a 16-bit stream out of step; an n of 61 or less is the same on every link |
 36. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
     not write as it was in its previous answer: a probe's type and result, a SET's payload, the bytes
     after a shorter answer, and the whole frame for a request type it does not know. OpenSC2 writes
