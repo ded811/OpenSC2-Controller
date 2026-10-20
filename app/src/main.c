@@ -312,11 +312,14 @@ int main(void)
 	inputs_init();
 	rumble_init();
 	trackpad_init();
-	imu_init();
-	battery_init();
 
 	config.boot_mode = boot_mode();
 	err = opensc2_init(&config);
+	/* After the library has loaded the stored calibration, which these threads read when they
+	 * start (the IMU's starting gyro bias, the battery's voltage offset), and before the error
+	 * check: when only the radio thread failed, USB still comes up and wants them. */
+	imu_init();
+	battery_init();
 	if (err) {
 		LOG_ERR("opensc2_init failed (%d)", err);
 		return err;
