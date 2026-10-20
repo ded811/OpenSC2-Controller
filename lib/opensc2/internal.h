@@ -12,10 +12,12 @@
 #include <opensc2/opensc2.h>
 #include "id_rules.h"    /* the stored identity's fields (OSC2_ID_*), the build time floor */
 #include "retained.h"    /* the retained area's layout (the session summary) */
+#include "transport_rules.h"   /* the wireless transport values (OSC2_TRANSPORT_*) */
 
 /* Report interval of the links, attribute 11 of vendor command 0x83 (the puck link and USB both
- * report 4000 µs). */
+ * report 4000 µs; Bluetooth its connection interval, the dock 64000 µs). */
 #define OSC2_REPORT_INTERVAL_US 4000
+#define OSC2_DOCK_INTERVAL_US   64000
 
 /* The charger test build (a testing aid, not the real controller's behaviour, off by default): a
  * wired boot that no host talks to within this many ms goes wireless (usb_rules.h). 0: off, and
@@ -26,7 +28,9 @@
 #define OSC2_NO_HOST_WIRELESS_MS 0
 #endif
 
-/* The links that carry vendor commands and reports. Each keeps its own stored request. */
+/* The links that carry vendor commands and reports. Each keeps its own stored request. The numbers
+ * are also the hardware test hooks' (the ring's link byte), where 3 means "no link" (work queue
+ * events): no link has it. */
 enum osc2_link {
 	OSC2_LINK_RADIO = 0,
 	OSC2_LINK_USB = 1,
@@ -35,6 +39,8 @@ enum osc2_link {
 	 * host, with a stored request of their own; active exactly when the mode's real link is. */
 	OSC2_LINK_TEST = 2,
 #endif
+	OSC2_LINK_BLE = 4,    /* Bluetooth LE (CONFIG_OPENSC2_BLE) */
+	OSC2_LINK_DOCK = 5,   /* the puck's dock contacts: no dock code yet, never active */
 	OSC2_LINK_COUNT,
 };
 
@@ -50,7 +56,9 @@ struct osc2_ctx {
 	struct osc2_id_override stored;     /* from the settings store */
 	struct opensc2_identity identity;   /* what is in use: base + stored */
 	struct opensc2_bond bonds[OPENSC2_BOND_SLOTS];
-	uint8_t slot;
+	uint8_t slot;                 /* the puck's bond slot the radio uses (0 or 1) */
+	uint8_t transport;            /* the chosen wireless transport, OSC2_TRANSPORT_* (in RAM) */
+	uint8_t transport_saved;      /* the one stored, or OSC2_TRANSPORT_NONE */
 	int16_t settings[OPENSC2_SETTINGS_COUNT];
 	struct opensc2_led led;
 	uint8_t chime;
@@ -90,14 +98,34 @@ void osc2_schedule_power(enum opensc2_power_request request, uint32_t delay_ms, 
 void osc2_power_now(enum opensc2_power_request request, const char *why);
 /* While a power request is being handled: its cause, else NULL. */
 const char *osc2_power_reason(void);
-/* Is `link` the one in use and up (USB configured, radio connected)? The test link is when the
- * mode's real link is. */
+/* Is `link` the one in use and up (USB configured, radio connected, Bluetooth past its gate)? The
+ * test link is when the mode's real link is; the dock never is. */
 bool osc2_link_active(enum osc2_link link);
+
+/* transport.c: the wireless transport of this boot (the puck's radio, or Bluetooth). */
+/* At init, after the settings are loaded: this boot's transport from the stored choice. */
+void osc2_transport_init(void);
+/* The link reports go to and the test link stands for: USB while wired, else the running
+ * wireless transport's (Bluetooth or the radio). */
+enum osc2_link osc2_mode_link(void);
+/* The running wireless transport (OSC2_TRANSPORT_*), whether or not its link is up. */
+uint8_t osc2_transport_running(void);
+/* A wireless link is up: the radio connected, or Bluetooth past its gate. */
+bool osc2_wireless_up(void);
+/* Start or stop the running wireless transport (opensc2_start(), opensc2_stop()). */
+int osc2_wireless_start(void);
+int osc2_wireless_stop(void);
+/* The link of transport `t` came up: October's rule saves the choice now (a flash write, in the
+ * system work queue). */
+void osc2_transport_link_up(uint8_t t);
 
 /* storage.c (no-ops without CONFIG_OPENSC2_STORAGE) */
 int osc2_storage_load(void);
 int osc2_storage_save_bond(uint8_t slot);
-int osc2_storage_save_slot(void);
+/* Store transport `t` (opensc2/transport; for a puck transport also its slot as opensc2/slot,
+ * which older firmware reads) and note it in osc2.transport_saved; delete both (the default). */
+int osc2_storage_save_transport(uint8_t t);
+int osc2_storage_delete_transport(void);
 int osc2_storage_save_chime(void);
 int osc2_storage_save_identity(void);
 int osc2_storage_save_policy(void);
@@ -117,6 +145,8 @@ void osc2_radio_set_pair_seconds(uint16_t seconds);
 enum opensc2_link_state osc2_radio_state(void);
 void osc2_radio_info(struct opensc2_link_info *info);
 bool osc2_radio_connected(void);
+/* The radio is off and ESB released (so another stack may take it). */
+bool osc2_radio_idle(void);
 /* Extra input reports waiting for the next state reports. */
 int osc2_radio_queue_report(const uint8_t *report, size_t len);
 
@@ -129,6 +159,10 @@ int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_le
  * `out` ({opcode, length, data}); returns the bytes written ({opcode, 0} when the command has no
  * answer). The record's own byte is not used: Valve's puck does not set it. */
 uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63]);
+/* A link whose transport can refuse a read (Bluetooth): the stored request's GET as 63 bytes
+ * {opcode, length, data, zeros}; returns 63, or a negative errno for a command without an answer
+ * or a failed GET (an ATT error there, the counterpart of a STALL on USB). */
+int osc2_command_get_strict(enum osc2_link link, uint8_t out[63]);
 /* USB: the 64-byte data stage of SET_REPORT(Feature 1). 0, or a negative errno (STALL). */
 int osc2_usb_feature_set(const uint8_t *data, uint16_t len);
 /* USB: answer GET_REPORT(Feature 1) for the stored request, `reply_len` bytes cut to `wlength`.
@@ -178,6 +212,36 @@ int osc2_input_send(const uint8_t *report, size_t len, bool droppable);
 int osc2_output_dispatch(enum osc2_link link, const uint8_t *report, size_t len);
 /* The link went down: stop a rumble the host can no longer stop. */
 void osc2_output_link_down(void);
+
+/* ble.c: Bluetooth LE (CONFIG_OPENSC2_BLE; without it transport.c answers these two: never
+ * active, interval 0). */
+/* Bluetooth is the active transport: connected, encrypted, an ATT MTU of 64 or more. */
+bool osc2_ble_active(void);
+/* The connection interval in µs while Bluetooth is active (attribute 11 of 0x83), else 0. */
+uint32_t osc2_ble_interval_us(void);
+#if defined(CONFIG_OPENSC2_BLE)
+/* The Bluetooth thread and report thread; nothing goes on the air yet. */
+int osc2_ble_init(void);
+/* Bluetooth on as transport `t` (0 or 1): the radio taken over from ESB first, then advertising.
+ * Asynchronous (the Bluetooth thread). */
+int osc2_ble_start(uint8_t t);
+/* Bluetooth off: the zero report, then a disconnect, no advertising. `release` also disables the
+ * stack so the puck's radio can have the radio; the radio is started after it when `then_radio`. */
+int osc2_ble_stop(bool release, bool then_radio);
+/* Bluetooth has the radio (its stack is enabled): ESB must not start. */
+bool osc2_ble_owns_radio(void);
+/* Pairing mode on the running slot: its bond is forgotten and it advertises open to a new host. */
+int osc2_ble_pair(void);
+/* An input report towards the host (osc2_input_send()). */
+int osc2_ble_send(const uint8_t *report, size_t len, bool droppable);
+/* The Bluetooth link's state in the terms of the radio's (opensc2_link_state()). */
+void osc2_ble_info(struct opensc2_link_info *info);
+#else
+static inline bool osc2_ble_owns_radio(void)
+{
+	return false;
+}
+#endif
 
 /* mode.c */
 void osc2_mode_boot(enum opensc2_boot_mode app);

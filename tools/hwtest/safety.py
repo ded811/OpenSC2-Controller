@@ -131,6 +131,7 @@ class Context:
         self.read_values = {}        # key name -> the exact bytes 0xED last returned this session
         self.empty_slots = set()     # key names whose 0xED read empty this session
         self.caps_identity_write = False
+        self.caps_ble = False        # a Bluetooth build (caps bit 17): transport 0 and 1 are real
         self.flash_allowed = False
         self.tokens = []             # FlashToken list
         # S7 live state
@@ -202,7 +203,7 @@ def _check_named(opcode, payload, ctx, consume=True):
         if name == "user/wireless_transport":
             if len(value) in (0, 2):
                 return   # refused forms
-            if value == b"\x01":
+            if value == b"\x01" and not ctx.caps_ble:
                 return   # Bluetooth: accepted, ignored (key_set stores nothing for 0 and 1)
             if value == ctx.read_values.get(name):
                 return   # the value read back

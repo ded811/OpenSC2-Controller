@@ -65,6 +65,9 @@ struct opensc2_link_info {
 	uint32_t reports;             /* state reports queued in this connection */
 	uint32_t dropped;             /* state reports dropped (acknowledgement queue full) */
 	uint32_t connected_ms;        /* time since the link came up, 0 when not connected */
+	/* The transport this describes (enum opensc2_transport): the puck's radio, or Bluetooth
+	 * (CONFIG_OPENSC2_BLE), where `slot` is the Bluetooth slot and the radio fields are 0. */
+	uint8_t transport;
 };
 
 /* ---- Modes ------------------------------------------------------------------------------------
@@ -329,9 +332,30 @@ int opensc2_send_haptic_status(uint8_t channel_id, uint32_t flags);
 int opensc2_bond_get(uint8_t slot, struct opensc2_bond *bond);
 /* Store a bond (both IDs zero: delete it). Takes effect when the radio next listens. */
 int opensc2_bond_set(uint8_t slot, const struct opensc2_bond *bond);
-/* Use bond slot 0 or 1 from now on (stored). Restarts listening. */
+/* Use the puck with bond slot 0 or 1 from now on: opensc2_select_transport() with
+ * OPENSC2_TRANSPORT_PUCK_1 or _2. Restarts listening; stored once the puck connects. */
 int opensc2_select_slot(uint8_t slot);
 uint8_t opensc2_selected_slot(void);
+
+/* ---- Wireless transports ----------------------------------------------------------------------
+ * A wireless boot runs one transport: the puck's radio with one of the two bonds, or (with
+ * CONFIG_OPENSC2_BLE) Bluetooth LE in one of two slots. The numbers are the real controller's
+ * user/wireless_transport, which Steam reads with vendor command 0xED.
+ */
+enum opensc2_transport {
+	OPENSC2_TRANSPORT_BLE_1 = 0,    /* Bluetooth LE, slot 1 */
+	OPENSC2_TRANSPORT_BLE_2 = 1,    /* Bluetooth LE, slot 2 */
+	OPENSC2_TRANSPORT_PUCK_1 = 2,   /* the puck with bond slot 0: the default */
+	OPENSC2_TRANSPORT_PUCK_2 = 3,   /* the puck with bond slot 1 */
+};
+
+/* Run `transport` from now on: the one running stops and hands over the radio. Saved once its link
+ * is up (Bluetooth: connected and encrypted; the puck: connected), as the October 2026 firmware
+ * does, so a choice whose link never comes up is not kept; in wired mode it is stored at once, for
+ * the next wireless boot. -ENOTSUP for Bluetooth in a build without CONFIG_OPENSC2_BLE. */
+int opensc2_select_transport(enum opensc2_transport transport);
+/* The transport this boot runs. */
+enum opensc2_transport opensc2_selected_transport(void);
 
 /* ---- Identity -------------------------------------------------------------------------------- */
 

@@ -75,6 +75,7 @@ static void register_test(const char *name, test_fn fn)
 #include "../codec/src/cases.h"
 #include "../codec/src/cases_usb.h"
 #include "commands_cases.h"
+#include "transport_cases.h"
 #include "vectors_cases.h"
 #include "differential_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)

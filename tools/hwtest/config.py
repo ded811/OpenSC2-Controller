@@ -106,7 +106,7 @@ RING_USB = 0x21
 RING_VERSION = 0x22
 RING_IDENTITY = 0x23
 RING_CHANNELS = 0x24
-RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none"}
+RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none", 4: "ble", 5: "dock"}
 
 # LIZARD "what" values (docs/test-protocol.md, The ring).
 LIZARD_LEAVE = 0
@@ -207,6 +207,7 @@ CAP_USB_PLUG_IN_REBOOT = 11
 CAP_SHELL = 12
 CAP_FUSION = 13
 CAP_NO_HOST_WIRELESS = 14      # the charger test build (a testing aid, not the real controller)
+CAP_BLE = 17                   # Bluetooth LE (CONFIG_OPENSC2_BLE)
 
 # ---- timings and thresholds -----------------------------------------------------------------
 STATE_PERIOD_MS = 4.0283            # USB state report period (about 248/s)

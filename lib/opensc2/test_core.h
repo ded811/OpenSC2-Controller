@@ -116,8 +116,11 @@ enum osc2_test_link {
 	OSC2_TEST_LINK_USB = 1,
 	OSC2_TEST_LINK_TEST = 2,    /* the host emulation, and everything the console causes */
 	OSC2_TEST_LINK_NONE = 3,    /* work queue events: the rumble timeout, the Steam watchdog */
+	OSC2_TEST_LINK_BLE = 4,     /* Bluetooth LE */
+	OSC2_TEST_LINK_DOCK = 5,    /* the dock */
 };
-#define OSC2_TEST_LINKS 3          /* links with a stored request and a held answer */
+/* Links with a stored request and a held answer: every number below this but 3 (none). */
+#define OSC2_TEST_LINKS 6
 
 /* ---- the ring ---------------------------------------------------------------------------------
  * Entry: time u32 (µs since ARM), kind u8, link u8, data length u8, data. */
@@ -223,6 +226,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+/* CONFIG_OPENSC2_BLE: Bluetooth LE. */
+#define OSC2_TEST_FLAG_BLE                    (1u << 17)
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)

@@ -14,7 +14,10 @@ struct stub_record {
 	bool link_active[OSC2_LINK_COUNT];
 	uint32_t radio_events;
 	uint32_t saved_bonds;           /* bit per slot */
-	int saved_slot, saved_chime;
+	int saved_transport, deleted_transport, saved_chime;
+	uint8_t stored_transport;       /* the last transport stored (OSC2_TRANSPORT_NONE: none) */
+	bool ble_running;               /* the running wireless transport is Bluetooth */
+	uint32_t ble_interval_us;       /* the connection interval while Bluetooth is active */
 	int led_notified;
 	int power_requests;
 	enum opensc2_power_request power;

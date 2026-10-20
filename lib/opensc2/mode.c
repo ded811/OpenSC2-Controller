@@ -94,7 +94,8 @@ static void vbus_fn(struct k_work *work)
 		enum osc2_plug_in rule;
 
 		opensc2_get_state(&s);
-		rule = osc2_plug_in_rule(osc2.policy, osc2_radio_connected(),
+		/* The link counts on either transport: the puck's radio or Bluetooth. */
+		rule = osc2_plug_in_rule(osc2.policy, osc2_wireless_up(),
 					 (s.buttons & OPENSC2_BTN_STEAM) != 0);
 		if (rule == OSC2_PLUG_IN_LINK_DOWN || rule == OSC2_PLUG_IN_STEAM) {
 			const char *why = rule == OSC2_PLUG_IN_LINK_DOWN ? "USB power, link down" :
@@ -130,7 +131,7 @@ void osc2_mode_start(bool start_radio)
 		LOG_WRN("Mode wireless (%s, %d)", reason_name(osc2.mode_reason), err);
 		osc2_usblog("wired start failed (%d): wireless this boot", err);
 		if (start_radio) {
-			osc2_radio_post(OSC2_EV_START);
+			(void)osc2_wireless_start();   /* this boot's transport: the radio or Bluetooth */
 		}
 	}
 	(void)osc2_usb_console_start();

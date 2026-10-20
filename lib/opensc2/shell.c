@@ -78,6 +78,10 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 		    "wireless (not the real controller's behaviour)",
 		    (unsigned int)OSC2_NO_HOST_WIRELESS_MS);
 #endif
+	shell_print(sh, "transport: %s (stored: %s)",
+		    osc2_transport_name(osc2_transport_running()),
+		    osc2.transport_saved == OSC2_TRANSPORT_NONE ? "none, the default" :
+		    osc2_transport_name(osc2.transport_saved));
 	if (opensc2_mode() == OPENSC2_MODE_WIRED) {
 		struct opensc2_usb_info usb;
 
@@ -85,6 +89,9 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 		shell_print(sh, "usb:       %s%s, %u reports, %u dropped, %u requests, %u stalls",
 			    usb_state_names[usb.state], usb.suspended ? " (suspended)" : "",
 			    usb.reports, usb.dropped, usb.requests, usb.stalls);
+	} else if (osc2_transport_is_ble(info.transport)) {
+		shell_print(sh, "link:      Bluetooth %s (last reason %d), slot %u",
+			    state_names[info.state], info.reason, info.slot + 1);
 	} else {
 		shell_print(sh, "link:      %s (last reason %d), bond slot %u",
 			    state_names[info.state], info.reason, info.slot + 1);
@@ -269,6 +276,46 @@ static int cmd_slot(const struct shell *sh, size_t argc, char **argv)
 		return opensc2_select_slot((uint8_t)(slot - 1));
 	}
 	shell_print(sh, "bond slot %u", opensc2_selected_slot() + 1);
+	return 0;
+}
+
+/* `transport [puck|puck2|ble|ble2] [save]`: show, or run another wireless transport. October's
+ * rule stores the choice once its link is up; "save" stores it at once (as a host's 0xEE and 0xEF
+ * of user/wireless_transport do), for a reboot into it. */
+static int cmd_transport(const struct shell *sh, size_t argc, char **argv)
+{
+	int t;
+	int err;
+
+	if (argc < 2) {
+		shell_print(sh, "running %s (%s), chosen %s, stored %s",
+			    osc2_transport_word(osc2_transport_running()),
+			    osc2_transport_name(osc2_transport_running()),
+			    osc2_transport_word(osc2.transport),
+			    osc2.transport_saved == OSC2_TRANSPORT_NONE ? "none" :
+			    osc2_transport_word(osc2.transport_saved));
+		return 0;
+	}
+	t = osc2_transport_from_word(argv[1]);
+	if (t < 0 || (argc > 2 && strcmp(argv[2], "save") != 0)) {
+		shell_error(sh, "transport [puck|puck2|ble|ble2] [save]");
+		return -EINVAL;
+	}
+	err = opensc2_select_transport((enum opensc2_transport)t);
+	if (err == -ENOTSUP) {
+		shell_error(sh, "this build has no Bluetooth (CONFIG_OPENSC2_BLE)");
+		return err;
+	}
+	if (!err && argc > 2) {
+		err = osc2_storage_save_transport((uint8_t)t);
+	}
+	if (err) {
+		shell_error(sh, "failed (%d)", err);
+		return err;
+	}
+	shell_print(sh, "%s%s", osc2_transport_name((uint8_t)t),
+		    argc > 2 ? ", stored" : opensc2_mode() == OPENSC2_MODE_WIRED ?
+		    ", stored for the next wireless boot" : "; stored once its link is up");
 	return 0;
 }
 
@@ -459,6 +506,9 @@ SHELL_STATIC_SUBCMD_SET_CREATE(sub_opensc2,
 	SHELL_CMD(start, NULL, "Radio on", cmd_start),
 	SHELL_CMD(stop, NULL, "Radio off", cmd_stop),
 	SHELL_CMD_ARG(slot, NULL, "Show or select the bond slot: slot [1|2]", cmd_slot, 1, 1),
+	SHELL_CMD_ARG(transport, NULL,
+		      "Show or run a wireless transport: transport [puck|puck2|ble|ble2] [save]",
+		      cmd_transport, 1, 2),
 	SHELL_CMD(bonds, NULL, "List the bonds", cmd_bonds),
 	SHELL_CMD_ARG(forget, NULL, "Delete a bond: forget <1|2>", cmd_forget, 2, 0),
 	SHELL_CMD(id, &sub_id, "Identity", cmd_id_show),

@@ -4,7 +4,10 @@
  *
  * storage.c: what the library keeps across reboots, in the Zephyr settings subtree "opensc2":
  *   opensc2/bond0, opensc2/bond1   the two bonds, 24 bytes each (the vendor command 0xA2 format)
- *   opensc2/slot                   the selected bond slot, 1 byte
+ *   opensc2/transport              the wireless transport, 1 byte: user/wireless_transport's
+ *                                  values (0, 1 Bluetooth; 2, 3 the puck with bond 1 or 2)
+ *   opensc2/slot                   the puck's bond slot, 1 byte (written with a puck transport;
+ *                                  firmware before the transport key reads only this one)
  *   opensc2/chime                  the power-on chime level (vendor command 0xDC), 1 byte
  *   opensc2/id                     an identity override (opensc2_identity_store, the shell)
  *   opensc2/name                   the stored USB product name, its characters (no NUL)
@@ -89,8 +92,19 @@ static int on_set(const char *key, size_t len, settings_read_cb read_cb, void *c
 		}
 	}
 	if (settings_name_steq(key, "slot", &next) && !next) {
-		if (n == 1 && buf[0] < OPENSC2_BOND_SLOTS) {
+		/* The transport key, when there is one, decides the slot (osc2_transport_init()). */
+		if (n == 1 && buf[0] < OPENSC2_BOND_SLOTS &&
+		    !osc2_transport_is_puck(osc2.transport_saved)) {
 			osc2.slot = buf[0];
+		}
+		return 0;
+	}
+	if (settings_name_steq(key, "transport", &next) && !next) {
+		if (n == 1 && buf[0] <= OSC2_TRANSPORT_PUCK_2) {
+			osc2.transport_saved = buf[0];
+			if (osc2_transport_is_puck(buf[0])) {
+				osc2.slot = (uint8_t)(buf[0] - OSC2_TRANSPORT_PUCK_1);
+			}
 		}
 		return 0;
 	}
@@ -148,9 +162,29 @@ int osc2_storage_save_bond(uint8_t slot)
 	return settings_save_one(key, buf, sizeof(buf));
 }
 
-int osc2_storage_save_slot(void)
+int osc2_storage_save_transport(uint8_t t)
 {
-	return settings_save_one("opensc2/slot", &osc2.slot, 1);
+	int slot = osc2_transport_puck_slot(t);
+	int err = settings_save_one("opensc2/transport", &t, 1);
+
+	if (err == 0 && slot >= 0) {
+		uint8_t s = (uint8_t)slot;
+
+		err = settings_save_one("opensc2/slot", &s, 1);
+	}
+	if (err == 0) {
+		osc2.transport_saved = t;
+	}
+	return err;
+}
+
+int osc2_storage_delete_transport(void)
+{
+	int err = settings_delete("opensc2/transport");
+
+	err |= settings_delete("opensc2/slot");
+	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	return err ? -EIO : 0;
 }
 
 int osc2_storage_save_chime(void)
@@ -188,14 +222,14 @@ int osc2_storage_save_policy(void)
 
 int osc2_storage_factory_reset(void)
 {
-	/* What a factory reset forgets: pairings, the slot choice, the chime level. The identity
-	 * override and the mode policy are kept, as the real controller keeps its calibration and
-	 * serials. */
+	/* What a factory reset forgets: pairings, the transport choice, the chime level. The
+	 * identity override and the mode policy are kept, as the real controller keeps its
+	 * calibration and serials. */
 	int err = 0;
 
 	err |= settings_delete("opensc2/bond0");
 	err |= settings_delete("opensc2/bond1");
-	err |= settings_delete("opensc2/slot");
+	err |= osc2_storage_delete_transport();
 	err |= settings_delete("opensc2/chime");
 	return err ? -EIO : 0;
 }
@@ -212,7 +246,16 @@ int osc2_storage_save_bond(uint8_t slot)
 	ARG_UNUSED(slot);
 	return 0;
 }
-int osc2_storage_save_slot(void) { return 0; }
+int osc2_storage_save_transport(uint8_t t)
+{
+	osc2.transport_saved = t;
+	return 0;
+}
+int osc2_storage_delete_transport(void)
+{
+	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	return 0;
+}
 int osc2_storage_save_chime(void) { return 0; }
 int osc2_storage_save_identity(void) { return 0; }
 int osc2_storage_save_policy(void) { return 0; }

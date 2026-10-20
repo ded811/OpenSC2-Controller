@@ -30,6 +30,13 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 #define KEY_TURN_OFF           0xABDF9710u   /* 0x95 */
 #define POWER_DELAY_MS         20            /* so the answer can still go out */
 
+/* Bluetooth LE in this build: the transport values 0 and 1 mean something. */
+#if defined(CONFIG_OPENSC2_BLE)
+#define HAVE_BLE true
+#else
+#define HAVE_BLE false
+#endif
+
 /* The request the last successful SET stored on a link, which selects what its next GET answers. */
 struct stored_request {
 	uint8_t opcode;
@@ -122,15 +129,24 @@ static int key_set(enum named_key key, const uint8_t *value, uint8_t len)
 		osc2_radio_post(OSC2_EV_BOND);
 		return 0;
 	}
-	case KEY_TRANSPORT:
+	case KEY_TRANSPORT: {
+		/* The choice in RAM (0xEF saves it). A new puck slot counts at once, as a new bond
+		 * does; a change between the puck and Bluetooth at the next wireless start. */
+		int t;
+
 		if (len != 1) {
 			return -EINVAL;
 		}
-		if (value[0] == 2 || value[0] == 3) {
-			osc2.slot = value[0] - 2;
+		t = osc2_transport_key_value(value[0], HAVE_BLE);
+		if (t >= 0) {
+			osc2.transport = (uint8_t)t;
+		}
+		if (osc2_transport_is_puck((uint8_t)t)) {
+			osc2.slot = (uint8_t)(t - OSC2_TRANSPORT_PUCK_1);
 			osc2_radio_post(OSC2_EV_BOND);
 		}
-		return 0;   /* 0 and 1 select Bluetooth, which this library does not have */
+		return 0;   /* without Bluetooth 0 and 1 are taken and change nothing, as above 3 */
+	}
 	case KEY_CHIME:
 		if (len != 1) {
 			return -EINVAL;
@@ -185,7 +201,7 @@ static int key_save(enum named_key key)
 		return valid ? osc2_storage_save_bond(bond_slot_of(key)) : -ENOENT;
 	}
 	case KEY_TRANSPORT:
-		return osc2_storage_save_slot();
+		return osc2_storage_save_transport(osc2.transport);
 	case KEY_CHIME:
 		return osc2_storage_save_chime();
 	default:
@@ -207,9 +223,10 @@ static int key_delete(enum named_key key)
 		return osc2_storage_save_bond(bond_slot_of(key));   /* an empty bond is deleted */
 	}
 	case KEY_TRANSPORT:
+		osc2.transport = OSC2_TRANSPORT_DEFAULT;
 		osc2.slot = 0;
 		osc2_radio_post(OSC2_EV_BOND);
-		return osc2_storage_save_slot();
+		return osc2_storage_delete_transport();
 	case KEY_CHIME:
 		osc2.chime = 2;
 		return osc2_storage_save_chime();
@@ -238,7 +255,7 @@ static int key_read(enum named_key key, uint8_t *out, uint8_t *out_len)
 		*out_len = OPENSC2_BOND_LEN;
 		return 0;
 	case KEY_TRANSPORT:
-		out[0] = 2 + osc2.slot;
+		out[0] = osc2.transport;
 		*out_len = 1;
 		return 0;
 	case KEY_CHIME:
@@ -508,6 +525,7 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		LOG_INF("Factory reset");
 		memset(osc2.bonds, 0, sizeof(osc2.bonds));
 		osc2.slot = 0;
+		osc2.transport = OSC2_TRANSPORT_DEFAULT;
 		osc2.chime = 2;
 		(void)osc2_storage_factory_reset();
 		osc2_radio_post(OSC2_EV_BOND);
@@ -608,6 +626,26 @@ uint8_t osc2_command_stored(enum osc2_link link, uint8_t rec[2 + OPENSC2_ANSWER_
 
 /* ---- GET ------------------------------------------------------------------------------------- */
 
+/* Attribute 11 of 0x83, the report interval of `link` in µs: 4000 on USB and the puck's radio,
+ * the connection interval on Bluetooth once it is the active transport (0 before, as on the real
+ * controller), 64000 on the dock. The test link reports its mode's real link. */
+static uint32_t link_interval_us(enum osc2_link link)
+{
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+	if (link == OSC2_LINK_TEST) {
+		link = osc2_mode_link();
+	}
+#endif
+	switch (link) {
+	case OSC2_LINK_BLE:
+		return osc2_ble_interval_us();
+	case OSC2_LINK_DOCK:
+		return OSC2_DOCK_INTERVAL_US;
+	default:
+		return OSC2_REPORT_INTERVAL_US;
+	}
+}
+
 static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, uint8_t len,
 		   uint8_t *out, uint8_t *out_len)
 {
@@ -618,7 +656,7 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 	opensc2_identity_get(&id);
 	switch (opcode) {
 	case 0x83:   /* ID_GET_ATTRIBUTES_VALUES */
-		*out_len = (uint8_t)opensc2_encode_attributes(&id, OSC2_REPORT_INTERVAL_US, out);
+		*out_len = (uint8_t)opensc2_encode_attributes(&id, link_interval_us(link), out);
 		return 0;
 	case 0xAE:   /* ID_GET_STRING_ATTRIBUTE: only the tag byte counts, whatever the length */
 		*out_len = (uint8_t)opensc2_encode_string_attribute(&id, sel, out);
@@ -744,6 +782,25 @@ uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
 	}
 	out[1] = data_len;
 	return 2 + data_len;
+}
+
+int osc2_command_get_strict(enum osc2_link link, uint8_t out[63])
+{
+	const struct stored_request *r = &stored[link];
+	uint8_t data_len = 0;
+	uint8_t ctx = osc2_test_ctx_enter(link);
+	int rc;
+
+	memset(out, 0, 63);
+	out[0] = r->opcode;
+	rc = run_get(link, r->opcode, r->payload, r->len, &out[2], &data_len);
+	note_get(link, r, rc, rc ? 0 : data_len);
+	osc2_test_ctx_leave(ctx);
+	if (rc) {
+		return rc < 0 ? rc : -EIO;
+	}
+	out[1] = data_len;
+	return 63;
 }
 
 /* ---- USB: feature report 1 ------------------------------------------------------------------- */

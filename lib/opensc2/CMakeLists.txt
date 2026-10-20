@@ -27,6 +27,8 @@ zephyr_library_sources(
 	report_rules.c
 	settings_defaults.c
 	storage.c
+	transport.c
+	transport_rules.c
 )
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 	usb.c

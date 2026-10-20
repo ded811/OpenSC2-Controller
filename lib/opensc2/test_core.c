@@ -1737,7 +1737,7 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 
 void osc2_test_fmt_entry(char *out, size_t size, uint32_t seq, const uint8_t *entry, size_t len)
 {
-	static const char *const links[] = { "radio", "usb", "test", "none" };
+	static const char *const links[] = { "radio", "usb", "test", "none", "ble", "dock" };
 	size_t at = 0;
 	uint32_t t;
 	uint8_t n;
@@ -1751,7 +1751,7 @@ void osc2_test_fmt_entry(char *out, size_t size, uint32_t seq, const uint8_t *en
 	n = (uint8_t)MIN_OF((size_t)entry[6], len - OSC2_TEST_ENTRY_HEADER);
 	name = kind_name(entry[4]);
 	add(out, size, &at, "%lu %lu.%03lu %s ", (unsigned long)seq, (unsigned long)(t / 1000u),
-	    (unsigned long)(t % 1000u), entry[5] < 4 ? links[entry[5]] : "?");
+	    (unsigned long)(t % 1000u), entry[5] < 6 ? links[entry[5]] : "?");
 	if (name) {
 		add(out, size, &at, "%s", name);
 	} else {

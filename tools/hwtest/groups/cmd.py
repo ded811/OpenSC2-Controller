@@ -183,8 +183,12 @@ def run(ctx):
             t = rig.read_named(TRANSPORT)
             h = rig.read_named(CHIME)
             b2 = rig.read_named(BOND2)
-            c.true("0xEE user/wireless_transport 01 (Bluetooth: ignored) is taken",
-                   not rig.refused(C.VC_BY_NAME_SET, TRANSPORT + b"\x01"))
+            if rig.ctx.caps_ble:
+                c.note("0xEE user/wireless_transport 01 skipped: in a Bluetooth build (caps "
+                       "bit 17) it selects Bluetooth slot 2")
+            else:
+                c.true("0xEE user/wireless_transport 01 (Bluetooth: ignored) is taken",
+                       not rig.refused(C.VC_BY_NAME_SET, TRANSPORT + b"\x01"))
             c.true("0xEE user/wireless_transport with its value is taken",
                    not rig.refused(C.VC_BY_NAME_SET, TRANSPORT + t.data[:1]))
             c.true("0xEE user/haptic_boot_level with its value is taken",

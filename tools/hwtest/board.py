@@ -573,6 +573,7 @@ class Rig:
         self.ctx.canary_passed = False
         self.ctx.lizard_off = False
         self.ctx.caps_identity_write = T.cap_flag(self.caps, C.CAP_IDENTITY_VENDOR_WRITE)
+        self.ctx.caps_ble = T.cap_flag(self.caps, C.CAP_BLE)
         self._last_tick = self.clock.monotonic()
         return a
 

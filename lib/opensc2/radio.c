@@ -155,6 +155,12 @@ static int radio_enable(void)
 	if (radio_on) {
 		return 0;
 	}
+	if (osc2_ble_owns_radio()) {
+		/* Only one wireless transport at a time: Bluetooth has the radio (transport.c starts
+		 * the radio again once it has given it back). */
+		LOG_WRN("Bluetooth has the radio: the puck's link stays off");
+		return -EBUSY;
+	}
 	err = hfclk_request();
 	if (err) {
 		LOG_ERR("The 32 MHz clock did not start (%d)", err);
@@ -272,6 +278,11 @@ bool osc2_radio_connected(void)
 	return link_state == OPENSC2_LINK_CONNECTED;
 }
 
+bool osc2_radio_idle(void)
+{
+	return !radio_on && link_state == OPENSC2_LINK_OFF;
+}
+
 void osc2_radio_info(struct opensc2_link_info *out)
 {
 	k_spinlock_key_t key = k_spin_lock(&info_lock);
@@ -313,6 +324,7 @@ static void enter(enum opensc2_link_state state)
 	info.state = state;
 	info.reason = reason;
 	info.slot = osc2.slot;
+	info.transport = (uint8_t)(OSC2_TRANSPORT_PUCK_1 + osc2.slot);
 	if (state == OPENSC2_LINK_CONNECTED) {
 		connected_at = k_uptime_get();
 		info.packets = info.reports = info.dropped = 0;
@@ -323,6 +335,9 @@ static void enter(enum opensc2_link_state state)
 	link_state = state;
 	if (!changed) {
 		return;
+	}
+	if (state == OPENSC2_LINK_CONNECTED) {
+		osc2_transport_link_up(copy.transport);   /* October saves the choice now */
 	}
 	osc2_test_note_link((uint8_t)state, (uint8_t)reason, copy.slot, copy.channel, copy.protocol);
 	LOG_INF("Link %s (reason %d, slot %u, channel %u)", state_name(state), reason, copy.slot + 1,
