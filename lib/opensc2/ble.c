@@ -1085,8 +1085,10 @@ uint32_t osc2_ble_interval_us(void)
 
 /* ---- sending ------------------------------------------------------------------------------------ */
 
+/* Notifications in flight. Only the report thread sends them, and it never waits for room:
+ * sent_cb() frees it from the system work queue, which may itself wait for a lock the report
+ * thread holds while it sends (lizard mode's, the haptics' flush), or for a flash write. */
 static atomic_t inflight;
-static K_SEM_DEFINE(tx_room, 0, 1);
 
 struct tx_item {
 	uint8_t len;
@@ -1105,7 +1107,9 @@ static void sent_cb(struct bt_conn *conn, void *user_data)
 	if (atomic_dec(&inflight) <= 0) {
 		atomic_set(&inflight, 0);
 	}
-	k_sem_give(&tx_room);
+	if (k_msgq_num_used_get(&osc2_ble_tx_q) > 0) {
+		k_sem_give(&rpt_wake);   /* a report that waits for room goes now */
+	}
 }
 
 static struct bt_conn *conn_get(void)
@@ -1140,9 +1144,9 @@ static const struct bt_gatt_attr *input_target(struct bt_conn *conn, int index)
 	}
 }
 
-/* One input report as a notification on its characteristic, where the host enabled them. A
- * droppable one (state, battery) is dropped when too many are in flight; the others wait a
- * little for room. */
+/* One input report as a notification on its characteristic, where the host enabled them; -ENOMEM
+ * when too many are in flight (a droppable one, state or battery, is then dropped; the others
+ * never get here without room: they wait in the queue). Never waits. */
 static int notify_report(const uint8_t *report, size_t len, bool droppable)
 {
 	uint8_t pad[64];
@@ -1153,6 +1157,7 @@ static int notify_report(const uint8_t *report, size_t len, bool droppable)
 	struct bt_conn *conn;
 	int err;
 
+	ARG_UNUSED(droppable);   /* the callers decide what waits */
 	if (index < 0) {
 		return -EINVAL;
 	}
@@ -1170,11 +1175,9 @@ static int notify_report(const uint8_t *report, size_t len, bool droppable)
 		err = -ENOENT;   /* the host did not ask for this report: dropped */
 		goto out;
 	}
-	while (atomic_get(&inflight) >= TX_LIMIT) {
-		if (droppable || k_sem_take(&tx_room, K_MSEC(50)) != 0) {
-			err = -ENOMEM;
-			goto out;
-		}
+	if (atomic_get(&inflight) >= TX_LIMIT) {
+		err = -ENOMEM;
+		goto out;
 	}
 	p.data = value;
 	p.len = value_len;
@@ -1207,8 +1210,12 @@ int osc2_ble_send(const uint8_t *report, size_t len, bool droppable)
 	if (!gate) {
 		return -ENOTCONN;
 	}
-	if (k_current_get() == &rpt_thread_data) {
-		/* The state report's own lizard reports: right after it, in order. */
+	if (k_current_get() == &rpt_thread_data &&
+	    (droppable || (atomic_get(&inflight) < TX_LIMIT &&
+			   k_msgq_num_used_get(&osc2_ble_tx_q) == 0))) {
+		/* The state report's own lizard reports: right after it, in order. Without room, or
+		 * behind reports that already wait, one that must not be lost waits in the queue
+		 * instead (never here: this thread may hold lizard mode's or the haptics' lock). */
 		int err = notify_report(report, len, droppable);
 
 		return err == -ENOENT ? 0 : err;
@@ -1262,7 +1269,14 @@ static void rpt_thread_fn(void *p1, void *p2, void *p3)
 				send_state();
 			}
 		}
-		while (k_msgq_get(&osc2_ble_tx_q, &item, K_NO_WAIT) == 0) {
+		/* The queue, in order: a report that must not be lost waits at its head until a
+		 * notification completes (sent_cb() wakes this thread); a droppable one goes or is
+		 * dropped. Without the link everything goes. */
+		while (k_msgq_peek(&osc2_ble_tx_q, &item) == 0) {
+			if (gate && !item.droppable && atomic_get(&inflight) >= TX_LIMIT) {
+				break;
+			}
+			(void)k_msgq_get(&osc2_ble_tx_q, &item, K_NO_WAIT);
 			if (gate) {
 				(void)notify_report(item.data, item.len, item.droppable);
 			}

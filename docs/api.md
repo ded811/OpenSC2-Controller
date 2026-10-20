@@ -1737,7 +1737,9 @@ The functions for the settings and the other state Steam sets:
   raises an EGU interrupt (if the trigger cannot be set, a timer at the connection interval paces
   instead). Vendor commands and output reports run in the host's receive thread. At most
   `CONFIG_BT_ATT_TX_COUNT` − 2 notifications are in flight; a state or battery report that finds no
-  room is dropped, the others wait up to 50 ms.
+  room is dropped; the others wait in the report queue, in order, until a notification completes
+  (the report thread itself never waits for room: it can hold lizard mode's or the haptics' lock
+  while it sends, and the room is freed from the system work queue).
 
 ## Reliability
 

@@ -122,7 +122,9 @@ config OPENSC2_BLE_TX_QUEUE_DEPTH
 	default 8
 	help
 	  Battery reports, the application's reports, lizard mode's release reports from the
-	  command path. State reports are built in the report thread itself.
+	  command path, and lizard mode's reports that find no room for a notification (they wait
+	  here, in order, until one completes). State reports are built in the report thread
+	  itself and dropped when there is no room.
 
 config OPENSC2_BLE_REPORT_LEAD_US
 	int "Build the state report this long before the next connection event, microseconds"
