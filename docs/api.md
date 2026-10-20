@@ -673,7 +673,7 @@ names of its own:
 | `user/haptic_boot_level` | 1 | the chime level | `opensc2/chime` | deletes |
 | `user/keylock` | 4 | the value, zeros until set | `opensc2/k/keylock` | deletes |
 | `user/fully_charged_led_intensity` | 1 | length 0 (no read function) | `opensc2/k/fcled`; 3 until set | deletes |
-| `mte/charge_level` | 8 | the value, zeros until set | `opensc2/k/mte` | deletes |
+| `mte/charge_level` | 8 | the value, zeros until set, while it is a valid window (both values 0, or a lower one of at least 3400 and an upper one of at most 4120, u32 mV each, in 10 mV steps); otherwise length 0 | `opensc2/k/mte` | deletes |
 | `debug/resetreason` | 33 | the crash record, zeros when there is none | `opensc2/k/crash` | deletes |
 | `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled` | 2 each | length 0 (no read function) | `opensc2/k/hgain`, `hamp`, `hen` | keeps |
 | `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | the application's `vendor_command`; length 0 without one (the gyro bias never) | the application's | keeps |

@@ -221,6 +221,57 @@ OPENSC2_TEST(keys_cmd_kept)
 	}
 }
 
+/* An mte/charge_level value: the lower and the upper mV, u32 each. */
+static void window(uint8_t out[8], uint32_t lower, uint32_t upper)
+{
+	opensc2_put_le32(&out[0], lower);
+	opensc2_put_le32(&out[4], upper);
+}
+
+OPENSC2_TEST(keys_charge_window)
+{
+	static const struct {
+		uint32_t lower, upper;
+		bool valid;
+	} cases[] = {
+		{ 0, 0, true },             /* no window */
+		{ 3400, 4120, true },       /* the widest */
+		{ 3800, 4000, true },
+		{ 4120, 3400, true },       /* the order is not checked */
+		{ 3400, 0, true },          /* only the bounds and the step are */
+		{ 3390, 4120, false },      /* below 3400 */
+		{ 3400, 4130, false },      /* above 4120 */
+		{ 3405, 4100, false },      /* not a multiple of 10 */
+		{ 3400, 4115, false },
+		{ 0, 4000, false },         /* one 0 is not "no window" */
+		{ 0xFFFFFFFFu, 0xFFFFFFFFu, false },
+	};
+	uint8_t v[8], p[61], reply[64], len, kept[OSC2_KEY_VALUE_MAX];
+
+	for (size_t i = 0; i < ARRAY_SIZE(cases); i++) {
+		window(v, cases[i].lower, cases[i].upper);
+		CHECK_EQ(osc2_key_value_readable(OSC2_KEY_CHARGE_WINDOW, v, 8), cases[i].valid);
+	}
+	CHECK(!osc2_key_value_readable(OSC2_KEY_CHARGE_WINDOW, v, 7));
+	/* Every other key reads whatever it holds. */
+	memset(kept, 0xFF, sizeof(kept));
+	CHECK(osc2_key_value_readable(OSC2_KEY_KEYLOCK, kept, 4));
+	CHECK(osc2_key_value_readable(OSC2_KEY_RESET_REASON, kept, 33));
+
+	/* Through the command channel: 0xEE keeps any 8 bytes, 0xED answers them only while they
+	 * are a valid window, as on the real controller; the value itself stays as set. */
+	stub_reset();
+	window(v, 3405, 4100);
+	CHECK_EQ(named_set(0xEE, "mte/charge_level", v, 8), 0);
+	CHECK_EQ(proto_usb(0xED, p, named(p, "mte/charge_level", NULL, 0), reply), 0);
+	CHECK_EQ(osc2_keys_get(OSC2_KEY_CHARGE_WINDOW, kept, &len), 0);
+	CHECK(len == 8 && memcmp(kept, v, 8) == 0);
+	window(v, 3800, 4000);
+	CHECK_EQ(named_set(0xEE, "mte/charge_level", v, 8), 0);
+	CHECK_EQ(proto_usb(0xED, p, named(p, "mte/charge_level", NULL, 0), reply), 8);
+	CHECK(memcmp(&reply[3], v, 8) == 0);
+}
+
 OPENSC2_TEST(keys_cmd_cal)
 {
 	static const char *const names[] = { "cal/joy_l", "cal/trg_r", "cal/prs_l", "cal/touch_r",

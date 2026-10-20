@@ -8,6 +8,7 @@
  */
 #include <errno.h>
 #include <string.h>
+#include <opensc2/codec.h>
 #include "key_rules.h"
 
 #define R OSC2_KEYF_READ
@@ -159,4 +160,29 @@ const uint8_t *osc2_blob_get(const struct osc2_blob_store *s, uint8_t id, uint8_
 		*len = k->size;
 	}
 	return &s->value[at];
+}
+
+/* ---- what 0xED answers ----------------------------------------------------------------------- */
+
+#define WINDOW_MIN_MV  3400u
+#define WINDOW_MAX_MV  4120u
+#define WINDOW_STEP_MV 10u
+
+bool osc2_key_value_readable(uint8_t id, const uint8_t *value, uint8_t len)
+{
+	uint32_t lower, upper;
+
+	if (id != OSC2_KEY_CHARGE_WINDOW) {
+		return true;
+	}
+	if (len != 8) {
+		return false;
+	}
+	lower = opensc2_get_le32(&value[0]);
+	upper = opensc2_get_le32(&value[4]);
+	if (lower == 0 && upper == 0) {
+		return true;   /* no window */
+	}
+	return lower >= WINDOW_MIN_MV && upper <= WINDOW_MAX_MV && lower % WINDOW_STEP_MV == 0 &&
+	       upper % WINDOW_STEP_MV == 0;
 }

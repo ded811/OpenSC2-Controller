@@ -107,4 +107,10 @@ int osc2_blob_set(struct osc2_blob_store *s, uint8_t id, const uint8_t *value, s
 /* Blob `id`'s value (its size in `*len`), or NULL for a key that is no blob. */
 const uint8_t *osc2_blob_get(const struct osc2_blob_store *s, uint8_t id, uint8_t *len);
 
+/* Does 0xED answer a readable key holding `value` (`len` bytes), or length 0? On the real
+ * controller mte/charge_level, two u32 mV values (the lower, then the upper), reads only while it
+ * is a valid window: both 0 (no window), or a lower value of at least 3400 with an upper one of at
+ * most 4120, both multiples of 10. Every other key reads whatever it holds. */
+bool osc2_key_value_readable(uint8_t id, const uint8_t *value, uint8_t len);
+
 #endif /* OPENSC2_KEY_RULES_H_ */

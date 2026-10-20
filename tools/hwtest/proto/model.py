@@ -341,6 +341,18 @@ def led_readback(percent):
     return 100 if percent == 100 else 0
 
 
+def charge_window_valid(value):
+    """Does 0xED answer this mte/charge_level value (key_rules.c)? Two u32 mV values, the lower
+    then the upper: both 0 (no window), or a lower one of at least 3400 with an upper one of at
+    most 4120, both multiples of 10."""
+    if len(value) != 8:
+        return False
+    lower, upper = int.from_bytes(value[:4], "little"), int.from_bytes(value[4:], "little")
+    if lower == 0 and upper == 0:
+        return True
+    return lower >= 3400 and upper <= 4120 and lower % 10 == 0 and upper % 10 == 0
+
+
 # 0x44 channel IDs by channel bit, left first (proto_rules.c)
 _STATUS_IDS = ((CH_LPAD, 3), (CH_RPAD, 4), (CH_LGRIP, 0), (CH_RGRIP, 1))
 

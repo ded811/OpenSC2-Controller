@@ -132,6 +132,10 @@ def run(ctx):
                     continue
                 key = name.encode() + b"\0"
                 a = rig.read_named(key)
+                if name == "mte/charge_level" and a.n == 0:
+                    c.note("mte/charge_level not saved: it holds no valid window (0xED reads it "
+                           "empty, so its value is not known)")
+                    continue
                 if not c.eq("0xED %s: n" % name, a.n, size):
                     continue
                 value = a.data[:size]

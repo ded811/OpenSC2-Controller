@@ -239,7 +239,8 @@ static int key_delete(const struct osc2_key_info *info)
 
 /* 0xED: the key's RAM value; an empty or invalid bond reads back with length 0, and so does a key
  * the real controller has no read function for (the fully-charged LED level, the haptics
- * settings). A blob reads its whole value, zeros when nothing was set. */
+ * settings). A blob reads its whole value, zeros when nothing was set; the charge window only
+ * while it is valid (key_rules.h). */
 static int key_read(const struct osc2_key_info *info, uint8_t *out, uint8_t *out_len)
 {
 	enum named_key key = (enum named_key)info->id;
@@ -251,7 +252,12 @@ static int key_read(const struct osc2_key_info *info, uint8_t *out, uint8_t *out
 		return 0;
 	}
 	if (info->kind == OSC2_KEYK_BLOB) {
-		return osc2_keys_get(info->id, out, out_len);
+		int err = osc2_keys_get(info->id, out, out_len);
+
+		if (err == 0 && !osc2_key_value_readable(info->id, out, *out_len)) {
+			*out_len = 0;
+		}
+		return err;
 	}
 	switch (key) {
 	case KEY_BOND_1:

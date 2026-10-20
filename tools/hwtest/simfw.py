@@ -486,7 +486,10 @@ class SimBoard:
         if opcode == 0xED:
             key, _value = self._named(payload)
             if isinstance(key, str):    # a kept key: its value, or nothing without a read function
-                return 0, self.kept.get(key, kept_default(key)) if C.KEPT_KEYS[key][1] else b""
+                value = self.kept.get(key, kept_default(key))
+                if key == "mte/charge_level" and not M.charge_window_valid(value):
+                    return 0, b""       # the charge window only while it is valid (key_rules.c)
+                return 0, value if C.KEPT_KEYS[key][1] else b""
             if key is not None and key in (0, 1):
                 return 0, self.world.bonds[key]
             if key == 2:

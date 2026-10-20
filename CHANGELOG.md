@@ -17,10 +17,11 @@ still change between minor versions.
 - Every settings key of the real controller in `0xED`..`0xF0`: the library now keeps
   `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason` and
   `settings/haptics/...` (stored under `opensc2/k/`, read back where the real controller can, each
-  exactly its size, deleted by the factory reset where it deletes them), and knows the `cal/` keys,
-  which go to the application until the library keeps calibration. Any other name is still the
-  application's, so a host cannot fill the storage partition. The test ring numbers the new keys
-  9 to 29; hwtest `cmd` and `flash.kept_keys` cover them.
+  exactly its size, `mte/charge_level` only while it is a valid window, deleted by the factory
+  reset where it deletes them), and knows the `cal/` keys, which go to the application until the
+  library keeps calibration. Any other name is still the application's, so a host cannot fill the
+  storage partition. The test ring numbers the new keys 9 to 29; hwtest `cmd` and
+  `flash.kept_keys` cover them.
 - Crash records, as on the real controller (`CONFIG_OPENSC2_CRASH_RECORD`, on by default): the
   library's fatal-error handler leaves a 33-byte record in the retained RAM region and resets; the
   next boot stores it as `debug/resetreason`, and `0xF2` selector 1 answers it, then marks it

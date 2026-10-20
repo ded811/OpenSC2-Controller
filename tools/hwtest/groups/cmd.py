@@ -166,9 +166,13 @@ def run(ctx):
                 c.true("%s: n 24 or 0" % name[:-1].decode(), b.n in (0, 24))
                 c.observe(**{name[:-1].decode().replace("/", "_"): "empty" if b.n == 0 else
                              "crc32 %08x" % b.crc})
-            # the kept keys: their whole value (zeros until set), or 0 without a read function
+            # the kept keys: their whole value (zeros until set), or 0 without a read function;
+            # the charge window reads only while it is valid (none of the suite's doing)
             for name, (size, readable) in sorted(C.KEPT_KEYS.items()):
                 a = rig.read_named(name.encode() + b"\0")
+                if name == "mte/charge_level" and a.n == 0:
+                    c.note("mte/charge_level holds no valid window: 0xED answers it empty")
+                    continue
                 c.eq("%s: n (%s)" % (name, "its size" if readable else "no read function"), a.n,
                      size if readable else 0)
                 if name == "debug/resetreason" and a.n == 33:
@@ -231,6 +235,8 @@ def run(ctx):
                     if readable]
             values = [rig.read_named(n).data for n in kept]
             for key, value in zip(kept, values):
+                if len(value) != C.KEPT_KEYS[key[:-1].decode()][0]:
+                    continue        # an invalid charge window reads empty: nothing to rewrite
                 c.true("0xEE %s with its value (RAM only) is taken" % key[:-1].decode(),
                        not rig.refused(C.VC_BY_NAME_SET, key + value))
             c.true("0xED re-reads unchanged",
