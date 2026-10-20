@@ -25,6 +25,7 @@
 #if defined(CONFIG_APP_IMU_STREAM)
 #include <zephyr/drivers/sensor.h>
 #include <zephyr/rtio/rtio.h>
+#include <zephyr/sys/mem_blocks.h>
 #include <opensc2/cal.h>
 #include <opensc2/sensor_helpers.h>
 
@@ -50,7 +51,9 @@ static int8_t mounting[9];
 
 /* The standing read and its id (the userdata of its completions). A cancelled read still completes
  * once more, with the next buffer, which RTIO then frees itself: until then no new read is
- * submitted, so the two never share the driver (it would drop the cancelled one unfinished). */
+ * submitted, so the two never share the driver (it would drop the cancelled one unfinished).
+ * Completions of it that were already queued when it was cancelled still hold their buffers: the
+ * last one is the one whose buffer RTIO has freed (or that has none). */
 static K_MUTEX_DEFINE(stream_lock);
 static struct rtio_sqe *stream;   /* the standing read, or NULL */
 static uintptr_t stream_id;       /* its id; ids start at 1 */
@@ -166,6 +169,24 @@ static void program_bias(void)
 	}
 }
 
+/* A completion's buffer while it is still this thread's to release: a successful completion's,
+ * unless RTIO has freed it already, as it does for a cancelled read's last completion (and for a
+ * failed one). NULL when there is none to release. */
+static uint8_t *held_buffer(struct rtio_cqe *cqe, uint32_t *len)
+{
+	uint8_t *buf = NULL;
+	size_t block = rtio_mempool_block_size(&imu_ctx);
+
+	if (cqe->result != 0 || block == 0 ||
+	    rtio_cqe_get_mempool_buffer(&imu_ctx, cqe, &buf, len) != 0 || buf == NULL) {
+		return NULL;
+	}
+	if (sys_mem_blocks_is_region_free(imu_ctx.block_pool, buf, *len / block)) {
+		return NULL;
+	}
+	return buf;
+}
+
 static void imu_thread(void *p1, void *p2, void *p3)
 {
 	const struct sensor_decoder_api *dec;
@@ -184,27 +205,30 @@ static void imu_thread(void *p1, void *p2, void *p3)
 		int result = cqe->result;
 		uintptr_t id = (uintptr_t)cqe->userdata;
 		bool current, failed = false, cancel_done = false;
-		uint8_t *buf = NULL;
 		uint32_t len = 0;
+		uint8_t *buf = held_buffer(cqe, &len);
 
 		k_mutex_lock(&stream_lock, K_FOREVER);
 		current = stream != NULL && id == stream_id;
 		if (id != 0 && id == cancelled_id) {
-			cancelled_id = 0;   /* its last completion: RTIO has freed it and its buffer */
-			cancel_done = true;
+			/* The cancelled read: a completion queued before the cancel still holds its
+			 * buffer; the last one comes with RTIO's release done, or without a buffer. */
+			if (buf == NULL) {
+				cancelled_id = 0;
+				cancel_done = true;
+			}
 		} else if (current && result != 0) {
 			stream = NULL;      /* the read ended */
 			failed = true;
 		}
 		k_mutex_unlock(&stream_lock);
-		/* Only the running read's buffers are this thread's to decode and release. */
-		if (current && result == 0 &&
-		    rtio_cqe_get_mempool_buffer(&imu_ctx, cqe, &buf, &len) != 0) {
-			buf = NULL;
-		}
 		rtio_cqe_release(&imu_ctx, cqe);
 		if (buf != NULL) {
-			decode(dec, buf);
+			/* Only the running read's buffers are decoded (setting 48 = 0 keeps the last
+			 * sample); every held buffer goes back to the pool. */
+			if (current) {
+				decode(dec, buf);
+			}
 			rtio_release_buffer(&imu_ctx, buf, len);
 		}
 		if (failed) {
