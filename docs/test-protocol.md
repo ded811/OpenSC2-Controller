@@ -57,7 +57,7 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x03` | STATUS | | status, 32 bytes | also the lease's keep-alive |
 | `0x10` | INJECT | flags u8 (bit 0: stop a running sequence first; bit 1: the lizard test), state52 | frames u32 | the static injected state; DENIED while lizard mode is on without bit 1 |
 | `0x11` | INJECT_OFF | | frames u32 | also stops a sequence |
-| `0x12` | BATTERY | charge state u8, level u8, battery, system, input mV u16, current s16, input current u16, temperature u16, gauge flags u8, flags u8 (bit 0: send a `0x43` now; the 3.5 s period restarts from it) | | |
+| `0x12` | BATTERY | charge state u8, level u8, battery, system, input mV u16, current s16, input current u16, temperature u16, gauge flags u8 (kept in the battery the library holds; no report carries it), flags u8 (bit 0: send a `0x43` now; the 3.5 s period restarts from it) | | |
 | `0x13` | BATTERY_OFF | | | |
 | `0x14` | SEQ_LOAD | step u8 (below the depth), hold u8 (1..255 frames), state52 | | BUSY while a sequence runs |
 | `0x15` | SEQ_RUN | count u8 (1..depth; steps 0..count-1 loaded since ARM), flags u8 (bit 0 loop, bit 1 keep the last step as the static state, bit 2 the lizard test) | frames u32 | starts with the next frame built; BAD_ARG for a step not loaded, BUSY while one runs, DENIED while lizard mode is on without bit 2 |
@@ -69,7 +69,7 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x24` | MARK | marker u32 | the entry's sequence number u32 | |
 | `0x30` | SETTINGS_READ | first u8, count u8 (1..27) | first u8, count u8, s16 × count | clipped at 86 |
 | `0x40` | HOST_OUT | an output report, ID first, 1..54 bytes | the decode result s8 | as from a host, on the test link |
-| `0x41` | HOST_SET | opcode u8, n u8, n payload bytes (n = the arguments − 2) | result s32 | a vendor SET on the test link; only `0x81`, `0x83`, `0x85`, `0x87`, `0x89`, `0x8E`, `0x9F`, `0xA1`, `0xAE`, `0xBE`, `0xC5`, `0xDB`, `0xE9`, `0xED`, `0xF2`, and `0x95` with the turn-off key `0xABDF9710` (read as the command reads it: the first four payload bytes, zero padded) run; everything else answers DENIED |
+| `0x41` | HOST_SET | opcode u8, n u8, n payload bytes (n = the arguments − 2) | result s32 | a vendor SET on the test link; only `0x81`, `0x83`, `0x85`, `0x87`, `0x89`, `0x8E`, `0x9F`, `0xA1`, `0xAE`, `0xBE`, `0xC5`, `0xDB`, `0xE9`, `0xED`, `0xF2` with any selector but 1 (its GET marks a new crash record seen, a flash write), and `0x95` with the turn-off key `0xABDF9710` (read as the command reads it: the first four payload bytes, zero padded) run; everything else answers DENIED |
 | `0x42` | HOST_GET | | opcode u8, n u8, flags u8 (bit 0 masked, bit 1 cut), then the first min(n, 54) answer bytes, or for a masked answer the CRC-32 of its n bytes | a vendor GET on the test link; masked: `0xED` of `esb/bond` or `esb/bond_2`, `0xAE` tags 0, 1 and 4, `0xF2` selector 0, `0xA1` selector 1 |
 | `0x43` | APP_SEND | kind u8; kind 0: an input report, ID first, 1..53 bytes; kind 1: channel u8, flags u32 | result s32 | as the application would (`opensc2_send_report()`, `opensc2_send_haptic_status()`), through the guard like every report; DENIED for a `0x42` |
 | `0x44` | RADIO_DEAF | ms u16 (100..5000) | | the radio hears nothing that long, so the link times out the normal way; BUSY while one is pending, NO_LINK unless wireless and connected |
@@ -94,13 +94,13 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 (bit 0 `TRIGGER_CLICK_AUTO`, 1 `LIZARD_MODE`, 2 `STEAM_WATCHDOG`, 3 `USB`, 4 `USB_PROFILE_OCTOBER`,
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
-`NO_HOST_WIRELESS_MS` not 0, the charger test build; 17 `BLE`, the Bluetooth build; the bits between
-are left for other options); 6 battery report interval ms u16; 8 rumble
-timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16;
-16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
-revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
-does not fit; the suite checks the USB product string against it). Firmware before the product name
-sent the first 32 bytes only.
+`NO_HOST_WIRELESS_MS` not 0, the charger test build; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to
+stops; 17 `BLE`, the Bluetooth build; the bits between are left for other options); 6 battery report
+interval ms u16; 8 rumble timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14
+radio report delay µs u16; 16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1
+wireless); 19 zero; 20 the git revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's
+product name u32 (the name itself does not fit; the suite checks the USB product string against
+it). Firmware before the product name sent the first 32 bytes only.
 
 Status (the STATUS result): 0 flags (bit 0 armed, 1 guard, 2 static injection, 3 battery injected, 4
 sequence running, 5 lizard mode on, 6 the end of a disarm in progress, 7 a settings snapshot held); 1
@@ -147,13 +147,14 @@ the dock; for `ARMED` and `MARK` the transport of the request), data length u8 (
 | `0x15` | LIZARD | 0 leave, 1 enter, 2 switches down, 3 switches up, 4 resync |
 | `0x16` | LIZARD_RPT | flags u8 (bit 0 held back), frame u32 (the last built, `0xFFFFFFFF` none since ARM), the report as it would have gone out |
 | `0x17` | POWER | request u8 (`enum opensc2_power_request`), its reason text (at most 32 characters) |
-| `0x18` | VENDOR | direction u8 (0 SET, 1 GET), opcode u8, n u8 (SET: its length byte; GET: the answer's length), result s32, the request's safe bytes: `0x87` whole triplets (at most four); `0x89`, `0xAE`, `0xF2`, `0xA1` the first byte; `0xC5` 4 bytes; `0xDC`, `0xE2` 2; `0x86`, `0x95` the 4-byte key; `0xED`..`0xF0` a key ID (1 `esb/bond`, 2 `esb/bond_2`, 3 `user/wireless_transport`, 4 `user/haptic_boot_level`, 5..8 the `opensc2/` identity keys, 0 other) and the value's length; nothing for the others. None for `0x7E` |
+| `0x18` | VENDOR | direction u8 (0 SET, 1 GET), opcode u8, n u8 (SET: its length byte; GET: the answer's length), result s32, the request's safe bytes: `0x87` whole triplets (at most four); `0x89`, `0xAE`, `0xF2`, `0xA1` the first byte; `0xC5` 4 bytes; `0xDC`, `0xE2` 2; `0x86`, `0x95` the 4-byte key; `0xED`..`0xF0` a key ID (1 `esb/bond`, 2 `esb/bond_2`, 3 `user/wireless_transport`, 4 `user/haptic_boot_level`, 5..8 the `opensc2/` identity keys, 9 `user/keylock`, 10 `user/fully_charged_led_intensity`, 11 `mte/charge_level`, 12 `debug/resetreason`, 13..15 `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled`, 16..29 `cal/joy_l`, `joy_r`, `trg_l`, `trg_r`, `prs_l`, `prs_r`, `touch_l`, `touch_r`, `rgbw_r`, `rgbw_g`, `rgbw_b`, `rgbw_w`, `volt_offset`, `sensors/gyroscope/bias`, 0 other) and the value's length; nothing for the others. None for `0x7E` |
 | `0x19` | HOST_ASLEEP | |
 | `0x20` | LINK | state, reason, slot, channel, protocol (u8 each) |
 | `0x21` | USB | state, active, suspended |
 | `0x22` | VERSION | the protocol version answered |
 | `0x23` | IDENTITY | product ID u16, build time u32, bootloader build time u32, revision u32, git revision 12 bytes (never the serials) |
 | `0x24` | CHANNELS | the four channel bytes of `0xE4` |
+| `0x30` | STOP_STATUS | channel u8 (`0x44`'s numbering: left grip 0, right grip 1, left pad 3, right pad 4), flags u32 (`0x02`): a `0x44` the library sent as the reply to a stop, with the link the output came on |
 | `0x40` | BLE | a Bluetooth link event (link 4): event u8, a u8, b u16, c u32. 1 state: a the link state, b the reason, c the slot (bits 0 to 7), the identity (8 to 15) and the advertising form (16 to 23: 0 pairing mode, 1 allow-listed, 2 directed, `0xFF` none); 2 security: a the level, b the error; 3 the ATT MTU in b; 4 parameters: b the latency, c the interval in µs; 5 the gate: a 1 up, 0 down, b the ATT MTU, c the interval; 6 the connection-event trigger: a 1 set, 0 failed (a timer paces), b the error; 7 disconnect: a the HCI reason acted on (`BLE_DROP`'s, or the stack's), b what followed (0 advertising again after 500 ms, 1 wireless off, 2 nothing: the board ended the link itself, a `0x16`), c the reason the stack reported; 8 advertising started: a the form, b the error (0 running), c the slot (bits 0 to 7), the identity (8 to 15), why (16 to 23: 0 a start, 1 again after a lost link, 2 after a failed connection) and bit 24 set when the identity was reset first; 9 advertising ended: a why (0 a host connected, 1 a connection failed: b the HCI error, `0x3C` when directed advertising went unanswered, 2 the window ran out, 3 stopped), c the identity; 10 identity: a 0 created, 1 reset (a new address, no keys), 2 a reset failed (b the error), c the identity; 11 bond: a 0 a new host bonded (c the identity, bits 8 to 15 the slot's other one, whose bond goes), 1 a bond was deleted and its identity is reset, 2 a bond was deleted but its identity is in use and kept, c the identity; 12 wireless off: a the cause (0 the window ran out, 1 the host ended the link), b the HCI reason |
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).

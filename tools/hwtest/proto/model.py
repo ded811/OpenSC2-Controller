@@ -316,3 +316,61 @@ def default_settings():
 
 def setting_range(number):
     return _RANGES.get(number)
+
+
+# settings the real controller hands to its IMU: 0x89 answers their defaults (proto_rules.c)
+IMU_SETTINGS = (48, 84, 85)
+
+
+def setting_answer(number, value):
+    """What 0x89 answers for a setting that holds `value` (the library keeps the written value)."""
+    return setting_default(number) if number in IMU_SETTINGS else value
+
+
+def reset_flags(causes):
+    """0xA1's byte of reset-cause flags from Zephyr's RESET_* bits (proto_rules.c): power-on
+    0x01, brown-out 0x02, any other cause 0x08, pin 0x10, watchdog 0x20, software 0x40."""
+    named = 0x1F
+    return ((0x01 if causes & 0x08 else 0) | (0x02 if causes & 0x04 else 0) |
+            (0x08 if causes & ~named else 0) | (0x10 if causes & 0x01 else 0) |
+            (0x20 if causes & 0x10 else 0) | (0x40 if causes & 0x02 else 0))
+
+
+def led_readback(percent):
+    """One channel of 0xE9 as the real controller reads it back (proto_rules.c): cut to whole
+    hundreds, so 0 below 100, 100 from 100 to 199, 200 from 200 (the library keeps at most 100)."""
+    return percent // 100 * 100
+
+
+def charge_window_valid(value):
+    """Does 0xED answer this mte/charge_level value (key_rules.c)? Two u32 mV values, the lower
+    then the upper: both 0 (no window), or a lower one of at least 3400 with an upper one of at
+    most 4120, both multiples of 10."""
+    if len(value) != 8:
+        return False
+    lower, upper = int.from_bytes(value[:4], "little"), int.from_bytes(value[4:], "little")
+    if lower == 0 and upper == 0:
+        return True
+    return lower >= 3400 and upper <= 4120 and lower % 10 == 0 and upper % 10 == 0
+
+
+# 0x44 channel IDs by channel bit, left first (proto_rules.c)
+_STATUS_IDS = ((CH_LPAD, 3), (CH_RPAD, 4), (CH_LGRIP, 0), (CH_RGRIP, 1))
+
+
+def stop_status(kind, fields):
+    """The 0x44 channel IDs a decoded output brings back with flag 0x02 (proto_rules.c): every
+    stop-all (0x81 on time 0, 0x82 command 0, a zero speed in 0x80 for that grip) and 0x86's
+    stream stop, in the order the real controller queues them: left first for 0x81 and 0x82,
+    right first for 0x86, the right grip before the left for 0x80. `kind` and `fields` as the
+    simulator's decoder gives them ("rumble" or "haptic")."""
+    if kind == "rumble":
+        return ([1] if fields["right"] == 0 else []) + ([0] if fields["left"] == 0 else [])
+    hk = fields.get("haptic_kind")
+    stop = (hk == 0 and fields.get("on_us") == 0) or (hk == 1 and fields.get("command") == 0)
+    if stop:
+        return [sid for bit, sid in _STATUS_IDS if fields["channels"] & bit]
+    if hk == 5 and fields.get("operation") == 1:
+        order = ((CH_RPAD, 4), (CH_LPAD, 3), (CH_RGRIP, 1), (CH_LGRIP, 0))
+        return [sid for bit, sid in order if fields["channels"] & bit]
+    return []

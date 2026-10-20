@@ -127,8 +127,9 @@ RING_USB = 0x21
 RING_VERSION = 0x22
 RING_IDENTITY = 0x23
 RING_CHANNELS = 0x24
+# 0x30..0x33: protocol completeness
+RING_STOP_STATUS = 0x30      # a 0x44 the library sent as the reply to a stop
 RING_BLE = 0x40           # a Bluetooth LE link event (BLE_EVENT_*)
-RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none", 4: "ble", 5: "dock"}
 
 # BLE events (docs/test-protocol.md, The ring): a, b, c as each one says.
 BLE_EVENT_NAMES = {1: "state", 2: "security", 3: "mtu", 4: "params", 5: "gate", 6: "trigger",
@@ -150,6 +151,14 @@ BLE_EV_OFF = 12
 BLE_FORM_NAMES = {0: "pairing", 1: "allow-listed", 2: "directed", 0xFF: "none"}
 # what follows a disconnect (BLE disconnect entries)
 BLE_AFTER_NAMES = {0: "advertise again", 1: "wireless off", 2: "nothing"}
+RING_LINK_NAMES = {0: "radio", 1: "usb", 2: "test", 3: "none", 4: "ble", 5: "dock"}
+
+# 0x44 channel IDs and the "stopped" flag (docs/api.md, Other input reports)
+STATUS_LEFT_GRIP = 0
+STATUS_RIGHT_GRIP = 1
+STATUS_LEFT_PAD = 3
+STATUS_RIGHT_PAD = 4
+STATUS_STOPPED = 0x02
 
 # LIZARD "what" values (docs/test-protocol.md, The ring).
 LIZARD_LEAVE = 0
@@ -227,12 +236,36 @@ KEY_FACTORY_RESET = 0xEFC1A917
 KEY_REBOOT_WIRELESS = 0xA427AF52   # safe: wired -> wireless (modes.to_wireless)
 KEY_TURN_OFF = 0xABDF9710          # allowed on HOST_SET (turn off, wireless only)
 
-# key names (0xED/0xEE/0xEF/0xF0), and the ring's key-ID encoding (docs/test-protocol.md).
+# key names (0xED/0xEE/0xEF/0xF0), and the ring's key-ID encoding (docs/test-protocol.md); the
+# library's key_rules.c numbers them the same way.
 KEY_NAMES = {
     1: "esb/bond", 2: "esb/bond_2", 3: "user/wireless_transport", 4: "user/haptic_boot_level",
     5: "opensc2/unit_serial", 6: "opensc2/board_serial", 7: "opensc2/git_revision",
     8: "opensc2/board_revision",
+    9: "user/keylock", 10: "user/fully_charged_led_intensity", 11: "mte/charge_level",
+    12: "debug/resetreason", 13: "settings/haptics/haptic_master_gain_db",
+    14: "settings/haptics/amplifier_mode", 15: "settings/haptics/enabled",
+    16: "cal/joy_l", 17: "cal/joy_r", 18: "cal/trg_l", 19: "cal/trg_r", 20: "cal/prs_l",
+    21: "cal/prs_r", 22: "cal/touch_l", 23: "cal/touch_r", 24: "cal/rgbw_r", 25: "cal/rgbw_g",
+    26: "cal/rgbw_b", 27: "cal/rgbw_w", 28: "cal/volt_offset", 29: "cal/sensors/gyroscope/bias",
 }
+# The keys the library keeps as plain values ("blobs", keys.c): name -> (size, 0xED reads it).
+# Until set, and after 0xF0, zeros (user/fully_charged_led_intensity: 3).
+KEPT_KEYS = {
+    "user/keylock": (4, True), "user/fully_charged_led_intensity": (1, False),
+    "mte/charge_level": (8, True), "debug/resetreason": (33, True),
+    "settings/haptics/haptic_master_gain_db": (2, False),
+    "settings/haptics/amplifier_mode": (2, False), "settings/haptics/enabled": (2, False),
+}
+# The calibration keys and their sizes: never written, saved or deleted by the suite (S5); 0xED
+# reads them (all but the gyro bias), empty until the library keeps calibration.
+CAL_KEYS = {
+    "cal/joy_l": 18, "cal/joy_r": 18, "cal/trg_l": 7, "cal/trg_r": 7, "cal/prs_l": 8,
+    "cal/prs_r": 8, "cal/touch_l": 10, "cal/touch_r": 10, "cal/rgbw_r": 1, "cal/rgbw_g": 1,
+    "cal/rgbw_b": 1, "cal/rgbw_w": 1, "cal/volt_offset": 2, "cal/sensors/gyroscope/bias": 12,
+}
+# A name that is no key at all (0xF0 of it is refused before any flash access).
+NO_KEY = "test/no_such_key"
 
 # ---- caps build flags (docs/test-protocol.md) -----------------------------------------------
 CAP_TRIGGER_CLICK_AUTO = 0
@@ -250,6 +283,7 @@ CAP_USB_PLUG_IN_REBOOT = 11
 CAP_SHELL = 12
 CAP_FUSION = 13
 CAP_NO_HOST_WIRELESS = 14      # the charger test build (a testing aid, not the real controller)
+CAP_HAPTIC_STOP_STATUS = 16    # a stop's 0x44 replies (CONFIG_OPENSC2_HAPTIC_STOP_STATUS)
 CAP_BLE = 17                   # Bluetooth LE (CONFIG_OPENSC2_BLE)
 
 # ---- timings and thresholds -----------------------------------------------------------------

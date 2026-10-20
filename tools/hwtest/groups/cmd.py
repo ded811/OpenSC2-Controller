@@ -106,9 +106,17 @@ def run(ctx):
             c.eq("selector 0: revision = attribute 9", info["revision"], attrs.get(9))
             c.eq("selector 0: git revision", info["git_revision"], rig.caps["git_revision"])
             c.true("selector 0: the unit serial", info["serial"] == rig.unit_serial)
-            a = rig.vendor(C.VC_DEVICE_INFO, b"\x01")
-            c.eq("selector 1: n", a.n, 34)
-            c.eq("selector 1", (a.data[:1], a.data[1:34]), (b"\x01", bytes(33)))
+            # selector 1: the crash record (debug/resetreason) as it is; a new one would then be
+            # marked seen and saved again, a flash write the suite leaves to a host (safety.py)
+            record = rig.read_named(b"debug/resetreason\0")
+            if record.n == 33 and record.data[0] == 1:
+                c.note("selector 1 not read: a new crash record waits (reason %d; 0xED read it, "
+                       "0xF2 would mark it seen, a flash write)" % record.data[21])
+            else:
+                a = rig.vendor(C.VC_DEVICE_INFO, b"\x01")
+                c.eq("selector 1: n", a.n, 34)
+                c.eq("selector 1: the selector, then the record 0xED reads",
+                     (a.data[:1], a.data[1:34]), (b"\x01", record.data[:33]))
             a = rig.vendor(C.VC_DEVICE_INFO, b"\x02")
             c.eq("selector 2: n", a.n, 9)
             t1 = V.decode_device_info2(a.data)["uptime_ms"]
@@ -123,20 +131,25 @@ def run(ctx):
     if ctx.want("cmd.reset_info"):
         with ctx.check(GROUP, "cmd.reset_info") as c:
             a = rig.vendor(C.VC_RESET_INFO, b"\x01")
-            c.eq("selector 1: n", a.n, 21)
-            info = V.decode_reset_info(a.data + bytes(21))
+            c.eq("selector 1: n", a.n, V.RESET_INFO_LEN)
+            info = V.decode_reset_info(a.data + bytes(V.RESET_INFO_LEN))
             c.eq("selector 1: the selector", info["selector"], 1)
             if rig.models("hwinfo"):
                 c.true("selector 1: a chip ID (masked)", any(info["chip_id"]))
-            c.eq("selector 1: the last 8 bytes", a.data[13:21], bytes(8))
+            c.eq("selector 1: the last 8 bytes", a.data[10:18], bytes(8))
+            c.eq("selector 1: only the real controller's flag bits", info["reset_cause"] &
+                 ~(V.RESET_POWER_ON | V.RESET_BROWNOUT | V.RESET_OTHER | V.RESET_PIN |
+                   V.RESET_WATCHDOG | V.RESET_SOFTWARE), 0)
             rig.mask.add_secret(info["chip_id"].hex(), "<chip>")
             if getattr(rig, "did_plain_reboot", False) and \
                     not info["reset_cause"] & V.RESET_SOFTWARE:
-                c.warn("after the runner's reboot the reset cause 0x%x has no RESET_SOFTWARE "
-                       "(the UF2 bootloader may hide it)" % info["reset_cause"])
-            c.observe(reset_cause=info["reset_cause"])
-            a = rig.vendor(C.VC_RESET_INFO, b"\x00")
-            c.eq("selector 0: n", a.n, 0)
+                c.warn("after the runner's reboot the reset flags 0x%02x have no software reset "
+                       "(the UF2 bootloader may clear them)" % info["reset_cause"])
+            c.observe(reset_cause="0x%02x (%s)" % (info["reset_cause"],
+                                                   V.reset_cause_text(info["reset_cause"])))
+            for sel in (0, 2, 0xFF):
+                a = rig.vendor(C.VC_RESET_INFO, bytes([sel]))
+                c.eq("selector %d: 18 zero bytes" % sel, (a.n, a.data[:18]), (18, bytes(18)))
 
     if ctx.want("cmd.user_store"):
         with ctx.check(GROUP, "cmd.user_store") as c:
@@ -168,8 +181,23 @@ def run(ctx):
                 c.true("%s: n 24 or 0" % name[:-1].decode(), b.n in (0, 24))
                 c.observe(**{name[:-1].decode().replace("/", "_"): "empty" if b.n == 0 else
                              "crc32 %08x" % b.crc})
-            a = rig.vendor(C.VC_BY_NAME_READ, b"cal/joy_l\0")
-            c.eq("cal/joy_l: n", a.n, 0)
+            # the kept keys: their whole value (zeros until set), or 0 without a read function;
+            # the charge window reads only while it is valid (none of the suite's doing)
+            for name, (size, readable) in sorted(C.KEPT_KEYS.items()):
+                a = rig.read_named(name.encode() + b"\0")
+                if name == "mte/charge_level" and a.n == 0:
+                    c.note("mte/charge_level holds no valid window: 0xED answers it empty")
+                    continue
+                c.eq("%s: n (%s)" % (name, "its size" if readable else "no read function"), a.n,
+                     size if readable else 0)
+                if name == "debug/resetreason" and a.n == 33:
+                    c.observe(crash_record="none" if not any(a.data[:33]) else
+                              "new %d, reason %d" % (a.data[0], a.data[21]))
+            for name in sorted(C.CAL_KEYS):
+                a = rig.vendor(C.VC_BY_NAME_READ, name.encode() + b"\0")
+                c.eq("%s: n (no calibration kept)" % name, a.n, 0)
+            a = rig.vendor(C.VC_BY_NAME_READ, C.NO_KEY.encode() + b"\0")
+            c.eq("a name that is no key: n", a.n, 0)
             a = rig.vendor(C.VC_BY_NAME_READ, TRANSPORT[:-1])
             c.eq("a name without its NUL: n", a.n, 0)
 
@@ -190,8 +218,19 @@ def run(ctx):
             else:
                 c.true("0xEE opensc2/unit_serial bad! is refused",
                        rig.refused(C.VC_BY_NAME_SET, b"opensc2/unit_serial\0bad!"))
+            kept = [n.encode() + b"\0" for n, (_s, readable) in sorted(C.KEPT_KEYS.items())
+                    if readable]
+            kept_before = [rig.read_named(n).data for n in kept]
+            for name, (size, _readable) in sorted(C.KEPT_KEYS.items()):
+                key = name.encode() + b"\0"
+                c.true("0xEE %s with %d bytes is refused" % (name, size + 1),
+                       rig.refused(C.VC_BY_NAME_SET, key + bytes(size + 1)))
+                c.true("0xEE %s with no value is refused" % name,
+                       rig.refused(C.VC_BY_NAME_SET, key))
             after = [rig.read_named(n).data for n in (TRANSPORT, CHIME, BOND2)]
             c.true("nothing changed (0xED re-read equal)", after == before)
+            c.true("the kept keys unchanged (0xED re-read equal)",
+                   [rig.read_named(n).data for n in kept] == kept_before)
 
     if ctx.want("cmd.by_name_harmless"):
         with ctx.check(GROUP, "cmd.by_name_harmless") as c:
@@ -211,9 +250,17 @@ def run(ctx):
             if b2.n == 0:
                 c.true("0xEE esb/bond_2 with 24 zero bytes (it is empty) is taken",
                        not rig.refused(C.VC_BY_NAME_SET, BOND2 + bytes(24)))
+            kept = [n.encode() + b"\0" for n, (_s, readable) in sorted(C.KEPT_KEYS.items())
+                    if readable]
+            values = [rig.read_named(n).data for n in kept]
+            for key, value in zip(kept, values):
+                if len(value) != C.KEPT_KEYS[key[:-1].decode()][0]:
+                    continue        # an invalid charge window reads empty: nothing to rewrite
+                c.true("0xEE %s with its value (RAM only) is taken" % key[:-1].decode(),
+                       not rig.refused(C.VC_BY_NAME_SET, key + value))
             c.true("0xED re-reads unchanged",
                    [rig.read_named(n).data for n in (TRANSPORT, CHIME, BOND2)] ==
-                   [t.data, h.data, b2.data])
+                   [t.data, h.data, b2.data] and [rig.read_named(n).data for n in kept] == values)
 
     if ctx.want("cmd.save_refusals"):
         with ctx.check(GROUP, "cmd.save_refusals") as c:
@@ -225,8 +272,10 @@ def run(ctx):
                 c.note("esb/bond_2 holds a bond: its 0xEF refusal is not sent")
             c.true("0xEF user/haptic_boot_level with a byte after the NUL is refused",
                    rig.refused(C.VC_BY_NAME_SAVE, CHIME + b"\x01"))
-            c.true("0xF0 cal/joy_l is refused", rig.refused(C.VC_BY_NAME_DELETE,
-                                                            b"cal/joy_l\0"))
+            c.true("0xEF user/keylock with a byte after the NUL is refused",
+                   rig.refused(C.VC_BY_NAME_SAVE, b"user/keylock\0\x01"))
+            c.true("0xF0 of a name that is no key is refused",
+                   rig.refused(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\0"))
             c.true("nothing stored", rig.read_named(BOND2).data == b2.data and
                    rig.read_named(CHIME).data == h.data)
 

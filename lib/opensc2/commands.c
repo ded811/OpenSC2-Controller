@@ -20,9 +20,18 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "crash.h"
+#include "keys.h"
+#include "proto_rules.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
+
+#if defined(CONFIG_HWINFO)
+/* proto_rules.c restates these to stay free of Zephyr. */
+BUILD_ASSERT(RESET_PIN == BIT(0) && RESET_SOFTWARE == BIT(1) && RESET_BROWNOUT == BIT(2) &&
+	     RESET_POR == BIT(3) && RESET_WATCHDOG == BIT(4), "Zephyr's RESET_* bits changed");
+#endif
 
 #define KEY_FACTORY_RESET      0xEFC1A917u   /* 0x86 */
 #define KEY_BOOTLOADER         0xECAABAC0u   /* 0x95 */
@@ -63,43 +72,37 @@ static uint32_t get_u32(const uint8_t *p, size_t avail)
 
 /* ---- settings by name (0xED, 0xEE, 0xEF, 0xF0) ----------------------------------------------- */
 
-/* Keys of the real controller this library has an equivalent for. */
+/* The keys (key_rules.c): every key of the real controller, with its size and whether 0xED reads
+ * it, and OpenSC2's identity keys. A name that is not there, and a calibration key while the
+ * library keeps no calibration, goes to the application's vendor_command (0xED answers length 0
+ * without one, the others are refused), so a host cannot fill the storage partition with names of
+ * its own. The blob keys are only kept (keys.c). */
 enum named_key {
-	KEY_NONE = -1,
-	KEY_BOND_1,           /* esb/bond */
-	KEY_BOND_2,           /* esb/bond_2 */
-	KEY_TRANSPORT,        /* user/wireless_transport: 2 = API slot 0, 3 = API slot 1 */
-	KEY_CHIME,            /* user/haptic_boot_level */
-#if defined(CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE)
-	KEY_ID_UNIT,          /* opensc2/unit_serial */
-	KEY_ID_BOARD,         /* opensc2/board_serial */
-	KEY_ID_GIT,           /* opensc2/git_revision */
-	KEY_ID_REV,           /* opensc2/board_revision, u32 */
-#endif
+	KEY_NONE = OSC2_KEY_UNKNOWN,
+	KEY_BOND_1 = OSC2_KEY_BOND,           /* esb/bond */
+	KEY_BOND_2 = OSC2_KEY_BOND_2,         /* esb/bond_2 */
+	KEY_TRANSPORT = OSC2_KEY_TRANSPORT,   /* user/wireless_transport: 0..3 (transport_rules.h) */
+	KEY_CHIME = OSC2_KEY_CHIME,           /* user/haptic_boot_level */
+	KEY_ID_UNIT = OSC2_KEY_ID_UNIT,       /* opensc2/unit_serial */
+	KEY_ID_BOARD = OSC2_KEY_ID_BOARD,     /* opensc2/board_serial */
+	KEY_ID_GIT = OSC2_KEY_ID_GIT,         /* opensc2/git_revision */
+	KEY_ID_REV = OSC2_KEY_ID_REV,         /* opensc2/board_revision, u32 */
 };
 
-static const char *const key_names[] = {
-	"esb/bond", "esb/bond_2", "user/wireless_transport", "user/haptic_boot_level",
-#if defined(CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE)
-	"opensc2/unit_serial", "opensc2/board_serial", "opensc2/git_revision",
-	"opensc2/board_revision",
-#endif
-};
-
-static enum named_key find_key(const uint8_t *payload, uint8_t len, uint8_t *name_len)
+/* The library's key a payload names, or NULL (the application's, or no key). */
+static const struct osc2_key_info *find_key(const uint8_t *payload, uint8_t len, uint8_t *name_len)
 {
-	const uint8_t *nul = memchr(payload, 0, len);
+	const struct osc2_key_info *k = osc2_key_lookup(payload, len, name_len);
 
-	if (!nul) {
-		return KEY_NONE;
+	if (!k || k->kind == OSC2_KEYK_CAL) {
+		return NULL;
 	}
-	*name_len = (uint8_t)(nul - payload) + 1;
-	for (size_t i = 0; i < ARRAY_SIZE(key_names); i++) {
-		if (strcmp((const char *)payload, key_names[i]) == 0) {
-			return (enum named_key)i;
-		}
+#if !defined(CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE)
+	if (k->kind == OSC2_KEYK_IDENTITY) {
+		return NULL;   /* without the option an identity key is a name like any other */
 	}
-	return KEY_NONE;
+#endif
+	return k;
 }
 
 static uint8_t bond_slot_of(enum named_key key)
@@ -108,9 +111,15 @@ static uint8_t bond_slot_of(enum named_key key)
 }
 
 /* 0xEE: set a key in RAM. Refused for an empty value; a bond must be exactly 24 bytes. Either way
- * the radio hears that the bond changed, as on the real controller (it ignores that while off). */
-static int key_set(enum named_key key, const uint8_t *value, uint8_t len)
+ * the radio hears that the bond changed, as on the real controller (it ignores that while off). A
+ * blob must have exactly its key's size. */
+static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8_t len)
 {
+	enum named_key key = (enum named_key)info->id;
+
+	if (info->kind == OSC2_KEYK_BLOB) {
+		return osc2_keys_set(info->id, value, len);
+	}
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2: {
@@ -191,8 +200,13 @@ static int key_set(enum named_key key, const uint8_t *value, uint8_t len)
 }
 
 /* 0xEF: write the RAM value to flash; refused when there is no valid value (an empty bond). */
-static int key_save(enum named_key key)
+static int key_save(const struct osc2_key_info *info)
 {
+	enum named_key key = (enum named_key)info->id;
+
+	if (info->kind == OSC2_KEYK_BLOB) {
+		return osc2_keys_save(info->id);
+	}
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2: {
@@ -212,8 +226,13 @@ static int key_save(enum named_key key)
 }
 
 /* 0xF0: delete from flash and clear the RAM value (back to the default). */
-static int key_delete(enum named_key key)
+static int key_delete(const struct osc2_key_info *info)
 {
+	enum named_key key = (enum named_key)info->id;
+
+	if (info->kind == OSC2_KEYK_BLOB) {
+		return osc2_keys_delete(info->id);
+	}
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2: {
@@ -237,12 +256,28 @@ static int key_delete(enum named_key key)
 	}
 }
 
-/* 0xED: the key's RAM value; an empty or invalid one reads back with length 0. */
-static int key_read(enum named_key key, uint8_t *out, uint8_t *out_len)
+/* 0xED: the key's RAM value; an empty or invalid bond reads back with length 0, and so does a key
+ * the real controller has no read function for (the fully-charged LED level, the haptics
+ * settings). A blob reads its whole value, zeros when nothing was set; the charge window only
+ * while it is valid (key_rules.h). */
+static int key_read(const struct osc2_key_info *info, uint8_t *out, uint8_t *out_len)
 {
+	enum named_key key = (enum named_key)info->id;
 	k_spinlock_key_t lk;
 	struct opensc2_bond bond;
 
+	if (!(info->flags & OSC2_KEYF_READ)) {
+		*out_len = 0;
+		return 0;
+	}
+	if (info->kind == OSC2_KEYK_BLOB) {
+		int err = osc2_keys_get(info->id, out, out_len);
+
+		if (err == 0 && !osc2_key_value_readable(info->id, out, *out_len)) {
+			*out_len = 0;
+		}
+		return err;
+	}
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2:
@@ -492,12 +527,12 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 	case 0xEF:   /* save it */
 	case 0xF0: { /* delete it */
 		uint8_t name_len = 0;
-		enum named_key key = find_key(payload, len, &name_len);
+		const struct osc2_key_info *key = find_key(payload, len, &name_len);
 		uint8_t answer[OPENSC2_ANSWER_MAX];
 		uint8_t answer_len;
 		int rc;
 
-		if (key == KEY_NONE) {
+		if (!key) {
 			rc = app_command(opcode, payload, len, false, answer, &answer_len);
 			return rc == -ENOTSUP ? -ENOENT : rc;
 		}
@@ -530,6 +565,7 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		osc2.transport = OSC2_TRANSPORT_DEFAULT;
 		osc2.chime = 2;
 		(void)osc2_storage_factory_reset();
+		(void)osc2_keys_factory_reset();   /* the keylock, LED level, charge window, crash record */
 		osc2_radio_post(OSC2_EV_BOND);
 		osc2_schedule_power(OPENSC2_POWER_FACTORY_RESET, 100, "host: factory reset");
 		return 0;
@@ -674,7 +710,8 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 			memcpy(&out[25], id.unit_serial, OPENSC2_SERIAL_LEN);
 			*out_len = 41;
 		} else if (sel == 1) {
-			*out_len = 34;   /* no crash record */
+			/* the crash record as it is (zeros without one); a new one is then marked seen */
+			*out_len = osc2_crash_read(out);
 		} else if (sel == 2) {
 			/* uptime in ms, the last radio disconnect reason (u32) */
 			opensc2_put_le32(&out[1], (uint32_t)k_uptime_get());
@@ -682,18 +719,19 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 			*out_len = 9;
 		}
 		return 0;
-	case 0xA1:   /* device info: reset cause and chip ID */
+	case 0xA1:   /* device info: 18 bytes, the reset causes and chip ID for selector 1 */
 		memset(out, 0, OPENSC2_ANSWER_MAX);
+		*out_len = 18;   /* any other selector: 0 and 17 zero bytes */
 		if (sel == 1) {
 			uint32_t cause = 0;
 
 			out[0] = 1;
 #if defined(CONFIG_HWINFO)
+			/* never cleared, so the bits of several resets add up, as on the real one */
 			(void)hwinfo_get_reset_cause(&cause);
-			(void)hwinfo_get_device_id(&out[5], 8);
+			(void)hwinfo_get_device_id(&out[2], 8);
 #endif
-			opensc2_put_le32(&out[1], cause);
-			*out_len = 21;
+			out[1] = osc2_reset_flags(cause);
 		}
 		return 0;
 	case 0xBE: { /* ID_GET_BATTERY_DATA */
@@ -706,14 +744,14 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		*out_len = (uint8_t)opensc2_encode_battery_data(&b, out);
 		return 0;
 	}
-	case 0xE9: { /* ID_GET_LED_COLOR */
+	case 0xE9: { /* ID_GET_LED_COLOR: as the real controller reads it back (proto_rules.h) */
 		struct opensc2_led led;
 
 		opensc2_led_get(&led);
-		out[0] = led.red;
-		out[1] = led.green;
-		out[2] = led.blue;
-		out[3] = led.white;
+		out[0] = osc2_led_readback(led.red);
+		out[1] = osc2_led_readback(led.green);
+		out[2] = osc2_led_readback(led.blue);
+		out[3] = osc2_led_readback(led.white);
 		*out_len = 4;
 		return 0;
 	}
@@ -723,18 +761,18 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		*out_len = 2;
 		return 0;
 	case 0x89:   /* ID_GET_SETTINGS_VALUES */
-		if (sel >= OPENSC2_SETTINGS_COUNT) {
-			return -EINVAL;
-		}
 		out[0] = sel;
-		opensc2_put_le16(&out[1], (uint16_t)osc2.settings[sel]);
+		/* As the real controller answers: a number above 85 reads 0, and 48, 84 and 85 their
+		 * defaults (its IMU keeps those) */
+		opensc2_put_le16(&out[1], sel < OPENSC2_SETTINGS_COUNT ?
+				 (uint16_t)osc2_setting_answer(sel, osc2.settings[sel]) : 0);
 		*out_len = 3;
 		return 0;
 	case 0xED: { /* read a setting by name: length 0 for a key without a value */
 		uint8_t name_len;
-		enum named_key key = find_key(payload, len, &name_len);
+		const struct osc2_key_info *key = find_key(payload, len, &name_len);
 
-		if (key != KEY_NONE && key_read(key, out, out_len) == 0) {
+		if (key && key_read(key, out, out_len) == 0) {
 			return 0;
 		}
 		if (app_command(opcode, payload, len, true, out, out_len) != 0) {

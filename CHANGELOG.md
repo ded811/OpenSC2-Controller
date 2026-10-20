@@ -46,6 +46,37 @@ still change between minor versions.
   advertising window). Test ops `0x60` BLE_STATUS, `0x61` BLE_DROP and `0x62` BLE_WINDOW, and ring
   events for advertising, identities, bonds, disconnects and wireless off. Run only against the
   simulator so far.
+- The real controller's haptic stream status replies: every stop-all (`0x81` with an on time of 0,
+  `0x82` command 0, a zero speed in `0x80`) and `0x86`'s stream stop send `0x44 {channel, 0x02}`
+  for each channel they reach (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default). Steam's pair
+  of zero pulses now gets `44 04 02 ...` and `44 03 02 ...`, as from the real controller. The
+  test hooks record each in the ring (kind `0x30`, STOP_STATUS); hwtest `outputs.stop_status`.
+  Built and host-tested; not yet tested on hardware.
+- Every settings key of the real controller in `0xED`..`0xF0`: the library now keeps
+  `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason` and
+  `settings/haptics/...` (stored under `opensc2/k/`, read back where the real controller can, each
+  exactly its size, `mte/charge_level` only while it is a valid window, deleted by the factory
+  reset where it deletes them), and knows the `cal/` keys, which go to the application until the
+  library keeps calibration. Any other name is still the application's, so a host cannot fill the
+  storage partition. The test ring numbers the new keys 9 to 29; hwtest `cmd` and
+  `flash.kept_keys` cover them. Built and host-tested; not yet tested on hardware.
+- Crash records, as on the real controller (`CONFIG_OPENSC2_CRASH_RECORD`, on by default): the
+  library's fatal-error handler leaves a 33-byte record in the retained RAM region and resets; the
+  next boot stores it as `debug/resetreason`, and `0xF2` selector 1 answers it, then marks it
+  seen. A crash at every boot writes flash once. Built and host-tested; not yet tested on
+  hardware (nothing on the board can cause a crash on purpose yet).
+- The settings partition's recovery (`CONFIG_OPENSC2_STORAGE_RECOVERY`, on with NVS settings): a
+  partition with every sector occupied is erased at boot, as on the real controller. Built; not
+  yet tested on hardware.
+- The real controller's hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`, off by default; the test
+  build `app/watchdog.conf`): 5 s, fed every 2.5 s from the lowest priority, and a 4.5 s warning
+  that crashes on purpose so a hang leaves a crash record. Built; not yet tried on hardware, nor
+  with the UF2 bootloader.
+- hwtest `steam.session` counts what Steam sends the outputs through the puck while it runs
+  (output reports by ID, rumble, haptic commands by kind, PCM bytes, stops) and checks the board's
+  `0x44` reply to each stop; the counts go into `report.json`. The test hooks' caps build flags
+  have bit 16, `HAPTIC_STOP_STATUS`, and `outputs.stop_status` expects no replies without it.
+  The new and changed tests have run only against the firmware emulator so far.
 
 ### Changed
 
@@ -54,6 +85,20 @@ still change between minor versions.
   is stored as `opensc2/transport`, with `opensc2/slot` still written for a puck transport.
 - Host tests: 65 (2,610 checks), and 94 (5,164 checks) with the hardware test hooks; the runner's
   self-tests: 233.
+- Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller
+  does (it hands them to its IMU); the application still sees the values Steam wrote. A number
+  above 85 reads 0, also as on the real controller (it was a STALL).
+- `0xE9` reads the LED colour back the way the real controller does: a channel reads 100 when it
+  is exactly 100, otherwise 0. The colour itself is kept as sent.
+- `0xBE`: byte 13 is 1 while the charge state is "charging" (else 0) and byte 14 is the charge
+  state without its `0x80` flag, as on the real controller. The `gauge_flags` field of
+  `struct opensc2_battery` is no longer sent.
+- `0xA1` answers 18 bytes as the real controller does: selector 1 gives 1, one byte of reset-cause
+  flags in its encoding (it was Zephyr's flags as a u32), the chip ID and 8 zero bytes; any other
+  selector gives 0 and 17 zero bytes (it was an empty answer).
+- None of these changed answers has been tested on hardware yet (built and host-tested).
+- The test hooks' `HOST_SET` no longer takes `0xF2` with selector 1 (its GET can write flash now);
+  `retained.c` is always built.
 
 ## [0.2.0] - 2026-10-19
 

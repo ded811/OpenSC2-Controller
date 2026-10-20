@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: MIT
  *
  * Host tests only: stand-ins for the parts of the library around the command channel (core.c,
- * storage.c, radio.c, report.c), so commands.c runs on a PC. Each records what it was asked to do;
- * the tests in commands_cases.h look at the record.
+ * storage.c, keys.c, radio.c, report.c), so commands.c runs on a PC. Each records what it was asked
+ * to do; the tests in commands_cases.h look at the record.
  */
+#include <errno.h>
 #include <string.h>
 #include "internal.h"
 #include "stubs.h"
@@ -99,6 +100,89 @@ int osc2_storage_factory_reset(void)
 	return 0;
 }
 
+/* keys.c, on the pure blob store; saves and deletes are recorded, nothing is stored. */
+static bool blob(uint8_t id)
+{
+	const struct osc2_key_info *k = osc2_key_by_id(id);
+
+	return k && k->kind == OSC2_KEYK_BLOB;
+}
+
+void osc2_keys_boot(void)
+{
+	osc2_blob_defaults(&stub.blobs);
+}
+
+int osc2_keys_set(uint8_t id, const uint8_t *value, uint8_t len)
+{
+	return blob(id) ? osc2_blob_set(&stub.blobs, id, value, len) : -EINVAL;
+}
+
+int osc2_keys_save(uint8_t id)
+{
+	if (!blob(id)) {
+		return -EINVAL;
+	}
+	stub.key_saves |= 1u << id;
+	return 0;
+}
+
+int osc2_keys_delete(uint8_t id)
+{
+	if (!blob(id)) {
+		return -EINVAL;
+	}
+	(void)osc2_blob_reset(&stub.blobs, id);
+	stub.key_deletes |= 1u << id;
+	return 0;
+}
+
+int osc2_keys_get(uint8_t id, uint8_t *out, uint8_t *len)
+{
+	const uint8_t *v = blob(id) ? osc2_blob_get(&stub.blobs, id, len) : NULL;
+
+	if (!v) {
+		return -EINVAL;
+	}
+	memcpy(out, v, *len);
+	return 0;
+}
+
+int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save)
+{
+	int err = osc2_keys_set(id, value, len);
+
+	return err || !save ? err : osc2_keys_save(id);
+}
+
+/* crash.c's 0xF2 selector 1, on the stand-in store: the save is recorded. */
+uint8_t osc2_crash_read(uint8_t out[OSC2_CRASH_ANSWER_LEN])
+{
+	uint8_t record[OSC2_KEY_VALUE_MAX], len = 0;
+
+	if (osc2_keys_get(OSC2_KEY_RESET_REASON, record, &len) != 0 || len != OSC2_CRASH_LEN) {
+		memset(record, 0, OSC2_CRASH_LEN);
+	}
+	if (osc2_crash_answer(record, out)) {
+		(void)osc2_keys_set(OSC2_KEY_RESET_REASON, record, OSC2_CRASH_LEN);
+		(void)osc2_keys_save(OSC2_KEY_RESET_REASON);
+	}
+	return OSC2_CRASH_ANSWER_LEN;
+}
+
+int osc2_keys_factory_reset(void)
+{
+	stub.key_factory_resets++;
+	for (uint8_t id = 1; id < OSC2_KEY_COUNT; id++) {
+		const struct osc2_key_info *k = osc2_key_by_id(id);
+
+		if (blob(id) && (k->flags & OSC2_KEYF_FACTORY)) {
+			(void)osc2_keys_delete(id);
+		}
+	}
+	return 0;
+}
+
 void osc2_schedule_power(enum opensc2_power_request request, uint32_t delay_ms, const char *why)
 {
 	stub.power_requests++;
@@ -189,6 +273,7 @@ void stub_reset(void)
 	memset(&osc2, 0, sizeof(osc2));
 	osc2_settings_restore_defaults(false);
 	stub.defaults_restored = 0;
+	osc2_keys_boot();
 	memcpy(osc2.identity.unit_serial, "OSC0123456789", 13);
 	memcpy(osc2.identity.board_serial, "OSB0123456789", 13);
 	memcpy(osc2.identity.git_revision, "opensc2-0.2", 11);

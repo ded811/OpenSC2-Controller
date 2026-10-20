@@ -139,6 +139,10 @@ config OPENSC2_IDENTITY_VENDOR_WRITE
 	  can change the identity over the radio link. Off by default: anyone who can send feature
 	  reports to the puck could then change it.
 
+# The haptic stream status after a stop, crash records, the hardware watchdog, the storage
+# partition's recovery.
+rsource "Kconfig.proto"
+
 config OPENSC2_TEST_HOOKS
 	bool "Hardware test hooks: input injection, output capture, lizard guard"
 	help

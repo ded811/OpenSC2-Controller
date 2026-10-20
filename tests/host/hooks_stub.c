@@ -140,7 +140,8 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	library_call();
 	caps->mode = osc2_wired() ? 1 : 0;
 	caps->build_flags = OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO | OSC2_TEST_FLAG_LIZARD_MODE |
-			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB;
+			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB |
+			    OSC2_TEST_FLAG_HAPTIC_STOP_STATUS;   /* the emulator sends them (fwemu.c) */
 	caps->battery_interval_ms = 3500;
 	caps->rumble_timeout_ms = 500;
 	caps->report_delay_us = 2000;

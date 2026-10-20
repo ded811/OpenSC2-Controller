@@ -10,6 +10,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include "key_rules.h"  /* the key IDs of VENDOR entries */
 #include "retained.h"   /* osc2_crc32() */
 #include "test_core.h"
 
@@ -221,8 +222,11 @@ bool osc2_test_host_set_allowed(uint8_t opcode, const uint8_t *payload, uint8_t 
 {
 	switch (opcode) {
 	case 0x81: case 0x83: case 0x85: case 0x87: case 0x89: case 0x8E: case 0x9F: case 0xA1:
-	case 0xAE: case 0xBE: case 0xC5: case 0xDB: case 0xE9: case 0xED: case 0xF2:
+	case 0xAE: case 0xBE: case 0xC5: case 0xDB: case 0xE9: case 0xED:
 		return true;
+	case 0xF2:
+		/* Not selector 1: its GET marks a new crash record seen, which writes flash. */
+		return n == 0 || payload[0] != 1;
 	case 0x95: {
 		/* Only the turn-off key, read as the command channel reads it: the first four payload
 		 * bytes of the record, zero padded. */
@@ -238,29 +242,14 @@ bool osc2_test_host_set_allowed(uint8_t opcode, const uint8_t *payload, uint8_t 
 	}
 }
 
-static const char *const key_names[] = {
-	"esb/bond", "esb/bond_2", "user/wireless_transport", "user/haptic_boot_level",
-	"opensc2/unit_serial", "opensc2/board_serial", "opensc2/git_revision",
-	"opensc2/board_revision",
-};
-
 uint8_t osc2_test_key_id(const uint8_t *payload, size_t len, uint8_t *value_len)
 {
+	uint8_t name_len = 0;
+	const struct osc2_key_info *k = osc2_key_lookup(payload, len, &name_len);
 	const uint8_t *nul = len ? memchr(payload, 0, len) : NULL;
-	size_t name;
 
-	*value_len = 0;
-	if (!nul) {
-		return 0;
-	}
-	name = (size_t)(nul - payload);
-	*value_len = (uint8_t)(len - name - 1);
-	for (size_t i = 0; i < sizeof(key_names) / sizeof(key_names[0]); i++) {
-		if (strlen(key_names[i]) == name && memcmp(payload, key_names[i], name) == 0) {
-			return (uint8_t)(i + 1);
-		}
-	}
-	return 0;
+	*value_len = nul ? (uint8_t)(len - (size_t)(nul - payload) - 1) : 0;
+	return k ? k->id : 0;   /* the numbers of key_rules.h */
 }
 
 bool osc2_test_host_get_masked(const uint8_t *stored, uint8_t stored_len, uint8_t n)
@@ -1593,6 +1582,7 @@ static const char *kind_name(uint8_t kind)
 	case OSC2_TEST_KIND_VERSION:     return "VERSION";
 	case OSC2_TEST_KIND_IDENTITY:    return "IDENTITY";
 	case OSC2_TEST_KIND_CHANNELS:    return "CHANNELS";
+	case OSC2_TEST_KIND_STOP_STATUS: return "STOP_STATUS";
 	case OSC2_TEST_KIND_BLE:         return "BLE";
 	default:                         return NULL;
 	}
@@ -1760,6 +1750,13 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 		if (n >= 4) {
 			add(out, size, at, " channels=%u,%u,%u,%u", (unsigned int)d[0],
 			    (unsigned int)d[1], (unsigned int)d[2], (unsigned int)d[3]);
+			return;
+		}
+		break;
+	case OSC2_TEST_KIND_STOP_STATUS:
+		if (n >= 5) {
+			add(out, size, at, " channel=%u flags=0x%lx", (unsigned int)d[0],
+			    (unsigned long)opensc2_get_le32(&d[1]));
 			return;
 		}
 		break;

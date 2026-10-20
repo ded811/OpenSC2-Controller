@@ -137,14 +137,14 @@ def decode_battery(report):
 
 def decode_be(answer):
     """The 15-byte 0xBE answer: temperature, battery/system/input mV, current, input current,
-    level, gauge flags, charge state."""
+    level, 1 while charging, the charge state without the 0x80 flag."""
     if len(answer) < 15:
         raise ValueError("short 0xBE answer")
     return {
         "temperature": _u16(answer, 0), "battery_mv": _u16(answer, 2),
         "system_mv": _u16(answer, 4), "input_mv": _u16(answer, 6),
         "current_ma": _s16(answer, 8), "input_current_ma": _u16(answer, 10),
-        "level": answer[12], "gauge_flags": answer[13], "charge_state": answer[14],
+        "level": answer[12], "charging": answer[13], "charge_state": answer[14],
     }
 
 
@@ -178,13 +178,18 @@ def encode_battery(b):
                        b["input_current_ma"] & 0xFFFF, b["temperature"] & 0xFFFF)
 
 
+CHARGE_FLAG_GAVE_UP = 0x80     # 0x43's flag while the real controller's supply check gave up
+
+
 def encode_be(b):
-    """The 15-byte answer of vendor command 0xBE for a battery: the level clamped to 100, the gauge
-    flags at offset 13."""
+    """The 15-byte answer of vendor command 0xBE for a battery (codec.c): the level clamped to
+    100, at offset 13 1 while the charge state is 2 (charging), at 14 the charge state without the
+    0x80 flag. The battery's gauge-flags field is not sent."""
+    state = b["charge_state"] & 0x7F
     return struct.pack("<HHHHhHBBB", b["temperature"] & 0xFFFF, b["battery_mv"] & 0xFFFF,
                        b["system_mv"] & 0xFFFF, b["input_mv"] & 0xFFFF, b["current_ma"],
                        b["input_current_ma"] & 0xFFFF, min(b["level"] & 0xFF, 100),
-                       b["gauge_flags"] & 0xFF, b["charge_state"] & 0xFF)
+                       1 if state == 2 else 0, state)
 
 
 # ---- 0x44 haptic stream status --------------------------------------------------------------

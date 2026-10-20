@@ -163,6 +163,32 @@ class CleanRuns(unittest.TestCase):
         self.assertEqual(r.code, 0, r.bad())
         self.assertIn(WARN, r.statuses("hooks.present"))
 
+    def test_build_without_stop_replies(self):
+        # CONFIG_OPENSC2_HAPTIC_STOP_STATUS off (caps bit 16 clear): no 0x44 replies are expected,
+        # in outputs.stop_status and in steam.session's count of Steam's stops
+        def off(b):
+            b.cleared_build_flags = 1 << C.CAP_HAPTIC_STOP_STATUS
+        r = Run(start="R", setup=off, with_steam=True, steam_control=True)
+        self.assertEqual(r.code, 0, r.bad())
+        for tid in ("outputs.stop_status", "steam.session"):
+            self.assertIn(PASS, r.statuses(tid), tid)
+        traffic = r.by_id["steam.session"][0].observed["traffic"]
+        self.assertEqual(traffic["stops"], 2)              # Steam's pair of zero pulses
+        self.assertEqual(traffic["stop_replies"], {})
+
+    def test_steam_session_counts_steams_outputs(self):
+        # steam.session counts what Steam sent the outputs through the puck (the simulated Steam
+        # sends its pair of zero pulses once) and checks the board's 0x44 reply to each
+        r = Run(start="R", with_steam=True, steam_control=True)
+        self.assertEqual(r.code, 0, r.bad())
+        session = r.by_id["steam.session"][0]
+        self.assertEqual(session.status, PASS)
+        traffic = session.observed["traffic"]
+        self.assertEqual(traffic["outputs"], {"0x81": 2})
+        self.assertEqual(traffic["haptics"], {"pulse": 2})
+        self.assertEqual(traffic["stop_replies"], {"right_pad": 1, "left_pad": 1})
+        self.assertEqual(session.observed["traffic_entries_lost"], 0)
+
     def test_no_puck(self):
         # no puck: the wireless phase runs only what needs no link; nothing fails
         r = Run(setup=lambda b: setattr(b, "puck_present", False))

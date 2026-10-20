@@ -4,8 +4,10 @@
 # battery: input report 0x43 and vendor command 0xBE (docs/testing.md, group "battery"), on every
 # path (over Bluetooth a 0x43 also sets the battery service's level). The blank canvas never sets
 # a battery, so the library's default 0x43 is checked byte for byte, then the BATTERY op injects
-# values (with send-now) and both the next 0x43 and the 0xBE answer must carry them; the 3.5 s
-# cadence is measured over 30 s.
+# values (with send-now) and both the next 0x43 and the 0xBE answer must carry them (0xBE's byte
+# 13 is 1 while charging and its byte 14 the charge state without the 0x80 flag, as on the real
+# controller; the gauge flags of the BATTERY op are not sent); the 3.5 s cadence is measured over
+# 30 s.
 from . import base
 from .. import config as C
 from ..proto import reports as R
@@ -21,7 +23,7 @@ BASE = {"charge_state": 2, "level": 55, "battery_mv": 3900, "system_mv": 3300, "
 def steps():
     """The battery.values steps: every field over its range, one at a time."""
     out = []
-    for cs in (0, 1, 2, 3, 4, 0x81):
+    for cs in (0, 1, 2, 3, 4, 0x81, 0x82):
         out.append(("charge state 0x%02x" % cs, dict(BASE, charge_state=cs)))
     for lv in (0, 50, 100, 101, 255):
         out.append(("level %d" % lv, dict(BASE, level=lv)))
@@ -119,7 +121,11 @@ def run(ctx):
                     c.eq("%s: 0xBE n" % name, be.n, 15)
                     c.eq("%s: 0xBE" % name, list(be.data[:15]), list(R.encode_be(b)))
                     if be.n >= 15:
-                        c.eq("%s: gauge flags at offset 13" % name, be.data[13], b["gauge_flags"])
+                        state = b["charge_state"] & 0x7F
+                        c.eq("%s: offset 13, 1 while charging" % name, be.data[13],
+                             1 if state == 2 else 0)
+                        c.eq("%s: offset 14, the state without the 0x80 flag" % name,
+                             be.data[14], state)
                 c.true("steps run", bool(results))
 
     if ctx.want("battery.off"):

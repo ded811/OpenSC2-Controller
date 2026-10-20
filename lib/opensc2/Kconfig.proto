@@ -1,0 +1,69 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# Protocol completeness and reliability: the haptic stream status after a stop, crash records,
+# the hardware watchdog, the settings partition's recovery. Sourced from lib/opensc2/Kconfig
+# inside "if OPENSC2".
+
+config OPENSC2_HAPTIC_STOP_STATUS
+	bool "Haptic stream status 0x44 after a stop, as the real controller sends it"
+	default y
+	help
+	  The real controller answers every stop-all (output report 0x81 with an on time of 0, 0x82
+	  command 0, a speed of 0 in 0x80 for that grip) and 0x86's stream stop with an input report
+	  0x44 {channel, 0x02} for each channel it reaches, whether or not anything was streaming:
+	  Steam's pair of all-zero 0x81 reports gets 44 04 02 00 00 00 and 44 03 02 00 00 00. The
+	  library sends the same replies, in the same order, on the current link. They take room in
+	  the queue of reports that ride with the state reports through the puck. Turn this off
+	  when the application sends its own 0x44 reports for its haptics engine.
+
+config OPENSC2_CRASH_RECORD
+	bool "Crash records: a fatal error leaves a record and resets, as on the real controller"
+	default y
+	depends on !RESET_ON_FATAL_ERROR
+	help
+	  The library's fatal-error handler (Zephyr's k_sys_fatal_error_handler()) writes a 33-byte
+	  record of the error (the firmware's build time and revision, Zephyr's reason, the program
+	  counter and link register) into RAM that a reset keeps, and resets the chip at once,
+	  without flushing logs or writing flash. The next boot stores it as the settings key
+	  debug/resetreason; vendor command 0xF2 with selector 1 answers it and then marks it seen,
+	  as on the real controller. A crash that repeats at every boot writes flash once. The RAM
+	  copy takes 44 bytes of the devicetree region chosen as opensc2,retained-ram, which the UF2
+	  bootloader leaves alone. Without this option a fatal error halts the board, Zephyr's
+	  default. Turn it off when the application has a fatal-error handler of its own.
+
+config OPENSC2_WATCHDOG
+	bool "The hardware watchdog, with a crash record first (not tried with the UF2 bootloader)"
+	depends on OPENSC2_CRASH_RECORD
+	depends on $(dt_alias_enabled,watchdog0)
+	select WATCHDOG
+	help
+	  As on the real controller: the hardware watchdog (the devicetree alias watchdog0) resets
+	  the chip 5 s after the last feed and pauses while a debugger halts the CPU. A work queue at
+	  the lowest application priority (opensc2_wdt) feeds it every 2.5 s, and each feed re-arms a
+	  4.5 s warning on the system work queue. When the feeds stop because a thread keeps the CPU
+	  busy at or above the feeder's priority, the warning comes first: it logs "Watchdog about to
+	  expire" and raises a kernel oops, so the crash record (OPENSC2_CRASH_RECORD) names the
+	  hang. A hang that also stops the system work queue ends in a plain watchdog reset. With a
+	  debugger attached the warning only logs. Started by opensc2_init().
+
+	  Off by default until it has been tried on hardware: the nRF52's watchdog cannot be stopped
+	  once it runs, and may keep running through a soft reset (MCUboot feeds a watchdog an
+	  application left running), so it may also run in the UF2 bootloader after the shell's "uf2"
+	  or Steam's bootloader request. Whether the Adafruit UF2 bootloader feeds it has not been
+	  checked; if it does not, the bootloader resets 5 s later, which can cut a .uf2 copy short.
+	  Try it on a board you can recover (app/watchdog.conf); a power cycle stops the watchdog.
+
+config OPENSC2_STORAGE_RECOVERY
+	bool "Erase the settings partition when every sector is occupied, as the real controller"
+	default y
+	depends on OPENSC2_STORAGE && NVS && SETTINGS_NVS
+	select NVS_INIT_BAD_MEMORY_REGION
+	help
+	  When NVS finds every sector of the settings partition occupied, the partition holds no
+	  usable NVS (corrupt, or left over by another firmware) and nothing could be stored. The
+	  real controller then erases the whole partition and starts the settings again; this does
+	  the same through Zephyr's NVS_INIT_BAD_MEMORY_REGION, which acts on exactly that case and
+	  no other (other errors leave the data alone, and the board runs without its bonds until
+	  the next boot). The erase loses the bonds and the stored identity. Zephyr's option applies
+	  to every NVS file system of the application, not only the settings.

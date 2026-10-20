@@ -84,7 +84,9 @@ size_t opensc2_encode_state(const struct opensc2_state *s, uint8_t seq,
 void opensc2_decode_state(const uint8_t in[OPENSC2_STATE_REPORT_LEN], struct opensc2_state *s,
 			  uint8_t *seq);
 
-/* Battery report 0x43 (ID included), and the 15-byte answer of vendor command 0xBE. */
+/* Battery report 0x43 (ID included), and the 15-byte answer of vendor command 0xBE: temperature,
+ * battery, system and input mV, current and input current, the level (at most 100), 1 while the
+ * charge state is "charging" (else 0), and the charge state without a 0x80 flag. */
 size_t opensc2_encode_battery(const struct opensc2_battery *b,
 			      uint8_t out[OPENSC2_BATTERY_REPORT_LEN]);
 size_t opensc2_encode_battery_data(const struct opensc2_battery *b,

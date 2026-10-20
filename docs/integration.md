@@ -298,7 +298,7 @@ device stack, which the SuperMini's board files enable):
 | `CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT=n` | the library runs the USB device itself, so the board's serial port must not start at boot (checked at build time); in wireless mode the library shows the console instead |
 | `CONFIG_USBD_HID_IN_BUF_COUNT=8` | eight input reports may wait for the PC, as on the real controller |
 | `CONFIG_USBD_THREAD_STACK_SIZE=2048` | vendor commands that write flash (Steam's bond) run in the USB stack's thread (checked at build time) |
-| `CONFIG_SYSTEM_WORKQUEUE_STACK_SIZE=2048` | the library's other wired-mode work (USB state changes, the session log, reboots) runs in the system work queue |
+| `CONFIG_SYSTEM_WORKQUEUE_STACK_SIZE=2048` | the library's other wired-mode work (USB state changes, the session log, reboots) runs in the system work queue, and so does the flash write after `0xF2` reads a new crash record, on every link (keep the line in a wireless-only project too) |
 | `CONFIG_LOG_PROCESS_THREAD_STACK_SIZE=1536` | with `CONFIG_LOG`: while wired the log thread also writes the USB session log (checked at build time; or `CONFIG_OPENSC2_USB_LOG_ZEPHYR=n`) |
 
 The board (here the SuperMini):
@@ -322,7 +322,7 @@ The library reads two chosen nodes. Everything else in the overlay belongs to yo
 | Node | What it is | From |
 | --- | --- | --- |
 | `opensc2,usb-hid`: a `zephyr,hid-device` node with 64-byte input and output reports, polled every 1000 µs | the one HID interface of the wired Steam Controller 2; wired mode turns on when it is there (the report sizes are checked at build time) | your overlay |
-| `opensc2,retained-ram`: a `zephyr,memory-region` of 16 KB, with `sram0` shrunk by its size | RAM that a soft reset keeps, for the warm-restart mark (Steam's "reboot into wireless mode") and the USB session log. Recommended: without it the build warns | your overlay |
+| `opensc2,retained-ram`: a `zephyr,memory-region` of 16 KB, with `sram0` shrunk by its size | RAM that a soft reset keeps, for the warm-restart mark (Steam's "reboot into wireless mode"), the USB session log and a crash record waiting for the next boot. Recommended: without it the build warns | your overlay |
 | `storage_partition` | where the settings (the bonds) live | the board |
 | `zephyr_udc0` and a `zephyr,cdc-acm-uart` node | the USB device controller, and the serial console in wireless mode | the board (the SuperMini's files have both) |
 
@@ -438,6 +438,7 @@ Every function, field and callback: [api.md](api.md). The wired device in detail
 | on Windows, "file not found" or path errors deep inside the build folder | Windows' 260-character path limit | a short build folder: `-OutDir C:\b\mine` |
 | the warning `OpenSC2: wired mode (CONFIG_OPENSC2_USB) is on, but the bonds are not stored` | the storage lines are missing | add the five lines ([Kconfig](#kconfig)) |
 | the warning `OpenSC2: no devicetree region is chosen as opensc2,retained-ram` | no retained RAM region | add the region and shrink `sram0` ([Devicetree](#devicetree)) |
+| `multiple definition of 'k_sys_fatal_error_handler'` | your application (or another module) has a fatal-error handler of its own, and so does the library with its crash records | `CONFIG_OPENSC2_CRASH_RECORD=n` ([api.md](api.md#crash-records)) |
 | a static assertion: `Set CONFIG_CDC_ACM_SERIAL_INITIALIZE_AT_BOOT=n`, `Set CONFIG_USBD_THREAD_STACK_SIZE=2048`, `Set CONFIG_LOG_PROCESS_THREAD_STACK_SIZE=1536` or `OpenSC2 needs CONFIG_ESB_MAX_PAYLOAD_LENGTH of 128 or more` | a line from the [Kconfig](#kconfig) tables is missing | add it |
 | `OpenSC2: CONFIG_OPENSC2_GIT_REVISION "..." must be ...` (or the same for a serial or the USB product string) | a value breaks the identity's rules; the board would not start as a controller | correct the value as the message says |
 | `The build time ... is at or before 0x6A18D057` | the PC's clock, or `CONFIG_OPENSC2_BUILD_TIME`, is that old: Steam would force an update the board cannot take | set the clock right, or a later `CONFIG_OPENSC2_BUILD_TIME` |

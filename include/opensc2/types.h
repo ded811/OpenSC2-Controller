@@ -121,7 +121,7 @@ struct opensc2_battery {
 	int16_t current_ma;          /* battery current, positive while charging */
 	uint16_t input_current_ma;
 	uint16_t temperature;        /* raw value, as a charger reports it */
-	uint8_t gauge_flags;         /* only in vendor command 0xBE */
+	uint8_t gauge_flags;         /* no longer sent: 0xBE's byte 13 follows charge_state */
 };
 
 /* ---- Outputs -------------------------------------------------------------------------------- */

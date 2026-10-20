@@ -74,6 +74,7 @@ Steam on a Windows PC.
 | Other boards. | Not tested |
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
 | Bluetooth LE (an opt-in build, `app/ble.conf`): the board as a HID-over-GATT Steam Controller 2 (`28DE:1303`) that a PC or phone pairs without the puck, with the real controller's name, its three forms of advertising and the 60 s window, two identities per slot and its bond rules, "wireless off" when the host leaves, the report map, the vendor commands on feature report 1, output reports, Valve's vendor GATT service (for SDL on Android and Apple platforms), the battery service, lizard mode, a state report per connection event, and switching between the puck and Bluetooth. The hardware test suite has a Bluetooth path (`--bluetooth`), run so far only against its simulator. | Built; not yet tested on hardware |
+| Since 0.2.0, not in a release yet: the real controller's answers to `0x89`, `0xA1`, `0xBE` and `0xE9`, its `0x44` replies to stops, every settings key of `0xED`..`0xF0`, crash records behind `0xF2`, the settings partition's recovery, and its hardware watchdog (an opt-in test build, `app/watchdog.conf`). | Built and host-tested; not yet tested on hardware |
 | The dock (pogo pads). | Not implemented |
 | Lizard mode's smoothing, glide and haptic ticks. PCM haptics playback in the samples. | Not implemented |
 

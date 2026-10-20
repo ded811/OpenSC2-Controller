@@ -78,6 +78,10 @@ class SimBoard:
         self.trig = [False, False]
         self.lizard = M.LizardModel()          # on at boot (setting 9 = 1)
         self.slot = world.slot
+        if not hasattr(world, "kept_saved"):
+            world.kept_saved = {}              # keys.c's stored values (C.KEPT_KEYS)
+            world.kept_writes = 0
+        self.kept = dict(world.kept_saved)     # their RAM values, loaded at boot
         # wireless: connected through the puck at once, or listening when there is no puck; on
         # Bluetooth advertising for the bonded host, which connects a moment later
         self.transport = getattr(world, "transport", "puck")
@@ -328,10 +332,14 @@ class SimBoard:
 
     # ---- the command channel (commands.c) ----
     def _named(self, payload):
+        """(the key: NAMED's index, a kept key's name, -1 for another name, None without a NUL;
+        the value after the NUL)."""
         nul = payload.find(b"\0")
         if nul < 0:
             return None, None
         name = payload[:nul].decode("ascii", "replace")
+        if name in C.KEPT_KEYS:
+            return name, payload[nul + 1:]
         return (NAMED.index(name) if name in NAMED else -1), payload[nul + 1:]
 
     def run_set(self, link, opcode, payload, avail):
@@ -374,6 +382,8 @@ class SimBoard:
             return 0
         if opcode in (0xEE, 0xEF, 0xF0):
             key, value = self._named(payload)
+            if isinstance(key, str):
+                return self._kept_key(opcode, key, value)
             if key is None or key < 0:
                 return ENOENT   # the blank canvas's vendor_command knows no other key
             if opcode == 0xEE:
@@ -433,6 +443,25 @@ class SimBoard:
         self.world.chime = value[0]
         return 0
 
+    def _kept_key(self, opcode, name, value):
+        """keys.c: a value the library only keeps (C.KEPT_KEYS), exactly its size."""
+        size, _readable = C.KEPT_KEYS[name]
+        if opcode == 0xEE:
+            if len(value) != size:
+                return EINVAL
+            self.kept[name] = bytes(value)
+            return 0
+        if len(value) != 0:
+            return EINVAL           # the NUL must be the last byte
+        if opcode == 0xEF:
+            self.world.kept_saved[name] = self.kept.get(name, kept_default(name))
+            self.world.kept_writes += 1
+        else:
+            self.kept.pop(name, None)
+            self.world.kept_saved.pop(name, None)
+            self.world.kept_writes += 1
+        return 0
+
     def run_get(self, link, opcode, payload):
         """(rc, answer bytes)."""
         sel = payload[0] if payload else 0
@@ -462,31 +491,40 @@ class SimBoard:
                 out[9:9 + len(g)] = g
                 out[25:25 + 13] = ident.unit.encode("ascii")
                 return 0, bytes(out)
-            if sel == 1:
-                return 0, bytes([1]) + bytes(33)
+            if sel == 1:   # the crash record as it is; a new one is then marked seen and saved
+                record = self.kept.get("debug/resetreason", bytes(33))
+                if record[0] == 1:
+                    self.kept["debug/resetreason"] = bytes([0]) + record[1:]
+                    self.world.kept_saved["debug/resetreason"] = self.kept["debug/resetreason"]
+                    self.world.kept_writes += 1
+                return 0, bytes([1]) + record
             if sel == 2:
                 return 0, struct.pack("<BII", 2, self.uptime() & 0xFFFFFFFF, self.last_reason)
             return 0, b""
         if opcode == 0xA1:
-            if sel == 1:
-                return 0, struct.pack("<BI", 1, self.world.reset_cause) + self.world.chip_id + \
-                    bytes(8)
-            return 0, b""
+            if sel == 1:   # the world keeps Zephyr's causes; 0xA1 has the real one's encoding
+                return 0, bytes([1, M.reset_flags(self.world.reset_cause)]) + \
+                    self.world.chip_id + bytes(8)
+            return 0, bytes(18)
         if opcode == 0xBE:
             b = dict(self.battery)
             self.hooks.battery(b)
             return 0, R.encode_be(b)
-        if opcode == 0xE9:
-            return 0, bytes([self.led["red"], self.led["green"], self.led["blue"],
-                             self.led["white"]])
+        if opcode == 0xE9:      # read back as the real controller does (proto_rules.c)
+            return 0, bytes(M.led_readback(self.led[k]) for k in ("red", "green", "blue", "white"))
         if opcode == 0xDB:
             return 0, bytes([1, self.world.chime])
-        if opcode == 0x89:
+        if opcode == 0x89:      # a number above 85 reads 0, as on the real controller
             if sel >= 86:
-                return EINVAL, b""
-            return 0, bytes([sel]) + struct.pack("<h", self.settings[sel])
+                return 0, bytes([sel, 0, 0])
+            return 0, bytes([sel]) + struct.pack("<h", M.setting_answer(sel, self.settings[sel]))
         if opcode == 0xED:
             key, _value = self._named(payload)
+            if isinstance(key, str):    # a kept key: its value, or nothing without a read function
+                value = self.kept.get(key, kept_default(key))
+                if key == "mte/charge_level" and not M.charge_window_valid(value):
+                    return 0, b""       # the charge window only while it is valid (key_rules.c)
+                return 0, value if C.KEPT_KEYS[key][1] else b""
             if key is not None and key in (0, 1):
                 return 0, self.world.bonds[key]
             if key == 2:
@@ -615,6 +653,14 @@ class SimBoard:
             else:
                 self.hooks.note(C.RING_HAPTIC, lk, T._encode_entry_data(
                     dict(fields, kind=C.RING_HAPTIC)))
+            if self.world.cleared_build_flags & (1 << C.CAP_HAPTIC_STOP_STATUS):
+                continue     # a build without CONFIG_OPENSC2_HAPTIC_STOP_STATUS (a test)
+            for channel in M.stop_status(kind, fields):
+                # the 0x44 reply to a stop (CONFIG_OPENSC2_HAPTIC_STOP_STATUS, on in the app)
+                self.hooks.note(C.RING_STOP_STATUS, lk,
+                                bytes([channel]) + struct.pack("<I", C.STATUS_STOPPED))
+                self.input_send(bytes([C.RPT_HAPTIC_STATUS, channel]) +
+                                struct.pack("<I", C.STATUS_STOPPED))
         return n
 
     def rumble_off(self):
@@ -975,10 +1021,12 @@ class Hooks:
         self.note_lizard(C.LIZARD_RESYNC, link)
         return C.ST_OK, T.encode_caps({
             "version": 1, "mode": 1 if self.b.mode == "W" else 0,
-            "build_flags": (1 << C.CAP_TRIGGER_CLICK_AUTO) | (1 << C.CAP_LIZARD_MODE) |
-            (1 << C.CAP_STEAM_WATCHDOG) | (1 << C.CAP_USB) | (1 << C.CAP_USB_CONSOLE) |
-            (1 << C.CAP_STORAGE) | (1 << C.CAP_USB_LOG) | (1 << C.CAP_USB_PLUG_IN_REBOOT) |
-            (1 << C.CAP_SHELL) | self.b.world.extra_build_flags,
+            "build_flags": ((1 << C.CAP_TRIGGER_CLICK_AUTO) | (1 << C.CAP_LIZARD_MODE) |
+                            (1 << C.CAP_STEAM_WATCHDOG) | (1 << C.CAP_USB) |
+                            (1 << C.CAP_USB_CONSOLE) | (1 << C.CAP_STORAGE) |
+                            (1 << C.CAP_USB_LOG) | (1 << C.CAP_USB_PLUG_IN_REBOOT) |
+                            (1 << C.CAP_SHELL) | (1 << C.CAP_HAPTIC_STOP_STATUS) |
+                            self.b.world.extra_build_flags) & ~self.b.world.cleared_build_flags,
             "battery_interval_ms": C.BATTERY_INTERVAL_MS, "rumble_timeout_ms": C.RUMBLE_TIMEOUT_MS,
             "ring_size": self.ring_size, "sequence_depth": 8, "counter_count": C.COUNTER_COUNT,
             "radio_report_delay_us": 2000, "lease_s": lease, "policy": self.b.world.policy,
@@ -1178,11 +1226,20 @@ def _length_ok(op, args):
 
 
 def host_set_allowed(opcode, payload):
+    if opcode == 0xF2:            # not selector 1: its GET writes flash (a crash record seen)
+        return bytes(payload[:1]) != b"\x01"
     if opcode in HOST_SET_ALLOW:
         return True
     if opcode == 0x95:
         return int.from_bytes((bytes(payload[:4]) + bytes(4))[:4], "little") == KEY_TURN_OFF
     return False
+
+
+def kept_default(name):
+    """A kept key's value until it is set, and after 0xF0 (key_rules.c): zeros, 3 for the
+    fully-charged LED level."""
+    size, _readable = C.KEPT_KEYS[name]
+    return bytes([3]) if name == "user/fully_charged_led_intensity" else bytes(size)
 
 
 def _key_id(payload):

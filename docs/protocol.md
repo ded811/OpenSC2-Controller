@@ -283,9 +283,11 @@ open, the library does what should work with Steam and the puck, and says so her
    given up on a supply that does not charge the battery (it tries again 60 s later); the library
    has no charger logic of its own and never adds it.
 4. **Answer layouts not given byte for byte**: `0xF2` selector 2 (uptime u32, then the reason as a
-   u32), `0xA1` (reset cause u32, device ID, zeros; the reset-cause flags are Zephyr's, not the
-   original's), and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for
-   the puck).
+   u32) and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for the
+   puck). `0xA1` follows the documentation byte for byte (18 bytes; the real controller's flag
+   encoding of Zephyr's reset causes); whether the UF2 bootloader, which runs before the
+   application at every reset, leaves the chip's reset-reason register alone has not been
+   checked.
 5. **Which commands Steam sends through the puck** is not fully documented. The library answers the
    identity, settings, LED, user-store and settings-by-name commands and passes the rest to the
    application. On the cable the commands Steam sends are known
@@ -297,9 +299,10 @@ open, the library does what should work with Steam and the puck, and says so her
    research documentation gives the ranges of settings 36 and 68; the ranges of 9, 11, 12, 14, 45,
    70 and 71 come from the same authors' study of the controller's firmware (not in that
    documentation yet). These are the ranges the library knows ([api.md](api.md#controller-settings)
-   lists them). Other settings are stored as sent. Settings 48, 84 and 85 are stored too (the real
-   controller hands them to its IMU and `0x89` answers their defaults); the library answers what
-   was written.
+   lists them). Other settings are stored as sent. Settings 48, 84 and 85 are stored too, for the
+   application (the real controller hands them to its IMU instead), and `0x89` answers their
+   defaults, as on the real controller. Whether Steam reads them back is not known. `0x89` of a
+   number above 85 reads 0, as on the real controller (0.2.0 stalled it).
 7. **The quaternion's W** (offset 45): one page of the research documentation calls it always 0,
    another the quaternion's W (since October). The library sends whatever the application
    provides; the fusion helper fills W.
@@ -360,10 +363,16 @@ open, the library does what should work with Steam and the puck, and says so her
     reboots into wireless mode when STEAM is pressed before a host configures it. The library
     attaches at once and counts a STEAM press only after it has seen STEAM released, so a button
     held through power-up does not count.
-19. **Haptic stream status after Steam's zero pulses.** The real controller answers each pair with
-    two `0x44` reports (right pad, then left pad, flag `0x02`); Steam does not appear to need them
-    ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it)).
-    The library does not send them; an application can (`opensc2_send_haptic_status()`).
+19. **Haptic stream status after a stop** (closed). The real controller answers each pair of
+    Steam's zero pulses with two `0x44` reports (right pad, then left pad, flag `0x02`)
+    ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it));
+    the documentation of its haptics explains them: every stop-all stops the channel's stream,
+    which reports `0x02`, whether or not anything was streaming. The library sends the same
+    replies for the same stops, in the documented order, with `CONFIG_OPENSC2_HAPTIC_STOP_STATUS`
+    (on by default; [api.md](api.md#other-input-reports)). They go out as soon as the output is
+    decoded; the real controller sends them when its haptics thread takes the stop, within about a
+    millisecond while idle and up to one 8 ms block later while something plays. Steam does not
+    appear to need them.
 20. **Identity on the cable.** The USB strings are the real ones by default and the serial string is
     the identity's unit serial, kept equal to `0xAE` tag 1 and the radio identity record. A
     development board reports its own "OSC..." serial, which no real controller has. With the
@@ -413,6 +422,43 @@ open, the library does what should work with Steam and the puck, and says so her
     out (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE`).
 24. **Attribute 11 on the dock** is documented as 64000 µs; the library answers that for its dock
     link, which has no code yet and is never active.
+25. **`0xE9`'s read-back, copied.** The real controller converts the stored colour in a way that
+    truncates before it scales, so each channel of `0xE9` reads 0 below 100, 100 from 100 to 199
+    and 200 from 200. A host can see that answer, so the library gives the same one; the colour
+    itself is kept as sent, clamped to 100, and the application gets it unchanged (`led` callback,
+    `opensc2_led_get()`). The clamp is OpenSC2's: the real controller keeps `0xC5`'s bytes
+    unclamped (a channel above 100 is brighter, up to full duty), so a channel sent above 100 is
+    brighter there and reads back 100 or 200, where the library keeps and reads back 100. Steam is
+    not known to send such values, nor to read `0xE9` at all.
+26. **`0xBE`'s bytes 13 and 14.** The documentation gives byte 13 as "1 while charging" and byte 14
+    as `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the
+    application's charge state (1 for state 2, charging, with or without the flag), its simplest
+    reading; on the real controller it may come from the charger's own status, which no host has
+    been seen to compare.
+27. **Settings by name.** The library knows exactly the real controller's keys
+    ([api.md](api.md#settings-by-name)); other names go to the application. It keeps
+    `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level` and the
+    `settings/haptics/` keys as plain values: stored, read back where the real controller has a
+    read function, deleted by the factory reset where it deletes them, acted on by nothing yet (the
+    travel lock, the fully-charged LED display, the factory charge window and the haptics settings
+    are not implemented). As on the real controller, `0xED` answers `mte/charge_level` only while
+    it holds a valid window (both values 0, or 3400 to 4120 mV in 10 mV steps). Choices where the
+    documentation says nothing: a readable key that was never set answers its whole size in zeros
+    (the real controller's RAM value), `0xEF` saves whatever value is in RAM, and the calibration
+    keys go to the application until the library keeps calibration, so without one `0xED` answers
+    length 0 and the others are refused.
+28. **Crash records.** The record and `0xF2`'s rules follow the documentation
+    ([api.md](api.md#crash-records)). OpenSC2's own: where the record waits for the next boot (the
+    retained RAM region, with a magic word and a CRC-32 of its own), the build time and revision it
+    names (the firmware's own, not a build time stored on the board for Steam), that a crash
+    repeated at every boot writes flash once until a host reads it (the documentation names no
+    such guard), and that `0xF2` saves the record it marked seen from the system work queue rather
+    than inside the request.
+29. **The hardware watchdog** follows the documented timings (5 s, a feed every 2.5 s from the
+    lowest priority, the 4.5 s warning that raises a kernel oops, only a log with a debugger
+    attached), but is off by default (`CONFIG_OPENSC2_WATCHDOG`): the real controller's own
+    bootloader is not there, and how the UF2 bootloader copes with a watchdog left running has
+    not been checked ([api.md](api.md#the-hardware-watchdog)).
 
 ## What this library adds for development boards
 

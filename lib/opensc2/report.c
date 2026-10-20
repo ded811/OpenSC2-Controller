@@ -8,7 +8,8 @@
  *   - lizard mode: one frame per state report, and the reports at its transitions;
  *   - the battery report 0x43 every CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS, from boot, on
  *     whatever link is up (dropped when there is none, as on the real controller);
- *   - output reports from the host, and the rumble timeout.
+ *   - output reports from the host, the rumble timeout, and the haptic stream status replies to a
+ *     stop.
  */
 #include <errno.h>
 #include <string.h>
@@ -16,6 +17,7 @@
 #include <zephyr/logging/log.h>
 #include "internal.h"
 #include "lizard.h"
+#include "proto_rules.h"
 #include "report_rules.h"
 #include "test_hooks.h"
 
@@ -268,6 +270,27 @@ static void rumble_timeout_fn(struct k_work *work)
 }
 static K_WORK_DELAYABLE_DEFINE(rumble_work, rumble_timeout_fn);
 
+/* CONFIG_OPENSC2_HAPTIC_STOP_STATUS: the 0x44 {channel, 0x02} replies the real controller sends
+ * for a stop (proto_rules.h), after the application heard about the output. */
+static void stop_status(enum osc2_link link, const struct opensc2_output *out)
+{
+#if defined(CONFIG_OPENSC2_HAPTIC_STOP_STATUS)
+	uint8_t ids[4];
+	uint8_t n = osc2_stop_status(out, ids);
+
+	for (uint8_t i = 0; i < n; i++) {
+		uint8_t report[OPENSC2_HAPTIC_STATUS_LEN];
+
+		opensc2_encode_haptic_status(ids[i], OSC2_STATUS_STOPPED, report);
+		osc2_test_note_status(link, ids[i], OSC2_STATUS_STOPPED);
+		(void)osc2_input_send(report, sizeof(report), false);
+	}
+#else
+	ARG_UNUSED(link);
+	ARG_UNUSED(out);
+#endif
+}
+
 int osc2_output_dispatch(enum osc2_link link, const uint8_t *report, size_t len)
 {
 	struct opensc2_output out[2];
@@ -306,6 +329,7 @@ int osc2_output_dispatch(enum osc2_link link, const uint8_t *report, size_t len)
 				osc2.cb->haptic(&out[i].haptic, osc2.user_data);
 			}
 		}
+		stop_status(link, &out[i]);
 	}
 	return n;
 }

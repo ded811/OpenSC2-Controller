@@ -9,7 +9,12 @@ REQ 1eab577f010603 ARMED 1 -> CLAIM 0
 REQ 1eab577e020603 ARMED 1 -> CLAIM 0
 REQ 1eab577e0106 ARMED 1 -> CLAIM 0
 REQ 1eab577e010924efbeadde ARMED 1 -> CLAIM 1 OP 24 ARGS 4
-BATTERY 1eab577e010b1202373c0fe40c881306fff4013412a501 -> R43 4302373c0fe40c881306fff4013412 RBE 34123c0fe40c881306fff40137a502
+#   0xBE: byte 13 is 1 while the charge state is 2 (charging), byte 14 the state without the 0x80
+#   flag; the BATTERY op's gauge-flags byte (0xA5 here) is not sent
+BATTERY 1eab577e010b1202373c0fe40c881306fff4013412a501 -> R43 4302373c0fe40c881306fff4013412 RBE 34123c0fe40c881306fff401370102
+# the supply check gave up (0x80) while discharging, and while charging: 0x43 keeps the flag
+BATTERY 1eab577e010b1281373c0fe40c881306fff40134120001 -> R43 4381373c0fe40c881306fff4013412 RBE 34123c0fe40c881306fff401370001
+BATTERY 1eab577e010b1282373c0fe40c881306fff40134120001 -> R43 4382373c0fe40c881306fff4013412 RBE 34123c0fe40c881306fff401370102
 # the key alone, or one byte short of the header: never claimed
 REQ 1eab577e ARMED 1 -> CLAIM 0
 REQ 1eab577e0101 ARMED 1 -> CLAIM 0

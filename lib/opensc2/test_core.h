@@ -162,6 +162,8 @@ enum osc2_test_kind {
 	OSC2_TEST_KIND_IDENTITY = 0x23,
 	OSC2_TEST_KIND_CHANNELS = 0x24,
 	OSC2_TEST_KIND_BLE = 0x40,   /* a Bluetooth LE link event (enum osc2_test_ble_event) */
+	/* 0x30..0x33: protocol completeness */
+	OSC2_TEST_KIND_STOP_STATUS = 0x30,   /* a 0x44 the library sent as the reply to a stop */
 };
 
 /* BLE entries: event u8, a u8, b u16, c u32. */
@@ -275,6 +277,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+/* CONFIG_OPENSC2_HAPTIC_STOP_STATUS: a stop's 0x44 replies {channel, 0x02}. */
+#define OSC2_TEST_FLAG_HAPTIC_STOP_STATUS     (1u << 16)
 /* CONFIG_OPENSC2_BLE: Bluetooth LE. */
 #define OSC2_TEST_FLAG_BLE                    (1u << 17)
 
@@ -508,10 +512,11 @@ bool osc2_test_host_set_allowed(uint8_t opcode, const uint8_t *payload, uint8_t 
 /* HOST_GET: is an answer of `n` bytes to the stored request {opcode, len, payload} masked (bonds,
  * serials, the chip ID)? */
 bool osc2_test_host_get_masked(const uint8_t *stored, uint8_t stored_len, uint8_t n);
-/* The settings-by-name keys VENDOR entries name: 1 esb/bond, 2 esb/bond_2,
- * 3 user/wireless_transport, 4 user/haptic_boot_level, 5 opensc2/unit_serial,
- * 6 opensc2/board_serial, 7 opensc2/git_revision, 8 opensc2/board_revision, 0 anything else or no
- * NUL. `*value_len`: the bytes after the NUL. */
+/* The settings-by-name keys VENDOR entries name, numbered as key_rules.h's enum osc2_key_id: 1
+ * esb/bond, 2 esb/bond_2, 3 user/wireless_transport, 4 user/haptic_boot_level, 5..8 the
+ * opensc2/ identity keys, 9 user/keylock, 10 user/fully_charged_led_intensity,
+ * 11 mte/charge_level, 12 debug/resetreason, 13..15 settings/haptics/..., 16..29 the cal/ keys;
+ * 0 anything else or no NUL. `*value_len`: the bytes after the NUL. */
 uint8_t osc2_test_key_id(const uint8_t *payload, size_t len, uint8_t *value_len);
 
 /* Entry data (each returns its length). */

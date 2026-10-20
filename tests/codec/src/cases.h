@@ -148,8 +148,29 @@ OPENSC2_TEST(battery_reports)
 	CHECK_EQ(opensc2_get_le16(&d[0]), 0x0BCD);   /* temperature first */
 	CHECK_EQ(opensc2_get_le16(&d[2]), 3900);
 	CHECK_EQ(d[12], 100);
-	CHECK_EQ(d[13], 0x5A);
+	CHECK_EQ(d[13], 1);      /* charging; the gauge flags are not sent */
 	CHECK_EQ(d[14], 2);
+
+	/* Byte 13 follows the charge state, byte 14 is the state without the 0x80 flag (the real
+	 * controller's "supply check gave up"), which 0x43 keeps. */
+	b.charge_state = OPENSC2_CHARGE_DONE;
+	opensc2_encode_battery_data(&b, d);
+	CHECK_EQ(d[13], 0);
+	CHECK_EQ(d[14], 4);
+	b.charge_state = 0x80 | OPENSC2_CHARGE_DISCHARGING;
+	opensc2_encode_battery_data(&b, d);
+	opensc2_encode_battery(&b, r);
+	CHECK_EQ(d[13], 0);
+	CHECK_EQ(d[14], 1);
+	CHECK_EQ(r[1], 0x81);
+	b.charge_state = 0x80 | OPENSC2_CHARGE_CHARGING;
+	opensc2_encode_battery_data(&b, d);
+	CHECK_EQ(d[13], 1);
+	CHECK_EQ(d[14], 2);
+	b.charge_state = OPENSC2_CHARGE_SRC_VALIDATE;
+	opensc2_encode_battery_data(&b, d);
+	CHECK_EQ(d[13], 0);
+	CHECK_EQ(d[14], 3);
 }
 
 OPENSC2_TEST(haptic_status)

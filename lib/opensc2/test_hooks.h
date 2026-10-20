@@ -89,6 +89,8 @@ void osc2_test_note_host_asleep(void);
 void osc2_test_note_version(uint8_t version);
 void osc2_test_note_identity(const struct opensc2_identity *id);
 void osc2_test_note_channels(const uint8_t channels[4]);
+/* A haptic stream status 0x44 the library sent itself (the reply to a stop) on `link`. */
+void osc2_test_note_status(uint8_t link, uint8_t channel, uint32_t flags);
 /* A Bluetooth LE link event (enum osc2_test_ble_event). */
 void osc2_test_note_ble(uint8_t event, uint8_t a, uint16_t b, uint32_t c);
 
@@ -286,6 +288,13 @@ static inline void osc2_test_note_identity(const struct opensc2_identity *id)
 static inline void osc2_test_note_channels(const uint8_t channels[4])
 {
 	(void)channels;
+}
+
+static inline void osc2_test_note_status(uint8_t link, uint8_t channel, uint32_t flags)
+{
+	(void)link;
+	(void)channel;
+	(void)flags;
 }
 
 static inline void osc2_test_note_ble(uint8_t event, uint8_t a, uint16_t b, uint32_t c)

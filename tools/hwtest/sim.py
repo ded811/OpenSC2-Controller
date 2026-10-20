@@ -285,6 +285,7 @@ class SimBackend:
         self.identity = simfw.Identity(self)
         self.hid_product = None       # a product string other than the stored name (a test)
         self.extra_build_flags = 0    # caps build flags of another build (a test)
+        self.cleared_build_flags = 0  # ... and those another build lacks (a test)
         self.bonds = [SIM_BOND_A, b""]
         self.slot = 0
         self.chime = 2
@@ -312,6 +313,7 @@ class SimBackend:
         self._races = 0
         self.proven_slot = None       # the slot the runner kept open (set_board_slot), as on Windows
         self._steam_next = None       # Steam's next 0x81 through the puck (--steam-control)
+        self._steam_pulses = False    # Steam's pair of zero pulses sent (once per start)
         self.steam_log_lines = []     # Steam's controller log, synthetic lines only
         self.race_slipped = 0         # keep-alive SETs that landed between a SET and its GET
         self._prove_calls = 0
@@ -433,10 +435,11 @@ class SimBackend:
     # ---- Steam (--with-steam --steam-control) ----
     def steam_start(self):
         """Steam starts. While the board is connected through the puck it keeps lizard mode off
-        with a 0x81 every 2.5 s on the radio link's vendor channel, and its controller log gets
-        the lines of each connection."""
+        with a 0x81 every 2.5 s on the radio link's vendor channel, sends the pads its pair of
+        zero pulses once, and its controller log gets the lines of each connection."""
         self.steam = True
         self._steam_next = self.clock.monotonic() + 0.5
+        self._steam_pulses = False
         self.steam_log_lines.append("[2026-10-18 12:00:00] Local Device Found")
         if self.board.mode == "R" and self.board.link_state == 4:
             self._steam_log_connect()
@@ -475,6 +478,12 @@ class SimBackend:
             b = self.board
             if b.mode == "R" and b.link_state == 4 and not b.dead:
                 b.command_set("radio", bytes([C.VC_LIZARD_OFF, 0]))
+                if not self._steam_pulses:
+                    # once: the pair of all-zero pulses Steam sends the pads (seen on the cable),
+                    # target 0 (the right pad) first; the board answers each with a 0x44
+                    self._steam_pulses = True
+                    for target in (0, 1):
+                        b.output("radio", bytes([0x81, target]) + bytes(6))
 
     def test_started(self, test_id, path):
         """The runner names each test as it starts: the faults that hit one test hook in here."""

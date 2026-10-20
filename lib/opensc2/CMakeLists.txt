@@ -18,13 +18,21 @@ zephyr_library_sources(
 	codec.c
 	core.c
 	commands.c
+	crash.c
+	crash_rules.c
+	hwdt.c
 	id_rules.c
+	key_rules.c
+	keys.c
 	lizard.c
 	mode.c
 	mode_rules.c
+	proto_rules.c
 	radio.c
 	report.c
 	report_rules.c
+	# the retained area's pure logic, and the CRC-32 the crash records and the test hooks use
+	retained.c
 	settings_defaults.c
 	storage.c
 	transport.c
@@ -38,10 +46,6 @@ zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 # The report descriptor: the wired device's, and Bluetooth's report map, byte for byte.
 if(CONFIG_OPENSC2_USB OR CONFIG_OPENSC2_BLE)
   zephyr_library_sources(usb_desc.c)
-endif()
-# The retained area, and the CRC-32 the test hooks use too.
-if(CONFIG_OPENSC2_USB OR CONFIG_OPENSC2_TEST_HOOKS)
-  zephyr_library_sources(retained.c)
 endif()
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_BLE
 	ble.c
@@ -104,15 +108,16 @@ if(CONFIG_OPENSC2_USB AND NOT CONFIG_OPENSC2_STORAGE)
 endif()
 
 # Without a devicetree region for it, the retained area (the USB session log, and the warm-restart
-# mark unless that is in GPREGRET2) is in the application's no-init RAM, which a bootloader that
-# runs at every reset may use for itself: the Adafruit UF2 bootloader's data and stack land there.
-if(CONFIG_OPENSC2_USB_LOG OR CONFIG_OPENSC2_WARM_MARK_RAM)
+# mark unless that is in GPREGRET2) and the crash record are in the application's no-init RAM,
+# which a bootloader that runs at every reset may use for itself: the Adafruit UF2 bootloader's data
+# and stack land there.
+if(CONFIG_OPENSC2_USB_LOG OR CONFIG_OPENSC2_WARM_MARK_RAM OR CONFIG_OPENSC2_CRASH_RECORD)
   dt_chosen(opensc2_retained_ram PROPERTY "opensc2,retained-ram")
   if(NOT DEFINED opensc2_retained_ram)
     message(WARNING "OpenSC2: no devicetree region is chosen as opensc2,retained-ram, so the "
-      "retained area (the USB session log; the warm-restart mark unless it is in GPREGRET2) is "
-      "in the application's no-init RAM, which a bootloader may clear at every reset (the "
-      "Adafruit UF2 bootloader does). Choose a region that the bootloader leaves alone: "
-      "docs/porting.md, Wired mode.")
+      "retained area (the USB session log; the warm-restart mark unless it is in GPREGRET2) and "
+      "the crash record are in the application's no-init RAM, which a bootloader may clear at "
+      "every reset (the Adafruit UF2 bootloader does). Choose a region that the bootloader leaves "
+      "alone: docs/porting.md, Wired mode.")
   endif()
 endif()

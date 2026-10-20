@@ -372,7 +372,9 @@ OPENSC2_TEST(hooks_arm_answer)
 	CHECK_EQ(caps[0], 1);
 	CHECK_EQ(caps[1], 1);       /* wired */
 	CHECK_EQ(opensc2_get_le32(&caps[2]), OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO |
-		 OSC2_TEST_FLAG_LIZARD_MODE | OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB);
+		 OSC2_TEST_FLAG_LIZARD_MODE | OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB |
+		 OSC2_TEST_FLAG_HAPTIC_STOP_STATUS);
+	CHECK_EQ(OSC2_TEST_FLAG_HAPTIC_STOP_STATUS, 0x10000u);   /* docs/test-protocol.md: bit 16 */
 	CHECK_EQ(opensc2_get_le16(&caps[6]), 3500);
 	CHECK_EQ(opensc2_get_le16(&caps[8]), 500);
 	CHECK_EQ(opensc2_get_le16(&caps[10]), 512);   /* CONFIG_OPENSC2_TEST_RING_SIZE here */
@@ -1012,13 +1014,14 @@ OPENSC2_TEST(hooks_app_send)
 OPENSC2_TEST(hooks_battery)
 {
 	/* The battery line of the shared vectors: charging, 55 %, 3900 / 3300 / 5000 mV, -250 mA,
-	 * 500 mA, temperature 0x1234, gauge flags 0xA5, send now. */
+	 * 500 mA, temperature 0x1234, gauge flags 0xA5 (not sent: 0xBE's byte 13 is 1 for
+	 * "charging"), send now. */
 	static const uint8_t args[16] = { 0x02, 0x37, 0x3c, 0x0f, 0xe4, 0x0c, 0x88, 0x13,
 					  0x06, 0xff, 0xf4, 0x01, 0x34, 0x12, 0xa5, 0x01 };
 	static const uint8_t r43[15] = { 0x43, 0x02, 0x37, 0x3c, 0x0f, 0xe4, 0x0c, 0x88,
 					 0x13, 0x06, 0xff, 0xf4, 0x01, 0x34, 0x12 };
 	static const uint8_t rbe[15] = { 0x34, 0x12, 0x3c, 0x0f, 0xe4, 0x0c, 0x88, 0x13,
-					 0x06, 0xff, 0xf4, 0x01, 0x37, 0xa5, 0x02 };
+					 0x06, 0xff, 0xf4, 0x01, 0x37, 0x01, 0x02 };
 	struct opensc2_battery b = { .charge_state = 4, .level = 100 }, kept = b;
 	uint8_t report[OPENSC2_BATTERY_REPORT_LEN], reply[64];
 
@@ -1271,7 +1274,13 @@ OPENSC2_TEST(hooks_vendor_mask)
 	CHECK(d[7] == 2 && d[8] == 24);
 	memcpy(payload, "cal/joy_l", 10);
 	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xEF, 10, 0, payload, 10, 61), 9);
+	CHECK(d[7] == 16 && d[8] == 0);   /* key_rules.h's number */
+	memcpy(payload, "cal/joy_m", 10);   /* no key */
+	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xEF, 10, 0, payload, 10, 61), 9);
 	CHECK(d[7] == 0 && d[8] == 0);
+	memcpy(payload, "debug/resetreason", 18);
+	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xED, 18, 0, payload, 18, 61), 9);
+	CHECK(d[7] == 12 && d[8] == 0);
 	memcpy(payload, "opensc2/unit_serial", 20);
 	CHECK_EQ(osc2_test_enc_vendor(d, false, 0xEE, 24, 0, payload, 24, 61), 9);
 	CHECK(d[7] == 5 && d[8] == 4);
@@ -1472,7 +1481,7 @@ OPENSC2_TEST(hooks_paging)
 	args[0] = 0;
 	args[1] = 28;
 	CHECK_EQ(con_op(OSC2_TEST_OP_SETTINGS_READ, args, 2), OSC2_TEST_BAD_ARG);
-	/* The same values as 0x89. */
+	/* The same values as 0x89 (whose answers for the IMU's 48, 84 and 85 are their defaults). */
 	for (uint8_t number = 0; number < 86; number += 9) {
 		args[0] = number;
 		args[1] = 1;
@@ -1621,15 +1630,15 @@ OPENSC2_TEST(hooks_host_get_mask)
 	host_set(0xF2, &sel, 1);
 	CHECK_EQ(con_op(OSC2_TEST_OP_HOST_GET, NULL, 0), OSC2_TEST_OK);
 	CHECK(RES[1] == 9 && RES[2] == 0 && RES[3] == 2);
-	/* 0xA1 selector 1, the chip ID: masked; selector 0 answers nothing. */
+	/* 0xA1 selector 1, the chip ID: masked; selector 0 answers 18 zero bytes, not masked. */
 	sel = 1;
 	host_set(0xA1, &sel, 1);
 	CHECK_EQ(con_op(OSC2_TEST_OP_HOST_GET, NULL, 0), OSC2_TEST_OK);
-	CHECK(RES[1] == 21 && RES[2] == 0x01);
+	CHECK(RES[1] == 18 && RES[2] == 0x01);
 	sel = 0;
 	host_set(0xA1, &sel, 1);
 	CHECK_EQ(con_op(OSC2_TEST_OP_HOST_GET, NULL, 0), OSC2_TEST_OK);
-	CHECK(RES[1] == 0 && RES[2] == 0);
+	CHECK(RES[1] == 18 && RES[2] == 0 && RES[3] == 0);
 	/* 0xED of a bond: masked (the CRC of the same 24 bytes); empty: n 0; the transport: not. */
 	memcpy(key_and_bond, "esb/bond", 9);
 	host_set(0xED, key_and_bond, 9);
