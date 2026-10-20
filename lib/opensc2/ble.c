@@ -1306,14 +1306,22 @@ static void on_connected(struct bt_conn *conn, uint8_t err)
 {
 	struct bt_conn_info info;
 
+	if (err) {
+		/* A connection that failed while advertising: 0x3C when directed advertising went
+		 * unanswered. The stack sets a connection's role only once one is established, so a
+		 * failed one cannot be told by its role (it reads central). With a central role in the
+		 * build too (an application's), only that error is advertising's. */
+		if (!IS_ENABLED(CONFIG_BT_CENTRAL) || err == BT_HCI_ERR_ADV_TIMEOUT) {
+			post(MSG_CONNECTED, NULL, err, 0, 0);
+		}
+		return;
+	}
 	if (bt_conn_get_info(conn, &info) != 0 || info.role != BT_CONN_ROLE_PERIPHERAL) {
 		return;
 	}
-	if (!err) {
-		/* Here, in the host's receive thread, before this host's first request. */
-		values_reset();
-	}
-	post(MSG_CONNECTED, err ? NULL : bt_conn_ref(conn), err, 0, 0);
+	/* Here, in the host's receive thread, before this host's first request. */
+	values_reset();
+	post(MSG_CONNECTED, bt_conn_ref(conn), 0, 0, 0);
 }
 
 static void on_disconnected(struct bt_conn *conn, uint8_t reason)
