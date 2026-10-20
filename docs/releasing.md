@@ -235,7 +235,7 @@ provenance check:
 
 ## Release notes template
 
-Before you paste it, check its numbers (169 of 169) against the run of step B.4.
+Before you paste it, check its numbers against the runs of step B.4.
 
 ````markdown
 OpenSC2 makes an nRF52840 board act as a Steam Controller 2. Steam pairs it with Valve's puck over a
@@ -256,18 +256,20 @@ puck on its October 2026 firmware and Steam on a Windows PC.
 - It enumerates over USB exactly like a real Steam Controller 2 (`28DE:1302`).
 - Steam pairs it with Valve's puck over the USB-C cable, like a real controller.
 - It then reboots into wireless mode and connects through the puck.
-- Steam's "needs an update" prompt goes away when the board reports a build time at least as new as
-  Steam's current controller firmware.
-- The automated hardware test suite passed 169 of 169 tests with every opt-in on: inputs injected
-  and checked wired and through the puck, battery, rumble and haptics, LEDs, settings, all vendor
-  commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode switches,
-  reconnects, and a run with Steam open.
+- Steam shows no "needs an update" prompt for a freshly flashed board: it reports a build time newer
+  than Steam's current controller firmware.
+- The automated hardware test suite passed every test with every opt-in on: 165 of 165 in a run
+  started wireless, and 31 of 31 for the `modes` and `cmd` groups in a run started wired. It covers
+  inputs injected and checked wired and through the puck, battery, rumble and haptics, LEDs,
+  settings, all vendor commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode
+  switches, reconnects, and a run with Steam open.
+- The charger test aid (a separate test build, not this `.uf2`): on a plain USB wall charger it
+  switches to wireless and connects through the puck.
 
 ## Not proven yet
 
 - Built, not yet tried with real parts: real buttons, sticks, trackpads, IMU, rumble motor, RGB LED
-  and battery hardware (the drivers in `app/` and the samples have never run on such parts); the
-  charger test aid on a real charger.
+  and battery hardware (the drivers in `app/` and the samples have never run on such parts).
 - Built, not run on hardware: the samples and the template.
 - Built, untested with Steam: pairing over the air (the puck's pairing window).
 - Not tested: other boards; Linux and macOS as the PC (the PC side was tested with Steam on

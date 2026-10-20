@@ -218,9 +218,13 @@ program holds the board's console.
 Tested on a SuperMini nRF52840 with nothing wired to it, with Valve's puck on its October 2026
 firmware and Steam on a Windows PC.
 
-169 of 169 tests passed (0 failed, 0 errors, 0 warnings) with every opt-in on:
-`--through-puck --flash --lizard --with-steam --steam-control`. Only the optional soak test
-(`--soak S`), which needs a duration, was not run. The suite counts one test per path (wired,
+On the v0.2.0 release image every test passed (0 failed, 0 errors, 0 warnings) with every opt-in
+on, `--through-puck --flash --lizard --with-steam --steam-control`: 165 of 165 in a run that
+started with the board wireless, and 31 of 31 for `--group modes,cmd` in a run that started wired,
+which adds the four tests that only run from a wired start (`modes.plain_reboot`,
+`modes.to_wireless`, `modes.session_log`, `cmd.first_get`). Before the release, a development
+build passed 169 of 169 in one run started wired. Only the optional soak test (`--soak S`), which
+needs a duration, was not run. The suite counts one test per path (wired,
 wireless, through the puck, with Steam); each test makes its own checks. In the report, the tests
 of the through-puck and Steam paths carry the mode they ran in (`@R` or `@W`).
 
@@ -228,8 +232,8 @@ of the through-puck and Steam paths carry the mode they ran in (`@R` or `@W`).
 | --- | --- |
 | Date | 2026-10-19 |
 | PC | Windows 11, Python 3.11 |
-| Firmware | the default `app/` build of the 0.2 development state (revision string `osc2-app-0.2`, test hooks on) |
-| Report | `PASS 169 FAIL 0 WARN 0 ERROR 0 SKIP 2`, exit code 0, the board left as found |
+| Firmware | the v0.2.0 release image `opensc2-supermini-nrf52840-v0.2.0.uf2` (revision string `osc2-0.2.0`, build time `0x6AD6E287`, test hooks on), with the identity cleared to the built-in one |
+| Report | started wireless: `PASS 165 FAIL 0 WARN 0 ERROR 0 SKIP 2`; started wired, `--group modes,cmd`: `PASS 31 FAIL 0 WARN 0 ERROR 0 SKIP 0`; exit code 0 both times, the board left as found |
 
 What it covered: inputs injected and checked wired and through the puck, battery, rumble and
 haptics, LEDs, settings, all vendor commands Steam sends, lizard mode with nothing reaching the PC,

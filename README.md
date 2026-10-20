@@ -56,21 +56,20 @@ flowchart LR
 
 ## What works
 
-Tested with development builds of `app/` for 0.2.0 (the test suite's full run: 2026-10-19), on a
+Tested with the v0.2.0 release image (`opensc2-supermini-nrf52840-v0.2.0.uf2`, 2026-10-19), on a
 SuperMini nRF52840 with nothing wired to it, with Valve's puck on its October 2026 firmware and
-Steam on a Windows PC. The release image is checked again before it is tagged
-([docs/releasing.md](docs/releasing.md#b-release-v020-while-the-repository-is-private)).
+Steam on a Windows PC.
 
 | What | Status |
 | --- | --- |
 | It enumerates over USB exactly like a real Steam Controller 2 (`28DE:1302`). | Works on hardware |
 | Steam pairs it with Valve's puck over the USB-C cable, like a real controller. | Works on hardware |
 | It then reboots into wireless mode and connects through the puck. | Works on hardware |
-| Steam's "needs an update" prompt goes away when the board reports a build time at least as new as Steam's current controller firmware. | Works on hardware |
-| The automated hardware test suite passed 169 of 169 tests with every opt-in on: inputs injected and checked wired and through the puck, battery, rumble and haptics, LEDs, settings, all vendor commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode switches, reconnects, and a run with Steam open. | Works on hardware |
+| Steam shows no "needs an update" prompt for a freshly flashed board: it reports a build time newer than Steam's current controller firmware (set to an older one, it gets the prompt). | Works on hardware |
+| The automated hardware test suite passed every test on the release image with every opt-in on: 165 of 165 in a run started wireless, and the 31 tests of the `modes` and `cmd` groups in a run started wired (four of them run only from a wired start). It covers inputs injected and checked wired and through the puck, battery, rumble and haptics, LEDs, settings, all vendor commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode switches, reconnects, and a run with Steam open. | Works on hardware |
 | Real buttons, sticks, trackpads, IMU, rumble motor, RGB LED and battery hardware: the drivers in `app/` and the samples have never run on such parts. | Built; not tried with real parts |
 | Pairing over the air (the puck's pairing window). | Built; untested with Steam |
-| The charger test aid (a separate test build) on a real charger. | Built; not tried with real parts |
+| The charger test aid (a separate test build): on a plain USB wall charger it switches to wireless and connects through the puck. | Works on hardware |
 | The samples and the template: they build; none has run on hardware. | Built; not run on hardware |
 | Other boards. | Not tested |
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
@@ -246,9 +245,11 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc
   on PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
   tested with gcc; clang (also what `gcc` runs on macOS) is not tested.
-- **The hardware test suite** (`tools/hwtest`) checks a board with nothing wired, from the PC: with
-  the 0.2 development build of `app/` (2026-10-19), 169 of 169 tests passed (0 failed, 0 errors,
-  0 warnings) with every opt-in on: `--through-puck --flash --lizard --with-steam --steam-control`.
+- **The hardware test suite** (`tools/hwtest`) checks a board with nothing wired, from the PC. On the
+  v0.2.0 release image (2026-10-19), with every opt-in on
+  (`--through-puck --flash --lizard --with-steam --steam-control`), every test passed (0 failed,
+  0 errors, 0 warnings): 165 of 165 in a run started wireless, and 31 of 31 for the `modes` and
+  `cmd` groups in a run started wired, which adds the four tests that only run from a wired start.
   Only the optional soak test (`--soak S`), which needs a duration, was not run.
 
 How to run both, and what the suite checks: [docs/testing.md](docs/testing.md).

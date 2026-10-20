@@ -42,32 +42,32 @@ First public release.
 
 ### Proven on hardware
 
-Tested with development builds of `app/` for 0.2.0 (the test suite's full run: 2026-10-19), on a
+Tested with the v0.2.0 release image (`opensc2-supermini-nrf52840-v0.2.0.uf2`, 2026-10-19), on a
 SuperMini nRF52840 with nothing wired to it, with Valve's puck on its October 2026 firmware and
-Steam on a Windows PC. The release image is checked again before it is tagged
-([docs/releasing.md](docs/releasing.md#b-release-v020-while-the-repository-is-private)).
+Steam on a Windows PC.
 
 - It enumerates over USB exactly like a real Steam Controller 2 (`28DE:1302`).
 - Steam pairs it with Valve's puck over the USB-C cable, like a real controller.
 - It then reboots into wireless mode and connects through the puck.
-- Steam's "needs an update" prompt goes away when the board reports a build time at least as new as
-  Steam's current controller firmware.
-- The automated hardware test suite passed 169 of 169 tests with every opt-in on: inputs injected
-  and checked wired and through the puck, battery, rumble and haptics, LEDs, settings, all vendor
-  commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode switches,
-  reconnects, and a run with Steam open.
-
-169 of 169 tests passed (0 failed, 0 errors, 0 warnings) with every opt-in on:
-`--through-puck --flash --lizard --with-steam --steam-control`. Only the optional soak test
-(`--soak S`), which needs a duration, was not run. The suite counts one test per path (wired,
+- Steam shows no "needs an update" prompt for a freshly flashed board: it reports a build time newer
+  than Steam's current controller firmware (set to an older one, it gets the prompt).
+- The automated hardware test suite passed every test on the release image with every opt-in on
+  (`--through-puck --flash --lizard --with-steam --steam-control`): 165 of 165 in a run started
+  wireless, and 31 of 31 for the `modes` and `cmd` groups in a run started wired, which adds the
+  four tests that only run from a wired start (0 failed, 0 errors, 0 warnings). It covers inputs
+  injected and checked wired and through the puck, battery, rumble and haptics, LEDs, settings,
+  all vendor commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode
+  switches, reconnects, and a run with Steam open. Only the optional soak test (`--soak S`),
+  which needs a duration, was not run.
+- The charger test aid (a separate test build): on a plain USB wall charger it switches to
+  wireless and connects through the puck. The suite counts one test per path (wired,
 wireless, through the puck, with Steam); each test makes its own checks. In the report, the tests
 of the through-puck and Steam paths carry the mode they ran in (`@R` or `@W`).
 
 ### Not proven
 
 - Built, not yet tried with real parts: real buttons, sticks, trackpads, IMU, rumble motor, RGB LED
-  and battery hardware (the drivers in `app/` and the samples have never run on such parts); the
-  charger test aid (a separate test build) on a real charger.
+  and battery hardware (the drivers in `app/` and the samples have never run on such parts).
 - Built, not run on hardware: the samples and the template.
 - Built, untested with Steam: pairing over the air (the puck's pairing window).
 - Not tested: other boards; Linux and macOS as the PC (the PC side was tested with Steam on

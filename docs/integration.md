@@ -23,7 +23,7 @@ library has no pins.
 | Start from | Choose it when | You change |
 | --- | --- | --- |
 | [`template/`](../template/README.md) (recommended) | you write firmware of your own | anything: it is small and made to be copied out |
-| [`app/`](../app/README.md) | you build a controller on the SuperMini with the parts `app/` supports; the hardware results come from its development builds for 0.2.0 ([What works](../README.md#what-works)) | usually only its overlay (pins and parts) |
+| [`app/`](../app/README.md) | you build a controller on the SuperMini with the parts `app/` supports; the hardware results come from its v0.2.0 release image ([What works](../README.md#what-works)) | usually only its overlay (pins and parts) |
 | [`samples/`](../samples/README.md) | you want to see one part on its own: buttons and a stick, a touchpad, an IMU, rumble, an RGB LED | copy that part into your project |
 
 The template is the OpenSC2 library, five buttons, a pairing button and a status LED on the

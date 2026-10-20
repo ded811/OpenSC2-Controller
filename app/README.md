@@ -12,9 +12,8 @@ stick to the pins below, or nothing at all to try it.
 > use. It contains no Valve code or binaries. See [NOTICE.md](../NOTICE.md).
 
 The hardware results come from this firmware ([What works](../README.md#what-works)): from its
-development builds for 0.2.0 (the test suite's full run: 2026-10-19), on a SuperMini nRF52840 with
-nothing wired to it, with Valve's puck on its October 2026 firmware and Steam on a Windows PC. The
-release image is checked again before it is tagged ([docs/releasing.md](../docs/releasing.md)).
+v0.2.0 release image (2026-10-19), on a SuperMini nRF52840 with nothing wired to it, with Valve's
+puck on its October 2026 firmware and Steam on a Windows PC.
 The firmware's code for real buttons, sticks, trackpads, IMU, rumble motor, RGB LED and battery
 hardware has not run on such parts yet. Valve's puck is the small USB receiver and charging dock
 that comes with the Steam Controller 2; Steam talks to wireless controllers through it.
