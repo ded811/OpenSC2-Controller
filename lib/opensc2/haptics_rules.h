@@ -43,6 +43,13 @@ struct osc2_hap_actions {
 void osc2_hap_actions(const struct opensc2_output *out, int16_t setting27,
 		      struct osc2_hap_actions *a);
 
+/* Clicks the library makes itself (lizard mode's pad ticks and presses: haptic events of report
+ * ID 0, kind OPENSC2_HAPTIC_COMMAND with click A or B): each click on the pads of `channels` at its
+ * gain as given (unlike report 0x82, whose click A plays 6 dB above the gain). Anything else in `h`
+ * plays nothing. */
+void osc2_hap_library_clicks(const struct opensc2_haptic *h, uint8_t n,
+			     struct osc2_hap_actions *a);
+
 /* The October rumble emulation (report 0x80): the level step's dB for `intensity` (16, 60, 100,
  * 200, 1000, 8000, 16000: +16, +12, +8, +4, -4, -8, -12; anything else 0), the right grip's gain,
  * the left grip's gain, the left grip's LFO rate and the right grip's burst rate. */

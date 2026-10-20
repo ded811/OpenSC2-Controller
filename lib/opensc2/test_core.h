@@ -99,6 +99,11 @@ enum osc2_test_op {
 	OSC2_TEST_OP_HOST_GET = 0x42,
 	OSC2_TEST_OP_APP_SEND = 0x43,
 	OSC2_TEST_OP_RADIO_DEAF = 0x44,
+	/* The haptics synthesiser (CONFIG_OPENSC2_HAPTICS_SYNTH; BAD_OP without it). */
+	OSC2_TEST_OP_HAP_RESET = 0x80,
+	OSC2_TEST_OP_HAP_CAPTURE = 0x81,
+	OSC2_TEST_OP_HAP_STATUS = 0x82,
+	OSC2_TEST_OP_HAP_PLAY = 0x83,
 };
 
 /* Flags of ARM, INJECT, SEQ_RUN and BATTERY. */
@@ -150,6 +155,11 @@ enum osc2_test_kind {
 	OSC2_TEST_KIND_VERSION = 0x22,
 	OSC2_TEST_KIND_IDENTITY = 0x23,
 	OSC2_TEST_KIND_CHANNELS = 0x24,
+	/* The haptics synthesiser's (haptics_run.h). */
+	OSC2_TEST_KIND_HAP_GEN = 0x60,
+	OSC2_TEST_KIND_HAP_BLOCK = 0x61,
+	OSC2_TEST_KIND_HAP_STREAM = 0x62,
+	OSC2_TEST_KIND_HAP_SCRIPT = 0x63,
 };
 
 /* LIZARD entries. */
@@ -223,6 +233,8 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+/* CONFIG_OPENSC2_HAPTICS_SYNTH: the haptics synthesiser, its ops and ring entries. */
+#define OSC2_TEST_FLAG_HAPTICS_SYNTH          (1u << 19)
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)
@@ -296,6 +308,10 @@ struct osc2_test_env {
 	void (*battery_now)(void);                /* a battery report now; the period restarts */
 	bool (*release_held)(void);               /* osc2_lizard_release_held() */
 	void (*lizard_resync)(void);              /* osc2_lizard_resync() (writes a LIZARD entry) */
+	/* The haptics synthesiser's ops (haptics.c): the answer's status, the result and its length
+	 * (OSC2_TEST_BAD_OP when it is not built). */
+	uint8_t (*hap_op)(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			  uint8_t *rlen);
 };
 
 /* ---- the core's state ------------------------------------------------------------------------ */

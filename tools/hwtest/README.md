@@ -43,10 +43,11 @@ tools/hwtest/
                     code on the PC, --dry-run --fw-emu EXE)
   proto/            the wire formats, pure: reports, model (the expected-report and lizard
                     models), vendor, testproto (the 0x7E channel), console (parsers), shellfmt
-                    (shell.c's line formats), steamlog
+                    (shell.c's line formats), steamlog, haptics (the haptics synthesiser's ops,
+                    ring entries and shared vectors)
   groups/           one module per test group (hooks, desc, cmd, inputs, battery, stream,
-                    reports, outputs, settings, flash, lizard, wireless, puck, steam, modes,
-                    restore) and base.py (checks, results, what ends a group)
+                    reports, outputs, haptics, settings, flash, lizard, wireless, puck, steam,
+                    modes, restore) and base.py (checks, results, what ends a group)
   win/              Windows access through ctypes, imported lazily: backend (WinBackend),
                     devices (listing without opening), hid (the board), serial (its console),
                     puck_read (read-only, binds no sending function), puck_write (gated), rawinput

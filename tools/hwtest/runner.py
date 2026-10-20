@@ -22,23 +22,25 @@ from . import results as results_mod
 from . import safety
 from .board import BoardGone, DeviceError, NoLink, Rig, RigError
 from .groups import base as gbase
-from .groups import (battery, cmd, desc, flash, hooks, inputs, lizard, modes, outputs, puck,
-                     reports, restore, settings, steam, stream, wireless)
+from .groups import (battery, cmd, desc, flash, haptics, hooks, inputs, lizard, modes, outputs,
+                     puck, reports, restore, settings, steam, stream, wireless)
 
 CATALOG = [
     ("hooks", hooks), ("desc", desc), ("cmd", cmd), ("inputs", inputs), ("battery", battery),
-    ("stream", stream), ("reports", reports), ("outputs", outputs), ("settings", settings),
+    ("stream", stream), ("reports", reports), ("outputs", outputs), ("haptics", haptics),
+    ("settings", settings),
     ("flash", flash), ("lizard", lizard), ("wireless", wireless), ("puck", puck),
     ("steam", steam), ("modes", modes), ("restore", restore),
 ]
 MODULES = dict(CATALOG)
 INJECTION_GROUPS = {"inputs", "reports", "lizard", "wireless"}
 STEAM_CLOSED_GROUPS = {"hooks", "cmd", "inputs", "battery", "reports", "outputs", "settings",
-                       "flash", "lizard", "modes", "wireless", "puck", "desc", "stream"}
+                       "flash", "lizard", "modes", "wireless", "puck", "desc", "stream",
+                       "haptics"}
 W_GROUPS = ("hooks", "desc", "cmd", "inputs", "battery", "stream", "reports", "outputs",
-            "settings", "flash", "lizard")
-R_GROUPS = ("hooks", "inputs", "battery", "stream", "reports", "outputs", "settings", "cmd",
-            "wireless", "flash", "puck", "lizard")
+            "haptics", "settings", "flash", "lizard")
+R_GROUPS = ("hooks", "inputs", "battery", "stream", "reports", "outputs", "haptics", "settings",
+            "cmd", "wireless", "flash", "puck", "lizard")
 # the R groups that read the board's reports from its slot on the puck (proved by wireless.slot)
 SLOT_GROUPS = {"inputs", "battery", "stream", "reports", "wireless", "lizard", "puck"}
 STEAM_WAIT_S = 600.0                 # how long an interactive run waits for Steam to close

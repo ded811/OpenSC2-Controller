@@ -33,3 +33,8 @@ ENTRY 0000000012020905860402010501a00f                   # HAPTIC PCM control, 0
 ENTRY 0000000011030a00000000000000000001                 # RUMBLE all zero, timeout 1, link none (the rumble timeout)
 # a hex value split into tokens: the LED entry above again
 ENTRY 00000000 13 01 06 64 00 32 0a 00 32
+# the haptics synthesiser's (CONFIG_OPENSC2_HAPTICS_SYNTH), link none
+ENTRY 0001000060030c020301fac800640000000000             # HAP_GEN left grip, tone, start, -6 dB, 200 Hz, 100 ms, no LFO
+ENTRY 0002000061030c0100000000fde19dab341201             # HAP_BLOCK grips, block 0, CRC 0xab9de1fd, peak 0x1234, the first
+ENTRY 000300006203080206360108000000                     # HAP_STREAM left grip, a write, 310 bytes held, 0x08
+ENTRY 00040000630306050205f40500                         # HAP_SCRIPT cue 5 at level 2, -12 dB, script 5

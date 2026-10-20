@@ -18,11 +18,21 @@
  * callbacks), on `link` (enum osc2_link). */
 void osc2_haptics_outputs(uint8_t link, const struct opensc2_output *out, int n);
 
+/* Haptic events the library makes itself, as the haptic callback gets them (report ID 0):
+ * lizard mode's pad ticks (click A) and pad presses (click B), each at its gain as given. */
+void osc2_haptics_library(const struct opensc2_haptic *h, uint8_t n);
+
 /* The test hooks' ops 0x80..0x83: the test channel's status, the result in `result` / `*rlen`. */
 uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
 			     uint8_t *rlen);
 
 #else
+
+static inline void osc2_haptics_library(const struct opensc2_haptic *h, uint8_t n)
+{
+	(void)h;
+	(void)n;
+}
 
 static inline void osc2_haptics_outputs(uint8_t link, const struct opensc2_output *out, int n)
 {

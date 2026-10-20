@@ -45,6 +45,7 @@ struct seq {
 	opensc2_haptics_level_fn level_fn;
 	void *level_user;
 	bool amp_on;
+	volatile bool running;   /* in a playback or its drain */
 	uint8_t block[OSC2_HAP_BLOCK_MAX_BYTES];
 };
 
@@ -252,7 +253,9 @@ static void seq_thread(void *p1, void *p2, void *p3)
 		/* Setting 75 = 1 holds the amplifier on between sounds; 0 lets it follow playback. */
 		amp(s, out, amp_held());
 		if (busy) {
+			s->running = true;
 			playback(s, out, level_fn, level_user);
+			s->running = false;
 		}
 	}
 }
@@ -292,6 +295,20 @@ void osc2_haptics_outputs(uint8_t link, const struct opensc2_output *out, int n)
 	flush();
 }
 
+void osc2_haptics_library(const struct opensc2_haptic *h, uint8_t n)
+{
+	uint8_t paths;
+
+	if (n == 0) {
+		return;
+	}
+	lock();
+	paths = osc2_hap_rt_clicks(&rt, h, n);
+	unlock();
+	wake(paths);
+	flush();
+}
+
 uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
 			     uint8_t *rlen)
 {
@@ -305,6 +322,7 @@ uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint
 	lock();
 	glue.outputs = (uint8_t)((seqs[0].out || seqs[0].level_fn ? 1u : 0u) |
 				 (seqs[1].out || seqs[1].level_fn ? 2u : 0u));
+	glue.running = (uint8_t)((seqs[0].running ? 1u : 0u) | (seqs[1].running ? 2u : 0u));
 	status = osc2_hap_rt_test_op(&rt, op, args, alen, now_ms(), &glue, result, rlen, &paths,
 				     &scripts);
 	schedule_locked();

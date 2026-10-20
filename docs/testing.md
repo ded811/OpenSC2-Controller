@@ -44,6 +44,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `stream` | W R | the report IDs, the state report cadence (about 248 a second wired), the sequence numbers and every hole explained by the counters; `--soak S` for a long run |
 | `reports` | W R | the haptic stream status `0x44` and raw reports an application sends; on R the puck's exact-length filter |
 | `outputs` | W R | rumble (`0x80`) decoded field by field, the 500 ms rumble timeout, rumble stopped when the link goes down, every haptic report the library decodes (`0x81`..`0x89`, PCM data included), `0x8A` ignored, short reports refused, padded reports equal to exact ones |
+| `haptics` | W R | only on a board built with the haptics synthesiser (`app/haptics.conf`; SKIP on the default image): the CRCs of the blocks it renders for every record of the shared vectors (`tests/vectors/hwtest/haptics.txt`: tones, an LFO, a sweep in antiphase, pulse trains, both clicks, the rumble emulation with its seeded random bursts, settings 76 and 27), `0x81`'s special cases, how long a tone lasts and its blocks' first and last flags, the rumble emulation's generators and gains, a script's steps and the one-script rule, cues at each chime level, a PCM stream's flags (`0x10`, `0x20`, `0x08`, `0x04`, `0x02`, `0x01`, from the ring and as `0x44` reports where the board's reports can be read), a stop emptying its ring, the drop sounds' 250 ms and 5 s, and settings 75 and 76 |
 | `settings` | W R | the LED colour and LED settings, `0x8E` defaults, the clamps of the ranged settings, changes and invalid numbers, the Steam watchdog (lizard mode and the defaults back 10 s after the last `0x81`), its re-arm, no watchdog while setting 71 is 0 |
 | `modes` | W R | a plain reboot, the reboot into wireless (`0x95` with Steam's key), the USB session log, a warm restart, back to wired, the identity equal on both paths (the product name too), back to the mode the board was found in |
 | `wireless` | R | which of the puck's slots carries the board (an injected signature), the puck's link status and link quality reports, the identity sent on connect, reconnecting after `opensc2 stop`/`start`, a lost link (the radio made deaf for 800 ms), the turn-off requests |
@@ -55,8 +56,10 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 
 Because nothing is wired, the board's own inputs read neutral; the inputs come from the test
 channel, and the outputs (rumble, haptics, LED) show up in the hooks' ring, entry by entry, with the
-fields the library decoded. Not covered: the physical inputs and outputs of a board that has them
-(the samples' drivers), the USB cable rules (unplugging, plugging in), Bluetooth and the dock.
+fields the library decoded; with the haptics synthesiser, what it renders, as CRCs of its blocks.
+Not covered: the physical inputs and outputs of a board that has them (the samples' drivers,
+the synthesiser's I2S, PWM and DRV2605 outputs), the USB cable rules (unplugging, plugging in),
+Bluetooth and the dock.
 
 ## What it needs
 
@@ -148,11 +151,12 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 52 host tests (2,209 checks); 79 (4,658 checks) with
+the suite against that emulator. Today that is 77 host tests (6,331 checks); 106 (8,793 checks) with
 the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
-alike; the runner's 207 self-tests; its dry run against the library's own code in a firmware
-emulator; 9 self-tests of `tools/match_steam_version.py`. To run the emulator by hand after
-`run.ps1` built it:
+alike; the runner's 215 self-tests; its dry run against the library's own code in a firmware
+emulator, which has the haptics synthesiser built in (as `app/haptics.conf`), so the `haptics`
+group runs there too; 9 self-tests of `tools/match_steam_version.py`. To run the emulator by hand
+after `run.ps1` built it:
 
 ```powershell
 python -I tools\hwtest\run.py --dry-run --fw-emu $env:TEMP\opensc2_fwemu.exe --lizard

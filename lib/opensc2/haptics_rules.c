@@ -306,6 +306,30 @@ void osc2_hap_actions(const struct opensc2_output *out, int16_t setting27,
 	}
 }
 
+void osc2_hap_library_clicks(const struct opensc2_haptic *h, uint8_t n,
+			     struct osc2_hap_actions *a)
+{
+	memset(a, 0, sizeof(*a));
+	for (uint8_t i = 0; i < n; i++) {
+		uint8_t ch[OSC2_HAP_CHANNELS];
+		uint8_t m;
+
+		if (h[i].kind != OPENSC2_HAPTIC_COMMAND ||
+		    (h[i].command.command != OPENSC2_HAPTIC_CMD_CLICK_A &&
+		     h[i].command.command != OPENSC2_HAPTIC_CMD_CLICK_B)) {
+			continue;
+		}
+		m = order_channels(h[i].channels & (OPENSC2_HAPTIC_LEFT_PAD | OPENSC2_HAPTIC_RIGHT_PAD),
+				   false, ch);
+		for (uint8_t k = 0; k < m; k++) {
+			(void)add_cmd(a, OSC2_HAP_OP_START, ch[k],
+				      h[i].command.command == OPENSC2_HAPTIC_CMD_CLICK_A ?
+				      OSC2_HAP_GEN_CLICK_A : OSC2_HAP_GEN_CLICK_B,
+				      h[i].command.gain_db);
+		}
+	}
+}
+
 /* ---- scripts ---------------------------------------------------------------------------------- */
 
 void osc2_hap_step_cmd(const struct osc2_hap_step *step, uint8_t channel, int8_t gain_db,

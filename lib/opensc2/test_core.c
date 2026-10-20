@@ -626,6 +626,7 @@ struct op_req {
 	struct osc2_test_core *c;
 	const struct osc2_test_env *env;
 	uint8_t link;            /* the transport: radio, USB, or test (the console) */
+	uint8_t op;
 	const uint8_t *args;
 	uint8_t alen;
 	uint8_t *result;
@@ -1014,6 +1015,20 @@ static uint8_t op_radio_deaf(struct op_req *r)
 	return OSC2_TEST_OK;
 }
 
+/* The haptics synthesiser's ops 0x80..0x83, run by the library's synthesiser. */
+static uint8_t op_hap(struct op_req *r)
+{
+	uint8_t rlen = 0;
+	uint8_t status;
+
+	if (!r->env->hap_op) {
+		return OSC2_TEST_BAD_OP;
+	}
+	status = r->env->hap_op(r->op, r->args, r->alen, r->result, &rlen);
+	r->rlen = status == OSC2_TEST_OK && rlen <= OSC2_TEST_RESULT_MAX ? rlen : 0;
+	return status;
+}
+
 typedef uint8_t (*op_fn)(struct op_req *r);
 
 static const struct {
@@ -1044,6 +1059,10 @@ static const struct {
 	{ OSC2_TEST_OP_HOST_GET, 0, 0, false, op_host_get },
 	{ OSC2_TEST_OP_APP_SEND, 1, OSC2_TEST_ARGS_MAX, false, op_app_send },
 	{ OSC2_TEST_OP_RADIO_DEAF, 2, 2, false, op_radio_deaf },
+	{ OSC2_TEST_OP_HAP_RESET, 4, 4, false, op_hap },
+	{ OSC2_TEST_OP_HAP_CAPTURE, 2, 2, false, op_hap },
+	{ OSC2_TEST_OP_HAP_STATUS, 0, 0, false, op_hap },
+	{ OSC2_TEST_OP_HAP_PLAY, 1, 5, false, op_hap },
 };
 
 /* Lengths that depend on the arguments themselves. */
@@ -1080,6 +1099,7 @@ static uint8_t dispatch(struct op_req *r, uint8_t op, bool console)
 		if (console && !op_table[i].unarmed && !r->c->armed) {
 			return OSC2_TEST_NOT_ARMED;
 		}
+		r->op = op;
 		return op_table[i].fn(r);
 	}
 	return OSC2_TEST_BAD_OP;
@@ -1559,6 +1579,10 @@ static const char *kind_name(uint8_t kind)
 	case OSC2_TEST_KIND_VERSION:     return "VERSION";
 	case OSC2_TEST_KIND_IDENTITY:    return "IDENTITY";
 	case OSC2_TEST_KIND_CHANNELS:    return "CHANNELS";
+	case OSC2_TEST_KIND_HAP_GEN:     return "HAP_GEN";
+	case OSC2_TEST_KIND_HAP_BLOCK:   return "HAP_BLOCK";
+	case OSC2_TEST_KIND_HAP_STREAM:  return "HAP_STREAM";
+	case OSC2_TEST_KIND_HAP_SCRIPT:  return "HAP_SCRIPT";
 	default:                         return NULL;
 	}
 }
@@ -1725,6 +1749,41 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 		if (n >= 4) {
 			add(out, size, at, " channels=%u,%u,%u,%u", (unsigned int)d[0],
 			    (unsigned int)d[1], (unsigned int)d[2], (unsigned int)d[3]);
+			return;
+		}
+		break;
+	case OSC2_TEST_KIND_HAP_GEN:
+		if (n >= 12) {
+			add(out, size, at, " ch=%u type=%u what=%u gain=%d p=%u,%u,%u,%u",
+			    (unsigned int)d[0], (unsigned int)d[1], (unsigned int)d[2],
+			    (int)(int8_t)d[3], (unsigned int)opensc2_get_le16(&d[4]),
+			    (unsigned int)opensc2_get_le16(&d[6]), (unsigned int)opensc2_get_le16(&d[8]),
+			    (unsigned int)opensc2_get_le16(&d[10]));
+			return;
+		}
+		break;
+	case OSC2_TEST_KIND_HAP_BLOCK:
+		if (n >= 12) {
+			add(out, size, at, " path=%u index=%lu crc=%08lx peak=%u flags=%u",
+			    (unsigned int)d[0], (unsigned long)opensc2_get_le32(&d[1]),
+			    (unsigned long)opensc2_get_le32(&d[5]), (unsigned int)opensc2_get_le16(&d[9]),
+			    (unsigned int)d[11]);
+			return;
+		}
+		break;
+	case OSC2_TEST_KIND_HAP_STREAM:
+		if (n >= 8) {
+			add(out, size, at, " ch=%u what=%u fill=%u flags=0x%lx", (unsigned int)d[0],
+			    (unsigned int)d[1], (unsigned int)opensc2_get_le16(&d[2]),
+			    (unsigned long)opensc2_get_le32(&d[4]));
+			return;
+		}
+		break;
+	case OSC2_TEST_KIND_HAP_SCRIPT:
+		if (n >= 6) {
+			add(out, size, at, " what=%u ch=%u id=%u gain=%d extra=%u", (unsigned int)d[0],
+			    (unsigned int)d[1], (unsigned int)d[2], (int)(int8_t)d[3],
+			    (unsigned int)opensc2_get_le16(&d[4]));
 			return;
 		}
 		break;

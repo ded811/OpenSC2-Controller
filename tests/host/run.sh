@@ -24,17 +24,20 @@ compile() {
 		"$lib/settings_defaults.c" "$lib/fusion.c" "$lib/usb_desc.c" "$lib/usb_rules.c" \
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
 		"$lib/report_rules.c" "$lib/test_core.c" "$lib/haptics_dsp.c" "$lib/haptics_tables.c" \
-		"$lib/haptics_core.c" "$lib/haptics_rules.c" "$lib/haptics_sounds.c" "$@" -lm
+		"$lib/haptics_core.c" "$lib/haptics_rules.c" "$lib/haptics_sounds.c" \
+		"$lib/haptics_run.c" "$lib/haptics_help.c" "$@" -lm
 }
 
 compile "$here/run_tests.c" -o "$out/opensc2_host_tests_plain"
 compile "$here/run_tests.c" -DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=512 \
 	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$here/hooks_stub.c" \
 	-o "$out/opensc2_host_tests_hooks"
-# the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
+# the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps), and the haptics
+# synthesiser as app/haptics.conf has it
 compile "$here/fwemu.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_TEST_HOOKS=1 \
 	-DCONFIG_OPENSC2_TEST_RING_SIZE=2048 -DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 \
-	"$lib/test_notes.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
+	-DCONFIG_OPENSC2_HAPTICS_SYNTH=1 "$lib/test_notes.c" "$here/hooks_stub.c" \
+	"$here/haptics_emu.c" -o "$out/opensc2_fwemu"
 
 rc=0
 "$out/opensc2_host_tests_plain" --vectors "$root/tests/vectors/hwtest" \

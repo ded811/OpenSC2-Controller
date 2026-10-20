@@ -207,6 +207,22 @@ uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, const struct opensc2_output *ou
 	return wake;
 }
 
+uint8_t osc2_hap_rt_clicks(struct osc2_hap_rt *rt, const struct opensc2_haptic *h, uint8_t n)
+{
+	struct osc2_hap_actions a;
+	uint8_t wake = 0;
+
+	sync(rt);
+	osc2_hap_library_clicks(h, n, &a);
+	for (uint8_t i = 0; i < a.n_cmd; i++) {
+		if (osc2_hap_queue(&rt->engine, &a.cmd[i])) {
+			wake |= path_bit(a.cmd[i].channel);
+		}
+	}
+	drain(rt, OSC2_HAP_PADS);
+	return wake;
+}
+
 uint8_t osc2_hap_rt_script(struct osc2_hap_rt *rt, uint8_t channels, uint8_t id, int8_t gain_db,
 			   uint32_t now_ms)
 {
@@ -403,10 +419,9 @@ static uint8_t play(struct osc2_hap_rt *rt, const uint8_t *args, uint8_t alen, u
 		if (alen != 2) {
 			return 2;
 		}
-		rt->forced_random = args[1];
 		*rc = osc2_hap_rt_fall(rt, now_ms) ? 1 : 0;
-		if (*rc == 0) {
-			rt->forced_random = -1;
+		if (*rc) {
+			rt->forced_random = args[1];   /* the byte this fall's sound will use */
 		}
 		*schedule = true;
 		return 0;
@@ -456,6 +471,7 @@ static void status(const struct osc2_hap_rt *rt, const struct osc2_hap_rt_glue *
 	}
 	out[5] = players;
 	out[6] = rt->drop.state;
+	out[7] = glue->running;
 	put32(&out[8], h->seq[OSC2_HAP_PADS].blocks);
 	put32(&out[12], h->seq[OSC2_HAP_GRIPS].blocks);
 	put16(&out[16], (uint16_t)rt->underruns[OSC2_HAP_PADS]);

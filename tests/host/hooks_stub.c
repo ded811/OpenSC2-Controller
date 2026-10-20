@@ -10,6 +10,7 @@
  */
 #include <string.h>
 #include "internal.h"
+#include "haptics_glue.h"
 #include "stubs.h"
 #include "hooks_stub.h"
 
@@ -141,6 +142,9 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	caps->mode = osc2_wired() ? 1 : 0;
 	caps->build_flags = OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO | OSC2_TEST_FLAG_LIZARD_MODE |
 			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB;
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+	caps->build_flags |= OSC2_TEST_FLAG_HAPTICS_SYNTH;   /* the firmware emulator has it */
+#endif
 	caps->battery_interval_ms = 3500;
 	caps->rumble_timeout_ms = 500;
 	caps->report_delay_us = 2000;
@@ -310,6 +314,15 @@ static void env_lizard_resync(void)
 	osc2_test_note_lizard(OSC2_TEST_LIZARD_RESYNC);
 }
 
+/* The haptics synthesiser's ops: the firmware emulator's (tests/host/haptics_emu.c), BAD_OP in the
+ * host tests, which have no synthesiser around the hooks. */
+static uint8_t env_hap_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
+			  uint8_t *rlen)
+{
+	library_call();
+	return osc2_haptics_test_op(op, args, alen, result, rlen);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -338,4 +351,5 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+	.hap_op = env_hap_op,
 };

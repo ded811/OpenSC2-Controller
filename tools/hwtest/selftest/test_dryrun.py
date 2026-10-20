@@ -588,6 +588,7 @@ class FwEmu(unittest.TestCase):
                       if t.status == PASS}
             for label in ("inputs.buttons@W", "inputs.buttons@R", "battery.values@R",
                           "outputs.rumble@R", "settings.watchdog@W", "hooks.lease@R",
+                          "haptics.vectors@W", "haptics.vectors@R", "haptics.pcm@W",
                           "restore.as_found@" + start):
                 self.assertIn(label, passed, start)
             if extra.get("lizard"):

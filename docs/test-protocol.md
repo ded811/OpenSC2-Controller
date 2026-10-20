@@ -71,6 +71,10 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x42` | HOST_GET | | opcode u8, n u8, flags u8 (bit 0 masked, bit 1 cut), then the first min(n, 54) answer bytes, or for a masked answer the CRC-32 of its n bytes | a vendor GET on the test link; masked: `0xED` of `esb/bond` or `esb/bond_2`, `0xAE` tags 0, 1 and 4, `0xF2` selector 0, `0xA1` selector 1 |
 | `0x43` | APP_SEND | kind u8; kind 0: an input report, ID first, 1..53 bytes; kind 1: channel u8, flags u32 | result s32 | as the application would (`opensc2_send_report()`, `opensc2_send_haptic_status()`), through the guard like every report; DENIED for a `0x42` |
 | `0x44` | RADIO_DEAF | ms u16 (100..5000) | | the radio hears nothing that long, so the link times out the normal way; BUSY while one is pending, NO_LINK unless wireless and connected |
+| `0x80` | HAP_RESET | seed u32 | | the haptics synthesiser (below): everything stops at once, the queues and stream rings empty, the formats forgotten, the scripts and the drop sounds idle, captures off, the rumble's random burst gains restarted from the seed (5323 = `0x14CB` at boot) |
+| `0x81` | HAP_CAPTURE | path u8 (0 pads, 1 grips, 2 both), blocks u8 (0 stops) | | a `HAP_BLOCK` entry for each of the next blocks the path renders; BAD_ARG for a path above 2 |
+| `0x82` | HAP_STATUS | | status, 38 bytes (below) | |
+| `0x83` | HAP_PLAY | what u8; 0 cue: cue u8, level u8; 1 click: channels u8, click u8 (1 A, 2 B), gain s8; 2 script: channels u8, id u8, gain s8; 3 free fall: the random byte its drop sound will use u8; 4 stop: channels u8 | result s32 | the synthesiser's own sounds, as the application or the library would play them: the grips a cue started on (-1: it plays nothing at that level), the channels queued or started, 1 when a free fall was taken (0: not armed); BAD_ARG for another `what` |
 
 The **test link** is a third command link of the library with a stored request of its own, used only
 by `HOST_SET` and `HOST_GET`, so emulating a host on the board never disturbs the stored request of
@@ -88,7 +92,8 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 (bit 0 `TRIGGER_CLICK_AUTO`, 1 `LIZARD_MODE`, 2 `STEAM_WATCHDOG`, 3 `USB`, 4 `USB_PROFILE_OCTOBER`,
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
-`NO_HOST_WIRELESS_MS` not 0, the charger test build); 6 battery report interval ms u16; 8 rumble
+`NO_HOST_WIRELESS_MS` not 0, the charger test build; 19 `HAPTICS_SYNTH`, the haptics synthesiser);
+6 battery report interval ms u16; 8 rumble
 timeout ms u16; 10 ring size u16; 12 sequence depth; 13 counters (27); 14 radio report delay µs u16;
 16 the lease in effect s u16; 18 the stored mode policy (0 auto, 1 wireless); 19 zero; 20 the git
 revision, 12 bytes NUL padded; 32 the CRC-32 of the identity's product name u32 (the name itself
@@ -101,6 +106,20 @@ mode; 2 mode reason; 3 link state; 4 USB state; 5 bond slot (0 or 1); 6 the last
 reason; 7 the sequence byte of the last state report; 8 nonce u32; 12 uptime ms u32; 16 the ring's
 first u32; 20 next u32; 24 frames since ARM u32; 28 the step in use (`0xFF` idle); 29 steps loaded;
 30 frames left in the step u16.
+
+**The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, caps bit 19; without it the ops
+`0x80`..`0x83` answer BAD_OP once their length is right). Its ring entries (`0x60`..`0x63`, link 3)
+record what its threads, its script players and the stream writes did, while armed. Its blocks are
+rendered in integers, so a block is bit for bit the same on the board and on a PC: the CRCs of
+`HAP_BLOCK` are compared with the shared vectors in `tests/vectors/hwtest/haptics.txt`. HAP_STATUS
+(38 bytes): 0 features (bit 0 the drop sounds built); 1 bit per path where something plays (bit 0
+pads, 1 grips); 2 bit per path with an output of the application's; 3 the amplifier mode (setting
+75); 4 the master gain s8 (setting 76); 5 bit per channel whose script player runs; 6 the drop
+sounds' state (0 armed, 1 a fall seen, 2 waiting for the re-arm); 7 bit per path whose thread plays
+or drains; 8 blocks rendered u32 (pads), 12 (grips); 16 underruns u16 (pads), 18 (grips); 20 commands
+lost to a full queue u16; 22 the generators running on each channel, a bit per type (u8 × 4); 26
+the bytes in each channel's stream ring (u16 × 4); 34 each channel's stream format (u8 × 4, `0xFF`
+none).
 
 ## The ring
 
@@ -134,6 +153,10 @@ causes, 3 none: work queue events such as the rumble timeout or the Steam watchd
 | `0x22` | VERSION | the protocol version answered |
 | `0x23` | IDENTITY | product ID u16, build time u32, bootloader build time u32, revision u32, git revision 12 bytes (never the serials) |
 | `0x24` | CHANNELS | the four channel bytes of `0xE4` |
+| `0x60` | HAP_GEN | channel u8 (0 left pad, 1 right pad, 2 left grip, 3 right grip), generator type u8 (0 click A, 1 click B, 2 pulse train, 3 tone, 4 rumble, 5 sweep, 6 stream, 7 clip), what u8 (1 started, 2 stopped by a command, 3 ended, 4 refused by the sequencer, 5 lost to a full queue, 6 ignored: nothing to play), gain s8, then four u16 by type: pulse on µs, off µs, count, 0; tone Hz, ms, LFO in 0.01 Hz, depth (bit 15: started inverted); rumble Hz, ms, burst rate in 0.01 Hz, bit 15 inverted; sweep start Hz, end Hz, ms, bit 15 inverted; clicks and clips samples, format |
+| `0x61` | HAP_BLOCK | path u8, block index u32 (0: the first after the path was idle), CRC-32 u32 of the block's bytes (pads 64, grips 256, little endian), peak u16 (the largest sample, 32767 full scale), flags u8 (bit 0 the first block, with its 4 ms lead-in; bit 1 nothing plays after it) |
+| `0x62` | HAP_STREAM | channel u8, what u8 (1 a start queued, 2 started, 3 ran dry, 4 emptied by a stop, 5 a format command answered, 6 a write, 7 a `0x44` sent), fill u16 (bytes in the ring), flags u32 (the `0x44` flags of what) |
+| `0x63` | HAP_SCRIPT | what u8 (1 started, 2 refused, 3 a step ran, 4 done, 5 a cue, 6 a free fall, 7 the drop sound due, 8 re-armed), channel u8 (a cue: the level), id u8 (a cue: the cue), gain s8, extra u16 (a step: its index; a cue: its script, 0 none; a free fall: 1 taken, 0 not; the drop sound: the random byte) |
 
 The CRC-32 is the common one (`osc2_crc32(0, ...)`, as Python's `binascii.crc32`).
 

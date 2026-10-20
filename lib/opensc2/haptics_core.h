@@ -299,7 +299,7 @@ uint16_t osc2_hap_water_mark(uint8_t format);
 uint16_t osc2_hap_start_threshold(uint8_t path, uint8_t format);
 
 /* A command's parameters as the four u16 of a GEN event (and of the test hooks' ring entry):
- * pulse on us, off us, count, period samples; tone Hz, ms, LFO cHz, depth (bit 15 inverted);
+ * pulse on us, off us, count; tone Hz, ms, LFO cHz, depth (bit 15 inverted);
  * rumble Hz, ms, burst cHz, bit 15 inverted; sweep start Hz, end Hz, ms, bit 15 inverted; clicks
  * and clips samples, format. */
 void osc2_hap_cmd_params(const struct osc2_hap_cmd *cmd, uint16_t p[4]);

@@ -80,6 +80,10 @@ void osc2_hap_rt_init(struct osc2_hap_rt *rt);
 uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, const struct opensc2_output *out, int n,
 			 int16_t setting27, uint32_t now_ms);
 
+/* Clicks the library makes itself (lizard mode's ticks and pad presses,
+ * osc2_hap_library_clicks()): returns the paths that got commands. */
+uint8_t osc2_hap_rt_clicks(struct osc2_hap_rt *rt, const struct opensc2_haptic *h, uint8_t n);
+
 /* The scripts and drop sounds due at `now_ms`; `random8` is the system's random byte for a drop
  * (when the test hooks forced none). Returns the paths that got commands. */
 uint8_t osc2_hap_rt_poll(struct osc2_hap_rt *rt, uint32_t now_ms, uint8_t random8);
@@ -136,6 +140,7 @@ struct osc2_hap_rt_glue {
 	uint8_t outputs;                 /* bit per path: an application output is set */
 	uint8_t amp_mode;                /* controller setting 75 */
 	uint8_t features;                /* bit 0: drop sounds built */
+	uint8_t running;                 /* bit per path: its thread plays or drains */
 };
 
 /* Run one op; returns the test channel's status (0 OK, 1 BAD_OP, 2 BAD_LEN, 4 BAD_ARG) and fills

@@ -3,15 +3,18 @@
  * SPDX-License-Identifier: MIT
  *
  * Host tests only, in both binaries: the haptics synthesiser's pure parts (haptics_dsp.c,
- * haptics_core.c, haptics_rules.c, haptics_sounds.c), measured on rendered samples: frequencies,
+ * haptics_core.c, haptics_rules.c, haptics_sounds.c, haptics_run.c, haptics_help.c), measured on
+ * rendered samples: frequencies,
  * envelopes, gains, mixing, the 0x81 special cases, the rumble emulation, the PCM rings and their
  * 0x44 flags, the scripts, the cues and the drop sounds; and the shared vectors of rendered blocks
  * (tests/vectors/hwtest/haptics.txt), which the hardware test suite compares with the board's.
  * Included after vectors_cases.h (it uses its line reader).
  */
 #include <opensc2/codec.h>
+#include <opensc2/haptics.h>
 #include "haptics_core.h"
 #include "haptics_rules.h"
+#include "haptics_run.h"
 #include "retained.h"
 
 /* ---- helpers ---------------------------------------------------------------------------------- */
@@ -698,6 +701,35 @@ OPENSC2_TEST(haptics_report_cases)
 	CHECK_EQ(a.script[0].gain_db, -10);
 }
 
+OPENSC2_TEST(haptics_library_clicks)
+{
+	/* lizard mode's events: a tick (click A, +8 dB) on the left pad, a press (click B, +6 dB) on
+	 * the right one, each at its gain as given; anything else plays nothing */
+	struct opensc2_haptic h[3];
+	struct osc2_hap_actions a;
+
+	memset(h, 0, sizeof(h));
+	h[0].kind = OPENSC2_HAPTIC_COMMAND;
+	h[0].channels = OPENSC2_HAPTIC_LEFT_PAD;
+	h[0].command.command = OPENSC2_HAPTIC_CMD_CLICK_A;
+	h[0].command.gain_db = 8;
+	h[1] = h[0];
+	h[1].channels = OPENSC2_HAPTIC_RIGHT_PAD | OPENSC2_HAPTIC_LEFT_GRIP;   /* grips: not here */
+	h[1].command.command = OPENSC2_HAPTIC_CMD_CLICK_B;
+	h[1].command.gain_db = 6;
+	h[2] = h[0];
+	h[2].command.command = OPENSC2_HAPTIC_CMD_STOP_ALL;
+	osc2_hap_library_clicks(h, 3, &a);
+	CHECK_EQ(a.n_cmd, 2);
+	CHECK_EQ(a.cmd[0].channel, OSC2_HAP_CH_LEFT_PAD);
+	CHECK_EQ(a.cmd[0].type, OSC2_HAP_GEN_CLICK_A);
+	CHECK_EQ(a.cmd[0].gain_db, 8);                 /* not 8 + 6 as for 0x82 */
+	CHECK_EQ(a.cmd[1].channel, OSC2_HAP_CH_RIGHT_PAD);
+	CHECK_EQ(a.cmd[1].type, OSC2_HAP_GEN_CLICK_B);
+	CHECK_EQ(a.cmd[1].gain_db, 6);
+	CHECK_EQ(a.n_write + a.n_script, 0);
+}
+
 OPENSC2_TEST(haptics_queue_limits)
 {
 	struct osc2_hap_cmd c = hap_tone(OSC2_HAP_CH_LEFT_GRIP, 0, 100, 10, 0, 0);
@@ -1079,7 +1111,8 @@ OPENSC2_TEST(haptics_drop)
  *   RENDER <name> PATH <0|1> SEED <hex> MASTER <dB> S27 <dB> BLOCKS <n> OUT <report hex> CRC <hex>...
  * From a fresh engine: the rumble seed, the master gain (setting 76), setting 27, the report
  * decoded and its commands queued, `n` blocks of PATH rendered (the first with the lead-in), each
- * block's CRC-32. */
+ * block's CRC-32. Something must still play before each block: the board's sequencer stops
+ * rendering after the block in which the last sound ended. */
 
 static const char *const builtin_haptics[] = {
 	"RENDER tone200 PATH 1 SEED 14cb MASTER -3 S27 -10 BLOCKS 3 OUT 8303fac8006400000000 "
@@ -1141,6 +1174,8 @@ static void haptics_line(char *tok[], int n, void *ctx)
 		uint32_t crc;
 
 		osc2_hap_apply(&hap, path);
+		/* The board's sequencer renders only while something plays: no block past the end. */
+		CHECK(osc2_hap_busy(&hap, path));
 		bytes = osc2_hap_render(&hap, path, b == 0, block);
 		crc = osc2_crc32(0, block, bytes);
 		at += (size_t)snprintf(&got[at], sizeof(got) - at, " %08lx", (unsigned long)crc);
@@ -1159,4 +1194,232 @@ OPENSC2_TEST(haptics_vectors)
 	vec_run_builtin(builtin_haptics, sizeof(builtin_haptics) / sizeof(builtin_haptics[0]),
 			haptics_line, NULL);
 	(void)vec_run_file("haptics.txt", haptics_line, NULL);
+}
+
+/* ---- haptics_run.c: the synthesiser around its engine ------------------------------------------ */
+
+static struct osc2_hap_rt hrt;
+
+static int hrt_items(uint8_t what, uint8_t kind, struct osc2_hap_out_item *out, int max)
+{
+	struct osc2_hap_out_item it[OSC2_HAP_OUTBOX];
+	uint8_t n = osc2_hap_rt_take(&hrt, it, OSC2_HAP_OUTBOX);
+	int found = 0;
+
+	for (uint8_t i = 0; i < n; i++) {
+		if (it[i].what == what && (kind == 0 || it[i].kind == kind)) {
+			if (found < max) {
+				out[found] = it[i];
+			}
+			found++;
+		}
+	}
+	return found;
+}
+
+static uint8_t hrt_feed(const uint8_t *report, size_t len, uint32_t now)
+{
+	struct opensc2_output o[2];
+	int n = opensc2_decode_output(report, len, o);
+
+	CHECK(n >= 1);
+	return osc2_hap_rt_feed(&hrt, o, n, -10, now);
+}
+
+OPENSC2_TEST(haptics_run_feed_and_capture)
+{
+	static const uint8_t tone[10] = { 0x83, 3, 0xFA, 200, 0, 100, 0, 0, 0, 0 };
+	uint8_t block[OSC2_HAP_BLOCK_MAX_BYTES], args[2] = { OSC2_HAP_GRIPS, 2 };
+	uint8_t result[OSC2_HAP_STATUS_LEN], rlen, wake;
+	struct osc2_hap_rt_glue glue = { 0 };
+	struct osc2_hap_out_item it[8];
+	bool busy, schedule;
+	size_t bytes;
+
+	osc2_hap_rt_init(&hrt);
+	hrt.notes = true;
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, OSC2_HAP_OP_CAPTURE, args, 2, 0, &glue, result, &rlen,
+				     &wake, &schedule), 0);
+	CHECK_EQ(hrt_feed(tone, sizeof(tone), 0), 2);              /* the grips have work */
+	CHECK(osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS));            /* applied: it plays */
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_GEN, it, 8), 1);
+	CHECK_EQ(it[0].data[0], OSC2_HAP_CH_LEFT_GRIP);
+	CHECK_EQ(it[0].data[1], OSC2_HAP_GEN_TONE);
+	CHECK_EQ(it[0].data[2], OSC2_HAP_GEN_EV_START);
+	CHECK_EQ((int8_t)it[0].data[3], -6);
+	CHECK_EQ(opensc2_get_le16(&it[0].data[4]), 200);
+	bytes = osc2_hap_rt_block(&hrt, OSC2_HAP_GRIPS, true, block, &busy);
+	CHECK_EQ(bytes, 256);
+	CHECK(busy);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_BLOCK, it, 8), 1);
+	CHECK_EQ(it[0].len, 12);
+	CHECK_EQ(it[0].data[0], OSC2_HAP_GRIPS);
+	CHECK_EQ(opensc2_get_le32(&it[0].data[1]), 0);                          /* index */
+	CHECK_EQ(opensc2_get_le32(&it[0].data[5]), osc2_crc32(0, block, bytes));
+	CHECK_EQ(opensc2_get_le16(&it[0].data[9]), osc2_hap_block_peak(OSC2_HAP_GRIPS, block));
+	CHECK_EQ(it[0].data[11], OSC2_HAP_BLOCK_FIRST);
+	(void)osc2_hap_rt_block(&hrt, OSC2_HAP_GRIPS, false, block, &busy);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_BLOCK, it, 8), 1);
+	CHECK_EQ(opensc2_get_le32(&it[0].data[1]), 1);
+	(void)osc2_hap_rt_block(&hrt, OSC2_HAP_GRIPS, false, block, &busy);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_BLOCK, it, 8), 0);   /* two captured */
+	/* without the hooks armed nothing is noted; the statuses still go out */
+	hrt.notes = false;
+	{
+		static const uint8_t fmt[4] = { 0x86, 2, 0, 1 };   /* s16le at 4 kHz, the left grip */
+
+		CHECK_EQ(hrt_feed(fmt, sizeof(fmt), 0), 2);
+		CHECK(osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS));
+		CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 1);
+		CHECK_EQ(it[0].data[0], 0);                  /* the left grip's id */
+		CHECK_EQ(opensc2_get_le32(&it[0].data[1]), OSC2_HAP_FLAG_FORMAT);
+	}
+}
+
+OPENSC2_TEST(haptics_run_stream_writes)
+{
+	uint8_t report[64] = { 0x87, 0 };   /* the left grip */
+	struct osc2_hap_out_item it[8];
+	static const uint8_t fmt[4] = { 0x86, 2, 0, 0 };   /* s16le at 8 kHz */
+	uint8_t wake = 0;
+
+	osc2_hap_rt_init(&hrt);
+	CHECK_EQ(hrt_feed(fmt, sizeof(fmt), 0), 2);
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS);
+	(void)hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8);
+	/* 62 bytes a report: the fifth leaves 202 free (< 256), 0x08 at once, and with 248 held
+	 * before it starts nothing; the sixth, with 310 held before it, queues the start */
+	for (int i = 0; i < 4; i++) {
+		wake |= hrt_feed(report, sizeof(report), 0);
+	}
+	CHECK_EQ(wake, 0);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 0);
+	CHECK_EQ(hrt_feed(report, sizeof(report), 0), 0);         /* 248 held before: not > 256 */
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 1);
+	CHECK_EQ(opensc2_get_le32(&it[0].data[1]), OSC2_HAP_FLAG_HIGH);
+	CHECK_EQ(hrt_feed(report, sizeof(report), 0), 2);         /* 310 held: the start, queued */
+	CHECK(osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS));
+}
+
+OPENSC2_TEST(haptics_run_scripts_cues_drops)
+{
+	struct osc2_hap_out_item it[16];
+	struct osc2_hap_rt_glue glue = { .features = 1, .amp_mode = 1, .outputs = 2 };
+	uint8_t result[OSC2_HAP_STATUS_LEN], rlen, wake;
+	uint8_t play_cue[3] = { OSC2_HAP_PLAY_CUE, 0, 2 }, fall[2] = { OSC2_HAP_PLAY_FALL, 40 };
+	uint8_t seed[4] = { 0x78, 0x56, 0x34, 0x12 };
+	bool schedule;
+	uint32_t t = 5000;
+
+	osc2_hap_rt_init(&hrt);
+	hrt.notes = true;
+	/* cue 0 at level 2: script 1 on both grips at -12 dB */
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, OSC2_HAP_OP_PLAY, play_cue, 3, t, &glue, result, &rlen,
+				     &wake, &schedule), 0);
+	CHECK_EQ(rlen, 4);
+	CHECK_EQ((int32_t)opensc2_get_le32(result), 2);
+	CHECK(schedule);
+	CHECK_EQ(osc2_hap_rt_next(&hrt, t), 1);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_SCRIPT, it, 16), 3);   /* cue, 2 starts */
+	CHECK_EQ(it[0].data[0], OSC2_HAP_SCRIPT_EV_CUE);
+	CHECK_EQ(it[0].data[2], 0);
+	CHECK_EQ((int8_t)it[0].data[3], -12);
+	CHECK_EQ(opensc2_get_le16(&it[0].data[4]), 1);
+	CHECK_EQ(it[1].data[0], OSC2_HAP_SCRIPT_EV_START);
+	CHECK_EQ(it[1].data[1], OSC2_HAP_CH_LEFT_GRIP);
+	CHECK_EQ(it[2].data[1], OSC2_HAP_CH_RIGHT_GRIP);
+	/* again while it runs: both grips refuse */
+	CHECK_EQ(osc2_hap_rt_cue(&hrt, 3, 2, t), 0);
+	CHECK_EQ(osc2_hap_rt_poll(&hrt, t + 1, 0), 2);            /* the first steps, the grips */
+	CHECK(osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS));
+	/* a silent level plays nothing */
+	CHECK_EQ(osc2_hap_rt_cue(&hrt, 0, 0, t), -1);
+	/* the status */
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, OSC2_HAP_OP_STATUS, NULL, 0, t, &glue, result, &rlen,
+				     &wake, &schedule), 0);
+	CHECK_EQ(rlen, OSC2_HAP_STATUS_LEN);
+	CHECK_EQ(result[0], 1);
+	CHECK_EQ(result[1], 2);                                    /* the grips play */
+	CHECK_EQ(result[2], 2);
+	CHECK_EQ(result[3], 1);
+	CHECK_EQ((int8_t)result[4], -3);
+	CHECK_EQ(result[5], 0x0C);                                 /* both grips' players */
+	CHECK_EQ(result[22 + OSC2_HAP_CH_LEFT_GRIP], 1u << OSC2_HAP_GEN_SWEEP);
+	CHECK_EQ(result[34], 0xFF);                                /* no format */
+	/* the reset stops everything, reseeds, frees the players */
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, OSC2_HAP_OP_RESET, seed, 4, t, &glue, result, &rlen,
+				     &wake, &schedule), 0);
+	CHECK_EQ(hrt.engine.lcg, 0x12345678u);
+	CHECK(!osc2_hap_busy(&hrt.engine, OSC2_HAP_GRIPS));
+	CHECK(!hrt.player[OSC2_HAP_CH_LEFT_GRIP].busy);
+	CHECK_EQ(osc2_hap_rt_next(&hrt, t), -1);
+	/* a free fall with a forced byte (40: drop sound 1), 250 ms later on the left grip */
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, OSC2_HAP_OP_PLAY, fall, 2, t, &glue, result, &rlen,
+				     &wake, &schedule), 0);
+	CHECK_EQ((int32_t)opensc2_get_le32(result), 1);
+	CHECK_EQ(osc2_hap_rt_next(&hrt, t), 250);
+	(void)hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_SCRIPT, it, 16);
+	CHECK_EQ(osc2_hap_rt_poll(&hrt, t + 250, 0xFF), 0);       /* the forced byte, not 0xFF */
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_SCRIPT, it, 16), 2);
+	CHECK_EQ(it[0].data[0], OSC2_HAP_SCRIPT_EV_DROP);
+	CHECK_EQ(it[0].data[2], 16);
+	CHECK_EQ(opensc2_get_le16(&it[0].data[4]), 40);
+	CHECK_EQ(it[1].data[0], OSC2_HAP_SCRIPT_EV_START);
+	CHECK_EQ(it[1].data[1], OSC2_HAP_CH_LEFT_GRIP);
+	CHECK_EQ(it[1].data[2], 16);
+	/* a second fall before the re-arm is ignored; at 5 s falls count again */
+	CHECK(!osc2_hap_rt_fall(&hrt, t + 1000));
+	CHECK_EQ(osc2_hap_rt_poll(&hrt, t + 1001, 0) & 2, 2);     /* the drop sound's steps */
+	for (uint32_t ms = t + 1002; ms <= t + 5000; ms++) {
+		(void)osc2_hap_rt_poll(&hrt, ms, 0);
+	}
+	CHECK(osc2_hap_rt_fall(&hrt, t + 5001));
+	/* the system's byte when none is forced: 200 plays nothing */
+	(void)hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_SCRIPT, it, 16);
+	(void)osc2_hap_rt_poll(&hrt, t + 5251, 200);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_NOTE, OSC2_HAP_RING_SCRIPT, it, 16), 1);
+	CHECK_EQ(it[0].data[2], 0);
+	/* bad requests */
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, OSC2_HAP_OP_PLAY, play_cue, 2, t, &glue, result, &rlen,
+				     &wake, &schedule), 2);
+	play_cue[0] = 9;
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, OSC2_HAP_OP_PLAY, play_cue, 3, t, &glue, result, &rlen,
+				     &wake, &schedule), 4);
+	CHECK_EQ(osc2_hap_rt_test_op(&hrt, 0x84, NULL, 0, t, &glue, result, &rlen, &wake,
+				     &schedule), 1);
+}
+
+OPENSC2_TEST(haptics_helpers)
+{
+	struct opensc2_freefall ff;
+	int16_t still[3] = { 0, 0, 16384 }, falling[3] = { 300, -200, 500 };
+	uint8_t pads[64], grips[256];
+	bool fell = false;
+
+	/* a block's level: the louder channel's peak, 0..255 */
+	memset(pads, 128, sizeof(pads));
+	CHECK_EQ(opensc2_haptics_block_level(OPENSC2_HAPTICS_PADS, pads, 32), 0);
+	pads[5] = 255;
+	CHECK_EQ(opensc2_haptics_block_level(OPENSC2_HAPTICS_PADS, pads, 32), 255);
+	memset(grips, 0, sizeof(grips));
+	grips[10] = 0x00;
+	grips[11] = 0xC0;                       /* -16384 */
+	CHECK_EQ(opensc2_haptics_block_level(OPENSC2_HAPTICS_GRIPS, grips, 64), 127);
+	/* the free-fall detector: 150 ms below 0.35 g, once, then above 0.6 g again */
+	opensc2_freefall_init(&ff);
+	CHECK(!opensc2_freefall_update(&ff, still, 0));
+	for (uint32_t t = 10; t <= 300; t += 10) {
+		bool f = opensc2_freefall_update(&ff, falling, t);
+
+		CHECK(!(f && fell));                 /* only once */
+		if (f) {
+			CHECK_EQ(t, 160);               /* the first low sample at 10 ms, + 150 ms */
+		}
+		fell |= f;
+	}
+	CHECK(fell);
+	CHECK(!opensc2_freefall_update(&ff, falling, 400));
+	CHECK(!opensc2_freefall_update(&ff, still, 410));    /* landed: armed again */
+	CHECK(!opensc2_freefall_update(&ff, falling, 420));
+	CHECK(opensc2_freefall_update(&ff, falling, 570));
 }

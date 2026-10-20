@@ -16,7 +16,9 @@
  * here the way report.c, core.c and radio.c do it, in a few lines each: the order of lizard mode's
  * reports, the frame and battery cadence, the Steam watchdog's expiry, the rumble timeout, the
  * radio link (connected, or off after "opensc2 stop" or a turn-off), reboots, and the reports the
- * application sends. Not here: USB descriptors, the radio protocol, the other shell commands.
+ * application sends. Built with CONFIG_OPENSC2_HAPTICS_SYNTH (run.ps1, run.sh), the haptics
+ * synthesiser runs on the emulator's clock too (haptics_emu.c), as app/haptics.conf has it. Not
+ * here: USB descriptors, the radio protocol, the other shell commands.
  *
  * One command per line; every reply ends with a line ".":
  *   BOOT W|R            boot wired or wireless (the hooks unarmed, every setting at its default)
@@ -41,10 +43,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "internal.h"
+#include "haptics_glue.h"
 #include "lizard.h"
 #include "report_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+#include "haptics_emu.h"
+#endif
 
 #define FRAME_US       4028u     /* the USB report interval, 4.0283 ms */
 #define BATTERY_US     3500000u  /* CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS */
@@ -117,6 +123,16 @@ static int input_send(const uint8_t *report, size_t len)
 	enqueue(report, len);
 	return 0;
 }
+
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+/* The synthesiser's 0x44 reports: opensc2_send_haptic_status(), as the application's. */
+void fwemu_send(const uint8_t *report, size_t len)
+{
+	if (input_send(report, len) == 0) {
+		osc2_test_count(OSC2_TEST_CNT_APP_REPORTS_SENT);
+	}
+}
+#endif
 
 /* ---- lizard mode, in report.c's order ------------------------------------------------------- */
 
@@ -338,6 +354,9 @@ static void advance_us(uint64_t us)
 		now_us += step;
 		set_clock();
 		deadlines();
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+		haptics_emu_tick(now_us - boot_us);
+#endif
 		if (power_pending && now_us >= power_due_us) {
 			power_now();
 		}
@@ -406,6 +425,9 @@ static void boot(bool to_wireless)
 	watchdog_due_us = now_us + WATCHDOG_US;
 	next_battery_us = now_us + BATTERY_US;
 	set_clock();
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+	haptics_emu_boot(0);
+#endif
 }
 
 /* ---- the frame path: report.c's osc2_report_state() and osc2_report_lizard() ------------------ */
@@ -460,6 +482,7 @@ static int output(enum osc2_link link, const uint8_t *report, size_t len)
 			osc2_test_note_haptic(link, &out[i].haptic);
 		}
 	}
+	osc2_haptics_outputs((uint8_t)link, out, n);   /* the synthesiser, when it is built in */
 	return n;
 }
 
