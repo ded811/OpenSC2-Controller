@@ -868,6 +868,7 @@ With `CONFIG_SHELL` (on the SuperMini: the USB serial port, in wireless mode):
 | `opensc2 slot [1\|2]`, `opensc2 bonds`, `opensc2 forget <1\|2>` | bonds |
 | `opensc2 id`, `opensc2 id set <unit\|board\|git\|pid\|rev\|build\|blbuild\|name> <value> [force]`, `opensc2 id clear` | identity: `set` stores that one field as given (0 too); numbers in hex with `0x`, or `0`; a name with spaces in double quotes; `force` for a build time at or before `0x6A18D057` ([Identity](#identity)) |
 | `opensc2 state` | the current input state |
+| `opensc2 cal`, `opensc2 cal sticks\|triggers\|pressure <0-3>`, `opensc2 cal save <0\|1> <mask>`, `opensc2 cal erase <key>` | with `CONFIG_OPENSC2_CAL`: what is stored and in use; a recording's step, as `0xD8`, `0xC0` and `0xC3` give it; one side's RAM values saved, as `0xE2` (mask 1 the trigger, 2 the stick, 4 the pressure); every `cal/` key deleted from flash with the key in hex, as `0xFE` ([Calibration and raw inputs](#calibration-and-raw-inputs)). The hardware test suite never sends it |
 | `opensc2 test [<id>] <verb> ...` | with `CONFIG_OPENSC2_TEST_HOOKS`: the [hardware test hooks](test-protocol.md#the-console-opensc2-test) |
 
 The shell numbers the two pairing slots 1 and 2; the API numbers them 0 and 1. `opensc2 bonds` shows
