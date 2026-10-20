@@ -21,7 +21,7 @@ int16_t osc2_setting_answer(uint8_t number, int16_t value)
 
 uint8_t osc2_led_readback(uint8_t percent)
 {
-	return percent == 100 ? 100 : 0;
+	return (uint8_t)(percent / 100u * 100u);
 }
 
 /* Zephyr's RESET_* bits (include/zephyr/drivers/hwinfo.h), restated: this file is pure C. */

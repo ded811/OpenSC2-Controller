@@ -22,8 +22,10 @@
 int16_t osc2_setting_answer(uint8_t number, int16_t value);
 
 /* 0xE9: one channel of the LED override colour (a percentage) as the real controller reads it
- * back. Its conversion truncates before it scales, so a channel reads 100 when it is exactly 100
- * and 0 otherwise. The library copies that, since a host can see it (docs/protocol.md, gaps). */
+ * back. Its conversion truncates before it scales: below 100 a channel reads 0, from 100 to 199
+ * it reads 100 and from 200 on 200 (the real controller keeps 0xC5's bytes unclamped). The library
+ * copies that, since a host can see it (docs/protocol.md, gaps); it keeps the colour clamped to
+ * 100, so its answers are 0 or 100. */
 uint8_t osc2_led_readback(uint8_t percent);
 
 /* 0xA1: the real controller's byte of reset-cause flags from Zephyr's hwinfo causes (RESET_*):

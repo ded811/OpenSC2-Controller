@@ -337,8 +337,9 @@ def reset_flags(causes):
 
 
 def led_readback(percent):
-    """One channel of 0xE9 as the real controller reads it back: 100 stays, anything else is 0."""
-    return 100 if percent == 100 else 0
+    """One channel of 0xE9 as the real controller reads it back (proto_rules.c): cut to whole
+    hundreds, so 0 below 100, 100 from 100 to 199, 200 from 200 (the library keeps at most 100)."""
+    return percent // 100 * 100
 
 
 def charge_window_valid(value):

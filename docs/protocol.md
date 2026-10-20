@@ -355,10 +355,13 @@ open, the library does what should work with Steam and the puck, and says so her
     wireless on a battery, and the blank canvas does the same, having no power-off of its own. A
     board without a battery has lost its power anyway.
 22. **`0xE9`'s read-back, copied.** The real controller converts the stored colour in a way that
-    truncates before it scales, so each channel of `0xE9` reads 0 unless it is exactly 100. A host
-    can see that answer, so the library gives the same one; the colour itself is kept as sent
-    (clamped to 100), and the application gets it unchanged (`led` callback, `opensc2_led_get()`).
-    Whether Steam reads `0xE9` at all is not known.
+    truncates before it scales, so each channel of `0xE9` reads 0 below 100, 100 from 100 to 199
+    and 200 from 200. A host can see that answer, so the library gives the same one; the colour
+    itself is kept as sent, clamped to 100, and the application gets it unchanged (`led` callback,
+    `opensc2_led_get()`). The clamp is OpenSC2's: the real controller keeps `0xC5`'s bytes
+    unclamped (a channel above 100 is brighter, up to full duty), so a channel sent above 100 is
+    brighter there and reads back 100 or 200, where the library keeps and reads back 100. Steam is
+    not known to send such values, nor to read `0xE9` at all.
 23. **`0xBE`'s bytes 13 and 14.** The documentation gives byte 13 as "1 while charging" and byte 14
     as `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the
     application's charge state (1 for state 2, charging, with or without the flag), its simplest

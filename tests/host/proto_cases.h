@@ -53,8 +53,12 @@ OPENSC2_TEST(proto_led_readback)
 	CHECK_EQ(osc2_led_readback(1), 0);
 	CHECK_EQ(osc2_led_readback(50), 0);
 	CHECK_EQ(osc2_led_readback(99), 0);
-	CHECK_EQ(osc2_led_readback(101), 0);   /* (0xC5 clamps to 100 before it is kept) */
-	CHECK_EQ(osc2_led_readback(255), 0);
+	/* The real controller keeps values above 100 and reads them back cut to whole hundreds (the
+	 * library clamps at 0xC5, proto_cmd_led_readback below, so these never reach its answers). */
+	CHECK_EQ(osc2_led_readback(101), 100);
+	CHECK_EQ(osc2_led_readback(199), 100);
+	CHECK_EQ(osc2_led_readback(200), 200);
+	CHECK_EQ(osc2_led_readback(255), 200);
 }
 
 /* The 0x44 replies of one output report, decoded as the library decodes it: their channel IDs,

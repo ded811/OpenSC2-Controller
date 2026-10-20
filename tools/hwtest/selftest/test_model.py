@@ -3,8 +3,8 @@
 #
 # test_model.py: the runner's copies of the library's answer rules (proto/model.py), case for case
 # as the C host tests hold the library's own (tests/host/proto_cases.h, keys_cases.h): 0x89's
-# answers, 0xA1's reset flags, the charge window 0xED reads. A dry run checks most of them against
-# the firmware emulator, but not these cases, which no group sends.
+# answers, 0xA1's reset flags, 0xE9's read-back, the charge window 0xED reads. A dry run checks
+# some of them against the firmware emulator, but not these cases, which no group sends.
 import struct
 import unittest
 
@@ -29,6 +29,12 @@ class AnswerRules(unittest.TestCase):
             self.assertEqual(M.reset_flags(1 << bit), 0x08, bit)
         self.assertEqual(M.reset_flags((1 << 0) | (1 << 1) | (1 << 4)), 0x70)
         self.assertEqual(M.reset_flags(0x1FFFF), 0x7B)
+
+    def test_led_readback(self):
+        # 0xE9: cut to whole hundreds (the library keeps at most 100, so it answers 0 or 100)
+        for percent, back in ((0, 0), (1, 0), (50, 0), (99, 0), (100, 100), (101, 100),
+                              (199, 100), (200, 200), (255, 200)):
+            self.assertEqual(M.led_readback(percent), back, percent)
 
     def test_charge_window(self):
         # mte/charge_level: both 0, or 3400..4120 mV in 10 mV steps (key_rules.c)
