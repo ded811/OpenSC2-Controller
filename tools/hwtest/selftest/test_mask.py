@@ -94,6 +94,8 @@ class Masking(unittest.TestCase):
         self.assertEqual(m.text("400000000000 40ff00000a00"), "400000000000 40ff00000a00")
         self.assertEqual(m.text("123456789012"), "123456789012")   # digits only: a number
         self.assertEqual(m.text("C34F12ABCDEF0A"), "C34F12ABCDEF0A")  # part of a longer word
+        uuid = "{00001812-0000-1000-8000-00805F9B34FB}"                # a UUID's last group
+        self.assertEqual(m.text(uuid), uuid)
 
     def test_bond_ids_in_every_form(self):
         """safety-HW-3: a bond ID read in the clear is masked as Steam may print it: decimal,

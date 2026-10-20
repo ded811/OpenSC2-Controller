@@ -41,10 +41,10 @@ _HEXRUN = re.compile(r"[0-9A-Fa-f]{16,}")
 _BTADDR = re.compile(r"(?<![0-9A-Fa-f:])[0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5}(?![0-9A-Fa-f:])")
 _BTNODE = re.compile(r"((?:_REV&[0-9A-F]{4}_|\bDEV_))([0-9A-F]{12})(?![0-9A-F])", re.IGNORECASE)
 # ... and bare, as the runner writes an address it compares (cproto.address_hex): a whole word of
-# 12 upper-case hex digits with a letter and a digit in it. The suite prints report bytes in lower
-# case, so their hex is never taken for one.
-_BTBARE = re.compile(r"(?<![0-9A-Za-z])(?=[0-9A-F]{0,11}[A-F])(?=[0-9A-F]{0,11}[0-9])"
-                     r"[0-9A-F]{12}(?![0-9A-Za-z])")
+# 12 upper-case hex digits with a letter and a digit in it, not the last group of a UUID. The suite
+# prints report bytes in lower case, so their hex is never taken for one.
+_BTBARE = re.compile(r"(?<![0-9A-Za-z-])(?=[0-9A-F]{0,11}[A-F])(?=[0-9A-F]{0,11}[0-9])"
+                     r"[0-9A-F]{12}(?![0-9A-Za-z-])")
 # an 8-hex-digit word not preceded by 0x (a bond ID printed as %08x in a debug build), used in the
 # console transcript and Steam's log only: masking a nonce now and then costs nothing.
 _ID8 = re.compile(r"(?<![0-9A-Za-zx])[0-9A-Fa-f]{8}(?![0-9A-Fa-f])")
@@ -115,10 +115,10 @@ class Masker:
             out = pat.sub(tag, out)
         out = _BTNODE.sub(r"\1<bt-addr>", out)
         out = _BTADDR.sub("<bt-addr>", out)
-        out = _BTBARE.sub("<bt-addr>", out)
         out = _IFACEPATH.sub(r"\1<masked>", out)
         out = _INSTANCEID.sub(r"\1<masked>", out)
         out = _BTINSTANCE.sub(r"\1<masked>", out)
+        out = _BTBARE.sub("<bt-addr>", out)   # after the device paths, whose parts it is not
         out = _OSC_SERIAL.sub(lambda m: m.group(1) + "*" * 10, out)
         out = _GENERIC_SERIAL.sub("<serial>", out)
         out = _STEAMID.sub("<steamid>", out)
