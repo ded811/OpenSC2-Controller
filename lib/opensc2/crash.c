@@ -11,10 +11,7 @@
  * opensc2,retained-ram, the one the USB session log uses (usblog.c leaves room for it), so a
  * bootloader that runs at every reset (the UF2 bootloader) does not overwrite it; without such a
  * region it is in no-init RAM, which such a bootloader may clear.
- *
- * The test hooks can provoke a fatal error (osc2_crash_provoke(), docs/test-protocol.md).
  */
-#include <errno.h>
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/fatal.h>
@@ -125,49 +122,10 @@ void osc2_crash_boot(void)
 	}
 }
 
-/* ---- a fault on purpose (the test hooks) ------------------------------------------------------- */
-
-static uint8_t provoke_kind;
-
-static void provoke_fn(struct k_work *work)
-{
-	ARG_UNUSED(work);
-	LOG_WRN("Test: a fatal error on purpose (%u)", provoke_kind);
-	switch (provoke_kind) {
-	case OSC2_CRASH_OOPS:
-		k_oops();
-		break;
-	case OSC2_CRASH_PANIC:
-		k_panic();
-		break;
-	default:
-		__builtin_trap();   /* an undefined instruction: a CPU exception */
-		break;
-	}
-}
-static K_WORK_DELAYABLE_DEFINE(provoke_work, provoke_fn);
-
-int osc2_crash_provoke(uint8_t kind, uint16_t delay_ms)
-{
-	if (kind > OSC2_CRASH_EXCEPTION) {
-		return -EINVAL;
-	}
-	provoke_kind = kind;
-	(void)k_work_reschedule(&provoke_work, K_MSEC(delay_ms));
-	return 0;
-}
-
 #else /* !CONFIG_OPENSC2_CRASH_RECORD */
 
 void osc2_crash_boot(void)
 {
-}
-
-int osc2_crash_provoke(uint8_t kind, uint16_t delay_ms)
-{
-	ARG_UNUSED(kind);
-	ARG_UNUSED(delay_ms);
-	return -ENOTSUP;   /* without the handler a fatal error halts the board: never on purpose */
 }
 
 #endif /* CONFIG_OPENSC2_CRASH_RECORD */

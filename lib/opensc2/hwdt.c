@@ -9,13 +9,10 @@
  * priority), the warning comes first: it logs and raises a kernel oops, so the crash record
  * (crash.c) names the hang; a hang that also stops the system work queue ends in a plain watchdog
  * reset, seen only in 0xA1's reset causes. With a debugger attached the warning only logs.
- *
- * The test hooks can stop the feeds on purpose (osc2_hwdt_starve(), docs/test-protocol.md).
  */
 #include <errno.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/atomic.h>
 #include "internal.h"
 #include "hwdt.h"
 
@@ -33,9 +30,6 @@ static const struct device *const wdt = DEVICE_DT_GET(DT_ALIAS(watchdog0));
 static int channel = -1;
 static struct k_work_q feed_queue;
 static K_THREAD_STACK_DEFINE(feed_stack, FEED_STACK);
-static atomic_t feeds;
-static atomic_t starving;   /* the test hooks stopped the feeds */
-static atomic_t no_crash;   /* ... and the warning only logs: the hardware resets */
 
 /* Is a debugger attached? The core's debug-enable bit (DHCSR.C_DEBUGEN). */
 static bool debugger_attached(void)
@@ -54,10 +48,6 @@ static void warn_fn(struct k_work *work)
 		LOG_WRN("Watchdog about to expire, skipped for debugging");
 		return;
 	}
-	if (atomic_get(&no_crash)) {
-		LOG_ERR("Watchdog about to expire (test: no crash record, the watchdog resets)");
-		return;
-	}
 	LOG_ERR("Watchdog about to expire");
 	k_oops();   /* the crash record names the hang, before the hardware resets without one */
 }
@@ -69,12 +59,7 @@ static K_WORK_DELAYABLE_DEFINE(feed_work, feed_fn);
 static void feed_fn(struct k_work *work)
 {
 	ARG_UNUSED(work);
-	if (atomic_get(&starving)) {
-		/* The test: the feeder's queue stops here, as behind a busy thread. */
-		k_sleep(K_FOREVER);
-	}
 	(void)wdt_feed(wdt, channel);
-	atomic_inc(&feeds);
 	(void)k_work_reschedule(&warn_work, K_MSEC(WARN_MS));
 	(void)k_work_reschedule_for_queue(&feed_queue, &feed_work, K_MSEC(FEED_MS));
 }
@@ -116,48 +101,11 @@ int osc2_hwdt_start(void)
 	return 0;
 }
 
-int osc2_hwdt_starve(bool hardware)
-{
-	if (channel < 0) {
-		return -ENODEV;
-	}
-	if (atomic_get(&starving)) {
-		return -EBUSY;
-	}
-	atomic_set(&no_crash, hardware ? 1 : 0);
-	atomic_set(&starving, 1);
-	LOG_WRN("Test: the watchdog is no longer fed (%s)",
-		hardware ? "the hardware resets" : "the warning crashes first");
-	return 0;
-}
-
-void osc2_hwdt_info(struct osc2_hwdt_info *info)
-{
-	info->running = channel >= 0;
-	info->starving = atomic_get(&starving) != 0;
-	info->feeds = (uint32_t)atomic_get(&feeds);
-	info->timeout_ms = WDT_TIMEOUT_MS;
-}
-
 #else /* !CONFIG_OPENSC2_WATCHDOG */
 
 int osc2_hwdt_start(void)
 {
 	return 0;
-}
-
-int osc2_hwdt_starve(bool hardware)
-{
-	ARG_UNUSED(hardware);
-	return -ENOTSUP;
-}
-
-void osc2_hwdt_info(struct osc2_hwdt_info *info)
-{
-	info->running = false;
-	info->starving = false;
-	info->feeds = 0;
-	info->timeout_ms = 0;
 }
 
 #endif /* CONFIG_OPENSC2_WATCHDOG */
