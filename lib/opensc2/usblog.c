@@ -168,20 +168,21 @@ static bool setups_waiting(void)
 	return atomic_get(&setup_tail) != atomic_get(&setup_head) || atomic_get(&setup_lost) != 0;
 }
 
-/* Out of line, and called only while setups_waiting(): its two line buffers (about 220 bytes) then
- * sit on the stack only when there is something to write, not under every osc2_usblog() call. A
- * log line can come from deep in a thread (a dock op of the test hooks run from the shell, the USB
- * stack or the radio thread, down to lizard mode's own line), where those bytes are not there. */
+/* Out of line, and called only while setups_waiting(): its line buffer then sits on the stack only
+ * when there is something to write, not under every osc2_usblog() call. A log line can come from
+ * deep in a thread (a dock op of the test hooks run from the shell, the USB stack or the radio
+ * thread, down to lizard mode's own line), where those bytes are not there; one buffer, each setup
+ * formatted into it in place. */
 static __noinline void drain_setups(void)
 {
+	char line[OSC2_LINE + 2];
+
 	for (;;) {
-		char line[OSC2_LINE + 2];
-		char text[72];
 		atomic_val_t tail = atomic_get(&setup_tail);
 		int64_t ticks;
 		uint8_t pkt[8];
 		uint32_t tenths;
-		size_t n;
+		int n;
 
 		if (tail == atomic_get(&setup_head)) {
 			break;
@@ -191,14 +192,14 @@ static __noinline void drain_setups(void)
 		if (!atomic_cas(&setup_tail, tail, tail + 1)) {
 			continue;   /* someone else took this one */
 		}
-		opensc2_usb_setup_text(pkt, text, sizeof(text));
 		tenths = tenths_since_base(ticks);
-		n = (size_t)snprintf(line, OSC2_LINE, "%7u.%u SETUP %s", (unsigned int)(tenths / 10),
-				     (unsigned int)(tenths % 10), text);
-		append_line(line, MIN(n, (size_t)OSC2_LINE - 1));
+		n = snprintf(line, OSC2_LINE, "%7u.%u SETUP ", (unsigned int)(tenths / 10),
+			     (unsigned int)(tenths % 10));
+		n = n > 0 ? MIN(n, OSC2_LINE - 1) : 0;
+		opensc2_usb_setup_text(pkt, &line[n], (size_t)(OSC2_LINE - n));
+		append_line(line, strlen(line));
 	}
 	if (atomic_get(&setup_lost)) {
-		char line[OSC2_LINE + 2];
 		size_t n = stamp(line, OSC2_LINE);
 
 		n += (size_t)snprintf(&line[n], OSC2_LINE - n, "(%u setup packets not logged)",
