@@ -129,9 +129,12 @@ The sample is built to do the following; none of it has run on hardware yet.
   both motors at the same frequency on one instance, or use two instances.
 - **The buzz**: its strength (`52000` of 65535) and its length limits are in `buzz()`;
   `app/src/rumble.c` has a fuller version (pulse trains, strength from the effect's gain).
-- **Steam's settings**: controller setting 70 (haptics on) and 27 (rumble gain, dB) are Steam's;
-  read them with `opensc2_setting_get(OPENSC2_SETTING_HAPTICS_ENABLED)` and
-  `OPENSC2_SETTING_RUMBLE_GAIN_DB` to follow them. The sample ignores them.
+- **Steam's settings**: controller settings 76 (the master gain, dB) and 27 (the rumble gain
+  offset, dB, which the real controller applies to its left grip only) are Steam's; read them
+  with `opensc2_setting_get(OPENSC2_SETTING_HAPTIC_GAIN_DB)` and
+  `OPENSC2_SETTING_RUMBLE_GAIN_DB` to follow them. The sample ignores them. Setting 70 is not
+  "haptics off": on the real controller it only gates lizard mode's ticks and clicks, which the
+  library applies itself.
 - **An LRA** (a linear resonant actuator) needs a driver chip. The DRV2605L can take a PWM input,
   but it must be switched to that mode over I2C first; Zephyr also has a driver for it
   (`ti,drv2605`, Zephyr's haptics API). This sample does neither.
