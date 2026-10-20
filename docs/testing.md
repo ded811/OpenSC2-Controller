@@ -39,7 +39,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `hooks` | W R | the hooks themselves: present (a warning for the charger test build, whose wired boots go wireless without a host, unlike the real controller); invisible while unarmed (a wrong key, a wrong version, a short request and a keyed request all STALL and leave the stored request alone); arming and its first ring entries; the **guard canary**; the settings restore at the end of arming; the lease; the DISARM answer; the ring (wrapping, eviction count, paging); the paging of counters and settings |
 | `desc` | W | the USB identity as Windows sees it: VID:PID and version, the three strings (the product string is the board's configured name, "Steam Controller" unless one is stored: checked against the CRC-32 of the name the hooks' caps carry, and against `opensc2 id` once the run has read the console), the collections, the HID capabilities against the real controller's descriptors |
 | `cmd` | W (R) | the vendor commands Steam sends: `0x83` attributes, `0xAE` strings, `0xF2` device info, `0xA1` reset info, `0xDB` the chime level, `0xED` reads by name, the refusal forms of the writes (refused before anything is written), the `0xE2` forms Steam sends and one that must be refused, unknown opcodes STALL, the framing rules (length, report IDs other than 1, the control pipe's output and input reports), the stored request, turn-off ignored while wired, the first GET after a boot; on R the lizard commands refused while the radio link is down |
-| `inputs` | W R | every button bit, both sticks, both triggers (analog and the digital bits with setting 68's hysteresis), both trackpads (position, touch, pressure), every IMU field, random full states, the latency from injection to report, the **lizard lock** (an injection is refused while lizard mode is on and stopped in the frame lizard mode comes back), an injected STEAM button that changes nothing |
+| `inputs` | W R | every button bit, both sticks, both triggers (analog and the digital bits with setting 68's hysteresis), both trackpads (position, touch, pressure), every IMU field, random full states, the rules on every report (the stick-touch fallback at its radius, setting 82's blanking for each of its values, no trigger bit with raw triggers, the click by pressure with its thresholds, switched on for the test where the build has it off), the blank canvas's raw stick output (setting 46: counts and millivolts of the biased left-stick pins, the one test of the application's own state), the latency from injection to report, the **lizard lock** (an injection is refused while lizard mode is on and stopped in the frame lizard mode comes back), an injected STEAM button that changes nothing |
 | `battery` | W R | the library's default `0x43` byte for byte, the 3.5 s cadence, injected values in `0x43` and `0xBE`, the level clamp, back to the default |
 | `stream` | W R | the report IDs, the state report cadence (about 248 a second wired), the sequence numbers and every hole explained by the counters; `--soak S` for a long run |
 | `reports` | W R | the haptic stream status `0x44` and raw reports an application sends; on R the puck's exact-length filter |
@@ -49,7 +49,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `wireless` | R | which of the puck's slots carries the board (an injected signature), the puck's link status and link quality reports, the identity sent on connect, reconnecting after `opensc2 stop`/`start`, a lost link (the radio made deaf for 800 ms), the turn-off requests |
 | `restore` | all | always last and always whole (whatever `--test` selects), also after a failure or Ctrl-C: outputs and injection off, settings and LED colour written back, disarmed, every link's stored request as after a boot, and the board **as found** (mode, bonds, identity, slot, chime level, mode policy, the settings and the LED colour) |
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, restating the mode policy); see [the note below](#what---flash-writes) |
-| `lizard` | W R | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, thumb on the stick, lizard mode off and back), with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path, and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
+| `lizard` | W R | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, thumb on the stick, lizard mode off and back, with its processing switched off), then its processing part by part (the touch stabilisers, the 8-frame average, the glide after a flick and what ends it: a new touch, `0x81`, an `ARM`, and the haptic ticks and clicks) and all together as the build has it, each sequence followed until lizard mode goes quiet, with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path, and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
 | `puck` | P | opt-in `--through-puck`: rumble, haptics, vendor commands and the test channel through the puck ([below](#the---through-puck-opt-in)) |
 | `steam` | S | opt-in `--with-steam`: what Steam sends to the board through the puck, the lines it logs on a reconnect (masked), the wired stream with Steam open; passive |
 
@@ -148,9 +148,9 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and a dry run of
-the suite against that emulator. Today that is 52 host tests (2,209 checks); 79 (4,658 checks) with
+the suite against that emulator. Today that is 62 host tests (4,983 checks); 90 (7,462 checks) with
 the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte
-alike; the runner's 207 self-tests; its dry run against the library's own code in a firmware
+alike; the runner's 209 self-tests; its dry run against the library's own code in a firmware
 emulator; 9 self-tests of `tools/match_steam_version.py`. To run the emulator by hand after
 `run.ps1` built it:
 
@@ -321,7 +321,7 @@ in `report.json` (`safety.puck_writes`).
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 207 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 209 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking, every safety rule (including the
   source scan of the puck reader, and that every function that sends checks the exact bytes), the
   link lock against a racing keep-alive, the leak detector's filter and watch list, the Windows
@@ -334,12 +334,14 @@ in `report.json` (`safety.puck_writes`).
   `stall_missing`, `no_reconnect`, `stale_battery`, `lease_ignored`, `not_as_found`,
   `steam_appears`, `lizard_ignored`, `second_reader`, `share_not_enforced`, `leak_event`,
   `board_reset`, `wrong_mode`, `puck_reset`, `com_renumbered`, `console_busy`, `keepalive_race`,
-  `answer_dropped`.
+  `answer_dropped`, `pad_blank_ignored` (setting 82 does not blank an injected pad),
+  `glide_ignored` (lizard mode never glides).
 - **The firmware emulator** (`--fw-emu`): the same groups against the library's own code
   (commands, test channel, ring, injection, lizard mode, the battery and state reports), so the
   runner and the firmware cannot drift apart unnoticed.
 - **The shared vectors** in `tests/vectors/hwtest/`: the C host tests and the runner's self-tests
-  read the same files (the state report rules, lizard mode, ring entries, the test channel, the
-  settings), so both sides agree on every byte.
+  read the same files (the state report rules with every rule word, lizard mode with its processing
+  and haptic events, ring entries, the test channel, the settings), so both sides agree on every
+  byte.
 
 Back to the [documentation map](README.md).

@@ -73,8 +73,10 @@ Steam on a Windows PC.
 | The samples and the template: they build; none has run on hardware. | Built; not run on hardware |
 | Other boards. | Not tested |
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
+| Lizard mode's processing as the real controller's: the touch stabilisers, the 8-frame average, the glide after a flick, the haptic ticks and pad clicks (haptic events for the application; the blank canvas buzzes its motor for them, if one is wired); its reports waiting for room through the puck instead of being dropped. | Built; tested on the host and in the emulator, not yet on hardware |
+| The rules on every state report: a stick deflected beyond 12000 counts as touched, a pad is blank while its stick is touched (setting 82), no trigger bit with raw triggers (setting 62), optionally the pads' clicks from their pressure (settings 52, 53). The blank canvas's raw stick output (setting 46). | Built; tested on the host and in the emulator, not yet on hardware |
 | Bluetooth. The dock (pogo pads). | Not implemented |
-| Lizard mode's smoothing, glide and haptic ticks. PCM haptics playback in the samples. | Not implemented |
+| PCM haptics playback in the samples. | Not implemented |
 
 Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
 
@@ -238,9 +240,9 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 52 host tests (2,209 checks); 79 (4,658 checks) with the hardware
+- **Host tests**, no hardware: 62 host tests (4,983 checks); 90 (7,462 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 207 self-tests; its dry run against the library's own code in a firmware emulator; 9
+  runner's 209 self-tests; its dry run against the library's own code in a firmware emulator; 9
   self-tests of `tools/match_steam_version.py`. Run
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc
   on PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are

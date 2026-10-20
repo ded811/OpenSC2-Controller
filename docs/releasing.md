@@ -270,12 +270,13 @@ puck on its October 2026 firmware and Steam on a Windows PC.
 
 - Built, not yet tried with real parts: real buttons, sticks, trackpads, IMU, rumble motor, RGB LED
   and battery hardware (the drivers in `app/` and the samples have never run on such parts).
-- Built, not run on hardware: the samples and the template.
+- Built, not run on hardware: the samples and the template; lizard mode's processing (the touch
+  stabilisers, the 8-frame average, the glide, the haptic ticks) and the rules on every state
+  report (the stick-touch fallback, setting 82, raw triggers, the click by pressure).
 - Built, untested with Steam: pairing over the air (the puck's pairing window).
 - Not tested: other boards; Linux and macOS as the PC (the PC side was tested with Steam on
   Windows).
-- Not implemented: Bluetooth; the dock (pogo pads); lizard mode's smoothing, glide and haptic
-  ticks; PCM haptics playback in the samples.
+- Not implemented: Bluetooth; the dock (pogo pads); PCM haptics playback in the samples.
 
 ## What you need
 
