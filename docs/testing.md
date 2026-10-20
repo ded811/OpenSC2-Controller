@@ -112,9 +112,11 @@ They are rules in code, each with its own self-test, not conventions:
   firmware takes an injection it should refuse or does not stop one when lizard mode comes on, or
   the leak detector fires, nothing is injected for the rest of the run (exit code 2).
 - **It never touches what it cannot put back.** Never the bootloader (`0x90`, `0x95` with the
-  bootloader key, the shell's `uf2`), never a factory reset (`0x86`), never a calibration erase,
-  never a write to the identity, the bonds or the mode policy, except the value-preserving rewrites
-  of `--flash`, each allowed by a one-shot token for exactly the value just read back. The console
+  bootloader key, the shell's `uf2`), never a factory reset (`0x86`), never a calibration recording
+  or erase (`0xD8`, `0xC0`, `0xC3`, `0xFE`; `0xE2` only in forms that save nothing), never a write,
+  save or delete of a `cal/` key (not even with a token), never a write to the identity, the bonds
+  or the mode policy, except the value-preserving rewrites of `--flash`, each allowed by a one-shot
+  token for exactly the value just read back. The console
   accepts only an allowlist of commands, each exactly as the runner builds it (a line with a
   control character, which could start a second command, is never sent).
 - **It leaves the board as it found it.** A snapshot at the start (the 86 settings, the LED colour,

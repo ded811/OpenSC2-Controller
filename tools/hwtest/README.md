@@ -46,7 +46,7 @@ tools/hwtest/
                     (shell.c's line formats), steamlog
   groups/           one module per test group (hooks, desc, cmd, inputs, battery, stream,
                     reports, outputs, settings, flash, lizard, wireless, puck, steam, modes,
-                    restore) and base.py (checks, results, what ends a group)
+                    restore, cal) and base.py (checks, results, what ends a group)
   win/              Windows access through ctypes, imported lazily: backend (WinBackend),
                     devices (listing without opening), hid (the board), serial (its console),
                     puck_read (read-only, binds no sending function), puck_write (gated), rawinput
@@ -66,7 +66,7 @@ Comments in the code name the safety rules by label. Each rule is code with its 
 | S2 | the puck is read-only: its reader binds no function that can send |
 | S3 | writes to the puck only through the gated writer (`--through-puck`, Steam closed, the slot proven to be the board's) |
 | S4 | never feature report 2 (the puck's own commands) to the puck |
-| S5 | the vendor-command denylist and the one-shot tokens of `--flash` |
+| S5 | the vendor-command denylist and the one-shot tokens of `--flash`; a `cal/` key is never written, saved or deleted, not even with a token |
 | S6 | the console's allowlist of commands |
 | S7 | the conditions for every injection (armed, the guard canary passed, Steam closed, the only reader, lizard mode off) |
 | S8 | Steam appearing during a group stops its injection |
