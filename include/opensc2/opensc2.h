@@ -195,7 +195,10 @@ enum opensc2_power_request {
 					  * powered off (0x15). The library has already stopped the
 					  * transport (the link state is OFF and says why); the real
 					  * controller turns off on battery and stays on with wireless
-					  * off on USB power. Default: nothing more */
+					  * off on USB power. Default: nothing more. Only without
+					  * CONFIG_OPENSC2_SYSTEM: with it the machine takes it
+					  * (wireless off on USB power, a shutdown on a battery build)
+					  * and the application never gets this request */
 	OPENSC2_POWER_OFF,               /* the system state machine's shutdown has run (link dropped,
 					  * the power-off cue, STEAM released): turn the board off now
 					  * (System OFF with a wake-up pin, sys_poweroff()), or reboot.

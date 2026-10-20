@@ -1400,8 +1400,9 @@ summary and the gaps):
   accept list; only the flags, the TX power and the manufacturer data).
 - **The advertising window**: every start of advertising arms `CONFIG_OPENSC2_BLE_ADV_WINDOW_S`
   (60 s, as on the real controller; 0: none). When it ends without a connection, advertising stops:
-  "wireless off", the link `OFF` with reason `LISTEN_TIMEOUT`, and the application gets
-  `OPENSC2_POWER_WIRELESS_OFF`. `opensc2_start()` advertises again.
+  "wireless off", the link `OFF` with reason `LISTEN_TIMEOUT`; with the system state machine the
+  machine takes it (wireless off on USB power, a shutdown on a battery build), without it the
+  application gets `OPENSC2_POWER_WIRELESS_OFF`. `opensc2_start()` advertises again.
 - **Identities and slots**: five identities (0, never used to advertise, and 1 to 4), each with its
   own static random address. Slot 1 (`OPENSC2_TRANSPORT_BLE_1`) uses identities 1 and 2, slot 2
   identities 3 and 4. A start uses the slot's first identity if it has a bond or neither has one,
@@ -1419,7 +1420,8 @@ summary and the gaps):
   pairing request first. A factory reset (`0x86` with its key) deletes the whole `bt/` subtree:
   bonds, identities and the name; the next start creates four new identities.
 - **Disconnects**: when the host ends the link (HCI `0x13`) or powers off (`0x15`): "wireless off",
-  the link `OFF` with reason `HOST_DISCONNECTED`, and `OPENSC2_POWER_WIRELESS_OFF`. Any other reason
+  the link `OFF` with reason `HOST_DISCONNECTED`, and, without the system state machine,
+  `OPENSC2_POWER_WIRELESS_OFF` (with it, the machine takes it as above). Any other reason
   (a supervision timeout, `0x08`): 500 ms later the same identity advertises again, directed to its
   host first, with a fresh window. When the board ends the link itself (`opensc2_stop()`, another
   slot, a pairing request) it stops its state reports and sends an all-zero `0x45` if the link is

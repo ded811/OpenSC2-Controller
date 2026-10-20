@@ -89,11 +89,13 @@ config OPENSC2_BLE_ADV_WINDOW_S
 	range 0 3600
 	help
 	  Every start of advertising arms this window, as on the real controller (60 s): when it
-	  ends without a connection, advertising stops, the link goes OFF with reason
-	  OPENSC2_REASON_LISTEN_TIMEOUT and the application gets OPENSC2_POWER_WIRELESS_OFF (the
-	  real controller turns off on battery and turns wireless off on USB power). A start
-	  (opensc2_start(), a button in the blank canvas) advertises again. 0 keeps advertising
-	  until a host connects (the puck radio's CONFIG_OPENSC2_LISTEN_TIMEOUT_S defaults to that).
+	  ends without a connection, advertising stops and the link goes OFF with reason
+	  OPENSC2_REASON_LISTEN_TIMEOUT. With CONFIG_OPENSC2_SYSTEM the system state machine takes
+	  it, as the real controller does (a shutdown on a battery build; on USB power wireless
+	  off, from which STEAM reboots the board wired); without it the application gets
+	  OPENSC2_POWER_WIRELESS_OFF. A start (opensc2_start(), the shell's opensc2 start)
+	  advertises again. 0 keeps advertising until a host connects (the puck radio's
+	  CONFIG_OPENSC2_LISTEN_TIMEOUT_S defaults to that).
 
 config OPENSC2_BLE_THREAD_PRIORITY
 	int "Bluetooth thread priority"

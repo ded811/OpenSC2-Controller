@@ -117,7 +117,10 @@ static void on_link(const struct opensc2_link_info *info, void *user_data)
 		LOG_INF("Pairing failed: open the puck's pairing window in Steam, then press pair");
 	}
 	if (info->state == OPENSC2_LINK_OFF && info->reason == OPENSC2_REASON_PUCK_TURN_OFF) {
-		LOG_INF("Turned off by the puck (the PC sleeps). Press any button to come back.");
+		LOG_INF("Turned off by the puck (the PC sleeps). %s",
+			IS_ENABLED(CONFIG_OPENSC2_SYSTEM) ?
+			"STEAM reboots the board wired; opensc2 start reconnects." :
+			"Press any button to come back.");
 	}
 }
 
@@ -223,9 +226,10 @@ static void on_power(enum opensc2_power_request request, void *user_data)
 		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
 		break;
 	case OPENSC2_POWER_WIRELESS_OFF:
-		/* Bluetooth gave up (no host within its advertising window, or the host ended the
-		 * link): the library has stopped it. The real controller turns off on battery; on USB
-		 * power, like this board, it stays on with wireless off. */
+		/* Without the system state machine only (with it the machine takes it): Bluetooth
+		 * gave up (no host within its advertising window, or the host ended the link) and the
+		 * library has stopped it. The real controller turns off on battery; on USB power,
+		 * like this board, it stays on with wireless off. */
 		LOG_INF("Wireless off. Press any button to come back.");
 		break;
 	case OPENSC2_POWER_BOOTLOADER:
