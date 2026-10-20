@@ -99,6 +99,25 @@ static const struct gpio_dt_spec vcc = GPIO_DT_SPEC_GET(USER, vcc_enable_gpios);
 
 /* ---- buttons --------------------------------------------------------------------------------- */
 
+#if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons)) || \
+	DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons_polled))
+/* A trigger button makes that trigger digital, unless it has an analog channel: its value, not a
+ * bit of the button word (the library sets the trigger's click bit from the value). True when
+ * `code` was such a button. */
+static bool trigger_key(uint16_t code, bool pressed)
+{
+	if (code == OPENSC2_KEY_LEFT_TRIGGER_CLICK && !axes[LEFT_TRIGGER].present) {
+		opensc2_set_trigger(OPENSC2_LEFT, pressed ? OPENSC2_TRIGGER_MAX : 0);
+		return true;
+	}
+	if (code == OPENSC2_KEY_RIGHT_TRIGGER_CLICK && !axes[RIGHT_TRIGGER].present) {
+		opensc2_set_trigger(OPENSC2_RIGHT, pressed ? OPENSC2_TRIGGER_MAX : 0);
+		return true;
+	}
+	return false;
+}
+#endif
+
 #if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons))
 #define KEY_ENTRY(node) { GPIO_DT_SPEC_GET(node, gpios), DT_PROP(node, zephyr_code) },
 
@@ -107,14 +126,19 @@ static const struct {
 	uint16_t code;
 } keys[] = { DT_FOREACH_CHILD(DT_NODELABEL(opensc2_buttons), KEY_ENTRY) };
 
-/* The buttons held now (gpio-keys has set the pins up), into the library's button word. */
+/* The buttons held now (gpio-keys has set the pins up) into the library, as on_button() takes
+ * them (without its wake-up rule): a digital trigger's value, every other key below 32 a bit of
+ * the button word, all bits at once; not the pairing button, the application's own. */
 static void initial_buttons(void)
 {
 	uint32_t word = 0;
 
 	for (size_t i = 0; i < ARRAY_SIZE(keys); i++) {
-		if (keys[i].code < 32 && gpio_is_ready_dt(&keys[i].pin) &&
-		    gpio_pin_get_dt(&keys[i].pin) == 1) {
+		if (keys[i].code == OPENSC2_KEY_PAIR || !gpio_is_ready_dt(&keys[i].pin) ||
+		    gpio_pin_get_dt(&keys[i].pin) != 1 || trigger_key(keys[i].code, true)) {
+			continue;
+		}
+		if (keys[i].code < 32) {
 			word |= BIT(keys[i].code);
 		}
 	}
@@ -167,13 +191,7 @@ static void on_button(struct input_event *evt, void *user_data)
 		app_pair_button(evt->value != 0);
 		return;
 	}
-	/* A trigger button makes that trigger digital, unless it has an analog channel. */
-	if (evt->code == OPENSC2_KEY_LEFT_TRIGGER_CLICK && !axes[LEFT_TRIGGER].present) {
-		opensc2_set_trigger(OPENSC2_LEFT, evt->value ? OPENSC2_TRIGGER_MAX : 0);
-		return;
-	}
-	if (evt->code == OPENSC2_KEY_RIGHT_TRIGGER_CLICK && !axes[RIGHT_TRIGGER].present) {
-		opensc2_set_trigger(OPENSC2_RIGHT, evt->value ? OPENSC2_TRIGGER_MAX : 0);
+	if (trigger_key(evt->code, evt->value != 0)) {
 		return;
 	}
 	if (evt->code < 32) {
