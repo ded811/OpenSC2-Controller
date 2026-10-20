@@ -21,6 +21,12 @@
 #define RUMBLE_MAX_BURST_MHZ 120000u         /* rates are capped at 120 Hz */
 #define STATUS_RESERVE 8                     /* event slots kept for 0x44 statuses */
 
+/* A rate in mHz as the 0.01 Hz of a ring entry's u16 (0xFFFF from 655.35 Hz up). */
+static uint16_t centi_hz(uint32_t mhz)
+{
+	return mhz / 10u > 0xFFFFu ? 0xFFFFu : (uint16_t)(mhz / 10u);
+}
+
 uint8_t osc2_hap_status_id(uint8_t channel)
 {
 	static const uint8_t ids[OSC2_HAP_CHANNELS] = { 3, 4, 0, 1 };
@@ -200,13 +206,13 @@ void osc2_hap_cmd_params(const struct osc2_hap_cmd *cmd, uint16_t p[4])
 	case OSC2_HAP_GEN_TONE:
 		p[0] = (uint16_t)(cmd->tone.freq_mhz / 1000u);
 		p[1] = cmd->duration_ms;
-		p[2] = (uint16_t)(cmd->tone.lfo_mhz / 10u);
+		p[2] = centi_hz(cmd->tone.lfo_mhz);
 		p[3] = (uint16_t)(cmd->tone.depth | inv);
 		break;
 	case OSC2_HAP_GEN_RUMBLE:
 		p[0] = (uint16_t)(cmd->rumble.freq_mhz / 1000u);
 		p[1] = cmd->duration_ms;
-		p[2] = (uint16_t)(cmd->rumble.burst_mhz / 10u);
+		p[2] = centi_hz(cmd->rumble.burst_mhz);
 		p[3] = inv;
 		break;
 	case OSC2_HAP_GEN_SWEEP:
@@ -358,18 +364,22 @@ static void start(struct osc2_hap *h, struct osc2_hap_seq *s, uint8_t local,
 	case OSC2_HAP_GEN_CLICK_B:
 	case OSC2_HAP_GEN_CLIP: {
 		uint8_t format = cmd->type == OSC2_HAP_GEN_CLIP ? cmd->format : 5u;
+		const uint8_t *data = cmd->type == OSC2_HAP_GEN_CLICK_A ?
+				      (const uint8_t *)osc2_hap_click_a :
+				      cmd->type == OSC2_HAP_GEN_CLICK_B ?
+				      (const uint8_t *)osc2_hap_click_b : cmd->clip.data;
+		uint16_t samples = cmd->type == OSC2_HAP_GEN_CLICK_A ? OSC2_HAP_CLICK_A_LEN :
+				   cmd->type == OSC2_HAP_GEN_CLICK_B ? OSC2_HAP_CLICK_B_LEN :
+				   cmd->clip.samples;
 
-		memset(g, 0, sizeof(*g));
-		g->clip.data = cmd->type == OSC2_HAP_GEN_CLICK_A ? (const uint8_t *)osc2_hap_click_a :
-			       cmd->type == OSC2_HAP_GEN_CLICK_B ? (const uint8_t *)osc2_hap_click_b :
-			       cmd->clip.data;
-		g->clip.samples = cmd->type == OSC2_HAP_GEN_CLICK_A ? OSC2_HAP_CLICK_A_LEN :
-				  cmd->type == OSC2_HAP_GEN_CLICK_B ? OSC2_HAP_CLICK_B_LEN :
-				  cmd->clip.samples;
-		if (format >= 12u || !g->clip.data || g->clip.samples == 0) {
+		if (format >= 12u || !data || samples == 0) {
+			/* Nothing to play: a clip already playing goes on, as for the other types. */
 			note_gen(h, s, channel, cmd->type, OSC2_HAP_GEN_EV_IGNORED, cmd->gain_db, p);
 			return;
 		}
+		memset(g, 0, sizeof(*g));
+		g->clip.data = data;
+		g->clip.samples = samples;
 		g->clip.enc = fmt_enc(format);
 		g->clip.ratio = ratio_of(s->rate, fmt_rate(format));
 		g->gain_q16 = osc2_hap_gain_q16_db(cmd->gain_db);
