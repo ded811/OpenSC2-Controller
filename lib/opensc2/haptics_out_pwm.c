@@ -30,7 +30,11 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 #define PWM_NODE DT_PHANDLE(NODE, pwm)
 #define TOP 250u                /* 16 MHz / 250 = 64 kHz PWM */
 #define REPEATS 15u             /* each value 16 periods: 250 us */
-#define SILENCE (TOP / 2u)
+/* Bit 15 of a value is the pin's polarity: set, the pin is high for the value's counts of each
+ * period (Zephyr's PWM driver sets it so for normal polarity); clear, the pin would be low for
+ * them, and both pads would come out inverted. */
+#define HIGH_FOR_VALUE 0x8000u
+#define SILENCE (HIGH_FOR_VALUE | (TOP / 2u))
 #define WAIT_MS 40
 
 BUILD_ASSERT(!DT_NODE_HAS_STATUS(PWM_NODE, okay),
@@ -71,9 +75,11 @@ static void pwm_event(nrfx_pwm_event_type_t event, void *ctx)
 static void fill(uint8_t which, const uint8_t *block)
 {
 	for (int f = 0; f < OPENSC2_HAPTICS_PAD_FRAMES; f++) {
-		/* 0..255 to 0..250 steps, rounded; 128 is (about) half duty */
-		seq_values[which][f].group_0 = (uint16_t)((block[f * 2] * TOP + 127u) / 255u);
-		seq_values[which][f].group_1 = (uint16_t)((block[f * 2 + 1] * TOP + 127u) / 255u);
+		/* 0..255 to 0..250 steps of high time, rounded; 128 is (about) half duty */
+		seq_values[which][f].group_0 =
+			(uint16_t)(HIGH_FOR_VALUE | ((block[f * 2] * TOP + 127u) / 255u));
+		seq_values[which][f].group_1 =
+			(uint16_t)(HIGH_FOR_VALUE | ((block[f * 2 + 1] * TOP + 127u) / 255u));
 	}
 }
 
