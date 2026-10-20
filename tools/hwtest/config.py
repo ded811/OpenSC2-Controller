@@ -312,11 +312,11 @@ CAL_KEYS = {
     "cal/rgbw_b": 1, "cal/rgbw_w": 1, "cal/volt_offset": 2, "cal/sensors/gyroscope/bias": 12,
 }
 # How 0xED shows a calibration key with the library's calibration (cal_store.c): "always", "set"
-# (once a calibration is stored: a non-zero first word), "trim" (while it lies within 1..199;
-# the defaults do) or "never".
+# (while its first word, the format, is not 0: once a calibration is stored), "trim" (while it
+# lies within 1..199; the defaults do) or "never".
 CAL_SHOWN = {
     "cal/joy_l": "set", "cal/joy_r": "set", "cal/trg_l": "set", "cal/trg_r": "set",
-    "cal/prs_l": "set", "cal/prs_r": "set", "cal/touch_l": "always", "cal/touch_r": "always",
+    "cal/prs_l": "set", "cal/prs_r": "set", "cal/touch_l": "set", "cal/touch_r": "set",
     "cal/rgbw_r": "trim", "cal/rgbw_g": "trim", "cal/rgbw_b": "trim", "cal/rgbw_w": "trim",
     "cal/volt_offset": "always", "cal/sensors/gyroscope/bias": "never",
 }

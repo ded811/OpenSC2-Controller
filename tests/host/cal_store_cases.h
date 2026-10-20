@@ -91,9 +91,16 @@ OPENSC2_TEST(cal_store_by_name)
 	CHECK_EQ(cal_read("cal/rgbw_w", out), 1);
 	CHECK_EQ(out[0], 80);
 	CHECK_EQ(cal_read("cal/volt_offset", out), 2);
-	CHECK_EQ(cal_read("cal/touch_r", out), 10);
+	CHECK_EQ(cal_read("cal/touch_r", out), 0);   /* its format word is 0: empty */
 	CHECK_EQ(cal_read("cal/sensors/gyroscope/bias", out), 0);   /* never readable */
 	CHECK(!opensc2_cal_stick_ok(OPENSC2_LEFT));
+	/* a touch key reads back while its format word is not 0 */
+	CHECK_EQ(cal_named(0xEE, "cal/touch_r", (const uint8_t[10]){ 1, 0, 7 }, 10), 0);
+	CHECK_EQ(cal_read("cal/touch_r", out), 10);
+	CHECK_EQ(out[0], 1);
+	CHECK_EQ(out[2], 7);
+	CHECK_EQ(cal_named(0xEE, "cal/touch_r", (const uint8_t[10]){ 0, 0, 7 }, 10), 0);
+	CHECK_EQ(cal_read("cal/touch_r", out), 0);
 
 	/* 0xEE: RAM only, the exact size */
 	gen = opensc2_cal_generation();

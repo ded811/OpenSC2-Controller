@@ -612,11 +612,12 @@ open, the library does what should work with Steam and the puck, and says so her
       means of the capacitive words step per report, where the real controller steps them per
       trackpad frame (about 250 a second, close to the report rate on the cable);
     - a pressure calibration whose range is empty (B equal to A) counts as uncalibrated;
-    - `0xED` always answers `cal/touch_l`, `cal/touch_r` (10 bytes, used by nothing) and
-      `cal/volt_offset`, the LED trims while they lie within 1..199, a stick, trigger or pressure
-      key while its format word is not 0, and never the gyro bias; `0xEF` refuses an analog key
-      whose format word is 0, and the gyro bias (the real controller fails it too), and saves an
-      LED trim whatever its value (one outside 1..199 then reads as its default, as at boot);
+    - `0xED` answers `cal/volt_offset` always, the LED trims while they lie within 1..199, a
+      stick, trigger, pressure or touch key (`cal/touch_l`, `cal/touch_r`: 10 bytes, used by
+      nothing) while its format word is not 0, and never the gyro bias, as the documentation
+      says; `0xEF` refuses an analog key whose format word is 0, and the gyro bias (the real
+      controller fails it too), and saves an LED trim whatever its value (one outside 1..199
+      then reads as its default, as at boot);
     - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
       queue, in the order they were asked for (`0xFE` drops the saves still waiting from before
       it); `0xEF` writes before it answers, as for the bonds;

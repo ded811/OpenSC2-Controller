@@ -59,7 +59,7 @@ enum key_kind {
 	KIND_STICK,      /* format word first: 0xED shows it only with a non-zero one */
 	KIND_TRIGGER,
 	KIND_PRESSURE,
-	KIND_TOUCH,      /* always shown */
+	KIND_TOUCH,      /* the same rule: a format word first (the rest of its layout is unknown) */
 	KIND_TRIM,       /* shown while it lies within 1..199 */
 	KIND_VOLT,       /* always shown */
 	KIND_BIAS,       /* never shown; 0xEF cannot save it */
@@ -128,13 +128,14 @@ static bool analog(int k)
 	       keys[k].kind == KIND_PRESSURE;
 }
 
-/* The key has a value to show or save: a non-zero format word for the analog keys. */
+/* The key has a value to show or save: a non-zero format word for the analog and touch keys. */
 static bool has_value_locked(int k)
 {
 	switch (keys[k].kind) {
 	case KIND_STICK:
 	case KIND_TRIGGER:
 	case KIND_PRESSURE:
+	case KIND_TOUCH:
 		return opensc2_get_le16(ram[k]) != 0;
 	case KIND_TRIM:
 		return ram[k][0] >= 1 && ram[k][0] <= 199;

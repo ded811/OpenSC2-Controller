@@ -217,9 +217,10 @@ simulator); none of it has been tested on hardware yet.
   flags in its encoding (it was Zephyr's flags as a u32), the chip ID and 8 zero bytes; any other
   selector gives 0 and 17 zero bytes (it was an empty answer).
 - `0xED` answers the `cal/` keys as the real controller does even on a board without calibration,
-  where 0.2.0 answered them all with length 0: the LED trims with their defaults (90, 35, 120, 80),
-  `cal/volt_offset` (2 bytes) and `cal/touch_l`, `cal/touch_r` (10 bytes) always; the stick, trigger
-  and pressure keys with length 0 until one is stored. `0xD8`, `0xC0`, `0xC3` and `0xFE` are
+  where 0.2.0 answered them all with length 0: the LED trims with their defaults (90, 35, 120, 80)
+  and `cal/volt_offset` (2 bytes); the stick, trigger, pressure and touch keys with length 0 until
+  one with a non-zero format word is set. `0xD8`, `0xC0`, `0xC3` and `0xFE` are
+
   answered by the library instead of the application's `vendor_command`, and `0xE2` reads its side
   and mask whatever its length byte says.
 - Attribute 11 of `0x83` is the current link's report interval, whichever link asks: the connection

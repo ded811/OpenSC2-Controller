@@ -585,7 +585,7 @@ uses with the by-name commands:
 | `cal/joy_l`, `cal/joy_r` | 18 | format u16 (2 or `0x81`), then X minimum, maximum, rest low, rest high, then Y, u16 mV each |
 | `cal/trg_l`, `cal/trg_r` | 7 | format u16, A (the higher mV) u16, B (the lower) u16, direction u8 (0: rises when pulled) |
 | `cal/prs_l`, `cal/prs_r` | 8 | format u16 (1: range A..B; `0x80`: 0..B−A), A s16, B s16 (a firm press), gain u16 (2000 = 1) |
-| `cal/touch_l`, `cal/touch_r` | 10 | kept and readable; nothing uses them |
+| `cal/touch_l`, `cal/touch_r` | 10 | format u16 first (the rest of the layout is unknown); kept, and readable while the format word is not 0; nothing uses them |
 | `cal/rgbw_r`, `_g`, `_b`, `_w` | 1 each | LED colour trims, percent (1..199; 90, 35, 120, 80 when missing): `opensc2_cal_led_trim(channel)` |
 | `cal/volt_offset` | 2 | battery voltage offset, s16 mV: `opensc2_cal_volt_offset()` |
 | `cal/sensors/gyroscope/bias` | 12 | three floats (rad/s), a starting gyro bias: `opensc2_cal_gyro_bias(bias)` |
@@ -1537,7 +1537,7 @@ names of its own:
 | `mte/charge_level` | 8 | the value, zeros until set, while it is a valid window (both values 0, or a lower one of at least 3400 and an upper one of at most 4120, u32 mV each, in 10 mV steps); otherwise length 0 | `opensc2/k/mte` | deletes |
 | `debug/resetreason` | 33 | the crash record, zeros when there is none | `opensc2/k/crash` | deletes |
 | `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled` | 2 each | length 0 (no read function) | `opensc2/k/hgain`, `hamp`, `hen` | keeps |
-| `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | with `CONFIG_OPENSC2_CAL` the library's calibration store ([Calibration and raw inputs](#calibration-and-raw-inputs)): a stick, trigger or pressure key once stored, the touch keys and the battery offset always, an LED trim while it lies within 1..199, the gyro bias never; without it the application's `vendor_command`, length 0 without one | `opensc2/cal/...` with `CONFIG_OPENSC2_CAL`, else the application's | keeps |
+| `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | with `CONFIG_OPENSC2_CAL` the library's calibration store ([Calibration and raw inputs](#calibration-and-raw-inputs)): a stick, trigger, pressure or touch key while its format word is not 0, the battery offset always, an LED trim while it lies within 1..199, the gyro bias never; without it the application's `vendor_command`, length 0 without one | `opensc2/cal/...` with `CONFIG_OPENSC2_CAL`, else the application's | keeps |
 
 `0xEE` takes exactly the key's size (another length is refused, as on the real controller). The
 system state machine acts on `user/keylock` ([The keylock](#the-keylock)) and
