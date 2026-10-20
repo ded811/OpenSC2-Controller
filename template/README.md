@@ -139,7 +139,7 @@ The on-board LED (P0.15) shows the state. It is simpler than `app/`'s:
 | on | wired, or wireless and connected through the puck |
 | a slow blink | wireless, looking for the puck |
 | a short blink every 2 s | wireless, no pairing yet: add it in Steam |
-| off | pairing over the air, the radio off (the puck turns it off when the PC sleeps: press any button to come back), or the library did not start (see the console) |
+| off | pairing over the air, the radio off (the puck turns it off when the PC sleeps: STEAM then reboots the board, which comes back wired, and `opensc2 start` turns wireless on again; without the system state machine any button brings it back), or the library did not start (see the console) |
 
 ## The pairing button
 

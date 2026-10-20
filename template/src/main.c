@@ -82,12 +82,16 @@ static void on_button(struct input_event *evt, void *user_data)
 	if (evt->type != INPUT_EV_KEY) {
 		return;
 	}
-	/* After the puck turned the board off (the PC went to sleep), any button brings it back, as
-	 * STEAM does on the real controller. */
+#if !defined(CONFIG_OPENSC2_SYSTEM)
+	/* Without the system state machine: after the puck turned the board off (the PC went to
+	 * sleep), any button brings it back. With the machine (the default) the real controller's
+	 * rules decide instead: on USB power with wireless off, STEAM reboots the board, which comes
+	 * back wired, and the other buttons do nothing ('opensc2 start' turns wireless on again). */
 	if (pressed && opensc2_mode() == OPENSC2_MODE_WIRELESS &&
 	    opensc2_link_state() == OPENSC2_LINK_OFF) {
 		opensc2_start();
 	}
+#endif
 
 	switch (evt->code) {
 	case OPENSC2_KEY_PAIR:
@@ -124,7 +128,10 @@ static void on_link(const struct opensc2_link_info *info, void *user_data)
 		LOG_INF("Paired with a puck (slot %u)", info->slot + 1);
 	} else if (info->state == OPENSC2_LINK_OFF &&
 		   info->reason == OPENSC2_REASON_PUCK_TURN_OFF) {
-		LOG_INF("Turned off by the puck (the PC sleeps): press a button to come back");
+		LOG_INF("Turned off by the puck (the PC sleeps): %s",
+			IS_ENABLED(CONFIG_OPENSC2_SYSTEM) ?
+			"STEAM reboots the board wired; opensc2 start turns wireless on again" :
+			"press a button to come back");
 	}
 }
 
