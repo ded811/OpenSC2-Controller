@@ -69,6 +69,8 @@ OPENSC2_TEST(ble_advertising_data)
 	CHECK(!osc2_ble_ad_next(ad, 20, &pos, &type, &data, &len));
 	CHECK(!osc2_ble_ad_next((const uint8_t[]){ 0x05, 0x09, 'a' }, 3, &(size_t){ 0 }, &type,
 				&data, &len));   /* runs past the end */
+	CHECK(!osc2_ble_ad_next((const uint8_t[]){ 0x00, 0x01 }, 2, &(size_t){ 0 }, &type, &data,
+				&len));          /* a zero length: the padding after the last item */
 
 	/* Allow-listed: no appearance, no UUIDs, flags 04, an empty scan response. */
 	in.form = OSC2_BLE_ADV_ALLOW_LISTED;
@@ -311,9 +313,11 @@ OPENSC2_TEST(ble_report_table_matches_the_map)
 	CHECK_EQ(osc2_ble_report_index(0x01, OSC2_HID_FEATURE), 16);
 	CHECK_EQ(osc2_ble_report_index(0x8A, OSC2_HID_OUTPUT), -1);
 	CHECK_EQ(osc2_ble_report_index(0x02, OSC2_HID_FEATURE), -1);
-	/* A map this parser cannot read. */
+	/* A map this parser cannot read, or one with more reports than the table holds. */
 	CHECK_EQ(osc2_hid_map_reports((const uint8_t[]){ 0xFE, 0x01, 0x00 }, 3, map, 32), -1);
 	CHECK_EQ(osc2_hid_map_reports((const uint8_t[]){ 0x85 }, 1, map, 32), -1);
+	CHECK_EQ(osc2_hid_map_reports(opensc2_hid_report_desc, OPENSC2_HID_REPORT_DESC_LEN, map, 4),
+		 -1);
 }
 
 OPENSC2_TEST(ble_gate_and_values)
@@ -354,6 +358,13 @@ OPENSC2_TEST(ble_gate_and_values)
 	CHECK_EQ(value[2], 0);
 	CHECK_EQ(osc2_ble_input_value((const uint8_t[]){ 0x79, 2 }, 2, pad, &value, &value_len), -1);
 	CHECK_EQ(osc2_ble_input_value(state, 0, pad, &value, &value_len), -1);
+	/* A 0x45 handed over as one (the zero report's form is 0x42) goes to the same
+	 * characteristic, at its 45 bytes. */
+	state[0] = 0x45;
+	CHECK_EQ(osc2_ble_input_value(state, 46, pad, &value, &value_len), 5);
+	CHECK_EQ(value_len, 45);
+	CHECK(value == &state[1]);
+	state[0] = 0x42;
 
 	/* Writes: up to the value's size, from any offset; past it, invalid offset. */
 	CHECK_EQ(osc2_ble_write_check(0, 64, OSC2_BLE_FEATURE_LEN), 0);

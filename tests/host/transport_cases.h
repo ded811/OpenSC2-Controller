@@ -63,15 +63,19 @@ OPENSC2_TEST(transport_rules)
 	CHECK_EQ(osc2_transport_at_boot(1, 0, true), 1);
 	CHECK_EQ(osc2_transport_at_boot(1, 1, false), 3);   /* a Bluetooth choice without Bluetooth */
 	CHECK_EQ(osc2_transport_at_boot(3, 0, false), 3);
+	CHECK_EQ(osc2_transport_at_boot(7, -1, true), 2);   /* a stored value above 3: the default */
 	/* October's rule: saved once the link is up, unless it is the stored one already. */
 	CHECK(osc2_transport_save_due(2, OSC2_TRANSPORT_NONE));
 	CHECK(!osc2_transport_save_due(2, 2));
 	CHECK(osc2_transport_save_due(0, 2));
+	CHECK(osc2_transport_save_due(3, 1));    /* back from Bluetooth slot 2 to the second puck */
 	CHECK(!osc2_transport_save_due(OSC2_TRANSPORT_NONE, 2));
+	CHECK(!osc2_transport_save_due(4, 2));   /* no such transport */
 	/* Names and the shell's words. */
 	CHECK(strcmp(osc2_transport_name(0), "Bluetooth 1") == 0);
 	CHECK(strcmp(osc2_transport_name(3), "puck 2") == 0);
 	CHECK(strcmp(osc2_transport_name(9), "?") == 0);
+	CHECK(strcmp(osc2_transport_word(4), "?") == 0);
 	for (uint8_t t = 0; t <= 3; t++) {
 		strcpy(word, osc2_transport_word(t));
 		CHECK_EQ(osc2_transport_from_word(word), t);
@@ -149,6 +153,9 @@ OPENSC2_TEST(transport_attribute_11)
 	osc2.mode = OPENSC2_MODE_WIRELESS;
 	stub.ble_running = true;
 	CHECK_EQ(attr11(OSC2_LINK_TEST), 15000);
+	stub.link_active[OSC2_LINK_BLE] = false;   /* connected, not past its gate yet */
+	CHECK_EQ(attr11(OSC2_LINK_TEST), 0);
+	stub.link_active[OSC2_LINK_BLE] = true;
 	stub.ble_running = false;
 	CHECK_EQ(attr11(OSC2_LINK_TEST), 4000);
 #endif
