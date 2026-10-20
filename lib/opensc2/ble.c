@@ -1273,6 +1273,7 @@ static void conn_drop(void)
 	k_spinlock_key_t key;
 
 	link_reset();
+	ble.drop_reason = 0;   /* a BLE_DROP's reason belongs to this link only */
 	key = k_spin_lock(&conn_lock);
 	conn = ble.conn;
 	ble.conn = NULL;
@@ -1557,10 +1558,16 @@ static void on_msg(const struct ble_msg *m)
 	case MSG_STOP:
 		do_stop(m->a, m->b);
 		break;
-	case MSG_PAIR:
-		/* A pairing request on the running slot: a new start with the flag. */
-		do_start((uint8_t)(OSC2_TRANSPORT_BLE_1 + ble.slot), true);
+	case MSG_PAIR: {
+		/* A pairing request on the running slot: a new start with the flag. The running
+		 * transport names the slot, also when Bluetooth has not started yet this boot (an
+		 * application that starts it later), when ble.slot is still slot 1's. */
+		uint8_t t = osc2_transport_running();
+
+		do_start(osc2_transport_is_ble(t) ? t : (uint8_t)(OSC2_TRANSPORT_BLE_1 + ble.slot),
+			 true);
 		break;
+	}
 	case MSG_CONNECTED:
 		on_connected_msg(m);
 		break;

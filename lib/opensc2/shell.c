@@ -359,15 +359,24 @@ static int cmd_ble_status(const struct shell *sh, size_t argc, char **argv)
 
 static int cmd_ble_pair(const struct shell *sh, size_t argc, char **argv)
 {
+	int err;
+
 	ARG_UNUSED(argc);
 	ARG_UNUSED(argv);
 	if (!osc2_transport_is_ble(osc2_transport_running())) {
 		shell_error(sh, "Bluetooth is not the transport: opensc2 transport ble");
 		return -EBUSY;
 	}
+	/* Through opensc2_pair_start(), which refuses while wired: a wired boot (a console over
+	 * USB or a UART) must not start Bluetooth. */
+	err = opensc2_pair_start(0);
+	if (err) {
+		shell_error(sh, "failed (%d)%s", err, err == -EBUSY ? ": the board is wired" : "");
+		return err;
+	}
 	shell_print(sh, "Pairing mode: the slot's other identity, reset, is open to a new host; "
 		    "the slot's host keeps its bond until a new one has paired");
-	return osc2_ble_pair();
+	return 0;
 }
 #endif
 
