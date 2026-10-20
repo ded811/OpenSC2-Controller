@@ -9,7 +9,8 @@
  *     ahead, and drains the output once nothing plays any more;
  *   - the script players and the drop sounds on one work item of the system work queue;
  *   - one mutex around every call into the logic, never held while an output plays, a report is
- *     sent or an entry is written into the test hooks' ring;
+ *     sent or an entry is written into the test hooks' ring, and one that lets a single thread at
+ *     a time send what the logic made, in order;
  *   - the master gain (setting 76) before every block, the amplifier mode (setting 75), the rumble
  *     gain offset (setting 27) as each rumble report arrives.
  * The output reports come from report.c's dispatcher (osc2_haptics_outputs()), after the

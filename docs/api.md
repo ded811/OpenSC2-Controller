@@ -493,9 +493,9 @@ nothing wired, by the hardware test suite's `haptics` group ([testing.md](testin
 
 static int amp_write(const struct opensc2_haptics_output *out, const void *block, size_t frames)
 {
-	/* 64 frames of two int16_t, left grip first: queue them for 8 kHz playback, and wait while
-	 * two blocks are already queued */
-	return 0;
+    /* 64 frames of two int16_t, left grip first: queue them for 8 kHz playback, and wait while
+     * two blocks are already queued */
+    return 0;
 }
 
 static const struct opensc2_haptics_output_api amp_api = { .write = amp_write };
@@ -572,14 +572,14 @@ or not (Steam's zero pulses get two): those replies to a stop are the library's 
 ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 19), so they can never come
 twice, and where the library does not send them, a stop gets no reply.
 
-### Outputs
+### Its outputs
 
 ```c
 struct opensc2_haptics_output_api {
-	int (*start)(const struct opensc2_haptics_output *out);            /* optional */
-	int (*write)(const struct opensc2_haptics_output *out, const void *block, size_t frames);
-	int (*stop)(const struct opensc2_haptics_output *out, bool drop);  /* optional */
-	void (*enable)(const struct opensc2_haptics_output *out, bool on); /* optional */
+    int (*start)(const struct opensc2_haptics_output *out);            /* optional */
+    int (*write)(const struct opensc2_haptics_output *out, const void *block, size_t frames);
+    int (*stop)(const struct opensc2_haptics_output *out, bool drop);  /* optional */
+    void (*enable)(const struct opensc2_haptics_output *out, bool on); /* optional */
 };
 ```
 
@@ -666,7 +666,8 @@ in OpenSC2. The synthesiser has sounds of its own instead:
 - Two threads, `osc2_hap_pads` and `osc2_hap_grips` (priority
   `CONFIG_OPENSC2_HAPTICS_THREAD_PRIORITY`, 6; stack `CONFIG_OPENSC2_HAPTICS_THREAD_STACK_SIZE`,
   1536); the scripts and drop sounds run on the system work queue; one mutex guards the
-  synthesiser, never held while an output plays or a report goes out. Output reports reach it from
+  synthesiser, never held while an output plays or a report goes out, and a second one lets one
+  thread at a time send what it made, so its `0x44` reports keep their order. Output reports reach it from
   the radio or USB thread after the callbacks, and only queue commands and copy stream bytes there.
 - About 10 KB of RAM and 14 KB of flash (the blank canvas with `app/haptics.conf` against without).
 
