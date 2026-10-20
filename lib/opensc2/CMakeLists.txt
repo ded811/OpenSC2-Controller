@@ -15,11 +15,13 @@ endif()
 zephyr_library_named(opensc2)
 
 zephyr_library_sources(
+	cal.c
 	codec.c
 	core.c
 	commands.c
 	crash.c
 	crash_rules.c
+	gauge.c
 	hwdt.c
 	id_rules.c
 	input_rules.c
@@ -35,6 +37,7 @@ zephyr_library_sources(
 	report_rules.c
 	# the retained area's pure logic, and the CRC-32 the crash records and the test hooks use
 	retained.c
+	sensor_helpers.c
 	settings_defaults.c
 	storage.c
 	transport.c
@@ -54,6 +57,12 @@ zephyr_library_sources_ifdef(CONFIG_OPENSC2_BLE
 	ble_rules.c
 )
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_SHELL shell.c)
+# The calibration keys, commands and raw inputs (stand-ins without CONFIG_OPENSC2_CAL).
+zephyr_library_sources(cal_store.c)
+zephyr_library_sources_ifdef(CONFIG_OPENSC2_CAL cal_flash.c)
+if(CONFIG_OPENSC2_CAL AND CONFIG_OPENSC2_SHELL)
+  zephyr_library_sources(cal_shell.c)
+endif()
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_FUSION fusion.c)
 # The hardware test hooks (tools/hwtest).
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_TEST_HOOKS

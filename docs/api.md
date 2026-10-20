@@ -4,7 +4,9 @@ The library's whole interface, for developers who use it in their own firmware: 
 callback, field, rule and option.
 
 Everything a project needs from `<opensc2/opensc2.h>` (which also includes `<opensc2/types.h>`,
-`<opensc2/codec.h>` and `<opensc2/settings.h>`), plus the optional `<opensc2/fusion.h>`. The library
+`<opensc2/codec.h>` and `<opensc2/settings.h>`), plus the optional `<opensc2/fusion.h>`,
+`<opensc2/cal.h>` (calibration and raw inputs), `<opensc2/sensor_helpers.h>` and `<opensc2/gauge.h>`
+(sensor and battery helpers). The library
 is hardware-agnostic: it has no pins. Your application reads its buttons, sensors and touch parts
 and hands the values over; it receives the outputs through callbacks and drives whatever it has.
 The same inputs and outputs work wireless (through the puck) and wired (on USB). How to bring the
@@ -15,6 +17,8 @@ library into a project: [integration.md](integration.md).
 - [Modes](#modes): wired or wireless, the policy, reboots
 - [Wired mode](#wired-mode): the USB device, what a project needs, the session log
 - [Inputs](#inputs): every field, its range, and where Steam sees it
+- [Calibration and raw inputs](#calibration-and-raw-inputs): the real controller's processing and
+  its stored calibration
 - [Outputs](#outputs): callbacks and what is in them
 - [Identity](#identity)
 - [Bonds and pairing](#bonds-and-pairing)
@@ -28,7 +32,9 @@ library into a project: [integration.md](integration.md).
   recovery, reset causes
 - [Shell commands](#shell-commands)
 - [Hardware test hooks](#hardware-test-hooks): input injection, output capture, the lizard guard
-- [Pure helpers](#pure-helpers), and [the IMU fusion helper](#the-imu-fusion-helper)
+- [Pure helpers](#pure-helpers), [the IMU fusion helper](#the-imu-fusion-helper), the
+  [calibration](#calibration-helpers), [sensor](#sensor-helpers) and [battery](#battery-helpers)
+  helpers
 
 "In Steam" below means what Steam and SDL's open-source Steam Controller 2 driver
 (`SDL_hidapi_steam_triton.c`) read from the field. How Steam's own configurator presents each one
@@ -52,6 +58,8 @@ is not documented here and has not been checked against this library.
 | `opensc2_set_trackpad(side, &pad)`, `opensc2_set_imu(&imu)` | a trackpad, the IMU | [Inputs](#inputs) |
 | `opensc2_set_state(&state)`, `opensc2_get_state(&state)` | the whole input state at once | [Inputs](#inputs) |
 | `opensc2_set_battery(&battery)` | the battery report | [Battery](#battery) |
+| `opensc2_set_stick_raw()`, `_trigger_raw()`, `_pressure_raw()`, `_touch_raw()`, `opensc2_set_raw(&raw)`, `opensc2_cal_raw_release(inputs)` | raw inputs, processed as the real controller does with its stored calibration | [Calibration and raw inputs](#calibration-and-raw-inputs) |
+| `opensc2_cal_stick_ok(side)`, `_trigger_ok()`, `_pressure_ok()`, `opensc2_cal_recording(kind)`, `opensc2_cal_led_trim(ch)`, `opensc2_cal_volt_offset()`, `opensc2_cal_gyro_bias(b)`, `opensc2_cal_generation()` | the stored calibration, a recording running | [Calibration and raw inputs](#calibration-and-raw-inputs) |
 | `opensc2_send_report(report, len)`, `opensc2_send_haptic_status(channel, flags)` | any other input report | [Other input reports](#other-input-reports) |
 | `opensc2_bond_get(slot, &bond)`, `opensc2_bond_set(slot, &bond)` | read or store a pairing | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_select_slot(slot)`, `opensc2_selected_slot()` | the pairing slot in use (0 or 1) | [Bonds and pairing](#bonds-and-pairing) |
@@ -61,6 +69,9 @@ is not documented here and has not been checked against this library.
 | `opensc2_fusion_init(&f)`, `opensc2_fusion_update(&f, a, g, dt)`, `opensc2_fusion_quat(&f, q)` | the orientation quaternion from an IMU without its own fusion | [The IMU fusion helper](#the-imu-fusion-helper) |
 | `opensc2_accel_from_g(g)`, `opensc2_gyro_from_dps(dps)` | g and °/s in the report's units | [The IMU fusion helper](#the-imu-fusion-helper) |
 | `opensc2_encode_state()`, `opensc2_decode_output()`, ... | every wire format as a pure function (`<opensc2/codec.h>`) | [Pure helpers](#pure-helpers) |
+| `opensc2_stick_setup()`, `opensc2_trigger_value()`, `opensc2_pressure_sample()`, ... | the calibration's arithmetic as pure functions (`<opensc2/cal.h>`) | [Calibration helpers](#calibration-helpers) |
+| `opensc2_cap_sample()`, `opensc2_pad_rotate()`, `opensc2_stabiliser_step()`, `opensc2_imu_mount()`, ... | sensor processing as pure functions (`<opensc2/sensor_helpers.h>`) | [Sensor helpers](#sensor-helpers) |
+| `opensc2_gauge_step()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
 
 The callbacks your application can register are in [Outputs](#outputs).
 
@@ -479,6 +490,100 @@ keyboard reports from the input state:
   the trackers over, as on the real controller: no frames run meanwhile, and the first frame after
   the gap compares the pads with the frame before it.
 
+## Calibration and raw inputs
+
+`<opensc2/cal.h>`, with `CONFIG_OPENSC2_CAL` (on by default). The real controller turns raw sensor
+readings into the report's values itself, with a calibration stored on the controller. The
+library can do the same: an application that gives it **raw inputs** gets the real controller's
+processing, and the calibration commands work as on the real controller. An application that gives
+finished values (the setters above) is not affected; raw and finished inputs can be mixed, input by
+input.
+
+| Raw input | Setter | Unit | Becomes |
+| --- | --- | --- | --- |
+| a stick | `opensc2_set_stick_raw(side, x, y)` | 12-bit ADC counts, the average of a burst (0..4095), right and up the higher values | the stick, from `cal/joy_l` / `cal/joy_r`; setting 46 = 1 gives millivolts, 2 the counts |
+| a trigger | `opensc2_set_trigger_raw(side, counts)` | 12-bit counts | the trigger, from `cal/trg_l` / `cal/trg_r`; setting 62 = 1 millivolts, 2 counts |
+| a pad's pressure | `opensc2_set_pressure_raw(side, word)` | the sensor's own signed 16-bit word | the pad's pressure (filtered, from `cal/prs_l` / `cal/prs_r`, 0 while not touched) and, with `CONFIG_OPENSC2_CAL_PRESSURE_CLICK`, its click bit (settings 52, 53); setting 60 = 1 gives the raw word |
+| capacitive words | `opensc2_set_touch_raw(side, stick_word, grip_word)` | the controller's units | the stick-touch bit (settings 30, 31) and the grip bit (settings 34, 35) |
+| all at once | `opensc2_set_raw(&raw)` | `struct opensc2_raw_inputs`, the inputs given in `present` (`OPENSC2_RAW_*` bits) | |
+
+The library processes them once per state report, before the hardware test hooks' injection;
+give them from the `sample` callback to have them sampled at the last moment. An input stays raw
+until `opensc2_cal_raw_release(OPENSC2_RAW_*)` gives it back to the finished-value setters. A pad
+given raw pressure keeps its touch flag and position from `opensc2_set_trackpad()`.
+
+The "millivolts" are the real controller's: counts × 3300 / 4096 for a stick (full scale VDD) and
+counts × 1650 / 4096 for a trigger (full scale VDD / 2), whatever the supply. A board whose trigger
+is read with another gain still works: its stored calibration is in the same units.
+
+**Uncalibrated, a raw stick, trigger or pressure reads 0** (and a pad without pressure calibration
+never clicks), as on the real controller. A new board has no calibration: record one with the
+commands below, or keep giving finished values until it has one (`opensc2_cal_stick_ok(side)`,
+`_trigger_ok()`, `_pressure_ok()`), and raw ones while its recording runs
+(`opensc2_cal_recording(OPENSC2_CAL_REC_STICKS)`, `_TRIGGERS`, `_PRESSURE`): a recording takes its
+samples from raw inputs only. The blank canvas's options do both. How each is processed:
+
+- **Sticks.** Each axis split at the middle of its rest band into two halves, each scaled so that
+  full deflection comes 90 % of the way to the stored extreme, truncated toward zero; no dead zone,
+  no filter. Usable with format 2 or `0x81` and each extreme at least 200 counts from its end of
+  the rest band. `CONFIG_OPENSC2_CAL_STICK_DEAD_ZONE` adds a centre dead zone of OpenSC2's own (for
+  potentiometer sticks), `CONFIG_OPENSC2_CAL_STICK_GROW_RANGE` July 2026's run-time range.
+- **Triggers.** From the released end to the pulled end moved 2 % toward it: 0 over the first 5 %,
+  full from 95 % on; the direction comes from the calibration. Usable with A and B at least 100
+  counts apart.
+- **Pad pressure.** A filter (p = (3 p + raw) / 4), a 5 % band at both ends of the calibrated range,
+  the calibration's gain; the click on above (setting 52 or 53 + 8) %, off below (that − 8) %, with
+  −1 counting as 100.
+- **Stick touch and grip.** The mean of the last two words against setting 30 (on, default 500)
+  and 31 (held, 400), and against (setting 34 / 2 + 12.5) % of 1800 (on, 1125) and setting 35 % of
+  that (held, 900). A change of settings 30, 31, 33, 34, 35, 52, 53, 66, 72 or 73 starts both pads
+  over (these means, the pad's click and its stabiliser of the pad rules below), and a load of a
+  pad's pressure key starts that pad over.
+
+**The stored calibration** lives under `opensc2/cal/` in Zephyr settings (the storage partition,
+which a `.uf2` reflash keeps); a factory reset (`0x86`) keeps it. The keys, by the real names a host
+uses with the by-name commands:
+
+| Key | Size | Content |
+| --- | --- | --- |
+| `cal/joy_l`, `cal/joy_r` | 18 | format u16 (2 or `0x81`), then X minimum, maximum, rest low, rest high, then Y, u16 mV each |
+| `cal/trg_l`, `cal/trg_r` | 7 | format u16, A (the higher mV) u16, B (the lower) u16, direction u8 (0: rises when pulled) |
+| `cal/prs_l`, `cal/prs_r` | 8 | format u16 (1: range A..B; `0x80`: 0..B−A), A s16, B s16 (a firm press), gain u16 (2000 = 1) |
+| `cal/touch_l`, `cal/touch_r` | 10 | kept and readable; nothing uses them |
+| `cal/rgbw_r`, `_g`, `_b`, `_w` | 1 each | LED colour trims, percent (1..199; 90, 35, 120, 80 when missing): `opensc2_cal_led_trim(channel)` |
+| `cal/volt_offset` | 2 | battery voltage offset, s16 mV: `opensc2_cal_volt_offset()` |
+| `cal/sensors/gyroscope/bias` | 12 | three floats (rad/s), a starting gyro bias: `opensc2_cal_gyro_bias(bias)` |
+
+`opensc2_cal_generation()` changes whenever a stick, trigger or pressure key changes in RAM, for an
+application that processes its own inputs with the [calibration helpers](#calibration-helpers); the
+LED trims, the battery offset and the gyro bias do not change it (their functions read the RAM
+value each time).
+
+**The commands** (on every link, as on the real controller; the [test suite](testing.md) never
+sends them):
+
+| Opcode | Payload | Does |
+| --- | --- | --- |
+| `0xD8` | `[1]` the step (`[0]` is not read) | stick calibration from the raw sticks: 1 records the rest band, 2 full circles, 3 saves `cal/joy_l` and `cal/joy_r` at the next frame, 0 ends without saving |
+| `0xC0` | `[0]` the step | triggers: 1 released, 2 pulled, 3 saves both (each keeps the direction whose A and B lie further apart), 0 ends |
+| `0xC3` | `[0]` the step | pad pressure: 1 start, 2 the firmest press, 3 saves both at once, 0 pauses |
+| `0xE2` | side, mask | saves one side's RAM values (mask bit 0 the trigger, 1 the stick, 2 the pressure); a side above 1 is refused |
+| `0xFE` | the 32-bit key `0xC6674885` | deletes every `cal/` key from flash; the RAM copies stay in use until the next boot; any other key is refused |
+| `0xED`, `0xEE`, `0xEF`, `0xF0` | a `cal/` key | read, set in RAM (exactly the key's size), save, delete, as in [Vendor commands](#vendor-commands) |
+
+A recording takes the samples of the raw inputs, one per state report, so only while a link is up,
+and saves only the sides that gave samples. Its flash writes, and those of `0xE2` and `0xFE`, run
+from the system work queue in the order they were asked for (`0xFE` drops the saves still waiting
+from before it). Steps above 3 do nothing; a step 2 or 3 without a step 1 does nothing.
+
+**The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default) act on the reported pads, raw or not,
+after the hardware test hooks' injection, so report `0x42` and lizard mode both see them: with
+settings 2 and 24 both non-zero the pads turn by setting 2's angle (the right pad
+counter-clockwise, the left clockwise, in the real controller's angle steps), and with setting 80 =
+2 the touch stabiliser holds a new touch still until the thumb moves more than 4369 units, then
+follows it. Both are off with the default settings. The position filter (setting 65) and the pad
+touch levels (72, 73) belong to the trackpad's own processing: [sensor helpers](#sensor-helpers).
+
 ## Outputs
 
 All callbacks are in `struct opensc2_callbacks`; any may be `NULL`. Wireless, they run in the
@@ -670,8 +775,13 @@ they identify the puck.
 Storage keys (Zephyr settings): `opensc2/bond0`, `opensc2/bond1`, `opensc2/transport` (the
 wireless transport, 0 to 3), `opensc2/slot` (the puck's slot, written with a puck transport;
 firmware before the transport key reads only this one), `opensc2/chime`, `opensc2/id`,
-`opensc2/name`, `opensc2/mode`. A Bluetooth build also keeps Zephyr's `bt/` keys (bonds,
-identities, the name); a factory reset (`0x86`) deletes all of them.
+`opensc2/name`, `opensc2/mode`, the values the library keeps for settings by name under
+`opensc2/k/` ([Settings by name](#settings-by-name)), and with `CONFIG_OPENSC2_CAL` the calibration
+keys under `opensc2/cal/` (`opensc2/cal/joy_l` for `cal/joy_l`, and so on;
+[Calibration and raw inputs](#calibration-and-raw-inputs)). A Bluetooth build also keeps Zephyr's
+`bt/` keys (bonds, identities, the name). A factory reset (`0x86`) deletes the bonds, the transport,
+the chime level, the kept values the real controller's reset deletes and every `bt/` key; it keeps
+the identity, the mode policy and the calibration.
 
 ## Wireless transports and Bluetooth LE
 
@@ -832,21 +942,22 @@ over Bluetooth. The library answers these itself:
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate) |
-| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`, the application's). `0xED` answers length 0 for an empty bond; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
-| `0xE2` | set | persist calibration: acknowledged for side 0 or 1 (after `vendor_command`, which may do something with it), refused above |
+| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`: with `CONFIG_OPENSC2_CAL` the library's, [Calibration and raw inputs](#calibration-and-raw-inputs); without it the application's). `0xED` answers length 0 for an empty bond, an analog calibration key whose format word is 0, an LED trim outside 1..199 and the gyro bias; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and refuses an empty bond, an analog calibration key whose format word is 0 and the gyro bias; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
+| `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 |
+| `0xD8`, `0xC0`, `0xC3`, `0xFE` | set | with `CONFIG_OPENSC2_CAL`: the stick, trigger and pressure recordings and the calibration erase ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
 | `0xA2` | set | write the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes (an ID of zero deletes it) |
 | `0x86`, `0x90`, `0x95`, `0x9F` | set | factory reset, bootloader, reboot, turn off: `power_request`; turn-off is ignored while wired |
 
-Everything else (the calibration commands `0xD8`, `0xC0`, `0xC3`, `0xFE`, and anything new) goes to
-`vendor_command`; a command nobody knows is refused (on USB a STALL, as the real controller stalls
-Steam's `0xC1`):
+Everything else (anything new, and without `CONFIG_OPENSC2_CAL` the calibration commands `0xD8`,
+`0xC0`, `0xC3` and `0xFE`) goes to `vendor_command`; a command nobody knows is refused (on USB a
+STALL, as the real controller stalls Steam's `0xC1`):
 
 ```c
 static int on_vendor(const struct opensc2_vendor_cmd *cmd, uint8_t *answer, uint8_t *answer_len,
              void *user)
 {
-    if (cmd->opcode == 0xD8 && !cmd->is_get) {
-        start_my_stick_calibration(cmd->payload, cmd->len);
+    if (cmd->opcode == 0xB0 && !cmd->is_get) {   /* a command of your own */
+        do_my_thing(cmd->payload, cmd->len);
         return 0;                 /* SET result 0 */
     }
     return -ENOTSUP;              /* unknown: the SET fails, a GET answers {opcode, 0} */
@@ -911,6 +1022,10 @@ most likely to act on:
 | 80 | `OPENSC2_SETTING_PAD_STABILIZER` | 1 | 1: lizard mode's right pad has the touch stabiliser (used by the library); 2 belongs to the pad processing of the reported position, not implemented |
 | 82 | `OPENSC2_SETTING_PAD_IGNORE_ON_STICK` | 3 | ignore a pad while its stick is touched, in report `0x42` and lizard mode (used by the library) |
 
+With `CONFIG_OPENSC2_CAL` the library also acts on 30, 31, 34, 35, 46, 52, 53, 60 and 62 for raw
+inputs, and with `CONFIG_OPENSC2_PAD_RULES` on 2, 24 and 80 for the reported pads
+([Calibration and raw inputs](#calibration-and-raw-inputs)).
+
 `0x87` clamps a value to its range where the range is known (9 and 71: 0..1; 11: 0..1000; 12:
 1..1000; 14: 0..32767; 36 and 45: 0..100; 68: 40..99; 70: 0..2; `opensc2_setting_clamp()`); other
 settings keep any value. The defaults and the ranges of 36 and 68 are in the protocol
@@ -957,6 +1072,11 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_STORAGE` | y with `CONFIG_SETTINGS` | bonds, identity and policy in Zephyr settings |
 | `CONFIG_OPENSC2_SHELL` | y with `CONFIG_SHELL` | |
 | `CONFIG_OPENSC2_FUSION` | n | the IMU fusion helper |
+| `CONFIG_OPENSC2_CAL` | y | the calibration keys and commands, raw inputs ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
+| `CONFIG_OPENSC2_CAL_PRESSURE_CLICK` | y | raw pad pressure also sets the pad's click bit |
+| `CONFIG_OPENSC2_CAL_STICK_DEAD_ZONE` | 0 | a centre dead zone of raw sticks, report units (the real controller has none) |
+| `CONFIG_OPENSC2_CAL_STICK_GROW_RANGE` | n | July 2026's run-time stick range |
+| `CONFIG_OPENSC2_PAD_RULES` | y | the pad rotation (settings 2, 24) and stabiliser (setting 80 = 2) |
 | `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE` | n | identity through `0xEE` |
 | `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` | y | `0x44 {channel, 0x02}` after every stop, as the real controller ([Other input reports](#other-input-reports)) |
 | `CONFIG_OPENSC2_CRASH_RECORD` | y (n with `CONFIG_RESET_ON_FATAL_ERROR`) | the fatal-error handler: a crash record, then a reset ([Crash records](#crash-records)) |
@@ -1103,6 +1223,7 @@ With `CONFIG_SHELL` (on the SuperMini: the USB serial port, in wireless mode):
 | `opensc2 ble [status]`, `opensc2 ble pair` | with `CONFIG_OPENSC2_BLE`: the Bluetooth link (on or off, slot, identity and its address, the name, the bonds of the four identities, advertising and its form and the seconds left of its window, or connected with security, ATT MTU, interval, pacing and counters, or wireless off and why; the last disconnect reason); pairing mode for the slot (its other identity, reset, open to a new host; the old host's bond goes once a new one has paired) |
 | `opensc2 id`, `opensc2 id set <unit\|board\|git\|pid\|rev\|build\|blbuild\|name> <value> [force]`, `opensc2 id clear` | identity: `set` stores that one field as given (0 too); numbers in hex with `0x`, or `0`; a name with spaces in double quotes; `force` for a build time at or before `0x6A18D057` ([Identity](#identity)) |
 | `opensc2 state` | the current input state |
+| `opensc2 cal`, `opensc2 cal sticks\|triggers\|pressure <0-3>`, `opensc2 cal save <0\|1> <mask>`, `opensc2 cal erase <key>` | with `CONFIG_OPENSC2_CAL`: what is stored and in use; a recording's step, as `0xD8`, `0xC0` and `0xC3` give it; one side's RAM values saved, as `0xE2` (mask 1 the trigger, 2 the stick, 4 the pressure); every `cal/` key deleted from flash with the key in hex, as `0xFE` ([Calibration and raw inputs](#calibration-and-raw-inputs)). The hardware test suite never sends it |
 | `opensc2 test [<id>] <verb> ...` | with `CONFIG_OPENSC2_TEST_HOOKS`: the [hardware test hooks](test-protocol.md#the-console-opensc2-test) |
 
 The shell numbers the two pairing slots 1 and 2; the API numbers them 0 and 1. `opensc2 bonds` shows
@@ -1117,7 +1238,9 @@ board with nothing wired to it. While the PC has the hooks **armed**:
 
 - **input injection**: the state reports carry a state the PC sends instead of the application's
   (every button bit, both sticks, triggers and pads, the IMU fields), statically or as a frame-locked
-  sequence; a battery the PC sends replaces the application's in `0x43` and `0xBE`;
+  sequence; a battery the PC sends replaces the application's in `0x43` and `0xBE`; with
+  `CONFIG_OPENSC2_CAL`, raw inputs the PC sends replace the application's before the library
+  processes them (`RAW_INJECT`), so the processing itself can be checked;
 - **output capture**: a RAM ring records what the library decoded or called back (rumble, haptics,
   the LED, settings, lizard mode, power requests, vendor commands, link, Bluetooth and USB events),
   entry by entry, so outputs with no hardware behind them can be checked byte for byte;
@@ -1139,11 +1262,12 @@ with the defaults (the ring, the sequence steps, the settings snapshot).
 
 Safety rules the firmware enforces itself:
 
-- **Injection needs lizard mode off.** `INJECT` and `SEQ_RUN` answer DENIED while setting 9 is not 0
-  (unless the request carries the lizard-test flag, which only the suite's opt-in lizard group sets).
-  An injection stops in the very frame lizard mode comes back (the Steam watchdog, `0x8E`, setting 9 =
-  1): that frame is built from the application's state again, an `INJECT_STOP` entry is written, and
-  lizard mode never sees an injected state. The guard is a second, independent layer.
+- **Injection needs lizard mode off.** `INJECT`, `SEQ_RUN` and `RAW_INJECT` answer DENIED while
+  setting 9 is not 0 (unless the request carries the lizard-test flag, which only the suite's opt-in
+  lizard group sets; `RAW_INJECT` has none). An injection stops in the very frame lizard mode comes
+  back (the Steam watchdog, `0x8E`, setting 9 = 1): that frame is built from the application's state
+  again, an `INJECT_STOP` entry is written, and lizard mode never sees an injected state. The guard
+  is a second, independent layer.
 - **Arming releases first, the guard comes off last.** `ARM` first releases whatever lizard mode
   holds towards the host (an empty keyboard and an all-zero mouse report, only when it holds
   something), then turns the guard on. At the end of arming the guard stays on 50 ms more, lizard mode
@@ -1228,5 +1352,53 @@ static void imu_sample(const float accel_g[3], const float gyro_dps[3], float dt
 controller, which streams IMU data only while Steam has it on, the sample and `app/` send readings
 only while controller setting 48 is not 0 (`opensc2_setting_get(OPENSC2_SETTING_IMU_MODE)`); the
 library itself sends whatever the application set.
+
+### Calibration helpers
+
+`<opensc2/cal.h>`: the arithmetic behind [Calibration and raw inputs](#calibration-and-raw-inputs) as
+pure functions, for an application that processes its inputs itself (the library uses the same
+ones). Each follows the protocol documentation's rules, with its factors as exact fractions; the
+host tests check them against values worked out from those rules.
+
+| Function | Does |
+| --- | --- |
+| `opensc2_cal_counts_to_mv(counts, full_mv)`, `opensc2_cal_mv_to_counts(mv, full_mv)` | the firmware's millivolts (`OPENSC2_CAL_STICK_FULL_MV` 3300, `OPENSC2_CAL_TRIGGER_FULL_MV` 1650) |
+| `opensc2_cal_raw_mode(mode, counts, full_mv, &out)` | settings 46 and 62: 1 millivolts, 2 counts |
+| `opensc2_cal_stick_pack()` / `_unpack()`, `_trigger_`, `_pressure_` | the keys' byte formats |
+| `opensc2_stick_setup(&p, &cal)`, `opensc2_stick_value(&p, x, y, &out)`, `opensc2_stick_axis_value()` | a stick: validity, centre, two halves, the 10 % band; options `p.dead_zone` and `p.grow_range` |
+| `opensc2_trigger_setup(&p, &cal)`, `opensc2_trigger_value(&p, counts)` | a trigger: direction, the 5 % bands, full 2 % early |
+| `opensc2_pressure_setup(&p, &cal)`, `opensc2_pressure_sample(&p, raw, setting)`, `opensc2_pressure_value(&p)`, `p.click` | a pad's pressure: the filter, the range, the gain, the click's hysteresis |
+| `opensc2_cal_rec_init()`, `_rec_step()`, `_rec_frame()`, `_rec_stick()`, `_rec_trigger()`, `_rec_pressure()` | the factory recordings of `0xD8`, `0xC0` and `0xC3` |
+
+### Sensor helpers
+
+`<opensc2/sensor_helpers.h>`: what the real controller does between its sensors and the report, for an
+application's own parts. The levels in the controller's units belong to Valve's sensor chip: scale
+your part's readings to them. Untested on real parts.
+
+| Function | Does |
+| --- | --- |
+| `opensc2_approx_distance(dx, dy)` | the real controller's fast length approximation (within about 3 %) |
+| `opensc2_cap_sample(&t, word, on, off)`, `opensc2_stick_touch_on_level(s30)`, `_off_level(s31)`, `opensc2_grip_on_level(s34)`, `opensc2_grip_off_level(s34, s35)` | stick touch and grip: the two-word mean, the hysteresis, the levels from the settings |
+| `opensc2_pad_touch_step(&t, level, s72, s73, &x, &y)` | a pad's touch from a signal level (settings 72, 73) with the damping near lift-off |
+| `opensc2_pad_edge(m)`, `opensc2_pad_stretch(side, axis, m)` | the edge push and setting 66's stretch (its constants fit Valve's pads only) |
+| `opensc2_pad_scale(m)` | a position (millionths of the pad) to the pad scale (±16383) |
+| `opensc2_pad_filter_step(&f, &x, &y, rate)` | setting 65's speed-adaptive position filter (floating point) |
+| `opensc2_pad_rotate(side, s2, s24, &x, &y)`, `opensc2_sin8192(deg)`, `opensc2_cos8192(deg)` | settings 2 and 24's rotation, with the real controller's angle steps |
+| `opensc2_stabiliser_step(&s, radius, &x, &y)` | the touch stabiliser (`OPENSC2_STABILISER_FINE` 4369, `_COARSE` 8738) |
+| `opensc2_imu_accel_from_ms2(v)`, `opensc2_imu_gyro_from_rads(v)` | the real controller's IMU scaling (m/s² and rad/s, truncated) |
+| `opensc2_imu_mount(m, in, out)`, `opensc2_imu_mount_quat(m, in, out)` | a mounting matrix on acceleration, angular rate and the quaternion |
+| `opensc2_imu_dead_zone(v, t)` | the gyro dead zone after the bias |
+| `opensc2_gyro_bias_init(&b, start)`, `opensc2_gyro_bias_update(&b, gyro, threshold, settle)` | a rest-based gyro-bias estimate of OpenSC2's own, for IMUs without one (setting 85 as its threshold, subtract while setting 84 is on) |
+| `opensc2_adc_average(samples, channels, scans, out)` | an ADC burst's average per channel (the real controller converts four times) |
+
+### Battery helpers
+
+`<opensc2/gauge.h>`: a battery level for report `0x43` the way the real controller's fuel gauge
+works: the divider and `cal/volt_offset` (`opensc2_gauge_divider_mv()`), the last 40 readings
+(`opensc2_gauge_history_*()`), a voltage curve per direction (OpenSC2's own for a single-cell LiPo:
+`opensc2_gauge_lipo_discharging`, `_charging`; Valve's tables are its own data), the stretch to the
+charge target, and a level that only falls while discharging and only rises while charging
+(`opensc2_gauge_step(&g, mv, charge_state)`, 255 until the first reading). Untested on a battery.
 
 Back to the [documentation map](README.md).

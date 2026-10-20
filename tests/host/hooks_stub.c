@@ -10,6 +10,7 @@
  */
 #include <string.h>
 #include "internal.h"
+#include "cal_store.h"
 #include "input_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
@@ -143,6 +144,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	caps->mode = osc2_wired() ? 1 : 0;
 	caps->build_flags = OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO | OSC2_TEST_FLAG_LIZARD_MODE |
 			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB | OSC2_TEST_FLAG_RULES |
+			    OSC2_TEST_FLAG_CAL |
 			    OSC2_TEST_FLAG_HAPTIC_STOP_STATUS;   /* the emulator sends them (fwemu.c) */
 	caps->battery_interval_ms = 3500;
 	caps->rumble_timeout_ms = 500;
@@ -378,4 +380,5 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.rules_get = env_rules_get,
 	.rules_build = env_rules_build,
 	.rules_set = env_rules_set,
+	.cal_status = osc2_cal_status,
 };

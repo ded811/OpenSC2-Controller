@@ -20,6 +20,7 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "cal_store.h"
 #include "crash.h"
 #include "keys.h"
 #include "proto_rules.h"
@@ -512,15 +513,23 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 	case 0xE2: { /* persist the calibration of side 0 or 1 */
 		uint8_t answer[OPENSC2_ANSWER_MAX];
 		uint8_t answer_len;
-		int rc;
+		int rc = osc2_cal_command(opcode, payload, len, avail);   /* the cal/ keys */
 
-		if (len && payload[0] > 1) {
-			return -EINVAL;
+		if (rc) {
+			return rc;
 		}
 		/* The application may keep a calibration of its own; with nothing to persist the
 		 * real controller acknowledges, and Steam sends it in every session. */
 		rc = app_command(opcode, payload, len, false, answer, &answer_len);
 		return rc == -ENOTSUP ? 0 : rc;
+	}
+	case 0xD8: case 0xC0: case 0xC3: case 0xFE: { /* calibration recordings, erase */
+		uint8_t answer[OPENSC2_ANSWER_MAX];
+		uint8_t answer_len;
+		int rc = osc2_cal_command(opcode, payload, len, avail);
+
+		return rc != -ENOTSUP ? rc :
+					app_command(opcode, payload, len, false, answer, &answer_len);
 	}
 
 	case 0xEE:   /* set a setting by name, in RAM */
@@ -533,6 +542,10 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		int rc;
 
 		if (!key) {
+			rc = osc2_cal_by_name(opcode, payload, len);   /* a cal/ key? */
+			if (rc != -ENOENT) {
+				return rc;
+			}
 			rc = app_command(opcode, payload, len, false, answer, &answer_len);
 			return rc == -ENOTSUP ? -ENOENT : rc;
 		}
@@ -775,6 +788,9 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		if (key && key_read(key, out, out_len) == 0) {
 			return 0;
 		}
+		if (osc2_cal_read_by_name(payload, len, out, out_len) == 0) {
+			return 0;
+		}
 		if (app_command(opcode, payload, len, true, out, out_len) != 0) {
 			*out_len = 0;
 		}
@@ -930,7 +946,7 @@ void osc2_command_describe(const uint8_t *rec, uint8_t rec_len, char *buf, size_
 		}
 		break;
 	}
-	case 0x95: case 0x86:
+	case 0x95: case 0x86: case 0xFE:
 		snprintf(buf, size, "key %08X",
 			 (unsigned int)get_u32(p, MIN((size_t)rec_len - 2, (size_t)4)));
 		break;
@@ -942,6 +958,11 @@ void osc2_command_describe(const uint8_t *rec, uint8_t rec_len, char *buf, size_
 	case 0xE2:
 		if (len >= 2) {
 			snprintf(buf, size, "side %u mask 0x%02X", p[0], p[1]);
+		}
+		break;
+	case 0xC0: case 0xC3: case 0xD8:
+		if (len > (opcode == 0xD8 ? 1 : 0)) {
+			snprintf(buf, size, "step %u", p[opcode == 0xD8 ? 1 : 0]);
 		}
 		break;
 	case 0xC5:

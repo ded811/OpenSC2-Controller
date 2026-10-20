@@ -1,0 +1,69 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * The devicetree half of the build imu-stream.conf (app/CMakeLists.txt adds it with that
+ * fragment): the real controller's IMU, an ST LSM6DSV16X, on I2C instead of the two D-pad buttons
+ * whose pins it takes (left P0.17 is SDA, right P0.20 is SCL), its INT1 on the left trigger
+ * button's pin (P0.24), set up as the real controller sets it: +-2 g and +-2000 deg/s at 240 Hz,
+ * a FIFO watermark of 4, the fusion block at 240 Hz with its game rotation vector and gyro-bias
+ * estimate in the FIFO, and the real controller's mounting matrix. Untested on hardware: check
+ * the pins and the address (0x6A, or 0x6B with its SA0 pin high) against your board.
+ */
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/sensor/lsm6dsv16x.h>
+
+/ {
+	aliases {
+		imu0 = &imu;
+	};
+
+	zephyr,user {
+		/* The real controller's mounting: x' = y, y' = -x, z' = z (row major). */
+		imu-mounting-matrix = <0 1 0 (-1) 0 0 0 0 1>;
+	};
+};
+
+&opensc2_buttons {
+	/delete-node/ dpad_left;
+	/delete-node/ dpad_right;
+	/delete-node/ trigger_l;
+};
+
+&pinctrl {
+	i2c0_imu_default: i2c0_imu_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 17)>, <NRF_PSEL(TWIM_SCL, 0, 20)>;
+		};
+	};
+	i2c0_imu_sleep: i2c0_imu_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 17)>, <NRF_PSEL(TWIM_SCL, 0, 20)>;
+			low-power-enable;
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_imu_default>;
+	pinctrl-1 = <&i2c0_imu_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	imu: lsm6dsv16x@6a {
+		compatible = "st,lsm6dsv16x";
+		reg = <0x6a>;
+		int1-gpios = <&gpio0 24 GPIO_ACTIVE_HIGH>;
+		drdy-pin = <1>;
+		accel-range = <LSM6DSV16X_DT_FS_2G>;
+		gyro-range = <LSM6DSV16X_DT_FS_2000DPS>;
+		accel-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
+		gyro-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
+		fifo-watermark = <4>;
+		accel-fifo-batch-rate = <LSM6DSVXXX_DT_XL_BATCHED_AT_240Hz>;
+		gyro-fifo-batch-rate = <LSM6DSVXXX_DT_GY_BATCHED_AT_240Hz>;
+		sflp-odr = <LSM6DSVXXX_DT_SFLP_ODR_AT_240Hz>;
+		sflp-fifo-enable = <LSM6DSVXXX_DT_SFLP_FIFO_GAME_ROTATION_GBIAS>;
+	};
+};

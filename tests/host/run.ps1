@@ -27,7 +27,8 @@ $lib = Join-Path $root 'lib\opensc2'
 $shim = Join-Path $PSScriptRoot 'shim'
 $vectors = Join-Path $root 'tests\vectors\hwtest'
 $flags = @('-std=c11', '-Wall', '-Wextra', '-Wshadow', '-Werror', "-I$shim", "-I$root\include",
-    "-I$lib")
+    "-I$lib", '-DCONFIG_OPENSC2_CAL=1', '-DCONFIG_OPENSC2_CAL_PRESSURE_CLICK=1',
+    '-DCONFIG_OPENSC2_PAD_RULES=1')
 $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\codec.c", "$lib\lizard.c", "$lib\settings_defaults.c", "$lib\fusion.c",
     "$lib\usb_desc.c", "$lib\usb_rules.c", "$lib\mode_rules.c", "$lib\retained.c",
@@ -36,6 +37,9 @@ $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\report_queue.c")
 # the wireless transports and Bluetooth LE
 $libSources += @("$lib\transport_rules.c", "$lib\ble_rules.c")
+# calibration and the sensor helpers
+$libSources += @("$lib\cal.c", "$lib\sensor_helpers.c", "$lib\gauge.c", "$lib\cal_store.c",
+    (Join-Path $PSScriptRoot 'cal_host.c'))
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',
     '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c",
@@ -58,6 +62,12 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Cc @flags @libSources @emu -lm -o $fwemu
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# Without CONFIG_OPENSC2_CAL the calibration's calls are stand-ins: those files must still compile.
+$noCal = $flags | Where-Object { $_ -notlike '-DCONFIG_OPENSC2_*' }
+foreach ($f in "$lib\commands.c", "$lib\cal_store.c", "$lib\test_core.c") {
+    & $Cc @noCal -fsyntax-only $f
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 $failed = 0
 & $plain --vectors $vectors --transcript $plainLog

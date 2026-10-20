@@ -97,6 +97,36 @@ hardware.
   `inputs.raw_trigger_bits`, `inputs.pad_click`, `inputs.raw_sticks`, `lizard.stabiliser`,
   `lizard.smoothing`, `lizard.glide`, `lizard.glide_stops`, `lizard.ticks`, `lizard.default`; the
   simulator faults `pad_blank_ignored`, `glide_ignored` and `ticks_ignored`.
+- Calibration as the real controller keeps it (`CONFIG_OPENSC2_CAL`, on by default; built, host
+  tests only): the `cal/` keys (`cal/joy_l`, `cal/trg_l`, `cal/prs_l`, the LED trims, the battery
+  offset, the gyro bias and the rest) under `opensc2/cal/` in the board's storage, read with `0xED`,
+  changed with `0xEE`, `0xEF` and `0xF0`, kept by the factory reset; the recordings `0xD8` (sticks),
+  `0xC0` (triggers) and `0xC3` (pad pressure); `0xE2` saves one side's values and `0xFE` erases
+  them, only with its key. The console's `opensc2 cal` does the same.
+- Raw inputs (`opensc2_set_stick_raw()`, `_trigger_raw()`, `_pressure_raw()`, `_touch_raw()`,
+  `opensc2_set_raw()`): the library processes them at every state report as the real controller
+  does, with the stored calibration and controller settings 30, 31, 34, 35, 46, 52, 53, 60 and 62
+  (millivolts or counts, pressure and click by pressure, stick touch and grip).
+- The pad rules (`CONFIG_OPENSC2_PAD_RULES`, on by default, inactive with the default settings):
+  the pad rotation of settings 2 and 24 and the touch stabiliser of setting 80 = 2, on report
+  `0x42` and lizard mode.
+- Pure helpers for applications: `<opensc2/cal.h>` (the calibration's arithmetic),
+  `<opensc2/sensor_helpers.h>` (capacitive touch, the trackpad's touch, filter, rotation and
+  stabiliser, IMU scaling and mounting, a gyro-bias estimate, ADC bursts) and `<opensc2/gauge.h>`
+  (battery voltage and state of charge), each with host tests.
+- The blank canvas's options, all off by default and untested on hardware, built together by
+  `app/sensors.conf` (with `app/sensors.overlay`): sticks and triggers read right before each state
+  report with four conversions averaged and a switched sensor supply, calibrated axes through the
+  library, an LSM6DSV16X IMU with a mounting matrix (`imu-mounting-matrix`) and a rest-based gyro
+  bias (settings 84 and 85), the trackpad's processing (settings 65, 72, 73), stick touch and
+  grips from a CAP1206 capacitive sensor (any input device named by the chosen node
+  `opensc2,touch-keys`), the battery level, and I2C bus recovery at boot. `app/imu-stream.conf`
+  streams the LSM6DSV16X's FIFO with its own fusion instead, as the real controller reads it.
+  `app/expander.conf` adds L4, L5, R4 and R5 through an I2C port expander (a PCA9555) polled every
+  16 ms, with every button debounced 16 ms. A Kconfig fragment of `app/` brings the overlay of the
+  same name.
+- The test hooks' raw injection (`RAW_INJECT`, `RAW_OFF`, `CAL_STATUS`, caps bit 21) and the
+  hardware test suite's group `cal`, checked against the firmware emulator.
 
 ### Changed
 
@@ -127,6 +157,16 @@ hardware.
   going); its model and the shared vectors cover the input rules and the processing.
 - The host tests are now 62 (5,221 checks), and 90 (7,700 checks) with the hardware test hooks;
   the runner has 213 self-tests.
+- Without a stored calibration nothing changes for applications that give finished values. With
+  `CONFIG_OPENSC2_CAL`, `0xD8`, `0xC0`, `0xC3` and `0xFE` are answered by the library instead of
+  the application's `vendor_command`, `0xEE`, `0xEF` and `0xF0` accept the `cal/` keys, and `0xE2`
+  reads its side and mask whatever its length byte says, as the real controller does.
+- `0xED` answers the `cal/` keys as the real controller does even on a board without
+  calibration, where 0.2.0 answered them all with length 0: the LED trims with their defaults (90,
+  35, 120, 80), `cal/volt_offset` (2 bytes) and `cal/touch_l`, `cal/touch_r` (10 bytes) always;
+  the stick, trigger and pressure keys still with length 0 until one is stored.
+- The hardware test suite never writes, saves or deletes a `cal/` key (safety rule S5), and
+  `cmd.save_refusals` checks a refused `0xEF` on `cal/joy_l` instead of `0xF0`.
 
 ## [0.2.0] - 2026-10-19
 

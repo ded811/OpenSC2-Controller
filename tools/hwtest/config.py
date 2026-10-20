@@ -73,6 +73,10 @@ OP_RADIO_DEAF = 0x44
 OP_BLE_STATUS = 0x60        # Bluetooth (a build with CONFIG_OPENSC2_BLE): the link's state
 OP_BLE_DROP = 0x61          # end the link as if the host had, with this HCI reason
 OP_BLE_WINDOW = 0x62        # the next advertising window's length, ms
+# the calibration's raw inputs (CONFIG_OPENSC2_CAL, caps bit 21)
+OP_RAW_INJECT = 0xA0
+OP_RAW_OFF = 0xA1
+OP_CAL_STATUS = 0xA2
 OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: "INJECT",
             OP_INJECT_OFF: "INJECT_OFF", OP_BATTERY: "BATTERY", OP_BATTERY_OFF: "BATTERY_OFF",
             OP_SEQ_LOAD: "SEQ_LOAD", OP_SEQ_RUN: "SEQ_RUN", OP_SEQ_STOP: "SEQ_STOP",
@@ -81,10 +85,17 @@ OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: 
             OP_CNT_RESET: "CNT_RESET", OP_MARK: "MARK", OP_SETTINGS_READ: "SETTINGS_READ",
             OP_HOST_OUT: "HOST_OUT", OP_HOST_SET: "HOST_SET", OP_HOST_GET: "HOST_GET",
             OP_APP_SEND: "APP_SEND", OP_RADIO_DEAF: "RADIO_DEAF", OP_BLE_STATUS: "BLE_STATUS",
-            OP_BLE_DROP: "BLE_DROP", OP_BLE_WINDOW: "BLE_WINDOW"}
+            OP_BLE_DROP: "BLE_DROP", OP_BLE_WINDOW: "BLE_WINDOW", OP_RAW_INJECT: "RAW_INJECT",
+            OP_RAW_OFF: "RAW_OFF", OP_CAL_STATUS: "CAL_STATUS"}
 BLE_STATUS_LEN = 28
 BLE_WINDOW_MIN_MS = 100
 BLE_WINDOW_MAX_MS = 600000
+# RAW_INJECT's inputs (OPENSC2_RAW_*): bit 0 left stick, 1 right stick, 2 left trigger, 3 right
+# trigger, 4 left pressure, 5 right pressure, 6 left touch words, 7 right touch words
+RAW_STICK_L, RAW_STICK_R, RAW_TRIGGER_L, RAW_TRIGGER_R = 0x01, 0x02, 0x04, 0x08
+RAW_PRESSURE_L, RAW_PRESSURE_R, RAW_TOUCH_L, RAW_TOUCH_R = 0x10, 0x20, 0x40, 0x80
+RAW_ARGS_LEN = 30
+CAL_STATUS_LEN = 16
 
 # Answer status codes (docs/test-protocol.md).
 ST_OK = 0
@@ -260,12 +271,22 @@ KEPT_KEYS = {
     "settings/haptics/haptic_master_gain_db": (2, False),
     "settings/haptics/amplifier_mode": (2, False), "settings/haptics/enabled": (2, False),
 }
-# The calibration keys and their sizes: never written, saved or deleted by the suite (S5); 0xED
-# reads them (all but the gyro bias), empty until the library keeps calibration.
+# The calibration keys and their sizes: S5 never lets the suite write, save or delete one; only
+# the forms the firmware refuses before touching anything go out. 0xED reads them: without the
+# library's calibration (caps bit 21) empty; with it what CAL_SHOWN says.
 CAL_KEYS = {
     "cal/joy_l": 18, "cal/joy_r": 18, "cal/trg_l": 7, "cal/trg_r": 7, "cal/prs_l": 8,
     "cal/prs_r": 8, "cal/touch_l": 10, "cal/touch_r": 10, "cal/rgbw_r": 1, "cal/rgbw_g": 1,
     "cal/rgbw_b": 1, "cal/rgbw_w": 1, "cal/volt_offset": 2, "cal/sensors/gyroscope/bias": 12,
+}
+# How 0xED shows a calibration key with the library's calibration (cal_store.c): "always", "set"
+# (once a calibration is stored: a non-zero first word), "trim" (while it lies within 1..199;
+# the defaults do) or "never".
+CAL_SHOWN = {
+    "cal/joy_l": "set", "cal/joy_r": "set", "cal/trg_l": "set", "cal/trg_r": "set",
+    "cal/prs_l": "set", "cal/prs_r": "set", "cal/touch_l": "always", "cal/touch_r": "always",
+    "cal/rgbw_r": "trim", "cal/rgbw_g": "trim", "cal/rgbw_b": "trim", "cal/rgbw_w": "trim",
+    "cal/volt_offset": "always", "cal/sensors/gyroscope/bias": "never",
 }
 # A name that is no key at all (0xF0 of it is refused before any flash access).
 NO_KEY = "test/no_such_key"
@@ -290,6 +311,7 @@ CAP_RULES = 15                 # the rule word (ops RULES, RULES_SET): the input
                                # mode's processing; without it, OpenSC2 0.2.0's rules
 CAP_HAPTIC_STOP_STATUS = 16    # a stop's 0x44 replies (CONFIG_OPENSC2_HAPTIC_STOP_STATUS)
 CAP_BLE = 17                   # Bluetooth LE (CONFIG_OPENSC2_BLE)
+CAP_CAL = 21                   # CONFIG_OPENSC2_CAL: the cal/ keys, raw inputs, RAW_INJECT
 
 # ---- timings and thresholds -----------------------------------------------------------------
 STATE_PERIOD_MS = 4.0283            # USB state report period (about 248/s)

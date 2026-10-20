@@ -133,6 +133,8 @@ config OPENSC2_FUSION
 	  opensc2_fusion_*(): a small Mahony filter for IMUs without their own sensor fusion. Uses
 	  floating point; enable the FPU (CONFIG_FPU).
 
+rsource "Kconfig.cal"
+
 config OPENSC2_IDENTITY_VENDOR_WRITE
 	bool "Let vendor commands 0xEE/0xEF change the stored identity"
 	help

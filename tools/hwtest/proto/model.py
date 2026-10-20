@@ -304,6 +304,37 @@ class Stabiliser:
         return self.ox, self.oy
 
 
+STABILISER_FINE = 4369       # the pad rules' hold radius (setting 80 = 2), report units
+
+
+class PadRules:
+    """The pad rules of a build with CONFIG_OPENSC2_PAD_RULES (cal_store.c, osc2_cal_rules()), as
+    far as the suite drives them: setting 80 = 2's touch stabiliser on both pads' reported
+    positions, which run after the injection and before the input rules, so 0x42 and lizard mode
+    both see the held position. The library halves a position back to the pad scale (turning Y
+    up), doubles it again and stabilises that with the fine radius. The rotation (settings 2 and
+    24 both non-zero) is not modelled: the suite leaves setting 2 at 0."""
+
+    def __init__(self):
+        self.stab = [Stabiliser(), Stabiliser()]
+
+    def apply(self, state52, settings=None):
+        s = settings_list(settings)
+        f = R.decode_state52(state52)
+        stabilise = s[80] == 2
+        out = state52
+        for side, (kx, ky) in enumerate((("lpad_x", "lpad_y"), ("rpad_x", "rpad_y"))):
+            touched = bool(f["buttons"] & _PAD_TOUCH[side])
+            if not touched or not stabilise:
+                self.stab[side].reset()
+                continue
+            x = clamp_axis(2 * c_div(f[kx], 2))
+            y = clamp_axis(2 * c_div(-f[ky], 2))
+            x, y = self.stab[side].step(STABILISER_FINE, True, x, y)
+            out = R.set_field(R.set_field(out, kx, clamp_axis(x)), ky, clamp_axis(-y))
+        return out
+
+
 class _Pad:
     """One pad's tracker (struct opensc2_lizard_pad)."""
 

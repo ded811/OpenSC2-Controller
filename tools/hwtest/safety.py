@@ -248,22 +248,32 @@ def _split_named(payload):
     return payload[:nul].decode("ascii", "replace"), payload[nul + 1:]
 
 
+def _check_cal(opcode, name, value):
+    """0xEE/0xEF/0xF0 on a calibration key (cal/...): never, not even with --flash and a token
+    (S5: a real controller's factory calibration cannot be made again). Only the forms the
+    firmware refuses before it touches anything: 0xEE with a size other than the key's, 0xEF or
+    0xF0 with a byte after the NUL, and those only for the keys the library knows (another cal/
+    name goes to the application, which may take it)."""
+    size = C.CAL_KEYS.get(name)
+    if size is None:
+        raise SafetyError("0x%02X on %r, not a calibration key the library knows, is never sent"
+                          % (opcode, name))
+    if opcode == C.VC_BY_NAME_SET and len(value) != size:
+        return
+    if opcode in (C.VC_BY_NAME_SAVE, C.VC_BY_NAME_DELETE) and len(value) > 0:
+        return
+    raise SafetyError("0x%02X on the calibration key %r is never sent" % (opcode, name))
+
+
 def _check_named(opcode, payload, ctx, consume=True):
     """0xEE/0xEF/0xF0: the allowed forms of S5. Raises SafetyError when refused."""
     name, value = _split_named(payload)
+    if name is not None and name.startswith("cal/"):
+        _check_cal(opcode, name, value)
+        return
     known = name in set(C.KEY_NAMES.values())
     is_bond = name in ("esb/bond", "esb/bond_2")
     kept = C.KEPT_KEYS.get(name)
-    # calibration, before any token: never written, saved or deleted (the board's own once the
-    # library keeps calibration); only the forms every firmware refuses before it writes: 0xEE of
-    # another size, 0xEF with a byte after the NUL
-    if name in C.CAL_KEYS:
-        if opcode == C.VC_BY_NAME_SET and len(value) != C.CAL_KEYS[name]:
-            return
-        if opcode == C.VC_BY_NAME_SAVE and len(value) > 0:
-            return
-        raise SafetyError("0x%02X on %s: calibration is never written, saved or deleted"
-                          % (opcode, name))
     # a matching one-shot token (with --flash) lets a real flash write through
     if ctx.flash_allowed and ctx._take_token(opcode, name, value, consume):
         return
@@ -317,7 +327,7 @@ def _check_named(opcode, payload, ctx, consume=True):
             if value == b"bad!" and not ctx.caps_identity_write:
                 return
             raise SafetyError("0xEE %s: identity write refused" % name)
-        # any other name (e.g. cal/joy_l 00): the library does not know it, the firmware refuses
+        # any other name: the library does not know it, the firmware refuses
         return
     raise SafetyError("unreachable named opcode")
 
@@ -404,12 +414,14 @@ def check_output_report(report):
 
 # ---- the test channel at the send (S7 again, the puck's reading ops, the HOST_SET list) -------
 
-PUCK_READ_OPS = {C.OP_STATUS, C.OP_RING_READ, C.OP_CNT_READ, C.OP_SETTINGS_READ}
+PUCK_READ_OPS = {C.OP_STATUS, C.OP_RING_READ, C.OP_CNT_READ, C.OP_SETTINGS_READ,
+                 C.OP_CAL_STATUS}
 
 
 def _injection_op(op, args):
-    """INJECT, SEQ_RUN, or APP_SEND of a controller-state report (0x45): what S7 guards."""
-    if op in (C.OP_INJECT, C.OP_SEQ_RUN):
+    """INJECT, SEQ_RUN, RAW_INJECT, or APP_SEND of a controller-state report (0x45): what S7
+    guards."""
+    if op in (C.OP_INJECT, C.OP_SEQ_RUN, C.OP_RAW_INJECT):
         return True
     return op == C.OP_APP_SEND and len(args) >= 2 and args[0] == 0 and args[1] == C.RPT_BT_STATE
 

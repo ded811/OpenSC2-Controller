@@ -193,9 +193,21 @@ def run(ctx):
                 if name == "debug/resetreason" and a.n == 33:
                     c.observe(crash_record="none" if not any(a.data[:33]) else
                               "new %d, reason %d" % (a.data[0], a.data[21]))
+            # the calibration keys: empty without the library's calibration (caps bit 21); with
+            # it what the board's store shows (C.CAL_SHOWN), never written by the suite
+            cal = bool((rig.caps or {}).get("build_flags", 0) & (1 << C.CAP_CAL))
             for name in sorted(C.CAL_KEYS):
                 a = rig.vendor(C.VC_BY_NAME_READ, name.encode() + b"\0")
-                c.eq("%s: n (no calibration kept)" % name, a.n, 0)
+                size, shown = C.CAL_KEYS[name], C.CAL_SHOWN[name] if cal else "never"
+                if shown == "always":
+                    c.eq("%s: n (always shown)" % name, a.n, size)
+                elif shown == "never":
+                    c.eq("%s: n (%s)" % (name, "never shown" if cal else "no calibration kept"),
+                         a.n, 0)
+                else:
+                    c.true("%s: n 0 or %d" % (name, size), a.n in (0, size))
+                if name == "cal/joy_l":
+                    c.observe(cal_joy_l="empty" if a.n == 0 else "stored")
             a = rig.vendor(C.VC_BY_NAME_READ, C.NO_KEY.encode() + b"\0")
             c.eq("a name that is no key: n", a.n, 0)
             a = rig.vendor(C.VC_BY_NAME_READ, TRANSPORT[:-1])
@@ -276,6 +288,8 @@ def run(ctx):
                    rig.refused(C.VC_BY_NAME_SAVE, b"user/keylock\0\x01"))
             c.true("0xF0 of a name that is no key is refused",
                    rig.refused(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\0"))
+            c.true("0xEF cal/joy_l with a byte after the NUL is refused",
+                   rig.refused(C.VC_BY_NAME_SAVE, b"cal/joy_l\0\x00"))
             c.true("nothing stored", rig.read_named(BOND2).data == b2.data and
                    rig.read_named(CHIME).data == h.data)
 

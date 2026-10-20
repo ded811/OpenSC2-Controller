@@ -244,9 +244,10 @@ class VendorDenylist(unittest.TestCase):
             safety.check_host_set(C.VC_DEVICE_INFO, b"\x01")
         safety.check_host_set(C.VC_DEVICE_INFO, b"\x02")
 
-    def test_calibration_keys_never_written(self):
-        """S5: calibration keys are never written, saved or deleted, whatever the tokens; only the
-        forms every firmware refuses first (another size for 0xEE, a byte after the NUL for 0xEF)."""
+    def test_calibration_keys_every_key(self):
+        """S5 on every calibration key: never written, saved or deleted, whatever the tokens; only
+        the forms every firmware refuses first (another size for 0xEE, a byte after the NUL for
+        0xEF)."""
         ctx = safety.Context()
         ctx.flash_allowed = True
         for name, size in C.CAL_KEYS.items():
@@ -283,6 +284,38 @@ class VendorDenylist(unittest.TestCase):
         ctx.flash_allowed = True
         ctx.add_token(C.VC_BY_NAME_SAVE, "user/keylock", b"")
         safety.check_vendor(C.VC_BY_NAME_SAVE, lock, "usb", ctx=ctx)
+
+    def test_calibration_keys_never_written(self):
+        """S5: a calibration key is never written, saved or deleted, not even with --flash and a
+        token; only the forms the firmware refuses go out."""
+        ctx = safety.Context()
+        ctx.flash_allowed = True
+        joy = b"cal/joy_l\x00"
+        ctx.add_token(C.VC_BY_NAME_SET, "cal/joy_l", bytes(18))
+        ctx.add_token(C.VC_BY_NAME_DELETE, "cal/joy_l", b"")
+        for opcode, payload in ((C.VC_BY_NAME_SET, joy + bytes(18)),
+                                (C.VC_BY_NAME_SAVE, joy),
+                                (C.VC_BY_NAME_DELETE, joy),
+                                (C.VC_BY_NAME_DELETE, b"cal/foo\x00"),
+                                (C.VC_BY_NAME_SET, b"cal/foo\x00\x01"),
+                                (C.VC_BY_NAME_SET, b"cal/rgbw_r\x00\x5a"),
+                                (C.VC_BY_NAME_DELETE, b"cal/sensors/gyroscope/bias\x00"),
+                                # a cal/ name the library does not know goes to the application,
+                                # which may take it: not even the forms the library refuses
+                                (C.VC_BY_NAME_SAVE, b"cal/foo\x00\x00"),
+                                (C.VC_BY_NAME_DELETE, b"cal/foo\x00\x00"),
+                                (C.VC_BY_NAME_SET, b"cal/joy_x\x00" + bytes(17))):
+            with self.assertRaises(safety.SafetyError):
+                safety.check_vendor(opcode, payload, "usb", ctx=ctx)
+        # refused by the firmware: a wrong size, a byte after the NUL
+        safety.check_vendor(C.VC_BY_NAME_SET, joy + b"\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_SET, joy + bytes(17), "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_SAVE, joy + b"\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_DELETE, joy + b"\x00", "usb", ctx=ctx)
+        # the calibration commands themselves stay hard-refused
+        for opcode in (0xD8, 0xC0, 0xC3, 0xFE):
+            with self.assertRaises(safety.SafetyError):
+                safety.check_vendor(opcode, b"\x00\x01", "usb", ctx=ctx)
 
     def test_transport_and_chime_values(self):
         """safety-HW-6: 0x01 is ignored only for the transport key (Bluetooth); the chime key

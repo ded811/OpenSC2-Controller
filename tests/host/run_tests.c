@@ -13,8 +13,12 @@
  *   - crash_cases.h: the crash record (crash_rules.c) and 0xF2 selector 1;
  *   - vectors_cases.h: the hardware test suite's shared vectors through the library's own code;
  *   - differential_cases.h: the unarmed command channel, request by request, into a transcript;
- *   - hooks_cases.h, only in the binary built with CONFIG_OPENSC2_TEST_HOOKS: the hardware test
- *     hooks themselves (test_core.c, test_notes.c and the stand-in glue of hooks_stub.c).
+ *   - cal_cases.h, sensor_helpers_cases.h, gauge_cases.h: the calibration, sensor and battery helpers
+ *     (cal.c, sensor_helpers.c, gauge.c);
+ *   - cal_store_cases.h: the library's calibration (cal_store.c, with the stand-ins of cal_host.c);
+ *   - hooks_cases.h and cal_hooks_cases.h, only in the binary built with CONFIG_OPENSC2_TEST_HOOKS:
+ *     the hardware test hooks themselves (test_core.c, test_notes.c and the stand-in glue of
+ *     hooks_stub.c), the raw injection included.
  * run.sh and run.ps1 next to this file build it twice, without and with the hooks, run both, and
  * compare the two transcripts.
  *
@@ -86,9 +90,14 @@ static void register_test(const char *name, test_fn fn)
 #include "ble_cases.h"
 #include "vectors_cases.h"
 #include "differential_cases.h"
+#include "cal_cases.h"
+#include "sensor_helpers_cases.h"
+#include "gauge_cases.h"
+#include "cal_store_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 #include "hooks_cases.h"
 #include "ble_hooks_cases.h"
+#include "cal_hooks_cases.h"
 #endif
 
 int main(int argc, char **argv)

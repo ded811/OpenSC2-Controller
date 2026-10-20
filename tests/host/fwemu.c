@@ -43,6 +43,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "internal.h"
+#include "cal_store.h"
+#include "cal_host.h"
 #include "input_rules.h"
 #include "lizard.h"
 #include "proto_rules.h"
@@ -370,8 +372,11 @@ static void advance_us(uint64_t us)
 static void boot(bool to_wireless)
 {
 	struct opensc2_bond bond = { .puck_id = 0x11111111u, .controller_id = 0x22222222u };
+	struct cal_host_record flash = cal_host;   /* the stored calibration survives a reboot */
 
 	stub_reset();
+	cal_host = flash;
+	cal_host_boot();
 	memcpy(bond.puck_serial, "FAKEPUCK00001", 13);
 	osc2.bonds[0] = bond;
 	osc2.chime = 2;
@@ -442,7 +447,9 @@ static void frame(void)
 	}
 	memset(&s, 0, sizeof(s));   /* nothing wired: the application's state is all zero ... */
 	app_raw_sticks(&s);         /* ... but for the left stick's raw output */
+	osc2_cal_frame(&s);
 	osc2_test_input(&s);
+	osc2_cal_rules(&s);
 	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, &s);
 	opensc2_encode_state(&s, sequence++, report);
 	osc2_test_frame(report);

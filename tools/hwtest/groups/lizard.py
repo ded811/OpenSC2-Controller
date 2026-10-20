@@ -44,27 +44,34 @@ def S(buttons=0, rpad=(0, 0), lpad=(0, 0), rt=0, lt=0, rstick=(0, 0), rpress=0):
                           rstick_x=rstick[0], rstick_y=rstick[1], rpad_pressure=rpress)
 
 
-def expected(steps, rules, settings):
-    """The lizard model, behind the input rules, on the steps (state52, hold): per step the
-    reports its frames make, the reports of the frames after the sequence (the application's
-    state, all zero) until the model goes quiet, how many frames that takes, and every haptic
-    event in order (("tick" or "click", side))."""
+def expected(steps, rules, settings, pad_rules=False):
+    """The lizard model, behind the input rules (and the pad rules of a build that has them), on
+    the steps (state52, hold): per step the reports its frames make, the reports of the frames
+    after the sequence (the application's state, all zero) until the model goes quiet, how many
+    frames that takes, and every haptic event in order (("tick" or "click", side))."""
     rules_in = M.StateRules(rules)
+    pads = M.PadRules() if pad_rules else None
     lz = M.LizardModel(rules)
     zero = R.make_state52()
-    lz.step_state52(rules_in.apply(zero, settings), settings)   # in sync with the application
+
+    def frame(state):
+        if pads is not None:
+            state = pads.apply(state, settings)
+        return lz.step_state52(rules_in.apply(state, settings), settings)
+
+    frame(zero)   # in sync with the application
     haptics = []
     per = []
     for state, hold in steps:
         made = []
         for _ in range(hold):
-            made += [r for _k, r in lz.step_state52(rules_in.apply(state, settings), settings)]
+            made += [r for _k, r in frame(state)]
             haptics += lz.haptics
         per.append(made)
     after = []
     frames = 0
     for frames in range(1, AFTER_MAX + 1):
-        after += [r for _k, r in lz.step_state52(rules_in.apply(zero, settings), settings)]
+        after += [r for _k, r in frame(zero)]
         haptics += lz.haptics
         if not lz.mouse_owed and not lz.gliding():
             break
@@ -135,7 +142,8 @@ def check_sequence(c, rig, name, steps, rules=None, sets=None):
     rig.ready_to_inject()
     settings = rig.settings_read()
     rules_now = rig.rules()[0]
-    want, want_after, after_frames, want_haptics = expected(steps, rules_now, settings)
+    want, want_after, after_frames, want_haptics = expected(steps, rules_now, settings,
+                                                            pad_rules(rig))
     got = run_sequence(rig, steps, after_frames)
     if got is None:
         c.fail("%s: the sequence did not run" % name)
@@ -149,6 +157,19 @@ def check_sequence(c, rig, name, steps, rules=None, sets=None):
          base.byte_lists(want_after))
     c.eq("%s: the haptic events" % name, haptics, want_haptics)
     return want, want_after, want_haptics
+
+
+def pad_rules(rig):
+    """Does the board run the pad rules (CONFIG_OPENSC2_PAD_RULES: CAL_STATUS's flag, in a build
+    with the calibration, caps bit 21)? Asked once per run."""
+    known = getattr(rig, "_pad_rules", None)
+    if known is None:
+        known = False
+        if (rig.caps or {}).get("build_flags", 0) & (1 << C.CAP_CAL):
+            st = rig.cal_status()
+            known = bool(st and st.get("pad_rules"))
+        rig._pad_rules = known
+    return known
 
 
 def _ring_since(rig, start):
@@ -451,9 +472,12 @@ def _processing(ctx, rig, snap):
             check_sequence(c, rig, "right pad, setting 80 = 0", [
                 (S(RPAD_TOUCH, rpad=(0, 0)), 1), (S(RPAD_TOUCH, rpad=(1280, 0)), 1),
                 (S(), 1)], rules, [(80, 0)])
-            # 80 = 2 selects the stabiliser of the reported position (not implemented), none here
+            # 80 = 2: lizard mode's right pad has no stabiliser of its own; a build with the pad
+            # rules holds the reported position of both pads instead (the fine radius), and
+            # lizard mode moves with what is reported
             check_sequence(c, rig, "right pad, setting 80 = 2", [
                 (S(RPAD_TOUCH, rpad=(0, 0)), 1), (S(RPAD_TOUCH, rpad=(1280, 0)), 1),
+                (S(RPAD_TOUCH, rpad=(6000, 0)), 1), (S(RPAD_TOUCH, rpad=(7000, 0)), 2),
                 (S(), 1)], rules, [(80, 2)])
             rig.write_settings([(80, snap[80])])
 

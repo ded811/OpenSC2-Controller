@@ -12,6 +12,33 @@ config APP_OBEY_BOOTLOADER_REQUEST
 	  UF2 drive instead; Steam's update still cannot run. To flash a new .uf2, short RST to GND
 	  twice quickly, or use the shell command "uf2" (wireless mode).
 
+config APP_ANALOG_SAMPLE
+	bool "Read the sticks and triggers right before each state report, four conversions averaged"
+	help
+	  As the real controller: no analog thread; the axes are read in the library's sample
+	  callback (in its radio or USB report thread), each converted four times and averaged, with
+	  the sensors' supply (zephyr,user sensor-supply-gpios, optional) on only while they are
+	  read, after sensor-supply-settle-us (200 by default). The readings are as fresh as the report
+	  that carries them. Untested on hardware.
+
+config APP_ANALOG_RAW
+	bool "Calibrated sticks and triggers through the library's stored calibration"
+	depends on APP_ANALOG_SAMPLE && OPENSC2_CAL
+	help
+	  A stick or trigger with a usable stored calibration (cal/joy_l, cal/trg_l, ...) goes to the
+	  library as raw counts: the real controller's processing, controller settings 46 and 62, and
+	  the recordings of vendor commands 0xD8 and 0xC0 or of the shell's "opensc2 cal". Without a
+	  calibration the axis keeps this firmware's own centring, so a new board works before it is
+	  calibrated. Untested on hardware.
+
+config APP_BATTERY
+	bool "Measure the battery for report 0x43"
+	help
+	  Once a second: the battery's voltage through a divider plus cal/volt_offset, the level from
+	  the average of the last 40 readings with OpenSC2's LiPo curves (<opensc2/gauge.h>), charging
+	  while USB power is present. Without a "battery" io-channel in zephyr,user it reads the
+	  nRF52840's VDDH / 5, for a cell that feeds VDDH. Untested on a battery.
+
 config APP_PWM
 	bool
 	default y if DT_HAS_NORDIC_NRF_PWM_ENABLED
@@ -40,6 +67,50 @@ config APP_IMU_ALWAYS
 	depends on APP_IMU
 	help
 	  Like the real controller, the IMU only streams while controller setting 48 is not 0.
+
+config APP_IMU_STREAM
+	bool "Stream an LSM6DSV16X's FIFO with its own fusion, as the real controller"
+	depends on APP_IMU && LSM6DSV16X_STREAM
+	help
+	  Instead of reading any IMU every 4 ms: the FIFO of an ST LSM6DSV16X streamed with Zephyr's
+	  sensor streaming API (CONFIG_SENSOR_ASYNC_API, CONFIG_I2C_RTIO and an interrupt pin), with
+	  its own game rotation vector and gyro-bias estimate, from boot; setting 48 = 0 stops it and
+	  any other value starts it again; setting 84 subtracts the bias; the stored gyro bias is its
+	  starting bias. app/imu-stream.conf builds it. Untested on hardware.
+
+config APP_IMU_BIAS
+	bool "Estimate the gyro's bias at rest and subtract it (settings 84 and 85)"
+	depends on APP_IMU && !APP_IMU_STREAM
+	help
+	  For IMUs without a bias estimate of their own (the real controller takes its IMU's): a
+	  rest-based estimate of OpenSC2's own, subtracted while controller setting 84 is not 0 (the
+	  default), with setting 85 as its rest threshold in report units (default 100, about
+	  6 deg/s). It starts from the stored cal/sensors/gyroscope/bias when there is one. Not with
+	  APP_IMU_STREAM, which subtracts the LSM6DSV16X's own estimate. Untested on hardware.
+
+config APP_PAD_PROCESSING
+	bool "The real controller's trackpad processing on the touch devices"
+	help
+	  For a device with a touch strength (the Cirque Pinnacle): touch with the hysteresis of
+	  controller settings 72 and 73 and the damping near lift-off, the strength scaled by
+	  zephyr,user's trackpad-strength-scale (40 by default); the speed-adaptive position filter
+	  while setting 65 is on; with a stored pressure calibration, the strength as the library's
+	  raw pressure (its pressure and click). Untested on hardware.
+
+config APP_I2C_RECOVER
+	bool "Free each I2C bus at boot, before its parts' drivers start"
+	depends on APP_I2C
+	help
+	  As the real controller does: a reset in the middle of a transfer can leave a part holding
+	  SDA low; clocking SCL frees it (Zephyr's i2c_recover_bus()). Untested on hardware.
+
+config APP_I2C_RECOVER_PRIORITY
+	int "Init priority of the bus recovery (POST_KERNEL)"
+	default 60
+	depends on APP_I2C_RECOVER
+	help
+	  After the I2C drivers (CONFIG_I2C_INIT_PRIORITY, 50) and before the sensor and touch
+	  drivers (90).
 
 endmenu
 

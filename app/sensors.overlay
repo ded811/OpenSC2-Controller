@@ -1,0 +1,98 @@
+/*
+ * Copyright (c) 2026 the OpenSC2-Controller authors
+ * SPDX-License-Identifier: MIT
+ *
+ * The devicetree half of the build sensors.conf (app/CMakeLists.txt adds it with that fragment):
+ * the real controller's IMU, an ST LSM6DSV16X, on I2C instead of the two D-pad buttons whose pins
+ * it takes (left P0.17 is SDA, right P0.20 is SCL, the pins samples/imu uses), with the real
+ * controller's ranges and rates and its mounting matrix; a Cirque Pinnacle module on the same bus
+ * as the right trackpad, its data-ready line on the left bumper's pin (P0.22), as samples/touchpad
+ * has it; and a Microchip CAP1206 capacitive sensor, polled, whose first four inputs (CS1 to CS4)
+ * give the left and right stick-touch and the left and right grip bits. Untested on hardware:
+ * check the pins and the addresses (0x6A, or 0x6B with the IMU's SA0 pin high; 0x2A; 0x28)
+ * against your board.
+ */
+#include <zephyr/dt-bindings/i2c/i2c.h>
+#include <zephyr/dt-bindings/sensor/lsm6dsv16x.h>
+#include <dt-bindings/opensc2/inputs.h>
+
+/ {
+	aliases {
+		imu0 = &imu;
+	};
+
+	chosen {
+		opensc2,right-trackpad = &touch;
+		opensc2,touch-keys = &touch_keys;
+	};
+
+	zephyr,user {
+		right-trackpad-size = <1024 1024>;
+		/* The real controller's mounting: x' = y, y' = -x, z' = z (row major). Use the one
+		 * that turns your module's axes into the controller's: X right, Y away from the
+		 * player, Z up when it lies flat. */
+		imu-mounting-matrix = <0 1 0 (-1) 0 0 0 0 1>;
+	};
+};
+
+&opensc2_buttons {
+	/delete-node/ dpad_left;
+	/delete-node/ dpad_right;
+	/delete-node/ bumper_l;
+};
+
+&pinctrl {
+	i2c0_sensors_default: i2c0_sensors_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 17)>, <NRF_PSEL(TWIM_SCL, 0, 20)>;
+		};
+	};
+	i2c0_sensors_sleep: i2c0_sensors_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SDA, 0, 17)>, <NRF_PSEL(TWIM_SCL, 0, 20)>;
+			low-power-enable;
+		};
+	};
+};
+
+&i2c0 {
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c0_sensors_default>;
+	pinctrl-1 = <&i2c0_sensors_sleep>;
+	pinctrl-names = "default", "sleep";
+
+	imu: lsm6dsv16x@6a {
+		compatible = "st,lsm6dsv16x";
+		reg = <0x6a>;
+		/* the real controller's: +-2 g and +-2000 deg/s, both at 240 Hz */
+		accel-range = <LSM6DSV16X_DT_FS_2G>;
+		gyro-range = <LSM6DSV16X_DT_FS_2000DPS>;
+		accel-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
+		gyro-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
+	};
+
+	touch: trackpad@2a {
+		compatible = "cirque,pinnacle";
+		reg = <0x2a>;
+		data-ready-gpios = <&gpio0 22 GPIO_ACTIVE_HIGH>;
+		data-mode = "absolute";
+		idle-packets-count = <1>;
+		clipping-enable;
+		scaling-enable;
+		scaling-x-resolution = <1024>;
+		scaling-y-resolution = <1024>;
+	};
+
+	/* Stick touch and grips: the sensor's own thresholds decide (settings 30, 31, 34 and 35
+	 * apply only to raw words given with opensc2_set_touch_raw()). */
+	touch_keys: cap1206@28 {
+		compatible = "microchip,cap12xx";
+		reg = <0x28>;
+		poll-interval-ms = <10>;
+		input-codes = <OPENSC2_KEY_LEFT_STICK_TOUCH OPENSC2_KEY_RIGHT_STICK_TOUCH
+			       OPENSC2_KEY_LEFT_GRIP_TOUCH OPENSC2_KEY_RIGHT_GRIP_TOUCH>;
+		signal-guard = <0 0 0 0>;
+		calib-sensitivity = <1 1 1 1>;
+	};
+};

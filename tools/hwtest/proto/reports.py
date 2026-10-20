@@ -115,6 +115,31 @@ def ble_cut(state52):
     return bytes(state52[:C.BLE_STATE52_KEPT]) + bytes(C.STATE52_LEN - C.BLE_STATE52_KEPT)
 
 
+RAW_FIELDS = ("lstick_x", "lstick_y", "rstick_x", "rstick_y", "ltrigger", "rtrigger",
+              "lpressure", "rpressure", "lstick_touch", "rstick_touch", "lgrip", "rgrip")
+
+
+def encode_raw_args(nonce, present=0, flags=0, **values):
+    """RAW_INJECT's 30 argument bytes: flags u8, nonce u32, present u8 (the RAW_* bits), sticks
+    LX, LY, RX, RY u16, triggers L, R u16, pressure L, R s16, stick touch L, R s16, grip L, R
+    s16 (docs/test-protocol.md). Unnamed values are 0."""
+    for name in values:
+        if name not in RAW_FIELDS:
+            raise KeyError("unknown raw input %r" % name)
+    v = [values.get(n, 0) for n in RAW_FIELDS]
+    return struct.pack("<BIB6H6h", flags, nonce, present, *v)
+
+
+def decode_cal_status(data):
+    """CAL_STATUS's 16 bytes."""
+    d = bytes(data)
+    gen, usable, raw, injected, flags, s0, s1, s2, p0, p1, clicks = \
+        struct.unpack_from("<IBBBBBBBhhB", d, 0)
+    return {"generation": gen, "usable": usable, "raw": raw, "injected": injected,
+            "pad_rules": bool(flags & 1), "pressure_click": bool(flags & 2),
+            "steps": (s0, s1, s2), "filters": (p0, p1), "clicks": clicks}
+
+
 def buttons_set(buttons):
     return {name for bit, name in BUTTON_BITS.items() if buttons & (1 << bit)}
 

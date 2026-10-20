@@ -25,12 +25,14 @@ study of the controller's firmware, not from that documentation; the gaps below 
 | The wired USB device: descriptors, strings, report timing | [The cable](#overview-the-cable), [api.md, Wired mode](api.md#wired-mode) | [docs/controller/03-usb-and-hid.md, The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device) |
 | The report descriptor and its collections | [The cable](#overview-the-cable), [gap 13](#where-this-library-had-to-fill-gaps) | [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
 | Report `0x42`, the button bits, the vendor commands | [Reports and outputs](#overview-reports-and-outputs), [The vendor commands](#overview-the-vendor-commands), [api.md, Inputs](api.md#inputs) | [docs/controller/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md) |
+| The inputs from sensor to report: sticks, triggers, trackpads, stick touch and grips, the IMU; the calibration keys and commands | [gaps 30, 32 to 34](#where-this-library-had-to-fill-gaps), [api.md, Calibration and raw inputs](api.md#calibration-and-raw-inputs) | [docs/controller/07-input-and-sensors.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md) |
 | The controller settings | [The vendor commands](#overview-the-vendor-commands), [api.md, Controller settings](api.md#controller-settings) | [Controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings) |
 | Lizard mode | [Lizard mode](#overview-lizard-mode) | [Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode) |
 | Steam's wired session | [The cable](#overview-the-cable), [The vendor commands](#overview-the-vendor-commands) | [The wired session as Steam runs it](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it) |
 | Pairing over the cable, and the reboot into wireless mode | [The cable](#overview-the-cable) | [Pairing a controller with a puck over the cable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable), [Reboot into wireless mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#reboot-into-wireless-mode) |
 | The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
 | Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
+| The battery voltage and charge level, what erases the stored settings | [api.md, Battery helpers](api.md#battery-helpers), [gap 32](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
 | Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
 | Bluetooth LE: advertising, pairing, the HID service, the gate, reports, the transport choice (an opt-in build here) | [Bluetooth LE](#overview-bluetooth-le), [api.md, Wireless transports](api.md#wireless-transports-and-bluetooth-le) | [docs/controller/05-bluetooth.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/05-bluetooth.md) |
 | The dock (not implemented here) | [The puck's end](#overview-the-pucks-end) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md) |
@@ -512,6 +514,56 @@ open, the library does what should work with Steam and the puck, and says so her
     next frame (its motion is a difference of positions, so the next frame takes it up; a button
     pressed and let go within the frames it waits is not seen, where the real controller's
     keyboard would still send it). The battery report is still dropped when the queue is full.
+32. **Calibration** (`CONFIG_OPENSC2_CAL`, on by default). The keys, their sizes and formats, the
+    commands `0xD8`, `0xC0`, `0xC3`, `0xE2` and `0xFE`, the recordings' steps and the arithmetic of
+    sticks, triggers and pad pressure follow the protocol documentation
+    ([input and sensors](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#calibration-keys)).
+    Where it leaves something open, or a part is Valve's hardware, OpenSC2 chose:
+    - the factors 0.9, 0.98 and 0.05 are exact fractions in integer arithmetic, so a value that
+      lands exactly on a whole number is not off by one the way a floating-point one can be;
+    - a recording saves only the sides that got raw samples since its step 1: a board that gives
+      no raw input for a side keeps that side's stored key;
+    - the raw inputs are processed once per state report: the pressure filter and the two-word
+      means of the capacitive words step per report, where the real controller steps them per
+      trackpad frame (about 250 a second, close to the report rate on the cable);
+    - a pressure calibration whose range is empty (B equal to A) counts as uncalibrated;
+    - `0xED` always answers `cal/touch_l`, `cal/touch_r` (10 bytes, used by nothing) and
+      `cal/volt_offset`, the LED trims while they lie within 1..199, a stick, trigger or pressure
+      key while its format word is not 0, and never the gyro bias; `0xEF` refuses an analog key
+      whose format word is 0, and the gyro bias (the real controller fails it too), and saves an
+      LED trim whatever its value (one outside 1..199 then reads as its default, as at boot);
+    - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
+      queue, in the order they were asked for (`0xFE` drops the saves still waiting from before
+      it); `0xEF` writes before it answers, as for the bonds;
+    - a settings partition with every sector occupied at boot: the real controller erases all of
+      it, calibration included, and starts over; so does OpenSC2 with
+      `CONFIG_OPENSC2_STORAGE_RECOVERY`, on by default with NVS settings
+      ([api.md](api.md#the-settings-partition)); without it Zephyr's NVS does not start, and the
+      board runs on its built-in values with nothing loaded;
+    - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
+      does, so an empty request reads the report's zero padding;
+    - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
+    - not reproduced, being Valve's hardware: the stick offsets while docked, the scaling of the
+      capacitive words without external power, the trackpad chip's electrode processing (an
+      application gives positions), and the IMU's runtime settings keys.
+    The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
+    calibration commands (its safety rule S5): calibration is tested by the host tests only.
+33. **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default, inactive with the default
+    settings). The rotation (settings 2 and 24) and the touch stabiliser (setting 80 = 2) run on
+    the application's finished positions, after the hardware test hooks' injection: the library
+    halves them back to the pad scale, turns Y back, applies the documented integer arithmetic and
+    doubles them again, so an odd position loses its lowest bit while a rule is on. The rotation's
+    sine and cosine are the exact values × 8192, truncated (30° gives 4096). The position filter
+    (setting 65, on by default on the real controller) is a helper for applications
+    (`<opensc2/sensor_helpers.h>`), not a library rule: as a rule it would change every board's
+    pads. Its speed is the change since the previous output, as in the usual "one euro" filter
+    (the documentation leaves open whether the previous input is meant).
+34. **Setting 85.** The real controller hands it to its IMU's fusion block, where its role is not
+    known. OpenSC2's rest-based gyro-bias estimate (`<opensc2/sensor_helpers.h>`, for IMUs
+    without one of their own) takes it as its rest threshold in report units. The blank canvas's
+    LSM6DSV16X stream option (`app/imu-stream.conf`) starts its stream at boot even when the stored
+    gyro bias is not a finite number or cannot be programmed (it then starts without it); the
+    real controller waits for a host to write setting 48 in that case.
 
 ## What this library adds for development boards
 

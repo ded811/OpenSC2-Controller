@@ -36,6 +36,15 @@ void osc2_test_frame(const uint8_t report[OPENSC2_STATE_REPORT_LEN])
 	}
 }
 
+uint32_t osc2_test_raw_inputs(struct opensc2_raw_inputs *raw)
+{
+	if (!osc2_test_core_armed(CORE)) {
+		CORE->raw_frame = 0;
+		return 0;
+	}
+	return osc2_test_core_raw_inputs(CORE, ENV, ENV->lizard_on(), raw);
+}
+
 bool osc2_test_skip_lizard(void)
 {
 	return osc2_test_core_skip_lizard(CORE);

@@ -4,8 +4,8 @@
  *
  * Host tests only: the settings keys of 0xED..0xF0 (key_rules.c) and the values the library keeps
  * for them, through the command channel (commands.c with the stand-ins of stubs.c): the table of
- * keys, the blob values, the kept keys' rules, the calibration keys without a store, the factory
- * reset. Uses proto_cases.h's proto_usb().
+ * keys, the blob values, the kept keys' rules, the calibration keys in the calibration store, the
+ * factory reset. Uses proto_cases.h's proto_usb().
  */
 #include <errno.h>
 #include <string.h>
@@ -274,19 +274,30 @@ OPENSC2_TEST(keys_charge_window)
 
 OPENSC2_TEST(keys_cmd_cal)
 {
-	static const char *const names[] = { "cal/joy_l", "cal/trg_r", "cal/prs_l", "cal/touch_r",
-					     "cal/rgbw_g", "cal/volt_offset",
-					     "cal/sensors/gyroscope/bias" };
-	uint8_t p[61], reply[64];
+	uint8_t p[61], reply[64], value[OSC2_KEY_VALUE_MAX];
 
 	stub_reset();
-	/* Without a calibration store (and an application that knows none) the real controller's
-	 * calibration keys read back empty and are not taken: they go to vendor_command. */
-	for (size_t i = 0; i < ARRAY_SIZE(names); i++) {
-		CHECK_EQ(proto_usb(0xED, p, named(p, names[i], NULL, 0), reply), 0);
-		CHECK(named_set(0xEE, names[i], (const uint8_t[]){ 2, 0 }, 2) < 0);
-		CHECK(named_set(0xEF, names[i], NULL, 0) < 0);
-		CHECK(named_set(0xF0, names[i], NULL, 0) < 0);
+	/* With the library's calibration (CONFIG_OPENSC2_CAL, as these binaries are built) every
+	 * calibration key of the key table is the calibration store's (cal_store.c): exactly the
+	 * table's size, read back by 0xED where the table marks it readable, and never one of
+	 * keys.c's kept values. Without the store the keys go to vendor_command, so 0xED answers
+	 * them empty and the others are refused (run.ps1 and run.sh compile that build too). */
+	memset(value, 0x01, sizeof(value));   /* a format word that is not 0, a trim within 1..199 */
+	for (uint8_t id = 1; id < OSC2_KEY_COUNT; id++) {
+		const struct osc2_key_info *k = osc2_key_by_id(id);
+
+		if (!k || k->kind != OSC2_KEYK_CAL) {
+			continue;
+		}
+		CHECK(k->size + 1u <= sizeof(value));
+		CHECK(named_set(0xEE, k->name, value, (uint8_t)(k->size + 1)) < 0);
+		CHECK(named_set(0xEE, k->name, value, (uint8_t)(k->size - 1)) < 0);
+		CHECK_EQ(named_set(0xEE, k->name, value, k->size), 0);   /* RAM only */
+		CHECK_EQ(proto_usb(0xED, p, named(p, k->name, NULL, 0), reply),
+			 (k->flags & OSC2_KEYF_READ) ? k->size : 0);
+		CHECK(named_set(0xEF, k->name, "x", 1) < 0);   /* the NUL must be the last byte */
+		CHECK(named_set(0xF0, k->name, "x", 1) < 0);
+		CHECK_EQ(named_set(0xF0, k->name, NULL, 0), 0);   /* zeros again */
 	}
 	CHECK_EQ(stub.key_saves | stub.key_deletes, 0);
 	/* The identity keys are names like any other without CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE. */

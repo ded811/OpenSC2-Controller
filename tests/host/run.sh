@@ -20,12 +20,14 @@ out="${TMPDIR:-/tmp}"
 
 compile() {
 	${CC:-gcc} -std=c11 -Wall -Wextra -Wshadow -Werror -I"$here/shim" -I"$root/include" -I"$lib" \
-		"$here/stubs.c" "$lib/codec.c" "$lib/lizard.c" \
+		-DCONFIG_OPENSC2_CAL=1 -DCONFIG_OPENSC2_CAL_PRESSURE_CLICK=1 -DCONFIG_OPENSC2_PAD_RULES=1 \
+		"$here/stubs.c" "$here/cal_host.c" "$lib/codec.c" "$lib/lizard.c" \
 		"$lib/settings_defaults.c" "$lib/fusion.c" "$lib/usb_desc.c" "$lib/usb_rules.c" \
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
 		"$lib/report_rules.c" "$lib/test_core.c" "$lib/proto_rules.c" "$lib/key_rules.c" \
 		"$lib/crash_rules.c" "$lib/input_rules.c" "$lib/report_queue.c" \
 		"$lib/transport_rules.c" "$lib/ble_rules.c" \
+		"$lib/cal.c" "$lib/sensor_helpers.c" "$lib/gauge.c" "$lib/cal_store.c" \
 		"$@" -lm
 }
 
@@ -37,6 +39,11 @@ compile "$here/run_tests.c" -DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_
 compile "$here/fwemu.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_TEST_HOOKS=1 \
 	-DCONFIG_OPENSC2_TEST_RING_SIZE=2048 -DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 \
 	"$lib/test_notes.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
+# Without CONFIG_OPENSC2_CAL the calibration's calls are stand-ins: those files must still compile.
+for f in "$lib/commands.c" "$lib/cal_store.c" "$lib/test_core.c"; do
+	${CC:-gcc} -std=c11 -Wall -Wextra -Wshadow -Werror -I"$here/shim" -I"$root/include" -I"$lib" \
+		-fsyntax-only "$f"
+done
 
 rc=0
 "$out/opensc2_host_tests_plain" --vectors "$root/tests/vectors/hwtest" \

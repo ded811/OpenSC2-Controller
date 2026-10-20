@@ -13,11 +13,22 @@
  * Pinnacle in absolute mode), which also becomes the pad's pressure. Touch devices count Y from the
  * top; the controller's pads count up as positive, so Y is flipped (set *-trackpad-keep-y to keep
  * it). A pad click is a button with code OPENSC2_KEY_LEFT/RIGHT_PAD_CLICK in opensc2_buttons.
+ *
+ * CONFIG_APP_PAD_PROCESSING (off by default, untested) adds the real controller's pad processing
+ * (<opensc2/sensor_helpers.h>): for a device with a strength, touch from a signal level with the
+ * hysteresis of settings 72 and 73 and the damping near lift-off (the level is the strength times
+ * trackpad-strength-scale in zephyr,user, 40 by default: tune it to your part); the
+ * speed-adaptive position filter while setting 65 is on; and, with a stored pressure calibration
+ * (cal/prs_l, cal/prs_r), the level as the raw pressure word of the library's calibration, which
+ * also gives the pad its click by pressure. The pad rotation and stabiliser (settings 2, 24, 80)
+ * are the library's own (CONFIG_OPENSC2_PAD_RULES).
  */
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/input/input.h>
+#include <opensc2/cal.h>
+#include <opensc2/sensor_helpers.h>
 #include "app.h"
 
 #define USER DT_PATH(zephyr_user)
@@ -34,14 +45,77 @@ struct pad_tracker {
 	bool keep_y;
 	int32_t x, y, z;
 	bool touch_key_seen, touch_key;
+#if defined(CONFIG_APP_PAD_PROCESSING)
+	struct opensc2_pad_touch touch;
+	struct opensc2_pad_filter filter;
+#endif
 };
 
+#if !defined(CONFIG_APP_PAD_PROCESSING)
 static int16_t scale(int32_t v, int32_t size)
 {
 	int32_t out = v * (2 * OPENSC2_AXIS_MAX) / MAX(size, 1) - OPENSC2_AXIS_MAX;
 
 	return (int16_t)CLAMP(out, -OPENSC2_AXIS_MAX, OPENSC2_AXIS_MAX);
 }
+#endif
+
+#if defined(CONFIG_APP_PAD_PROCESSING)
+#define STRENGTH_SCALE DT_PROP_OR(USER, trackpad_strength_scale, 40)
+
+/* The level as the raw pressure word while the pad has a usable pressure calibration (the library
+ * then gives the pressure and the click) or the pressure recording runs (0xC3, "opensc2 cal
+ * pressure": it takes its samples from raw pressure only); otherwise the pad's own pressure stays. */
+static void raw_pressure(enum opensc2_side side, int32_t level)
+{
+#if defined(CONFIG_OPENSC2_CAL)
+	if (opensc2_cal_pressure_ok(side) || opensc2_cal_recording(OPENSC2_CAL_REC_PRESSURE)) {
+		(void)opensc2_set_pressure_raw(side, (int16_t)CLAMP(level, 0, INT16_MAX));
+		return;
+	}
+	(void)opensc2_cal_raw_release((uint8_t)(OPENSC2_RAW_PRESSURE_L << side));
+#else
+	ARG_UNUSED(side);
+	ARG_UNUSED(level);
+#endif
+}
+
+/* The real controller's processing: returns the touch; `pad` gets the position. */
+static bool process(struct pad_tracker *t, struct opensc2_trackpad *pad)
+{
+	int32_t level = t->z * STRENGTH_SCALE;
+	/* millionths of the pad, Y as the device counts it */
+	int32_t mx = (int32_t)((int64_t)t->x * 1000000 / MAX(t->width, 1));
+	int32_t my = (int32_t)((int64_t)t->y * 1000000 / MAX(t->height, 1));
+	int16_t px, py;
+	bool touched;
+
+	if (t->touch_key_seen) {
+		touched = t->touch_key;
+	} else {
+		touched = opensc2_pad_touch_step(&t->touch, level,
+						 opensc2_setting_get(OPENSC2_SETTING_PAD_TOUCH_ON),
+						 opensc2_setting_get(OPENSC2_SETTING_PAD_TOUCH_OFF),
+						 &mx, &my);
+		raw_pressure(t->side, level);
+	}
+	if (!touched) {
+		opensc2_pad_filter_reset(&t->filter);
+		return false;
+	}
+	px = opensc2_pad_scale(mx);
+	py = opensc2_pad_scale(my);
+	if (opensc2_setting_get(OPENSC2_SETTING_PAD_FILTER) != 0) {
+		opensc2_pad_filter_step(&t->filter, &px, &py, 0);
+	} else {
+		opensc2_pad_filter_reset(&t->filter);
+	}
+	/* doubled to the report's scale; the report's Y counts up */
+	pad->x = (int16_t)CLAMP(2 * px, -OPENSC2_AXIS_MAX, OPENSC2_AXIS_MAX);
+	pad->y = (int16_t)CLAMP(2 * (t->keep_y ? py : -py), -OPENSC2_AXIS_MAX, OPENSC2_AXIS_MAX);
+	return true;
+}
+#endif
 
 static void pad_event(struct pad_tracker *t, const struct input_event *evt)
 {
@@ -63,6 +137,9 @@ static void pad_event(struct pad_tracker *t, const struct input_event *evt)
 		return;
 	}
 
+#if defined(CONFIG_APP_PAD_PROCESSING)
+	pad.touched = process(t, &pad);
+#else
 	pad.touched = t->touch_key_seen ? t->touch_key : (t->z > 0 || t->x || t->y);
 	if (pad.touched) {
 		pad.x = scale(t->x, t->width);
@@ -70,6 +147,9 @@ static void pad_event(struct pad_tracker *t, const struct input_event *evt)
 		if (!t->keep_y) {
 			pad.y = (int16_t)-pad.y;
 		}
+	}
+#endif
+	if (pad.touched) {
 		/* A touch strength (0..63 on the Pinnacle) as pressure; a plain touch as half. */
 		pad.pressure = t->z > 0 ? (uint16_t)MIN(t->z * 520, OPENSC2_TRIGGER_MAX) : 16384;
 	}
@@ -112,6 +192,12 @@ INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_CHOSEN(opensc2_left_trackpad)), on_left_p
 
 int trackpad_init(void)
 {
-	/* Nothing to do: the input callbacks above are registered at build time. */
+#if defined(CONFIG_APP_PAD_PROCESSING) && DT_HAS_CHOSEN(opensc2_right_trackpad)
+	opensc2_pad_touch_reset(&right_pad.touch);
+#endif
+#if defined(CONFIG_APP_PAD_PROCESSING) && DT_HAS_CHOSEN(opensc2_left_trackpad)
+	opensc2_pad_touch_reset(&left_pad.touch);
+#endif
+	/* Nothing else to do: the input callbacks above are registered at build time. */
 	return 0;
 }

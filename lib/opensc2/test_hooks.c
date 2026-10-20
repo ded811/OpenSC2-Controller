@@ -16,6 +16,7 @@
 #include <zephyr/spinlock.h>
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
+#include "cal_store.h"
 #include "test_hooks.h"
 
 BUILD_ASSERT((int)OSC2_LINK_RADIO == (int)OSC2_TEST_LINK_RADIO &&
@@ -184,6 +185,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= OSC2_TEST_FLAG_RULES;   /* ops RULES and RULES_SET */
 	flags |= IS_ENABLED(CONFIG_OPENSC2_HAPTIC_STOP_STATUS) ? OSC2_TEST_FLAG_HAPTIC_STOP_STATUS : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_BLE) ? OSC2_TEST_FLAG_BLE : 0;
+	flags |= IS_ENABLED(CONFIG_OPENSC2_CAL) ? OSC2_TEST_FLAG_CAL : 0;
 
 	opensc2_identity_get(&id);
 	caps->mode = osc2_wired() ? 1 : 0;
@@ -303,6 +305,13 @@ static void env_rules_set(uint32_t rules)
 	osc2_rules_set(rules);
 }
 
+#if defined(CONFIG_OPENSC2_CAL)
+static void env_cal_status(uint8_t out[OSC2_TEST_CAL_STATUS_LEN])
+{
+	osc2_cal_status(out);
+}
+#endif
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -337,6 +346,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.rules_get = env_rules_get,
 	.rules_build = env_rules_build,
 	.rules_set = env_rules_set,
+#if defined(CONFIG_OPENSC2_CAL)
+	.cal_status = env_cal_status,
+#endif
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

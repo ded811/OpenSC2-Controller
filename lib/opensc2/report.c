@@ -19,6 +19,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
+#include "cal_store.h"
 #include "input_rules.h"
 #include "lizard.h"
 #include "proto_rules.h"
@@ -107,12 +108,14 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 		(void)opensc2_set_state(s);
 	}
 	opensc2_get_state(s);
+	osc2_cal_frame(s);   /* raw inputs, processed as the real controller does (cal_store.c) */
 	/* The hardware test hooks' injected inputs take the application's place here, after its state
 	 * was read and never above: there they would be stored as the application's own (and reach
 	 * the STEAM, plug-in and wakeup rules). */
 	osc2_test_input(s);
-	/* The rules after injection, so that an injected state goes through them as the
-	 * application's does; lizard mode gets the same state. */
+	osc2_cal_rules(s);   /* the pad rules: rotation, stabiliser */
+	/* The rules after injection and the pad rules, so that an injected state goes through them
+	 * as the application's does; lizard mode gets the same state. */
 	osc2_input_rules_apply(&input_rules, osc2_rules(), osc2.settings, s);
 	opensc2_encode_state(s, sequence++, state);
 	osc2_test_frame(state);

@@ -132,6 +132,18 @@ three digits: "006" is P0.06, "111" is P1.11.
 - **Not assigned** (no pins left on the SuperMini): the right stick, analog triggers, L4, L5, R4,
   R5, the touch bits, trackpads and the IMU. They are listed in the overlay, ready to enable on a
   board with more pins, or in place of buttons you do not need.
+- **Every button**: the build [expander.conf](expander.conf) (with
+  [expander.overlay](expander.overlay); untested on hardware) adds L4, L5, R4 and R5 through an
+  I2C port expander, as the real controller reads most of its buttons: an NXP PCA9555 on P0.17
+  (SDA) and P0.20 (SCL), which also takes the D-pad's left and right buttons from those pins. The
+  expander is polled every 16 ms and every button is debounced 16 ms; the overlay's header lists
+  the expander's pins.
+- **Stick touch and grips**: any input device that the chosen node `opensc2,touch-keys` names, its
+  key codes the touch bits; the build [sensors.conf](sensors.conf) has a Microchip CAP1206
+  capacitive sensor (polled, address 0x28) for all four (untested on hardware). The sensor's own
+  thresholds decide; settings 30, 31, 34 and 35 apply to raw words given with
+  `opensc2_set_touch_raw()` ([docs/api.md](../docs/api.md#calibration-and-raw-inputs)). A touch
+  only sets its bit: unlike a button, it does not bring a turned-off board back.
 
 Unwired inputs read neutral. Analog pins that are listed but left open are held at mid-scale
 (sticks) or at their released end (triggers) by the nRF52840's own bias resistors, so they do not
@@ -150,6 +162,19 @@ each axis's ADC counts on 12 bits (0..4095), 1 gives millivolts converted the re
 (counts × 3300 / 4096, as if VCC were 3.3 V). Both skip the calibration and the axis inversion; an
 axis that is not wired reads 0. On a bare board the left stick's two pins sit at about half of full
 scale (about 2048 counts, 1650 mV), held there by the bias. Built; not yet tested on hardware.
+
+The build [sensors.conf](sensors.conf) (with [sensors.overlay](sensors.overlay); untested on
+hardware) works like the real controller instead: the sticks and triggers are read right before each
+state report, four conversions averaged, and once a stick or trigger has a stored calibration the
+library's processing takes over (the real controller's two halves and bands, settings 46 and 62).
+Record one on the console with the parts connected and a link up (the recordings take one sample per
+state report): `opensc2 cal sticks 1` with the sticks released, `opensc2 cal sticks 2` while
+circling them fully, `opensc2 cal sticks 3` to save; the same with `triggers` (released, pulled).
+While a recording runs its axes go to the library raw, so an axis without a calibration reads 0
+until step 3 saves one. `opensc2 cal` shows what is stored. The vendor commands `0xD8` and `0xC0`
+do the same from a host tool (Steam does not send them in its sessions). The calibration is kept
+in the board's storage, through a `.uf2` reflash and a factory reset
+([docs/api.md](../docs/api.md#calibration-and-raw-inputs)).
 
 ## Wired and wireless modes
 
@@ -243,6 +268,7 @@ On Linux it is usually `/dev/ttyACM0`, on macOS `/dev/cu.usbmodem…` (Linux and
 | `opensc2 bonds`, `opensc2 slot 1`, `opensc2 forget 1` | the pairings |
 | `opensc2 id`, `opensc2 id set unit OSC2MYBOARD01`, `opensc2 id set rev 0x48`, `opensc2 id set name "My Steam Controller"`, `opensc2 id clear` | the identity Steam sees, and the name Windows shows ([Identity](#identity)) |
 | `opensc2 state` | what the inputs read right now |
+| `opensc2 cal`, `opensc2 cal sticks 1`, `... triggers 2`, `... pressure 3`, `opensc2 cal save 0 7`, `opensc2 cal erase c6674885` | the stored calibration: show it, record it (steps 1, 2, 3; 0 stops), save one side's, erase all of it ([Calibration](#calibration)) |
 | `uf2` | reboot into the UF2 bootloader to flash a new build |
 
 Keep the OSC prefix in a unit serial you set: the hardware test suite only talks to boards whose
@@ -335,6 +361,8 @@ Each needs pins, which the default map has used up: take them from buttons you d
 | RGB LED following Steam's colour | PWM channels named `red`, `green`, `blue` | [samples/rgb_led](../samples/rgb_led/README.md) |
 | Trackpads (any touch device of Zephyr's input subsystem) | `chosen { opensc2,right-trackpad = &touch; };` (and `opensc2,left-trackpad`), `right-trackpad-size`, optional `right-trackpad-keep-y` | [samples/touchpad](../samples/touchpad/README.md) |
 | IMU (any accelerometer and gyroscope with a sensor driver) | `aliases { imu0 = &imu; };` | [samples/imu](../samples/imu/README.md) |
+| Stick touch and grips (any input device whose key codes are the touch bits, such as a CAP12xx capacitive sensor) | `chosen { opensc2,touch-keys = &touch_keys; };` | [sensors.overlay](sensors.overlay) |
+| More buttons on an I2C port expander | a second gpio-keys node labelled `opensc2_buttons_polled`, in polling mode | [expander.overlay](expander.overlay) |
 | A mode switch (closed at power-up: wireless) | `mode-wireless-gpios` in `zephyr,user` | the overlay's comment |
 
 The PWM parts share one `pwms` list in `zephyr,user`, found by their `pwm-names`. All channels of
@@ -382,6 +410,13 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_GIT_REVISION="..."` | the revision string Steam reads, 1 to 12 characters (`osc2-0.2.0`) |
 | `CONFIG_APP_OBEY_BOOTLOADER_REQUEST=y` | open the UF2 drive when Steam asks for a bootloader ([above](#steams-firmware-update)) |
 | `CONFIG_APP_IMU_ALWAYS=y` | stream the IMU even while Steam has it off |
+| `CONFIG_APP_ANALOG_SAMPLE=y` | read sticks and triggers right before each state report, four conversions averaged; `sensor-supply-gpios` (and `sensor-supply-settle-us`, 200 by default) in `zephyr,user` powers the sensors only while they are read (untested) |
+| `CONFIG_APP_ANALOG_RAW=y` | with it: a calibrated stick or trigger through the library's stored calibration ([Calibration](#calibration); untested) |
+| `CONFIG_APP_IMU_STREAM=y` | an LSM6DSV16X's FIFO streamed with its own fusion (game rotation vector, gyro bias) as the real controller reads it, from boot, stopped by setting 48 = 0 (unless `CONFIG_APP_IMU_ALWAYS`); the build [imu-stream.conf](imu-stream.conf) with [imu-stream.overlay](imu-stream.overlay) (an interrupt pin and the FIFO settings; untested) |
+| `CONFIG_APP_IMU_BIAS=y` | a rest-based gyro bias for an IMU without one, subtracted while setting 84 is on, setting 85 its threshold ([sensor helpers](../docs/api.md#sensor-helpers); untested; not with `CONFIG_APP_IMU_STREAM`, which has the LSM6DSV16X's own). The IMU's mounting matrix is `imu-mounting-matrix` in `zephyr,user` (9 values, row major) |
+| `CONFIG_APP_PAD_PROCESSING=y` | the real controller's trackpad processing for a device with a touch strength: touch with settings 72 and 73 and the damping near lift-off (`trackpad-strength-scale` in `zephyr,user`, 40 by default: tune it), the position filter while setting 65 is on, and with a stored pressure calibration the library's pressure and click by pressure (untested) |
+| `CONFIG_APP_I2C_RECOVER=y` | free each I2C bus at boot, in case a reset caught a part in the middle of a transfer (untested) |
+| `CONFIG_APP_BATTERY=y` | the battery level of report `0x43` from VDDH / 5, or from a `battery` io-channel in `zephyr,user` with `battery-divider-ohms = <total bottom>` and an optional `battery-enable-gpios` (untested) |
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
 
 The USB session log and the warm-restart mark live in a 16 KB RAM area that the overlay takes out
