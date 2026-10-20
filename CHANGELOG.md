@@ -28,7 +28,7 @@ still change between minor versions.
 - A transport or puck slot chosen at run time (`opensc2_select_slot()`, the shell's `opensc2
   slot`) is stored once its link is up, as the October 2026 firmware does, instead of at once. It
   is stored as `opensc2/transport`, with `opensc2/slot` still written for a puck transport.
-- Host tests: 61 (2,448 checks), and 88 (4,915 checks) with the hardware test hooks; the runner's
+- Host tests: 61 (2,462 checks), and 89 (4,965 checks) with the hardware test hooks; the runner's
   self-tests: 208.
 
 ## [0.2.0] - 2026-10-19

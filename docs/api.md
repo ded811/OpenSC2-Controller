@@ -627,8 +627,9 @@ pairs a controller over the cable:
 
 A boot runs the stored transport (a board from before the transport key: the slot it stored).
 A host can also write the key: `0xEE` sets the choice in RAM (a new puck slot counts at once, as a
-new bond does; a change between the puck and Bluetooth counts at the next wireless start) and
-`0xEF` saves it. Without Bluetooth, `0xEE` with 0 or 1 is taken and changes nothing, as before.
+new bond does; a change between the puck and Bluetooth is not run at once: saved with `0xEF`, it
+counts from the next boot) and `0xEF` saves it. Without Bluetooth, `0xEE` with 0 or 1 is taken and
+changes nothing, as before.
 
 ### The Bluetooth build
 

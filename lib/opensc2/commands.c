@@ -131,7 +131,9 @@ static int key_set(enum named_key key, const uint8_t *value, uint8_t len)
 	}
 	case KEY_TRANSPORT: {
 		/* The choice in RAM (0xEF saves it). A new puck slot counts at once, as a new bond
-		 * does; a change between the puck and Bluetooth at the next wireless start. */
+		 * does; a change between the puck and Bluetooth is not run at once: once saved, it
+		 * counts from the next boot (the protocol documentation does not say; docs/protocol.md,
+		 * gap 22). */
 		int t;
 
 		if (len != 1) {

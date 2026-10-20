@@ -81,6 +81,7 @@ static void register_test(const char *name, test_fn fn)
 #include "differential_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 #include "hooks_cases.h"
+#include "ble_hooks_cases.h"
 #endif
 
 int main(int argc, char **argv)

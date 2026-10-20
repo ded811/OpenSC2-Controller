@@ -820,6 +820,16 @@ static struct bt_conn *conn_get(void)
 	return conn;
 }
 
+/* Where input `index` goes for this host: the real controller sends a report on its vendor
+ * service's characteristic when the host enabled notifications there, else on the HID service's.
+ * There is no vendor service yet, so always the HID one (a vendor service would answer its own
+ * characteristic here, and share the handlers above through the same report entries). */
+static const struct bt_gatt_attr *input_target(struct bt_conn *conn, int index)
+{
+	ARG_UNUSED(conn);
+	return INPUT_ATTR(index);
+}
+
 /* One input report as a notification on its characteristic, where the host enabled them. A
  * droppable one (state, battery) is dropped when too many are in flight; the others wait a
  * little for room. */
@@ -845,7 +855,8 @@ static int notify_report(const uint8_t *report, size_t len, bool droppable)
 		err = -ENOTCONN;
 		goto out;
 	}
-	if (!bt_gatt_is_subscribed(conn, INPUT_ATTR(index), BT_GATT_CCC_NOTIFY)) {
+	p.attr = input_target(conn, index);
+	if (!bt_gatt_is_subscribed(conn, p.attr, BT_GATT_CCC_NOTIFY)) {
 		err = -ENOENT;   /* the host did not ask for this report: dropped */
 		goto out;
 	}
@@ -855,7 +866,6 @@ static int notify_report(const uint8_t *report, size_t len, bool droppable)
 			goto out;
 		}
 	}
-	p.attr = INPUT_ATTR(index);
 	p.data = value;
 	p.len = value_len;
 	p.func = sent_cb;

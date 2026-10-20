@@ -372,11 +372,11 @@ open, the library does what should work with Steam and the puck, and says so her
     board without a battery has lost its power anyway.
 22. **The wireless transport** (`user/wireless_transport`). The library keeps the real controller's
     four values and October's rule that a choice is saved once its link is up. Not documented, and
-    the library's choices: a host's `0xEE` of a value between the puck and Bluetooth takes effect at
-    the next wireless start (a new puck slot at once, as before); without Bluetooth, `0xEE` with 0
-    or 1 is taken and changes nothing; a board that stored only `opensc2/slot` (older firmware)
-    starts on that puck slot. What Steam does when it reads 0 or 1 during a cable pairing is not
-    known.
+    the library's choices: a host's `0xEE` of a value between the puck and Bluetooth is not run at
+    once (saved with `0xEF`, it counts from the next boot; a new puck slot counts at once, as
+    before); without Bluetooth, `0xEE` with 0 or 1 is taken and changes nothing; a board that stored
+    only `opensc2/slot` (older firmware) starts on that puck slot. What Steam does when it reads 0
+    or 1 during a cable pairing is not known.
 23. **Bluetooth LE** (an opt-in build; built, not yet tested on hardware). Where it differs from the
     documented controller, or the documentation is silent:
 
