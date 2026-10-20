@@ -280,9 +280,10 @@ KEY_NAMES = {
     26: "cal/rgbw_b", 27: "cal/rgbw_w", 28: "cal/volt_offset", 29: "cal/sensors/gyroscope/bias",
 }
 # The keys the library keeps as plain values ("blobs", keys.c): name -> (size, 0xED reads it).
-# Until set, and after 0xF0, zeros (user/fully_charged_led_intensity: 3).
+# Until set, and after 0xF0, zeros (user/fully_charged_led_intensity: 3). The system state machine
+# acts on user/keylock and user/fully_charged_led_intensity.
 KEPT_KEYS = {
-    "user/keylock": (4, True), "user/fully_charged_led_intensity": (1, False),
+    "user/keylock": (4, True), "user/fully_charged_led_intensity": (1, True),
     "mte/charge_level": (8, True), "debug/resetreason": (33, True),
     "settings/haptics/haptic_master_gain_db": (2, False),
     "settings/haptics/amplifier_mode": (2, False), "settings/haptics/enabled": (2, False),

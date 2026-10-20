@@ -235,7 +235,6 @@ int osc2_storage_factory_reset(void)
 #if defined(CONFIG_OPENSC2_BLE)
 	err |= osc2_ble_factory_reset();   /* the whole bt subtree: bonds, identities, the name */
 #endif
-	osc2_sys_factory_reset();   /* the keylock, the fully-charged LED level */
 	return err ? -EIO : 0;
 }
 
@@ -264,10 +263,6 @@ int osc2_storage_delete_transport(void)
 int osc2_storage_save_chime(void) { return 0; }
 int osc2_storage_save_identity(void) { return 0; }
 int osc2_storage_save_policy(void) { return 0; }
-int osc2_storage_factory_reset(void)
-{
-	osc2_sys_factory_reset();
-	return 0;
-}
+int osc2_storage_factory_reset(void) { return 0; }
 
 #endif /* CONFIG_OPENSC2_STORAGE */

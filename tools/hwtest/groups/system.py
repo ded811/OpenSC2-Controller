@@ -428,7 +428,9 @@ def run(ctx):
             c.eq("came back wired (USB power, no injection)", rig.path, "W")
             st = _status(rig, c)
             _end_ok(c, st, "shutdown-locked", "keylock-held", (S.HOW_NO_BATTERY, S.HOW_TEST))
-            c.eq("a USB power-on deletes the keylock", rig.read_named(b"user/keylock\0").n, 0)
+            gone = rig.read_named(b"user/keylock\0")
+            c.true("a USB power-on deletes the keylock (zeros, or nothing to read)",
+                   gone.n in (0, 4) and not any(gone.data[:gone.n]))
             if rig.path == "W":
                 rig.to_wireless()
                 _rearm(rig)

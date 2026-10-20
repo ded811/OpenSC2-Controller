@@ -71,14 +71,6 @@ bool osc2_sys_power_request(enum opensc2_power_request request, const char *why)
 bool osc2_sys_wired_power(void);
 /* A cue, from any thread (it plays in the system work queue). */
 void osc2_sys_cue_post(uint8_t cue);
-/* What a factory reset deletes of the machine's keys (the keylock, the fully-charged LED level). */
-void osc2_sys_factory_reset(void);
-/* The settings-by-name commands on the machine's keys (user/keylock,
- * user/fully_charged_led_intensity). 0xEE (`opcode`), 0xEF, 0xF0: 0 or a negative errno, -ENOENT
- * for another key. */
-int osc2_sys_key(uint8_t opcode, const uint8_t *payload, uint8_t len);
-/* 0xED: 0 with the value (length 0 for none), or -ENOENT for another key. */
-int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t *out, uint8_t *out_len);
 /* A Bluetooth transport (once, at start-up; NULL: none). */
 void osc2_sys_bluetooth(const struct osc2_bt_transport *bt);
 /* What the Bluetooth transport tells the machine (any thread): OSC2_SYS_BT_*. */
@@ -157,28 +149,6 @@ static inline bool osc2_sys_wired_power(void)
 static inline void osc2_sys_cue_post(uint8_t cue)
 {
 	(void)cue;
-}
-
-static inline void osc2_sys_factory_reset(void)
-{
-}
-
-static inline int osc2_sys_key(uint8_t opcode, const uint8_t *payload, uint8_t len)
-{
-	(void)opcode;
-	(void)payload;
-	(void)len;
-	return -ENOENT;
-}
-
-static inline int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t *out,
-				    uint8_t *out_len)
-{
-	(void)payload;
-	(void)len;
-	(void)out;
-	(void)out_len;
-	return -ENOENT;
 }
 
 static inline void osc2_sys_bluetooth(const struct osc2_bt_transport *bt)

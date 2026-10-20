@@ -272,7 +272,7 @@ class VendorDenylist(unittest.TestCase):
         safety.check_vendor(C.VC_BY_NAME_SET, lock + bytes(4), "usb", ctx=ctx)
         with self.assertRaises(safety.SafetyError):
             safety.check_vendor(C.VC_BY_NAME_SET, lock + b"\xC3\x0A\xFB\x41", "usb", ctx=ctx)
-        # no read function: only another size without a token
+        # nothing read back yet: only another size without a token
         led = b"user/fully_charged_led_intensity\x00"
         safety.check_vendor(C.VC_BY_NAME_SET, led + b"\x01\x02", "usb", ctx=ctx)
         with self.assertRaises(safety.SafetyError):

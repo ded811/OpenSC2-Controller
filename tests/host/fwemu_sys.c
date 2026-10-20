@@ -7,12 +7,14 @@
  * on the buttons the rules see, the power source (USB, unless the test hooks inject another), the
  * battery levels, the link, the turn-off command, the test hooks' system ops (test_sys.c) with a
  * boot-time injection and the last end in "retained" words that outlive the emulated reboots, and
- * the keylock in "flash". Every end reboots, as on a board without a battery.
+ * the keylock in "flash" (its RAM value is the key table's, as in system.c: here the stand-in blob
+ * store of stubs.c). Every end reboots, as on a board without a battery.
  */
 #include <errno.h>
 #include <string.h>
 #include "internal.h"
 #include "chord_rules.h"
+#include "keys.h"
 #include "idle_rules.h"
 #include "sys_rules.h"
 #include "stubs.h"
@@ -47,7 +49,23 @@ static int q_len;
 static uint32_t retained[OSC2_RET_SYS_WORDS];
 static uint32_t end_at_boot[OSC2_TEST_SYS_END_WORDS];   /* the last end, as this boot found it */
 static uint32_t keylock_flash;
-static uint32_t keylock_ram;
+
+/* user/keylock in RAM (keys.c's value; the stand-in store here). */
+static uint32_t keylock_ram(void)
+{
+	uint8_t v[OSC2_KEY_VALUE_MAX];
+	uint8_t len = 0;
+
+	return osc2_keys_get(OSC2_KEY_KEYLOCK, v, &len) == 0 && len == 4 ? opensc2_get_le32(v) : 0;
+}
+
+static void keylock_ram_set(uint32_t value)
+{
+	uint8_t v[4];
+
+	opensc2_put_le32(v, value);
+	(void)osc2_keys_set(OSC2_KEY_KEYLOCK, v, sizeof(v));
+}
 
 static void post(uint8_t ev, uint8_t arg)
 {
@@ -89,7 +107,7 @@ static void inputs(struct osc2_sys_in *in)
 	in->chord = chords.current;
 	in->level = level_told;
 	in->steam = (buttons & OPENSC2_BTN_STEAM) != 0;
-	in->keylock = keylock_ram == KEYLOCK_VALUE;
+	in->keylock = keylock_ram() == KEYLOCK_VALUE;
 	in->reboot_not_off = osc2.settings[OPENSC2_SETTING_REBOOT_ON_OFF] != 0;
 	in->link_up = hk.radio_connected;
 	in->plug_in_reboot = osc2.policy == OPENSC2_POLICY_AUTO;
@@ -149,7 +167,7 @@ static void apply(const struct osc2_sys_out *o)
 		play_cue(o->cue);
 	}
 	if (o->actions & OSC2_SYS_DO_KEYLOCK_DEL) {
-		keylock_ram = 0;
+		keylock_ram_set(0);
 		keylock_flash = 0;
 	}
 	if (o->actions & OSC2_SYS_DO_KEYLOCK_SET) {
@@ -197,7 +215,7 @@ static void chord_events(const struct osc2_chord_out *co)
 	}
 	if (co->events & OSC2_CHORD_EV_KEYLOCK_TAP) {
 		osc2_test_sys_note_chord(OSC2_TEST_CHORD_KEYLOCK_TAP, OSC2_CHORD_KEYLOCK);
-		keylock_ram = 0;
+		keylock_ram_set(0);
 		keylock_flash = 0;
 	}
 	if (co->events & OSC2_CHORD_EV_KEYLOCK_HOLD) {
@@ -282,52 +300,6 @@ void osc2_sys_setting(uint8_t number)
 	(void)number;   /* the machine reads setting 50 and 77 when it runs */
 }
 
-int osc2_sys_key(uint8_t opcode, const uint8_t *payload, uint8_t len)
-{
-	uint8_t name_len = 0, id = osc2_sys_key_id(payload, len, &name_len);
-
-	if (id == OSC2_SYS_KEY_NONE) {
-		return -ENOENT;
-	}
-	if (opcode == 0xEE) {
-		if ((uint8_t)(len - name_len) != osc2_sys_key_size(id)) {
-			return -EINVAL;
-		}
-		if (id == OSC2_SYS_KEY_KEYLOCK) {
-			keylock_ram = opensc2_get_le32(payload + name_len);
-		}
-		return 0;
-	}
-	if (name_len != len) {
-		return -EINVAL;
-	}
-	if (id == OSC2_SYS_KEY_KEYLOCK) {
-		if (opcode == 0xEF) {
-			keylock_flash = keylock_ram;
-		} else {
-			keylock_ram = keylock_flash = 0;
-		}
-	}
-	return 0;
-}
-
-int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t *out, uint8_t *out_len)
-{
-	uint8_t name_len = 0, id = osc2_sys_key_id(payload, len, &name_len);
-
-	if (id == OSC2_SYS_KEY_NONE) {
-		return -ENOENT;
-	}
-	if (id == OSC2_SYS_KEY_KEYLOCK) {
-		opensc2_put_le32(out, keylock_ram);
-		*out_len = keylock_ram ? 4 : 0;
-	} else {
-		out[0] = 3;
-		*out_len = 1;
-	}
-	return 0;
-}
-
 /* ---- the test hooks' environment ------------------------------------------------------------- */
 
 static void env_status(uint8_t out[OSC2_TEST_SYS_STATUS_LEN])
@@ -342,7 +314,7 @@ static void env_status(uint8_t out[OSC2_TEST_SYS_STATUS_LEN])
 	out[4] = (uint8_t)(led_flags | (shutting_down ? 0x04 : 0));
 	out[5] = chords.current;
 	out[6] = level_told;
-	out[7] = (uint8_t)((keylock_ram == KEYLOCK_VALUE ? 0x01 : 0) | (machine.ended ? 0x80 : 0));
+	out[7] = (uint8_t)((keylock_ram() == KEYLOCK_VALUE ? 0x01 : 0) | (machine.ended ? 0x80 : 0));
 	opensc2_put_le16(&out[8], idle.history);
 	opensc2_put_le32(&out[10], idle.period_ms);
 	out[14] = last_cue;
@@ -421,7 +393,7 @@ void emu_sys_boot(bool warm)
 	gone = false;
 	led_mode = led_flags = 0;
 	shutting_down = false;
-	keylock_ram = keylock_flash;
+	keylock_ram_set(keylock_flash);
 	osc2_test_sys_init();
 	osc2_test_sys_env = &env;
 	memcpy(words, retained, sizeof(words));

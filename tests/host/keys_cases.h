@@ -49,7 +49,8 @@ OPENSC2_TEST(keys_table)
 		{ "opensc2/unit_serial", 5, OSC2_KEYK_IDENTITY, 0, 0 },
 		{ "opensc2/board_revision", 8, OSC2_KEYK_IDENTITY, 0, 0 },
 		{ "user/keylock", 9, OSC2_KEYK_BLOB, 4, OSC2_KEYF_READ | OSC2_KEYF_FACTORY },
-		{ "user/fully_charged_led_intensity", 10, OSC2_KEYK_BLOB, 1, OSC2_KEYF_FACTORY },
+		{ "user/fully_charged_led_intensity", 10, OSC2_KEYK_BLOB, 1,
+		  OSC2_KEYF_READ | OSC2_KEYF_FACTORY },
 		{ "mte/charge_level", 11, OSC2_KEYK_BLOB, 8, OSC2_KEYF_READ | OSC2_KEYF_FACTORY },
 		{ "debug/resetreason", 12, OSC2_KEYK_BLOB, 33, OSC2_KEYF_READ | OSC2_KEYF_FACTORY },
 		{ "settings/haptics/haptic_master_gain_db", 13, OSC2_KEYK_BLOB, 2, 0 },
@@ -190,12 +191,16 @@ OPENSC2_TEST(keys_cmd_kept)
 	CHECK_EQ(stub.key_deletes, 1u << OSC2_KEY_KEYLOCK);
 	CHECK_EQ(proto_usb(0xED, p, named(p, "user/keylock", NULL, 0), reply), 4);
 	CHECK(memcmp(&reply[3], (const uint8_t[4]){ 0 }, 4) == 0);
-	/* No read function: 0xED answers length 0, while 0xEE, 0xEF and 0xF0 work. */
+	/* The fully-charged LED level has a read function: 3 until set. The haptics keys have none:
+	 * 0xED answers length 0, while 0xEE, 0xEF and 0xF0 work. */
+	CHECK_EQ(proto_usb(0xED, p, named(p, "user/fully_charged_led_intensity", NULL, 0), reply), 1);
+	CHECK_EQ(reply[3], 3);
 	CHECK_EQ(named_set(0xEE, "user/fully_charged_led_intensity", (const uint8_t[]){ 1 }, 1), 0);
 	CHECK_EQ(named_set(0xEE, "settings/haptics/haptic_master_gain_db",
 			   (const uint8_t[]){ 0xFA, 0xFF }, 2), 0);
 	CHECK(named_set(0xEE, "settings/haptics/enabled", (const uint8_t[]){ 1 }, 1) < 0);
-	CHECK_EQ(proto_usb(0xED, p, named(p, "user/fully_charged_led_intensity", NULL, 0), reply), 0);
+	CHECK_EQ(proto_usb(0xED, p, named(p, "user/fully_charged_led_intensity", NULL, 0), reply), 1);
+	CHECK_EQ(reply[3], 1);
 	CHECK_EQ(proto_usb(0xED, p, named(p, "settings/haptics/amplifier_mode", NULL, 0), reply), 0);
 	CHECK_EQ(osc2_keys_get(OSC2_KEY_FULL_LED, v, &len), 0);
 	CHECK(len == 1 && v[0] == 1);

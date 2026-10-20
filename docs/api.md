@@ -816,8 +816,9 @@ keylock pattern. A power-on on USB power or the dock deletes it, and so does a 5
 chord. `opensc2_keylock()` says whether it is stored (as read at boot or written since; the chord's
 own store counts from the next boot).
 
-It is the settings-by-name key `user/keylock`, 4 bytes, `0x41FB0AC3` while locked (Zephyr settings
-`opensc2/sys/keylock`): `0xED` reads it, `0xEE` sets the value in RAM, `0xEF` saves it and `0xF0`
+It is the settings-by-name key `user/keylock`, 4 bytes, `0x41FB0AC3` while locked, one of the
+values the library keeps ([Settings by name](#settings-by-name); Zephyr settings
+`opensc2/k/keylock`): `0xED` reads it, `0xEE` sets the value in RAM, `0xEF` saves it and `0xF0`
 deletes it; a factory reset (`0x86`) deletes it too.
 
 ### The idle timeout
@@ -961,9 +962,9 @@ fade to one of four levels, chosen again every 2 s: full for 15 s after the leve
 100 %, full while there was recent input (modes 1 to 3), otherwise the stored
 `user/fully_charged_led_intensity`. The levels in thousandths, full, medium and dim: blue 200, 100,
 40 (B); the puck's 50 B + 500 W, then 100 and 40 W; green 250, 100, 50 (G); amber (200, 200),
-(80, 100), (30, 40) (R, G). The key is one byte (Zephyr settings `opensc2/sys/fullled`): `0xED`
-reads it, `0xEE`, `0xEF` and `0xF0` set, save and delete it (a deletion brings back 3 at once),
-and a factory reset deletes it.
+(80, 100), (30, 40) (R, G). The key is one byte, one of the values the library keeps ([Settings
+by name](#settings-by-name); Zephyr settings `opensc2/k/fcled`): `0xED` reads it, `0xEE`, `0xEF` and
+`0xF0` set, save and delete it (a deletion brings back 3 at once), and a factory reset deletes it.
 
 **Steam's colour**: while setting 37 is on, `0xC5`'s colour shows steady instead of any pattern.
 
@@ -1314,18 +1315,19 @@ names of its own:
 | Key | Size | `0xED` | Kept as | The factory reset (`0x86`) |
 | --- | --- | --- | --- | --- |
 | `esb/bond`, `esb/bond_2` | 24 | the bond, length 0 when empty | the two bonds (`opensc2/bond0`, `bond1`) | deletes |
-| `user/wireless_transport` | 1 | 2 + the slot | the slot (`opensc2/slot`); 0 and 1, Bluetooth, are taken and ignored | deletes |
+| `user/wireless_transport` | 1 | the transport, 0 to 3 ([Wireless transports](#wireless-transports-and-bluetooth-le)) | `opensc2/transport`, and `opensc2/slot` for a puck transport; 0 and 1 (Bluetooth) only in a build with `CONFIG_OPENSC2_BLE`, taken and ignored without it | deletes |
 | `user/haptic_boot_level` | 1 | the chime level | `opensc2/chime` | deletes |
 | `user/keylock` | 4 | the value, zeros until set | `opensc2/k/keylock` | deletes |
-| `user/fully_charged_led_intensity` | 1 | length 0 (no read function) | `opensc2/k/fcled`; 3 until set | deletes |
+| `user/fully_charged_led_intensity` | 1 | the level, 3 until set | `opensc2/k/fcled` | deletes |
 | `mte/charge_level` | 8 | the value, zeros until set, while it is a valid window (both values 0, or a lower one of at least 3400 and an upper one of at most 4120, u32 mV each, in 10 mV steps); otherwise length 0 | `opensc2/k/mte` | deletes |
 | `debug/resetreason` | 33 | the crash record, zeros when there is none | `opensc2/k/crash` | deletes |
 | `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled` | 2 each | length 0 (no read function) | `opensc2/k/hgain`, `hamp`, `hen` | keeps |
-| `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | the application's `vendor_command`; length 0 without one (the gyro bias never) | the application's | keeps |
+| `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | with `CONFIG_OPENSC2_CAL` the library's calibration store ([Calibration and raw inputs](#calibration-and-raw-inputs)): a stick, trigger or pressure key once stored, the touch keys and the battery offset always, an LED trim while it lies within 1..199, the gyro bias never; without it the application's `vendor_command`, length 0 without one | `opensc2/cal/...` with `CONFIG_OPENSC2_CAL`, else the application's | keeps |
 
 `0xEE` takes exactly the key's size (another length is refused, as on the real controller). The
-values of `user/keylock`, `user/fully_charged_led_intensity`, `mte/charge_level` and the haptics
-keys are kept and read back but nothing in the library acts on them yet; `debug/resetreason` holds
+system state machine acts on `user/keylock` ([The keylock](#the-keylock)) and
+`user/fully_charged_led_intensity` ([Status LED](#status-led)); `mte/charge_level` and the haptics
+keys are kept and read back, but nothing in the library acts on them yet; `debug/resetreason` holds
 the [crash record](#crash-records). With `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`,
 `0xEE` also takes OpenSC2's identity keys ([Identity](#identity)).
 

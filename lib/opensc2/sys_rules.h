@@ -234,17 +234,6 @@ bool osc2_cue_map(uint8_t cue, uint8_t level, uint8_t *script, int8_t *gain_db);
  * gave up" flag (0x80) and the level is above 0, else the level. */
 uint8_t osc2_sys_level(uint8_t charge_state, uint8_t level);
 
-/* The settings-by-name keys of the machine, under the real controller's names. */
-#define OSC2_SYS_KEY_NONE     0
-#define OSC2_SYS_KEY_KEYLOCK  1     /* user/keylock, 4 bytes (0x41FB0AC3 while locked) */
-#define OSC2_SYS_KEY_FULL_LED 2     /* user/fully_charged_led_intensity, 1 byte */
-
-/* Which of them a by-name payload names (its NUL-ended name first); `*name_len` the name with
- * its NUL. OSC2_SYS_KEY_NONE for another key or no NUL. */
-uint8_t osc2_sys_key_id(const uint8_t *payload, uint8_t len, uint8_t *name_len);
-/* The value size of a key. */
-uint8_t osc2_sys_key_size(uint8_t id);
-
 /* Names for logs and the console. */
 const char *osc2_sys_state_name(uint8_t state);
 const char *osc2_sys_event_name(uint8_t ev);

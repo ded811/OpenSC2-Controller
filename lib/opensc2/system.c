@@ -15,9 +15,9 @@
  *   - the machine's actions: the LED status (the led_status callback), cues (the cue callback),
  *     dropping and starting the link, the keylock, and the end: OPENSC2_POWER_OFF, or a reboot
  *     (setting 77, a board without a battery, the test hooks in use).
- * The keylock and the fully-charged LED level are Zephyr settings, opensc2/sys/keylock and
- * opensc2/sys/fullled, behind the real controller's key names user/keylock and
- * user/fully_charged_led_intensity for the settings-by-name commands.
+ * The keylock and the fully-charged LED level are the settings-by-name keys user/keylock and
+ * user/fully_charged_led_intensity, whose values the library keeps (keys.c, opensc2/k/): a host's
+ * 0xED..0xF0 and the machine see the same value.
  *
  * Without CONFIG_OPENSC2_SYSTEM only the public getters are here, answering as v0.2.0 would.
  */
@@ -27,6 +27,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
+#include "keys.h"
 #include "system.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -50,9 +51,6 @@ int opensc2_set_power_source(enum opensc2_power_source source)
 #include "sys_rules.h"
 #include "test_hooks.h"
 #include "test_sys.h"
-#if defined(CONFIG_OPENSC2_STORAGE)
-#include <zephyr/settings/settings.h>
-#endif
 #if defined(CONFIG_POWEROFF)
 #include <zephyr/sys/poweroff.h>
 #endif
@@ -98,9 +96,6 @@ static const struct osc2_bt_transport *bt;
 static const struct osc2_test_sys_env sys_env;
 #endif
 
-/* The keys. */
-static volatile uint32_t keylock_value;            /* RAM copy of user/keylock (0: none) */
-static volatile uint8_t full_level = FULL_DEFAULT; /* user/fully_charged_led_intensity */
 
 /* What the LED shows, as the machine chose it; opensc2_led_status() adds the rest. */
 static struct k_spinlock led_lock;
@@ -112,146 +107,42 @@ static struct {
 	uint32_t below_full_ms;
 } led = { .level = 255 };
 
-/* ---- the keys in Zephyr settings ------------------------------------------------------------- */
+/* ---- the keys (keys.c) ------------------------------------------------------------------------ */
 
-#if defined(CONFIG_OPENSC2_STORAGE)
-static int keys_set(const char *key, size_t len, settings_read_cb read_cb, void *cb_arg)
+/* user/keylock in RAM: 0x41FB0AC3 while locked. */
+static uint32_t keylock_value(void)
 {
-	const char *next;
-	uint8_t buf[4];
-	ssize_t n;
+	uint8_t v[OSC2_KEY_VALUE_MAX];
+	uint8_t len = 0;
 
-	if (len > sizeof(buf)) {
-		return -EINVAL;
-	}
-	n = read_cb(cb_arg, buf, len);
-	if (n < 0) {
-		return (int)n;
-	}
-	/* Each key takes exactly its own size; another length leaves the built-in value. */
-	if (settings_name_steq(key, "keylock", &next) && !next) {
-		if (n == 4) {
-			keylock_value = opensc2_get_le32(buf);
-		}
-		return 0;
-	}
-	if (settings_name_steq(key, "fullled", &next) && !next) {
-		if (n == 1) {
-			full_level = buf[0];
-		}
-		return 0;
-	}
-	return -ENOENT;
+	return osc2_keys_get(OSC2_KEY_KEYLOCK, v, &len) == 0 && len == 4 ? opensc2_get_le32(v) : 0;
 }
 
-SETTINGS_STATIC_HANDLER_DEFINE(opensc2_sys, "opensc2/sys", NULL, keys_set, NULL, NULL);
+/* user/fully_charged_led_intensity in RAM: 0 off, 1 dim, 2 medium, 3 (or another value) full. */
+static uint8_t full_level(void)
+{
+	uint8_t v[OSC2_KEY_VALUE_MAX];
+	uint8_t len = 0;
 
+	return osc2_keys_get(OSC2_KEY_FULL_LED, v, &len) == 0 && len == 1 ? v[0] : FULL_DEFAULT;
+}
+
+/* The keylock chord's hold: the lock stored for the next power-on, the value in RAM as it is. */
 static int keylock_save(uint32_t value)
 {
 	uint8_t b[4];
 
 	opensc2_put_le32(b, value);
-	return settings_save_one("opensc2/sys/keylock", b, sizeof(b));
+	return osc2_keys_store(OSC2_KEY_KEYLOCK, b, sizeof(b));
 }
 
-static int keylock_erase(void)
-{
-	return settings_delete("opensc2/sys/keylock");
-}
-
-static int full_save(void)
-{
-	uint8_t v = full_level;
-
-	return settings_save_one("opensc2/sys/fullled", &v, 1);
-}
-
-static int full_erase(void)
-{
-	return settings_delete("opensc2/sys/fullled");
-}
-#else
-static int keylock_save(uint32_t value)
-{
-	ARG_UNUSED(value);
-	return 0;
-}
-static int keylock_erase(void) { return 0; }
-static int full_save(void) { return 0; }
-static int full_erase(void) { return 0; }
-#endif
-
-/* The keylock chord's 5 ms tap, a USB or dock power-on: the key and the RAM copy go. */
+/* The keylock chord's 5 ms tap, a USB or dock power-on: the key and the RAM value go. */
 static void keylock_delete(void)
 {
-	if (keylock_value != 0) {
-		keylock_value = 0;
-		(void)keylock_erase();
+	if (keylock_value() != 0) {
+		(void)osc2_keys_delete(OSC2_KEY_KEYLOCK);
 		LOG_INF("Keylock deleted");
 	}
-}
-
-void osc2_sys_factory_reset(void)
-{
-	keylock_value = 0;
-	full_level = FULL_DEFAULT;
-	(void)keylock_erase();
-	(void)full_erase();
-}
-
-int osc2_sys_key(uint8_t opcode, const uint8_t *payload, uint8_t len)
-{
-	uint8_t name_len = 0;
-	uint8_t id = osc2_sys_key_id(payload, len, &name_len);
-
-	if (id == OSC2_SYS_KEY_NONE) {
-		return -ENOENT;
-	}
-	if (opcode == 0xEE) {
-		const uint8_t *v = payload + name_len;
-
-		if ((uint8_t)(len - name_len) != osc2_sys_key_size(id)) {
-			return -EINVAL;
-		}
-		if (id == OSC2_SYS_KEY_KEYLOCK) {
-			keylock_value = opensc2_get_le32(v);   /* counts from the next power-on */
-		} else {
-			full_level = v[0];
-		}
-		return 0;
-	}
-	if (name_len != len) {
-		return -EINVAL;   /* the NUL must be the last payload byte */
-	}
-	if (opcode == 0xEF) {
-		return id == OSC2_SYS_KEY_KEYLOCK ? keylock_save(keylock_value) : full_save();
-	}
-	if (id == OSC2_SYS_KEY_KEYLOCK) {
-		keylock_value = 0;
-		return keylock_erase();
-	}
-	full_level = FULL_DEFAULT;   /* a deletion brings back 3 at once */
-	return full_erase();
-}
-
-int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t *out, uint8_t *out_len)
-{
-	uint8_t name_len = 0;
-	uint8_t id = osc2_sys_key_id(payload, len, &name_len);
-
-	if (id == OSC2_SYS_KEY_NONE) {
-		return -ENOENT;
-	}
-	if (id == OSC2_SYS_KEY_KEYLOCK) {
-		uint32_t v = keylock_value;
-
-		*out_len = v ? 4 : 0;
-		opensc2_put_le32(out, v);
-	} else {
-		out[0] = full_level;
-		*out_len = 1;
-	}
-	return 0;
 }
 
 /* ---- inputs ---------------------------------------------------------------------------------- */
@@ -324,7 +215,7 @@ enum opensc2_power_source opensc2_power_source(void)
 
 bool opensc2_keylock(void)
 {
-	return keylock_value == KEYLOCK_VALUE;
+	return keylock_value() == KEYLOCK_VALUE;
 }
 
 static bool link_connected(void)
@@ -356,7 +247,7 @@ static void inputs(struct osc2_sys_in *in)
 	in->chord = chords.current;
 	in->level = level_told;
 	in->steam = (buttons & OPENSC2_BTN_STEAM) != 0;
-	in->keylock = keylock_value == KEYLOCK_VALUE;
+	in->keylock = keylock_value() == KEYLOCK_VALUE;
 	in->reboot_not_off = osc2.settings[OPENSC2_SETTING_REBOOT_ON_OFF] != 0;
 	in->link_up = link_connected();
 	in->plug_in_reboot = plug_in_allowed();
@@ -383,7 +274,7 @@ void opensc2_led_status(struct opensc2_led_status *st)
 	st->pairing = (bt && bt->pairing && bt->pairing()) ||
 		      (!osc2_wired() && osc2_radio_state() == OPENSC2_LINK_PAIRING);
 	st->input_recent = input_recent;
-	st->full_level = full_level;
+	st->full_level = full_level();
 	st->brightness = opensc2_led_brightness(osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS],
 						osc2.settings[OPENSC2_SETTING_LED_CURVE]);
 	opensc2_led_get(&l);
@@ -577,7 +468,7 @@ static void apply(const struct osc2_sys_out *o)
 		}
 		flags = (uint8_t)(led.flags | (led.shutting_down ? 0x04 : 0));
 		k_spin_unlock(&led_lock, key);
-		osc2_test_sys_note_led(led.mode, flags, level_told, full_level);
+		osc2_test_sys_note_led(led.mode, flags, level_told, full_level());
 		notify_led();
 	}
 	if (o->actions & OSC2_SYS_DO_DROP) {
@@ -1001,7 +892,7 @@ static void env_status(uint8_t out[OSC2_TEST_SYS_STATUS_LEN])
 	k_spin_unlock(&led_lock, key);
 	out[5] = chords.current;
 	out[6] = level_told;
-	out[7] = (uint8_t)((keylock_value == KEYLOCK_VALUE ? 0x01 : 0) | (bt ? 0x20 : 0) |
+	out[7] = (uint8_t)((keylock_value() == KEYLOCK_VALUE ? 0x01 : 0) | (bt ? 0x20 : 0) |
 			   (IS_ENABLED(CONFIG_OPENSC2_BATTERY) ? 0x40 : 0) | (machine.ended ? 0x80 : 0));
 	opensc2_put_le16(&out[8], idle.history);
 	opensc2_put_le32(&out[10], idle.period_ms);
@@ -1015,7 +906,7 @@ static void env_status(uint8_t out[OSC2_TEST_SYS_STATUS_LEN])
 	out[21] = e.cause;
 	out[22] = e.how;
 	opensc2_put_le32(&out[23], e.uptime_ms);
-	out[27] = full_level;
+	out[27] = full_level();
 	opensc2_put_le16(&out[28], (uint16_t)idle.timeout_s);
 }
 
@@ -1079,7 +970,7 @@ int osc2_sys_shell(const struct shell *sh, size_t argc, char **argv)
 		    st.steady ? " (steady)" : "");
 	shell_print(sh, "battery:   level %u%s; keylock %s; fully-charged LED %u",
 		    level_told, battery_given ? "" : " (none given)",
-		    keylock_value == KEYLOCK_VALUE ? "stored" : "none", full_level);
+		    keylock_value() == KEYLOCK_VALUE ? "stored" : "none", full_level());
 	shell_print(sh, "idle:      setting 50 = %d s, history %04x, input recent %s",
 		    idle.timeout_s, idle.history, input_recent ? "yes" : "no");
 	return 0;

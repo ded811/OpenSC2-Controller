@@ -758,23 +758,6 @@ OPENSC2_TEST(sys_sources_cues_levels)
 	CHECK_EQ(opensc2_charge_state_of(false, true), OPENSC2_CHARGE_DISCHARGING);
 	CHECK_EQ(opensc2_charge_state_of(true, true), OPENSC2_CHARGE_CHARGING);
 	CHECK_EQ(opensc2_charge_state_of(true, false), OPENSC2_CHARGE_DONE);
-
-	/* The settings-by-name keys of the machine. */
-	{
-		uint8_t name_len = 0;
-		uint8_t p[40] = "user/keylock";
-
-		CHECK_EQ(osc2_sys_key_id(p, 17, &name_len), OSC2_SYS_KEY_KEYLOCK);
-		CHECK_EQ(name_len, 13);
-		CHECK_EQ(osc2_sys_key_size(OSC2_SYS_KEY_KEYLOCK), 4);
-		memcpy(p, "user/fully_charged_led_intensity", 33);
-		CHECK_EQ(osc2_sys_key_id(p, 33, &name_len), OSC2_SYS_KEY_FULL_LED);
-		CHECK_EQ(osc2_sys_key_size(OSC2_SYS_KEY_FULL_LED), 1);
-		memcpy(p, "user/keylockx", 14);
-		CHECK_EQ(osc2_sys_key_id(p, 14, &name_len), OSC2_SYS_KEY_NONE);
-		memcpy(p, "user/keylock", 12);   /* no NUL */
-		CHECK_EQ(osc2_sys_key_id(p, 12, &name_len), OSC2_SYS_KEY_NONE);
-	}
 	CHECK(strcmp(osc2_sys_state_name(OSC2_SYS_USB_LINK_OFF), "usb-link-off") == 0);
 	CHECK(strcmp(osc2_sys_event_name(OSC2_SYS_EV_STEAM_HELD), "steam-held") == 0);
 	CHECK(strcmp(osc2_sys_state_name(200), "?") == 0);

@@ -27,7 +27,7 @@ static const struct osc2_key_info keys[] = {
 	/* kept by the library: the travel lock, the fully-charged LED level, the factory charge
 	 * window, the crash record, the haptics settings */
 	{ "user/keylock", OSC2_KEY_KEYLOCK, OSC2_KEYK_BLOB, 4, R | F, "keylock" },
-	{ "user/fully_charged_led_intensity", OSC2_KEY_FULL_LED, OSC2_KEYK_BLOB, 1, F, "fcled" },
+	{ "user/fully_charged_led_intensity", OSC2_KEY_FULL_LED, OSC2_KEYK_BLOB, 1, R | F, "fcled" },
 	{ "mte/charge_level", OSC2_KEY_CHARGE_WINDOW, OSC2_KEYK_BLOB, 8, R | F, "mte" },
 	{ "debug/resetreason", OSC2_KEY_RESET_REASON, OSC2_KEYK_BLOB, 33, R | F, "crash" },
 	{ "settings/haptics/haptic_master_gain_db", OSC2_KEY_HAPTIC_GAIN, OSC2_KEYK_BLOB, 2, 0,

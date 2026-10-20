@@ -89,6 +89,14 @@ static int store_delete(const struct osc2_key_info *k)
 	store_name(k, name, sizeof(name));
 	return settings_delete(name);
 }
+
+static int store_value(const struct osc2_key_info *k, const uint8_t *value, uint8_t len)
+{
+	char name[24];
+
+	store_name(k, name, sizeof(name));
+	return settings_save_one(name, value, len);
+}
 #else
 static int store_save(const struct osc2_key_info *k)
 {
@@ -99,6 +107,14 @@ static int store_save(const struct osc2_key_info *k)
 static int store_delete(const struct osc2_key_info *k)
 {
 	ARG_UNUSED(k);
+	return 0;
+}
+
+static int store_value(const struct osc2_key_info *k, const uint8_t *value, uint8_t len)
+{
+	ARG_UNUSED(k);
+	ARG_UNUSED(value);
+	ARG_UNUSED(len);
 	return 0;
 }
 #endif /* CONFIG_OPENSC2_STORAGE */
@@ -168,6 +184,16 @@ int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save)
 	int err = osc2_keys_set(id, value, len);
 
 	return err || !save ? err : osc2_keys_save(id);
+}
+
+int osc2_keys_store(uint8_t id, const uint8_t *value, uint8_t len)
+{
+	const struct osc2_key_info *k = blob_key(id);
+
+	if (!k || len != k->size) {
+		return -EINVAL;
+	}
+	return store_value(k, value, len);
 }
 
 int osc2_keys_factory_reset(void)

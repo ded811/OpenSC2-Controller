@@ -157,6 +157,17 @@ int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save)
 	return err || !save ? err : osc2_keys_save(id);
 }
 
+int osc2_keys_store(uint8_t id, const uint8_t *value, uint8_t len)
+{
+	const struct osc2_key_info *k = osc2_key_by_id(id);
+
+	if (!blob(id) || len != k->size || !value) {
+		return -EINVAL;
+	}
+	stub.key_saves |= 1u << id;
+	return 0;
+}
+
 /* crash.c's 0xF2 selector 1, on the stand-in store: the save is recorded. */
 uint8_t osc2_crash_read(uint8_t out[OSC2_CRASH_ANSWER_LEN])
 {

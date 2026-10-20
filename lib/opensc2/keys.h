@@ -26,6 +26,9 @@ int osc2_keys_delete(uint8_t id);
 int osc2_keys_get(uint8_t id, uint8_t *out, uint8_t *len);
 /* Set and, with `save`, store at once (the crash record at boot, after 0xF2 selector 1). */
 int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save);
+/* Store `value` (exactly the key's size) for the next boot and leave the RAM value as it is (the
+ * keylock chord, whose lock counts from the next power-on). */
+int osc2_keys_store(uint8_t id, const uint8_t *value, uint8_t len);
 /* The factory reset (0x86): every blob it deletes (OSC2_KEYF_FACTORY), in RAM and in flash. */
 int osc2_keys_factory_reset(void);
 

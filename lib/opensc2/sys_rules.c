@@ -516,30 +516,6 @@ uint8_t opensc2_charge_state_of(bool input_power, bool charging)
 
 /* ---- keys ------------------------------------------------------------------------------------ */
 
-uint8_t osc2_sys_key_id(const uint8_t *payload, uint8_t len, uint8_t *name_len)
-{
-	static const char *const names[] = { "user/keylock", "user/fully_charged_led_intensity" };
-	const uint8_t *nul = len ? memchr(payload, 0, len) : NULL;
-	size_t n;
-
-	if (!nul) {
-		return OSC2_SYS_KEY_NONE;
-	}
-	n = (size_t)(nul - payload);
-	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-		if (strlen(names[i]) == n && memcmp(payload, names[i], n) == 0) {
-			*name_len = (uint8_t)(n + 1);
-			return (uint8_t)(i + 1);
-		}
-	}
-	return OSC2_SYS_KEY_NONE;
-}
-
-uint8_t osc2_sys_key_size(uint8_t id)
-{
-	return id == OSC2_SYS_KEY_KEYLOCK ? 4 : id == OSC2_SYS_KEY_FULL_LED ? 1 : 0;
-}
-
 /* ---- names ----------------------------------------------------------------------------------- */
 
 const char *osc2_sys_state_name(uint8_t state)
