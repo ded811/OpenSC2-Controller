@@ -109,9 +109,11 @@ def run(ctx):
                    shown.get("connected") and shown.get("active"))
             c.true("opensc2 ble status: the name is the board's",
                    shown.get("name") == C.BLE_NAME_PREFIX + (rig.unit_serial or ""))
-            c.eq("opensc2 ble status: the address is the one Windows connected",
-                 cproto.address_hex(shown.get("address")),
-                 getattr(rig.ctx.ble_expect, "address", None))
+            # compared, never printed: a different address would be another device's
+            seen = cproto.address_hex(shown.get("address"))
+            rig.mask.add_ble_address(seen)
+            c.true("opensc2 ble status: the address is the one Windows connected",
+                   seen is not None and seen == getattr(rig.ctx.ble_expect, "address", None))
 
     if ctx.want("ble.cut"):
         with ctx.check(GROUP, "ble.cut") as c:

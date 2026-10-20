@@ -149,7 +149,10 @@ def run(ctx):
                                                    V.reset_cause_text(info["reset_cause"])))
             for sel in (0, 2, 0xFF):
                 a = rig.vendor(C.VC_RESET_INFO, bytes([sel]))
-                c.eq("selector %d: 18 zero bytes" % sel, (a.n, a.data[:18]), (18, bytes(18)))
+                # never print the bytes: a chip ID answered here by mistake would be in them
+                c.eq("selector %d: 18 bytes" % sel, a.n, 18)
+                c.true("selector %d: all zero (%d of 18 bytes are not)"
+                       % (sel, sum(1 for b in a.data[:18] if b)), not any(a.data[:18]))
 
     if ctx.want("cmd.user_store"):
         with ctx.check(GROUP, "cmd.user_store") as c:

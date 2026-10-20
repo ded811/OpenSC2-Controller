@@ -85,6 +85,16 @@ class Masking(unittest.TestCase):
                          "HID\\VID_28DE&PID_1304&MI_02&COL03\\<masked> x")
         self.assertEqual(m.text("VID_28DE&PID_1302&COL03"), "VID_28DE&PID_1302&COL03")
 
+    def test_bare_bluetooth_address(self):
+        """HT-3: an address as the runner compares it (12 upper-case hex digits, no colons) is
+        masked even when the run never registered it; lower-case report hex is not."""
+        m = mask_mod.Masker()
+        self.assertEqual(m.text("'D2A1B2C3D4E5' != 'C34F12ABCDEF'"),
+                         "'<bt-addr>' != '<bt-addr>'")
+        self.assertEqual(m.text("400000000000 40ff00000a00"), "400000000000 40ff00000a00")
+        self.assertEqual(m.text("123456789012"), "123456789012")   # digits only: a number
+        self.assertEqual(m.text("C34F12ABCDEF0A"), "C34F12ABCDEF0A")  # part of a longer word
+
     def test_bond_ids_in_every_form(self):
         """safety-HW-3: a bond ID read in the clear is masked as Steam may print it: decimal,
         unpadded hex, 8-digit hex, either case, as whole words only."""

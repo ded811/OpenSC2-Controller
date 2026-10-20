@@ -191,7 +191,9 @@ def _run(ctx, rig):
                          ident["git"])
                 else:
                     c.eq("product ID", pid, 0x1302)
-                c.eq("the serials as the PC reads them (masked)", list(p[16:44]), [0] * 28)
+                # never print the bytes themselves: on a regression they would be the serials
+                c.true("the serials as the PC reads them: masked to zeros (%d of 28 bytes "
+                       "are not)" % sum(1 for b in p[16:44] if b), not any(p[16:44]))
                 c.eq("the 6 bytes after the record", list(p[57:]), [0] * 6)
                 c.true("the answer says it masked the serials", r["masked"])
                 if ident and ident.get("unit") and ident.get("board"):
