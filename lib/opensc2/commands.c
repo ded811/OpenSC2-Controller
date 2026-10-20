@@ -20,6 +20,7 @@
 #include <zephyr/drivers/hwinfo.h>
 #endif
 #include "internal.h"
+#include "system.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -317,6 +318,7 @@ static void write_setting(uint8_t number, int16_t value, bool *led)
 		break;
 	}
 	if (old != v) {
+		osc2_sys_setting(number);   /* setting 50, 77, the LED's */
 		/* After any lizard mode reports the write caused. */
 		osc2_test_note_setting(number, v);
 		if (osc2.cb && osc2.cb->setting_changed) {
@@ -479,6 +481,11 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		int rc;
 
 		if (key == KEY_NONE) {
+			/* The system state machine's keys (user/keylock, the fully-charged LED). */
+			rc = osc2_sys_key(opcode, payload, len);
+			if (rc != -ENOENT) {
+				return rc;
+			}
 			rc = app_command(opcode, payload, len, false, answer, &answer_len);
 			return rc == -ENOTSUP ? -ENOENT : rc;
 		}
@@ -695,6 +702,9 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		enum named_key key = find_key(payload, len, &name_len);
 
 		if (key != KEY_NONE && key_read(key, out, out_len) == 0) {
+			return 0;
+		}
+		if (key == KEY_NONE && osc2_sys_key_read(payload, len, out, out_len) == 0) {
 			return 0;
 		}
 		if (app_command(opcode, payload, len, true, out, out_len) != 0) {

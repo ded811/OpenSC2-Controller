@@ -52,6 +52,7 @@ BUILD_ASSERT(AREA_SIZE >= sizeof(struct osc2_retained), "The retained RAM region
 static struct k_spinlock ring_lock;
 static bool kept;                      /* the area was intact at this boot */
 static int mark_at_boot = OSC2_MARK_NONE;
+static uint32_t sys_at_boot[OSC2_RET_SYS_WORDS];   /* the system machine's test words, at boot */
 static int64_t time_base;              /* ticks: boot, then the attach */
 
 /* ---- set-up at boot: read and clear the mark, check the area ---------------------------------- */
@@ -68,9 +69,15 @@ static int retained_init(void)
 	mark_at_boot = osc2_mark_from_words(r->mark, r->mark_inv);
 #endif
 	kept = osc2_ret_valid(r, AREA_SIZE);
+	/* The system words carry their own magic words: taken before a set-up would wipe them. A
+	 * boot-time injection counts for this boot only. */
+	if (kept) {
+		memcpy(sys_at_boot, r->sys, sizeof(sys_at_boot));
+	}
 	if (!kept) {
 		osc2_ret_format(r, AREA_SIZE);
 	}
+	memset(r->sys, 0, sizeof(uint32_t) * OSC2_RET_SYS_BOOT_WORDS);
 	r->mark = 0;
 	r->mark_inv = ~0u;
 	r->boots++;
@@ -97,6 +104,23 @@ void osc2_retained_mark_set(int mark)
 bool osc2_retained_was_kept(void)
 {
 	return kept;
+}
+
+void osc2_retained_sys_at_boot(uint32_t words[OSC2_RET_SYS_WORDS])
+{
+	memcpy(words, sys_at_boot, sizeof(sys_at_boot));
+}
+
+void osc2_retained_sys_set(unsigned int first, const uint32_t *words, unsigned int n)
+{
+	if (first + n > OSC2_RET_SYS_WORDS) {
+		return;
+	}
+	if (words) {
+		memcpy(&RET->sys[first], words, n * sizeof(uint32_t));
+	} else {
+		memset(&RET->sys[first], 0, n * sizeof(uint32_t));
+	}
 }
 
 /* ---- writing lines ------------------------------------------------------------------------------ */

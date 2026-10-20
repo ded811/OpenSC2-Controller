@@ -32,15 +32,16 @@ $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\codec.c", "$lib\lizard.c", "$lib\settings_defaults.c", "$lib\fusion.c",
     "$lib\usb_desc.c", "$lib\usb_rules.c", "$lib\mode_rules.c", "$lib\retained.c",
     "$lib\id_rules.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c",
-    "$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c", "$lib\led_rules.c")
+    "$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c", "$lib\led_rules.c",
+    "$lib\test_sys.c")
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',
-    '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c",
+    '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4', "$lib\test_notes.c", "$lib\test_sys_notes.c",
     (Join-Path $PSScriptRoot 'hooks_stub.c'))
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
 $emu = @('-DOSC2_HOST_FWEMU', '-DCONFIG_OPENSC2_TEST_HOOKS=1',
     '-DCONFIG_OPENSC2_TEST_RING_SIZE=2048', '-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8',
-    "$lib\test_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
+    "$lib\test_notes.c", "$lib\test_sys_notes.c", (Join-Path $PSScriptRoot 'hooks_stub.c'),
     (Join-Path $PSScriptRoot 'fwemu.c'))
 
 $plain = Join-Path $tmp 'opensc2_host_tests_plain.exe'

@@ -1,0 +1,55 @@
+# Copyright (c) 2026 the OpenSC2-Controller authors
+# SPDX-License-Identifier: MIT
+#
+# The system state machine: power, the buttons' chords, the status LED's modes and the cues
+# (sys_rules.h, system.c). Sourced from lib/opensc2/Kconfig.
+
+config OPENSC2_SYSTEM
+	bool "The real controller's power, chord, LED and cue state machine"
+	default y
+	help
+	  The library decides, as the real controller does, what a power-on does on USB power, on
+	  the dock and on a battery; what STEAM pressed and STEAM held 7 s do; the transport chords
+	  (A or B with a bumper) and their 4 s pairing hold; the keylock (STEAM + L4 + L5 + R4 +
+	  R5); the idle timeout (controller setting 50); low battery; the turn-off command (0x9F)
+	  and the puck's turn-off; the cable pulled; which mode the status LED shows; and which cue
+	  plays when. The application keeps supplying the buttons and the battery, plays the LED
+	  (opensc2/led.h has a pattern player) and the cues (the cue callback), and powers off when
+	  asked (OPENSC2_POWER_OFF). A board without a battery is never switched off: its
+	  shutdowns reboot (CONFIG_OPENSC2_BATTERY). Off: the v0.2.0 behaviour, where the power
+	  requests go straight to the application.
+
+if OPENSC2_SYSTEM
+
+config OPENSC2_BATTERY
+	bool "The board runs on a battery when USB power is absent"
+	select POWEROFF if HAS_POWEROFF
+	help
+	  With a battery, no USB power means battery operation: the idle timeout, low battery,
+	  STEAM held 7 s, the turn-off command and a link that gives up turn the board off
+	  (OPENSC2_POWER_OFF; without a power_request callback the library calls sys_poweroff(),
+	  and a new USB power supply wakes the nRF52840 again), and the radio gives up after 60 s
+	  of listening and 10 s with an empty bond slot, as on the real controller. Without it (the
+	  default) a board that runs without USB power is taken to be on an external supply, and
+	  every shutdown that would power off reboots instead (setting 77's behaviour), so a board
+	  that cannot be woken again is never switched off.
+
+config OPENSC2_POWER_POLL_MS
+	int "How often the power source is looked at, ms"
+	default 50
+	range 10 1000
+	help
+	  The real controller polls its USB power detection every 50 ms. Only a change of "power
+	  present" (none <-> USB or the dock) is an event.
+
+endif # OPENSC2_SYSTEM
+
+config OPENSC2_NO_BOND_TIMEOUT_S
+	int "With the selected bond slot empty, turn wireless off after this many seconds (0 = never)"
+	default 10 if OPENSC2_BATTERY
+	default 0
+	range 0 3600
+	help
+	  The real controller waits 10 s for a bond to be written while its selected slot is
+	  empty, then turns wireless off (on battery: off). 0 waits for good, which suits boards on
+	  USB power. On expiry the link goes OFF with reason OPENSC2_REASON_NO_BOND_TIMEOUT.

@@ -13,7 +13,11 @@
 #if defined(CONFIG_HWINFO)
 #include <zephyr/drivers/hwinfo.h>
 #endif
+#if defined(CONFIG_POWEROFF)
+#include <zephyr/sys/poweroff.h>
+#endif
 #include "internal.h"
+#include "system.h"
 #include "test_hooks.h"
 
 LOG_MODULE_REGISTER(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -182,6 +186,7 @@ void osc2_settings_restore_defaults(bool keep_imu)
 	osc2.led.override = false;
 	osc2.led.brightness = (uint8_t)osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS];
 	k_spin_unlock(&osc2.lock, key);
+	osc2_sys_setting(OPENSC2_SETTINGS_ALL);
 }
 
 int16_t opensc2_setting_get(uint8_t number)
@@ -273,6 +278,14 @@ static void default_power(enum opensc2_power_request request)
 	case OPENSC2_POWER_REBOOT_KEEP_LINK:
 		opensc2_reboot(OPENSC2_REBOOT_WIRELESS, NULL);
 		break;
+	case OPENSC2_POWER_OFF:
+#if defined(CONFIG_OPENSC2_BATTERY) && defined(CONFIG_POWEROFF)
+		/* No wake-up pin of our own: a new USB supply (or a reset) wakes the chip. */
+		sys_poweroff();
+#else
+		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
+#endif
+		break;
 	default:
 		break;   /* turn-off and the bootloader: left to the application */
 	}
@@ -286,6 +299,10 @@ void osc2_power_now(enum opensc2_power_request request, const char *why)
 	osc2_usblog("power request %d: %s", request, text);
 	osc2_test_note_power((uint8_t)request, why);
 	running_why = why;
+	if (osc2_sys_power_request(request, why)) {
+		running_why = NULL;   /* the system state machine took it */
+		return;
+	}
 	if (osc2.cb && osc2.cb->power_request) {
 		osc2.cb->power_request(request, osc2.user_data);
 	} else {
@@ -338,10 +355,23 @@ bool osc2_link_active(enum osc2_link link)
 int opensc2_set_state(const struct opensc2_state *state)
 {
 	k_spinlock_key_t key = k_spin_lock(&osc2.lock);
+	bool changed = osc2.state.buttons != state->buttons;
 
 	osc2.state = *state;
 	k_spin_unlock(&osc2.lock, key);
+	if (changed) {
+		osc2_sys_buttons_changed();
+	}
 	return 0;
+}
+
+uint32_t osc2_sys_app_buttons(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&osc2.lock);
+	uint32_t b = osc2.state.buttons;
+
+	k_spin_unlock(&osc2.lock, key);
+	return b;
 }
 
 void opensc2_get_state(struct opensc2_state *state)
@@ -355,9 +385,15 @@ void opensc2_get_state(struct opensc2_state *state)
 int opensc2_set_buttons(uint32_t mask, uint32_t value)
 {
 	k_spinlock_key_t key = k_spin_lock(&osc2.lock);
+	uint32_t before = osc2.state.buttons;
+	bool changed;
 
 	osc2.state.buttons = (osc2.state.buttons & ~mask) | (value & mask);
+	changed = osc2.state.buttons != before;
 	k_spin_unlock(&osc2.lock, key);
+	if (changed) {
+		osc2_sys_buttons_changed();   /* the chords, STEAM and the idle monitor look again */
+	}
 	return 0;
 }
 
@@ -416,6 +452,7 @@ int opensc2_set_battery(const struct opensc2_battery *battery)
 
 	osc2.battery = *battery;
 	k_spin_unlock(&osc2.lock, key);
+	osc2_sys_battery_given();   /* from now on its level counts for the power rules */
 	return 0;
 }
 
@@ -564,12 +601,15 @@ int opensc2_init(const struct opensc2_config *config)
 		osc2_wired() ? "wired" : "wireless");
 
 	osc2.initialised = true;
-	err = osc2_radio_init(config->start && !osc2_wired());
+	/* With the system state machine, the machine starts the link when its rules say so. */
+	err = osc2_radio_init(config->start && !osc2_wired() && !IS_ENABLED(CONFIG_OPENSC2_SYSTEM));
 	if (err) {
 		LOG_ERR("The radio thread did not start (%d)", err);
 	}
 	/* USB comes up whatever happened to the radio: the wired device, or the console. */
-	osc2_mode_start(config->start);
+	osc2_mode_start(config->start && !IS_ENABLED(CONFIG_OPENSC2_SYSTEM));
+	/* The power-on decision, once this boot's mode is final. */
+	osc2_sys_init(config->start);
 	return err;
 }
 

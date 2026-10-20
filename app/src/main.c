@@ -155,6 +155,11 @@ static void on_power(enum opensc2_power_request request, void *user_data)
 	case OPENSC2_POWER_TURN_OFF:
 		opensc2_stop();
 		break;
+	case OPENSC2_POWER_OFF:
+		/* The system state machine asks for it only on a battery build (this board has none):
+		 * a reboot stands in for it. */
+		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
+		break;
 	case OPENSC2_POWER_REBOOT:
 	case OPENSC2_POWER_FACTORY_RESET:
 	case OPENSC2_POWER_USB_PLUGGED:

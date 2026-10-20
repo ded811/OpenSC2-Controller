@@ -17,6 +17,7 @@
 #include "internal.h"
 #include "lizard.h"
 #include "report_rules.h"
+#include "system.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -93,6 +94,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 #endif
 	opensc2_encode_state(s, sequence++, state);
 	osc2_test_frame(state);
+	osc2_sys_frame(s);   /* sticks, triggers and touches for the idle monitor */
 }
 
 void osc2_report_lizard(const struct opensc2_state *s)
@@ -215,6 +217,9 @@ static void battery_fn(struct k_work *work)
 	ARG_UNUSED(work);
 	b = osc2.battery;
 	k_spin_unlock(&osc2.lock, key);
+	/* The level reaches the power rules (the application's, or the test hooks' system
+	 * injection; never the report injection below). */
+	osc2_sys_battery_report(&b);
 	osc2_test_battery(&b);
 	opensc2_encode_battery(&b, report);
 	osc2_test_count(osc2_input_send(report, sizeof(report), true) == 0 ?

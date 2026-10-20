@@ -25,6 +25,7 @@
 #include <opensc2/types.h>
 #include <opensc2/codec.h>
 #include <opensc2/settings.h>
+#include <opensc2/led.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,8 @@ enum opensc2_reason {
 	OPENSC2_REASON_PAIRING_FAILED,      /* the pairing window closed without a puck */
 	OPENSC2_REASON_LISTEN_TIMEOUT,      /* CONFIG_OPENSC2_LISTEN_TIMEOUT_S passed without a puck */
 	OPENSC2_REASON_BOND_CHANGED,        /* a bond or the slot selection changed */
+	OPENSC2_REASON_NO_BOND_TIMEOUT,     /* CONFIG_OPENSC2_NO_BOND_TIMEOUT_S passed with the slot
+					     * still empty */
 };
 
 struct opensc2_link_info {
@@ -172,7 +175,60 @@ enum opensc2_power_request {
 	OPENSC2_POWER_USB_UNPLUGGED,     /* USB power gone for 0.2 s while wired (a board without a
 					  * battery has lost its power anyway): the real controller
 					  * shuts down. Power off, or opensc2_reboot(PLAIN), which
-					  * comes back wireless without USB power (the default) */
+					  * comes back wireless without USB power (the default).
+					  * With CONFIG_OPENSC2_SYSTEM the library shuts down itself
+					  * and asks for OPENSC2_POWER_OFF instead */
+	OPENSC2_POWER_OFF,               /* the system state machine's shutdown has run (link dropped,
+					  * the power-off cue, STEAM released): turn the board off now
+					  * (System OFF with a wake-up pin, sys_poweroff()), or reboot.
+					  * Without a callback: sys_poweroff() on a battery build
+					  * (CONFIG_OPENSC2_BATTERY), a plain reboot otherwise. A
+					  * build without a battery, and a board whose test hooks are
+					  * armed, get OPENSC2_POWER_REBOOT instead: a board that cannot
+					  * be woken again is never switched off */
+};
+
+/* ---- Power, the buttons' chords, the status LED and cues --------------------------------------
+ * With CONFIG_OPENSC2_SYSTEM (the default) the library runs the real controller's system state
+ * machine: what a power-on does on USB power, the dock or a battery; STEAM pressed and held 7 s;
+ * the transport chords and their 4 s pairing hold; the keylock; the idle timeout (setting 50);
+ * low battery; the turn-off command and the puck's turn-off; the cable pulled; the status LED's
+ * mode; the cues. The application supplies the buttons and the battery as usual, and plays the
+ * LED (opensc2/led.h) and the cues. docs/api.md, Power and the system state machine.
+ */
+
+/* What powers the board. */
+enum opensc2_power_source {
+	OPENSC2_POWER_SOURCE_AUTO = 0,    /* the library's own view: USB power (the chip's VBUS
+					   * detection), else a battery with CONFIG_OPENSC2_BATTERY, else
+					   * an external supply (treated as USB power) */
+	OPENSC2_POWER_SOURCE_BATTERY,     /* no input power: running on the battery */
+	OPENSC2_POWER_SOURCE_USB,         /* USB power, or another supply that is not the dock */
+	OPENSC2_POWER_SOURCE_DOCK,        /* the puck's dock contacts */
+};
+
+/* The cues the library raises (the real controller's numbers; the cue callback). The sounds are
+ * the application's or the haptics renderer's; the built-in script each one stands for is in
+ * struct opensc2_cue_event. */
+enum opensc2_cue {
+	OPENSC2_CUE_POWER_ON = 0,         /* the wired start */
+	OPENSC2_CUE_BT_1 = 1,             /* the transport cue of Bluetooth slot 1 */
+	OPENSC2_CUE_BT_2 = 2,             /* ... of Bluetooth slot 2 */
+	OPENSC2_CUE_PUCK_1 = 3,           /* ... of the main puck (bond 1) */
+	OPENSC2_CUE_PUCK_2 = 4,           /* ... of the second puck (bond 2) */
+	OPENSC2_CUE_POWER_OFF = 5,        /* shutting down; wireless switched off on USB or the dock */
+	OPENSC2_CUE_PAIRING = 6,          /* pairing mode starts (Bluetooth; the over-the-air pairing) */
+	OPENSC2_CUE_PAIRED = 7,           /* a new host or puck has paired */
+	OPENSC2_CUE_CHARGE_WINDOW = 8,    /* the real controller's factory charge window (not raised) */
+	OPENSC2_CUE_UNUSED = 9,           /* nothing raises it */
+	OPENSC2_CUE_HOST_ASLEEP = 10,     /* the puck says the PC is asleep: once per boot */
+};
+
+struct opensc2_cue_event {
+	uint8_t cue;                      /* enum opensc2_cue */
+	uint8_t script;                   /* the built-in script it stands for (output report 0x85) */
+	int8_t gain_db;                   /* from the chime level (user/haptic_boot_level): -18 quiet,
+					   * -12 normal, one dB less for cues 6 and 7 */
 };
 
 struct opensc2_callbacks {
@@ -220,6 +276,15 @@ struct opensc2_callbacks {
 	/* Wired mode: the USB device changed state (attached, no host, configured, suspended). In the
 	 * system work queue. */
 	void (*usb_changed)(const struct opensc2_usb_info *info, void *user_data);
+
+	/* CONFIG_OPENSC2_SYSTEM: the status LED's mode or a fact its pattern depends on changed
+	 * (opensc2/led.h; opensc2_led_status() gives the same at any time). In the system work
+	 * queue. */
+	void (*led_status)(const struct opensc2_led_status *status, void *user_data);
+
+	/* CONFIG_OPENSC2_SYSTEM: play a cue. Only cues that are not silent at the chime level come
+	 * here. In the system work queue; return quickly (start the sound, do not wait for it). */
+	void (*cue)(const struct opensc2_cue_event *cue, void *user_data);
 };
 
 /* ---- Initialisation -------------------------------------------------------------------------- */
@@ -353,6 +418,17 @@ void opensc2_led_get(struct opensc2_led *led);
 /* The power-on chime level Steam stores with vendor command 0xDC: 1 quiet, 2 normal (default),
  * anything else silent. */
 uint8_t opensc2_chime_level(void);
+
+/* ---- Power and the system state machine (CONFIG_OPENSC2_SYSTEM) ------------------------------ */
+
+/* Tell the library what powers the board (a charger's input type, the dock's pilot), or
+ * OPENSC2_POWER_SOURCE_AUTO for its own view. Call it before opensc2_init() for the power-on
+ * decision (the dock: a boot that is not wired), and again whenever it changes. */
+int opensc2_set_power_source(enum opensc2_power_source source);
+/* The power source in effect. */
+enum opensc2_power_source opensc2_power_source(void);
+/* Is the keylock (travel lock) stored? It takes effect at a power-on on battery. */
+bool opensc2_keylock(void);
 
 #ifdef __cplusplus
 }

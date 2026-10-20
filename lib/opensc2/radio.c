@@ -28,6 +28,7 @@
 #include <esb.h>
 #include <hal/nrf_radio.h>
 #include "internal.h"
+#include "system.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -325,6 +326,7 @@ static void enter(enum opensc2_link_state state)
 		return;
 	}
 	osc2_test_note_link((uint8_t)state, (uint8_t)reason, copy.slot, copy.channel, copy.protocol);
+	osc2_sys_link_changed((uint8_t)state, (uint8_t)reason);
 	LOG_INF("Link %s (reason %d, slot %u, channel %u)", state_name(state), reason, copy.slot + 1,
 		copy.channel);
 	if (osc2.cb && osc2.cb->link_changed) {
@@ -431,6 +433,10 @@ static enum opensc2_link_state do_off(uint32_t *ctrl)
 static enum opensc2_link_state do_no_bond(uint32_t *ctrl)
 {
 	enum opensc2_link_state next;
+	/* The real controller waits 10 s for a bond, then turns wireless off. */
+	k_timeout_t wait = CONFIG_OPENSC2_NO_BOND_TIMEOUT_S ?
+			   K_SECONDS(CONFIG_OPENSC2_NO_BOND_TIMEOUT_S) : K_FOREVER;
+	int64_t deadline = k_uptime_get() + (int64_t)CONFIG_OPENSC2_NO_BOND_TIMEOUT_S * 1000;
 
 	(void)esb_stop_rx();
 	enter(OPENSC2_LINK_NO_BOND);
@@ -440,7 +446,14 @@ static enum opensc2_link_state do_no_bond(uint32_t *ctrl)
 				return next;
 			}
 		}
-		*ctrl = k_event_wait_safe(&radio_ev, UINT32_MAX & ~OSC2_EV_RX, false, K_FOREVER);
+		if (CONFIG_OPENSC2_NO_BOND_TIMEOUT_S && k_uptime_get() >= deadline) {
+			entry_reason = OPENSC2_REASON_NO_BOND_TIMEOUT;
+			return OPENSC2_LINK_OFF;
+		}
+		if (CONFIG_OPENSC2_NO_BOND_TIMEOUT_S) {
+			wait = K_MSEC(MAX(deadline - k_uptime_get(), 0));
+		}
+		*ctrl = k_event_wait_safe(&radio_ev, UINT32_MAX & ~OSC2_EV_RX, false, wait);
 	}
 }
 
@@ -799,6 +812,7 @@ static void handle_packet(const struct rx_item *it)
 		if (osc2.cb && osc2.cb->host_asleep) {
 			osc2.cb->host_asleep(osc2.user_data);
 		}
+		osc2_sys_host_asleep();   /* its cue, once per boot */
 		break;
 	case OPENSC2_PKT_PROTOCOL_VERSION: {
 		int v = opensc2_protocol_version(it->data, it->len);

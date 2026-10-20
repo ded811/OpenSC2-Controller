@@ -24,17 +24,17 @@ compile() {
 		"$lib/settings_defaults.c" "$lib/fusion.c" "$lib/usb_desc.c" "$lib/usb_rules.c" \
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
 		"$lib/report_rules.c" "$lib/test_core.c" "$lib/sys_rules.c" "$lib/chord_rules.c" \
-		"$lib/idle_rules.c" "$lib/led_rules.c" "$@" -lm
+		"$lib/idle_rules.c" "$lib/led_rules.c" "$lib/test_sys.c" "$@" -lm
 }
 
 compile "$here/run_tests.c" -o "$out/opensc2_host_tests_plain"
 compile "$here/run_tests.c" -DCONFIG_OPENSC2_TEST_HOOKS=1 -DCONFIG_OPENSC2_TEST_RING_SIZE=512 \
-	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$here/hooks_stub.c" \
-	-o "$out/opensc2_host_tests_hooks"
+	-DCONFIG_OPENSC2_TEST_SEQ_DEPTH=4 "$lib/test_notes.c" "$lib/test_sys_notes.c" \
+	"$here/hooks_stub.c" -o "$out/opensc2_host_tests_hooks"
 # the emulator: the Kconfig defaults of the app (a 2 KB ring, 8 sequence steps)
 compile "$here/fwemu.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_TEST_HOOKS=1 \
 	-DCONFIG_OPENSC2_TEST_RING_SIZE=2048 -DCONFIG_OPENSC2_TEST_SEQ_DEPTH=8 \
-	"$lib/test_notes.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
+	"$lib/test_notes.c" "$lib/test_sys_notes.c" "$here/hooks_stub.c" -o "$out/opensc2_fwemu"
 
 rc=0
 "$out/opensc2_host_tests_plain" --vectors "$root/tests/vectors/hwtest" \

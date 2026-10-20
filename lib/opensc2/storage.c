@@ -16,6 +16,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include "internal.h"
+#include "system.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
@@ -197,6 +198,7 @@ int osc2_storage_factory_reset(void)
 	err |= settings_delete("opensc2/bond1");
 	err |= settings_delete("opensc2/slot");
 	err |= settings_delete("opensc2/chime");
+	osc2_sys_factory_reset();   /* the keylock, the fully-charged LED level */
 	return err ? -EIO : 0;
 }
 
@@ -216,6 +218,10 @@ int osc2_storage_save_slot(void) { return 0; }
 int osc2_storage_save_chime(void) { return 0; }
 int osc2_storage_save_identity(void) { return 0; }
 int osc2_storage_save_policy(void) { return 0; }
-int osc2_storage_factory_reset(void) { return 0; }
+int osc2_storage_factory_reset(void)
+{
+	osc2_sys_factory_reset();
+	return 0;
+}
 
 #endif /* CONFIG_OPENSC2_STORAGE */

@@ -12,6 +12,7 @@
 #include <string.h>
 #include "retained.h"   /* osc2_crc32() */
 #include "test_core.h"
+#include "test_sys.h"    /* ops 0x70..0x77 and ring kinds 0x50..0x57: the system machine */
 
 #define MIN_OF(a, b) ((a) < (b) ? (a) : (b))
 
@@ -496,6 +497,7 @@ static void stop_all_locked(struct osc2_test_core *c)
 	c->loaded = 0;
 	c->frame_seq = false;
 	c->skip_lizard = 0;
+	osc2_test_sys_stop();
 }
 
 static void seq_end_locked(struct osc2_test_core *c, const struct osc2_test_env *env, uint8_t how)
@@ -1069,6 +1071,11 @@ static bool length_ok(uint8_t op, const uint8_t *args, uint8_t alen)
  * checks of values, state and policy. */
 static uint8_t dispatch(struct op_req *r, uint8_t op, bool console)
 {
+	if (op >= OSC2_TEST_OP_SYS_FIRST && op <= OSC2_TEST_OP_SYS_LAST) {
+		/* The system machine's ops check their own lengths and arming (test_sys.c). */
+		return osc2_test_sys_op(r->c, r->env, op, r->args, r->alen, console, r->result,
+					&r->rlen);
+	}
 	for (size_t i = 0; i < sizeof(op_table) / sizeof(op_table[0]); i++) {
 		if (op_table[i].op != op) {
 			continue;
@@ -1559,7 +1566,7 @@ static const char *kind_name(uint8_t kind)
 	case OSC2_TEST_KIND_VERSION:     return "VERSION";
 	case OSC2_TEST_KIND_IDENTITY:    return "IDENTITY";
 	case OSC2_TEST_KIND_CHANNELS:    return "CHANNELS";
-	default:                         return NULL;
+	default:                         return osc2_test_sys_kind_name(kind);
 	}
 }
 
@@ -1729,6 +1736,9 @@ static void add_fields(char *out, size_t size, size_t *at, uint8_t kind, const u
 		}
 		break;
 	default:
+		if (osc2_test_sys_fields(out, size, at, kind, d, n)) {
+			return;
+		}
 		break;
 	}
 	add(out, size, at, " data=");

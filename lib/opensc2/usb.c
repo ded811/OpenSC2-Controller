@@ -36,6 +36,7 @@
 #include <zephyr/usb/class/usbd_hid.h>
 #include <zephyr/drivers/usb/udc.h>
 #include "internal.h"
+#include "system.h"
 #include "test_hooks.h"
 #include "usb_rules.h"
 
@@ -153,6 +154,7 @@ static void notify_fn(struct k_work *work)
 	ARG_UNUSED(work);
 	osc2_usb_get_info(&info);
 	osc2_test_note_usb(&info);
+	osc2_sys_usb_changed(&info);
 	if (osc2.cb && osc2.cb->usb_changed) {
 		osc2.cb->usb_changed(&info, osc2.user_data);
 	}
@@ -347,10 +349,8 @@ static void wakeup_check(void)
 {
 	static uint8_t frames;
 	static int64_t last_ms = -3000;
-	struct opensc2_state s;
 
-	opensc2_get_state(&s);
-	if (!(s.buttons & OPENSC2_BTN_STEAM)) {
+	if (!(osc2_sys_buttons() & OPENSC2_BTN_STEAM)) {
 		frames = 0;
 		return;
 	}
@@ -359,6 +359,9 @@ static void wakeup_check(void)
 
 		last_ms = k_uptime_get();
 		osc2_usblog("STEAM: remote wakeup %s (%d)", err ? "refused" : "requested", err);
+		if (err == 0) {
+			osc2_sys_cue_post(OPENSC2_CUE_POWER_ON);   /* July's wake-up chime */
+		}
 	}
 }
 #endif
@@ -670,8 +673,6 @@ static bool no_host_check(void)
 
 static void wait_fn(struct k_work *work)
 {
-	struct opensc2_state s;
-
 	ARG_UNUSED(work);
 	if (!started || detaching || configured_once) {
 		return;
@@ -687,9 +688,9 @@ static void wait_fn(struct k_work *work)
 	}
 #endif
 	/* STEAM pressed while no host has configured the device: back to wireless, as on the real
-	 * controller (for example on a USB charger). */
-	opensc2_get_state(&s);
-	if (s.buttons & OPENSC2_BTN_STEAM) {
+	 * controller (for example on a USB charger). The button word the rules see: the
+	 * application's, or the test hooks' system injection. */
+	if (osc2_sys_buttons() & OPENSC2_BTN_STEAM) {
 		if (steam_seen_up && ++steam_polls >= STEAM_POLLS) {
 			osc2_usblog("STEAM pressed while waiting for a host");
 			osc2_schedule_power(OPENSC2_POWER_REBOOT_KEEP_LINK, 0, "STEAM, no host");

@@ -27,6 +27,13 @@ zephyr_library_sources(
 	report_rules.c
 	settings_defaults.c
 	storage.c
+	# power, chords, the status LED and cues (CONFIG_OPENSC2_SYSTEM; system.c answers the
+	# public getters without it)
+	system.c
+	sys_rules.c
+	chord_rules.c
+	idle_rules.c
+	led_rules.c
 )
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 	usb.c
@@ -45,6 +52,8 @@ zephyr_library_sources_ifdef(CONFIG_OPENSC2_TEST_HOOKS
 	test_core.c
 	test_hooks.c
 	test_notes.c
+	test_sys.c
+	test_sys_notes.c
 )
 if(CONFIG_OPENSC2_TEST_HOOKS AND CONFIG_OPENSC2_SHELL)
   zephyr_library_sources(test_shell.c)

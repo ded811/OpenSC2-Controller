@@ -13,7 +13,8 @@
  *   - system_cases.h: the system state machine's pure rules (the chords, the idle monitor, the
  *     machine, the cues, the status LED's pattern player);
  *   - hooks_cases.h, only in the binary built with CONFIG_OPENSC2_TEST_HOOKS: the hardware test
- *     hooks themselves (test_core.c, test_notes.c and the stand-in glue of hooks_stub.c).
+ *     hooks themselves (test_core.c, test_notes.c and the stand-in glue of hooks_stub.c), and
+ *     system_hooks_cases.h, their system ops (test_sys.c, test_sys_notes.c).
  * run.sh and run.ps1 next to this file build it twice, without and with the hooks, run both, and
  * compare the two transcripts.
  *
@@ -82,6 +83,7 @@ static void register_test(const char *name, test_fn fn)
 #include "system_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 #include "hooks_cases.h"
+#include "system_hooks_cases.h"
 #endif
 
 int main(int argc, char **argv)
