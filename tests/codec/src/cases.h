@@ -664,7 +664,20 @@ OPENSC2_TEST(output_pcm)
 
 /* ---- lizard mode, settings, fusion ----------------------------------------------------------- */
 
-#define LZ_STEP(lz, s, kb, mouse) opensc2_lizard_step(&(lz), &(s), 3, kb, mouse)
+/* The default settings, for lizard steps. */
+static const int16_t *lz_defaults(void)
+{
+	static int16_t settings[OPENSC2_SETTINGS_COUNT];
+
+	for (int i = 0; i < OPENSC2_SETTINGS_COUNT; i++) {
+		settings[i] = opensc2_setting_default((uint8_t)i);
+	}
+	return settings;
+}
+
+/* These cases are lizard mode's mapping alone: without the stabilisers, the average, the glide and
+ * the ticks (rule word 0; cases_input.h has those). */
+#define LZ_STEP(lz, s, kb, mouse) opensc2_lizard_step(&(lz), &(s), lz_defaults(), 0, kb, mouse)
 
 OPENSC2_TEST(lizard_keyboard)
 {

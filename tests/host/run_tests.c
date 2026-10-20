@@ -4,8 +4,8 @@
  *
  * The library's test cases as a plain C program, for any PC compiler:
  *   - tests/codec/src/cases.h, cases_usb.h and cases_input.h: the pure parts (wire formats, USB
- *     descriptors and framing, lizard mode, the radio's report queue, the mode rules, the retained
- *     area, settings, fusion), also a ztest suite;
+ *     descriptors and framing, lizard mode, the input rules, the radio's report queue, the mode
+ *     rules, the retained area, settings, fusion), also a ztest suite;
  *   - commands_cases.h (here): the vendor command channel, commands.c built against the small
  *     stand-ins in shim/ and stubs.c;
  *   - vectors_cases.h: the hardware test suite's shared vectors through the library's own code;

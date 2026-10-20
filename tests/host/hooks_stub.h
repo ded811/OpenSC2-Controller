@@ -47,6 +47,9 @@ struct hooks_record {
 	void (*resync_hook)(void);
 	/* ... and report.c's osc2_output_dispatch() for HOST_OUT (the rumble timeout too) */
 	int (*output_hook)(uint8_t link, const uint8_t *report, uint8_t len);
+	/* report.c's rule word (input_rules.h): the build's is OSC2_RULES_DEFAULT */
+	uint32_t rules;
+	int rules_set_calls;
 };
 
 extern struct hooks_record hk;

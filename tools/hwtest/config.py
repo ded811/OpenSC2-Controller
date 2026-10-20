@@ -43,6 +43,8 @@ OP_BATTERY_OFF = 0x13
 OP_SEQ_LOAD = 0x14
 OP_SEQ_RUN = 0x15
 OP_SEQ_STOP = 0x16
+OP_RULES = 0x17          # the rule word: in effect, the build's, the known bits
+OP_RULES_SET = 0x18      # another rule word until the end of arming
 OP_RING_READ = 0x20
 OP_RING_CLEAR = 0x21
 OP_CNT_READ = 0x22
@@ -57,6 +59,7 @@ OP_RADIO_DEAF = 0x44
 OP_NAMES = {OP_ARM: "ARM", OP_DISARM: "DISARM", OP_STATUS: "STATUS", OP_INJECT: "INJECT",
             OP_INJECT_OFF: "INJECT_OFF", OP_BATTERY: "BATTERY", OP_BATTERY_OFF: "BATTERY_OFF",
             OP_SEQ_LOAD: "SEQ_LOAD", OP_SEQ_RUN: "SEQ_RUN", OP_SEQ_STOP: "SEQ_STOP",
+            OP_RULES: "RULES", OP_RULES_SET: "RULES_SET",
             OP_RING_READ: "RING_READ", OP_RING_CLEAR: "RING_CLEAR", OP_CNT_READ: "CNT_READ",
             OP_CNT_RESET: "CNT_RESET", OP_MARK: "MARK", OP_SETTINGS_READ: "SETTINGS_READ",
             OP_HOST_OUT: "HOST_OUT", OP_HOST_SET: "HOST_SET", OP_HOST_GET: "HOST_GET",
@@ -207,6 +210,8 @@ CAP_USB_PLUG_IN_REBOOT = 11
 CAP_SHELL = 12
 CAP_FUSION = 13
 CAP_NO_HOST_WIRELESS = 14      # the charger test build (a testing aid, not the real controller)
+CAP_RULES = 15                 # the rule word (ops RULES, RULES_SET): the input rules and lizard
+                               # mode's processing; without it, OpenSC2 0.2.0's rules
 
 # ---- timings and thresholds -----------------------------------------------------------------
 STATE_PERIOD_MS = 4.0283            # USB state report period (about 248/s)

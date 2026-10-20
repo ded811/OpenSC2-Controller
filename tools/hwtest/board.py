@@ -17,6 +17,7 @@ from . import config as C
 from . import safety
 from . import transport
 from .proto import console as cproto
+from .proto import model as M
 from .proto import reports as R
 from .proto import testproto as T
 from .proto import vendor as V
@@ -884,6 +885,30 @@ class Rig:
     def mark(self, marker):
         a = self.test(C.OP_MARK, struct.pack("<I", marker & 0xFFFFFFFF))
         return struct.unpack_from("<I", a["result"], 0)[0] if a["status"] == C.ST_OK else None
+
+    def rules(self):
+        """The board's rule word (proto/model.py, RULE_*): (in effect, the build's). A firmware
+        without RULES (caps bit 15) has OpenSC2 0.2.0's: the trigger bits when the caps say
+        TRIGGER_CLICK_AUTO, nothing else."""
+        if not (self.caps and T.cap_flag(self.caps, C.CAP_RULES)):
+            r = M.RULES_V0_2 if self.caps is None or \
+                T.cap_flag(self.caps, C.CAP_TRIGGER_CLICK_AUTO) else 0
+            return r, r
+        a = self.test(C.OP_RULES)
+        if a["status"] != C.ST_OK or len(a["result"]) < 8:
+            raise T.ProtocolError("RULES status %s" % C.STATUS_NAMES.get(a["status"]))
+        now, build = struct.unpack_from("<II", a["result"], 0)
+        return now, build
+
+    def rules_set(self, rules):
+        """RULES_SET: this rule word until the end of arming (lizard mode starts over). Returns
+        the word in effect; None on a firmware without it."""
+        if not (self.caps and T.cap_flag(self.caps, C.CAP_RULES)):
+            return None
+        a = self.test(C.OP_RULES_SET, struct.pack("<I", rules & 0xFFFFFFFF))
+        if a["status"] != C.ST_OK:
+            raise T.ProtocolError("RULES_SET status %s" % C.STATUS_NAMES.get(a["status"]))
+        return struct.unpack_from("<I", a["result"], 0)[0]
 
     def settings_read(self):
         out = {}

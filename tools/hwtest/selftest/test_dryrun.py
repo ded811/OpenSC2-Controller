@@ -276,6 +276,23 @@ class Faults(unittest.TestCase):
         self.assertEqual(r.ran("lizard."), [])
         self.assertOnly(r, {"inputs.lizard_lock"})
 
+    def test_pad_blank_ignored(self):
+        r = Run("pad_blank_ignored")
+        self.assertEqual(r.code, 1)
+        self.assertIn(FAIL, r.statuses("inputs.pad_blank"))
+        self.assertIn(FAIL, r.statuses("inputs.stick_touch"))
+        self.assertOnly(r, {"inputs.pad_blank", "inputs.stick_touch", "inputs.buttons",
+                            "inputs.full", "inputs.pad_click"})
+
+    def test_glide_ignored(self):
+        r = Run("glide_ignored", lizard=True)
+        self.assertEqual(r.code, 1)
+        self.assertIn(FAIL, r.statuses("lizard.glide"))
+        self.assertIn(FAIL, r.statuses("lizard.glide_stops"))
+        self.assertIn(FAIL, r.statuses("lizard.default"))
+        self.assertEqual(r.statuses("lizard.stabiliser")[0], PASS)   # (R4 skips the next path)
+        self.assertOnly(r, {"lizard.glide", "lizard.glide_stops", "lizard.default"})
+
     def test_second_reader(self):
         r = Run("second_reader")
         self.assertEqual(r.code, 2)

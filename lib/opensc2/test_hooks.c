@@ -177,6 +177,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	flags |= IS_ENABLED(CONFIG_OPENSC2_SHELL) ? OSC2_TEST_FLAG_SHELL : 0;
 	flags |= IS_ENABLED(CONFIG_OPENSC2_FUSION) ? OSC2_TEST_FLAG_FUSION : 0;
 	flags |= OSC2_NO_HOST_WIRELESS_MS > 0 ? OSC2_TEST_FLAG_NO_HOST_WIRELESS : 0;
+	flags |= OSC2_TEST_FLAG_RULES;   /* ops RULES and RULES_SET */
 
 	opensc2_identity_get(&id);
 	caps->mode = osc2_wired() ? 1 : 0;
@@ -281,6 +282,21 @@ static void env_lizard_resync(void)
 	osc2_lizard_resync();
 }
 
+static uint32_t env_rules_get(void)
+{
+	return osc2_rules();
+}
+
+static uint32_t env_rules_build(void)
+{
+	return osc2_rules_build();
+}
+
+static void env_rules_set(uint32_t rules)
+{
+	osc2_rules_set(rules);
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -309,6 +325,9 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+	.rules_get = env_rules_get,
+	.rules_build = env_rules_build,
+	.rules_set = env_rules_set,
 };
 
 /* ---- deadlines: the lease, the end of a disarm (the system work queue) ------------------------- */

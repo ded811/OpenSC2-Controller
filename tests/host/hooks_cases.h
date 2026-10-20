@@ -372,7 +372,8 @@ OPENSC2_TEST(hooks_arm_answer)
 	CHECK_EQ(caps[0], 1);
 	CHECK_EQ(caps[1], 1);       /* wired */
 	CHECK_EQ(opensc2_get_le32(&caps[2]), OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO |
-		 OSC2_TEST_FLAG_LIZARD_MODE | OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB);
+		 OSC2_TEST_FLAG_LIZARD_MODE | OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB |
+		 OSC2_TEST_FLAG_RULES);
 	CHECK_EQ(opensc2_get_le16(&caps[6]), 3500);
 	CHECK_EQ(opensc2_get_le16(&caps[8]), 500);
 	CHECK_EQ(opensc2_get_le16(&caps[10]), 512);   /* CONFIG_OPENSC2_TEST_RING_SIZE here */
@@ -1871,5 +1872,63 @@ OPENSC2_TEST(hooks_unarmed_inert)
 		CHECK_EQ(hk.counters[i], 0);
 	}
 	CHECK_EQ(hk.ctx_link, OSC2_TEST_LINK_NONE);
+	CHECK_EQ(hk.violations, 0);
+}
+
+/* RULES and RULES_SET: the rule word read and changed while armed; the build's comes back at the
+ * end of arming (DISARM or the lease) with the guard still on, and at a fresh ARM; a change
+ * starts lizard mode over. */
+OPENSC2_TEST(hooks_rules)
+{
+	uint8_t args[4];
+	const uint32_t other = OSC2_RULE_TRIGGER_BITS | OSC2_RULE_PAD_CLICK;
+
+	stub_reset();
+	/* Unarmed: not claimed (a STALL on USB); armed: the three words. */
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES, NULL, 0), -1);
+	CHECK_EQ(arm_on(true, 1, 0, 0), OSC2_TEST_OK);
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES, NULL, 0), OSC2_TEST_OK);
+	CHECK_EQ(hans_len, 4 + 12);
+	CHECK_EQ(opensc2_get_le32(&RES[0]), OSC2_RULES_DEFAULT);
+	CHECK_EQ(opensc2_get_le32(&RES[4]), OSC2_RULES_DEFAULT);
+	CHECK_EQ(opensc2_get_le32(&RES[8]), OSC2_RULES_KNOWN);
+	/* An unknown bit, a wrong length: refused, nothing changed. */
+	opensc2_put_le32(args, OSC2_RULES_KNOWN + 1);
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES_SET, args, 4), OSC2_TEST_BAD_ARG);
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES_SET, args, 3), OSC2_TEST_BAD_LEN);
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES, args, 1), OSC2_TEST_BAD_LEN);
+	CHECK_EQ(hk.rules_set_calls, 0);
+	/* Set: the word in effect comes back, then lizard mode's resync. */
+	memset(hk.order, 0, sizeof(hk.order));
+	hk.order_len = 0;
+	opensc2_put_le32(args, other);
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES_SET, args, 4), OSC2_TEST_OK);
+	CHECK_EQ(opensc2_get_le32(&RES[0]), other);
+	CHECK_EQ(hk.rules, other);
+	CHECK(strcmp(hk.order, "US") == 0);
+	/* A fresh ARM: the build's again. */
+	CHECK_EQ(arm_on(true, 2, 0, 0), OSC2_TEST_OK);
+	CHECK_EQ(hk.rules, OSC2_RULES_DEFAULT);
+	/* DISARM: the build's again, while the guard is still on. */
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES_SET, args, 4), OSC2_TEST_OK);
+	stub.now_ms = 1000;
+	CHECK_EQ(usb_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
+	CHECK_EQ(hk.rules, OSC2_RULES_DEFAULT);
+	CHECK(osc2_test_core_guard(CORE));
+	poll_at(1050);
+	/* The lease running out: the same. */
+	CHECK_EQ(arm_on(true, 3, 1, 0), OSC2_TEST_OK);
+	CHECK_EQ(usb_op(OSC2_TEST_OP_RULES_SET, args, 4), OSC2_TEST_OK);
+	CHECK_EQ(hk.rules, other);
+	poll_at(2100);
+	CHECK(!osc2_test_core_armed(CORE));
+	CHECK_EQ(hk.rules, OSC2_RULES_DEFAULT);
+	/* An arming that never changed it leaves it alone at its end. */
+	poll_at(2200);
+	hk.rules_set_calls = 0;
+	CHECK_EQ(arm_on(true, 4, 0, 0), OSC2_TEST_OK);
+	stub.now_ms = 3000;
+	CHECK_EQ(usb_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
+	CHECK_EQ(hk.rules_set_calls, 0);
 	CHECK_EQ(hk.violations, 0);
 }

@@ -88,6 +88,8 @@ enum osc2_test_op {
 	OSC2_TEST_OP_SEQ_LOAD = 0x14,
 	OSC2_TEST_OP_SEQ_RUN = 0x15,
 	OSC2_TEST_OP_SEQ_STOP = 0x16,
+	OSC2_TEST_OP_RULES = 0x17,        /* the rule word: in effect, the build's, the known bits */
+	OSC2_TEST_OP_RULES_SET = 0x18,    /* another rule word until the end of arming */
 	OSC2_TEST_OP_RING_READ = 0x20,
 	OSC2_TEST_OP_RING_CLEAR = 0x21,
 	OSC2_TEST_OP_CNT_READ = 0x22,
@@ -223,6 +225,10 @@ extern const char *const osc2_test_counter_names[OSC2_TEST_CNT_COUNT];
 /* CONFIG_OPENSC2_NO_HOST_WIRELESS_MS is not 0: the charger test build (a testing aid that is not
  * the real controller's behaviour). */
 #define OSC2_TEST_FLAG_NO_HOST_WIRELESS       (1u << 14)
+/* The input rules and lizard mode's processing switch with a rule word (input_rules.h), which the
+ * ops RULES and RULES_SET read and change. Firmware without it has the rules of OpenSC2 0.2.0:
+ * the trigger bits only, and none of lizard mode's processing. */
+#define OSC2_TEST_FLAG_RULES                  (1u << 15)
 
 /* STATUS flags (byte 0). */
 #define OSC2_TEST_ST_ARMED       (1u << 0)
@@ -296,6 +302,9 @@ struct osc2_test_env {
 	void (*battery_now)(void);                /* a battery report now; the period restarts */
 	bool (*release_held)(void);               /* osc2_lizard_release_held() */
 	void (*lizard_resync)(void);              /* osc2_lizard_resync() (writes a LIZARD entry) */
+	uint32_t (*rules_get)(void);              /* the rule word in effect (input_rules.h) */
+	uint32_t (*rules_build)(void);            /* the build's */
+	void (*rules_set)(uint32_t rules);
 };
 
 /* ---- the core's state ------------------------------------------------------------------------ */
@@ -355,6 +364,8 @@ struct osc2_test_core {
 	bool snap_on;
 	int16_t snap[OPENSC2_SETTINGS_COUNT];
 	uint8_t snap_led[4];
+	/* RULES_SET changed the rule word: the build's comes back at the end of arming */
+	bool rules_changed;
 	/* per link */
 	struct osc2_test_held held[OSC2_TEST_LINKS];
 	volatile uint8_t just_claimed[OSC2_TEST_LINKS];

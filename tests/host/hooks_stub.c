@@ -10,6 +10,7 @@
  */
 #include <string.h>
 #include "internal.h"
+#include "input_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
 
@@ -65,6 +66,7 @@ void hooks_reset(void)
 	memset(&hk, 0, sizeof(hk));
 	hk.ctx_link = OSC2_TEST_LINK_NONE;
 	hk.usb_state = OPENSC2_USB_CONFIGURED;
+	hk.rules = OSC2_RULES_DEFAULT;
 	osc2_test_core_init(&osc2_test_core_obj);
 }
 
@@ -140,7 +142,7 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 	library_call();
 	caps->mode = osc2_wired() ? 1 : 0;
 	caps->build_flags = OSC2_TEST_FLAG_TRIGGER_CLICK_AUTO | OSC2_TEST_FLAG_LIZARD_MODE |
-			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB;
+			    OSC2_TEST_FLAG_STEAM_WATCHDOG | OSC2_TEST_FLAG_USB | OSC2_TEST_FLAG_RULES;
 	caps->battery_interval_ms = 3500;
 	caps->rumble_timeout_ms = 500;
 	caps->report_delay_us = 2000;
@@ -310,6 +312,26 @@ static void env_lizard_resync(void)
 	osc2_test_note_lizard(OSC2_TEST_LIZARD_RESYNC);
 }
 
+static uint32_t env_rules_get(void)
+{
+	library_call();
+	return hk.rules;
+}
+
+static uint32_t env_rules_build(void)
+{
+	library_call();
+	return OSC2_RULES_DEFAULT;
+}
+
+static void env_rules_set(uint32_t rules)
+{
+	library_call();
+	order('U');
+	hk.rules_set_calls++;
+	hk.rules = rules & OSC2_RULES_KNOWN;
+}
+
 const struct osc2_test_env osc2_test_env_obj = {
 	.now_ms = env_now_ms,
 	.now_us = env_now_us,
@@ -338,4 +360,7 @@ const struct osc2_test_env osc2_test_env_obj = {
 	.battery_now = env_battery_now,
 	.release_held = env_release_held,
 	.lizard_resync = env_lizard_resync,
+	.rules_get = env_rules_get,
+	.rules_build = env_rules_build,
+	.rules_set = env_rules_set,
 };
