@@ -57,6 +57,12 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $Cc @flags @libSources @emu -lm -o $fwemu
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# Without CONFIG_OPENSC2_CAL the calibration's calls are stand-ins: those files must still compile.
+$noCal = $flags | Where-Object { $_ -notlike '-DCONFIG_OPENSC2_*' }
+foreach ($f in "$lib\commands.c", "$lib\cal_store.c", "$lib\test_core.c") {
+    & $Cc @noCal -fsyntax-only $f
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
 
 $failed = 0
 & $plain --vectors $vectors --transcript $plainLog
