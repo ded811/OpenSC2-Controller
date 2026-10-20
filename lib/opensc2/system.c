@@ -112,7 +112,7 @@ static struct {
 	uint32_t below_full_ms;
 } led = { .level = 255 };
 
-/* ---- the keys in Zephyr settings ---------------------------------------------------------------- */
+/* ---- the keys in Zephyr settings ------------------------------------------------------------- */
 
 #if defined(CONFIG_OPENSC2_STORAGE)
 static int keys_set(const char *key, size_t len, settings_read_cb read_cb, void *cb_arg)
@@ -254,7 +254,7 @@ int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t *out, uint8_t
 	return 0;
 }
 
-/* ---- inputs ------------------------------------------------------------------------------------- */
+/* ---- inputs ---------------------------------------------------------------------------------- */
 
 /* The boot-time injection the test hooks left for this boot (once). */
 static void boot_injection(void)
@@ -362,7 +362,7 @@ static void inputs(struct osc2_sys_in *in)
 	in->plug_in_reboot = plug_in_allowed();
 }
 
-/* ---- the LED ------------------------------------------------------------------------------------ */
+/* ---- the LED --------------------------------------------------------------------------------- */
 
 void opensc2_led_status(struct opensc2_led_status *st)
 {
@@ -418,7 +418,7 @@ static void level_seen(uint8_t level)
 	}
 }
 
-/* ---- cues --------------------------------------------------------------------------------------- */
+/* ---- cues ------------------------------------------------------------------------------------ */
 
 static void play_cue(uint8_t cue)
 {
@@ -454,7 +454,7 @@ void osc2_sys_cue_post(uint8_t cue)
 	post(Q_CUE, cue);
 }
 
-/* ---- the actions -------------------------------------------------------------------------------- */
+/* ---- the actions ----------------------------------------------------------------------------- */
 
 static void drop_link(const char *why)
 {
@@ -617,7 +617,7 @@ static void run(uint8_t ev, uint8_t arg, uint32_t now, struct osc2_sys_out *out)
 	}
 }
 
-/* ---- the work item ------------------------------------------------------------------------------ */
+/* ---- the work item --------------------------------------------------------------------------- */
 
 static void chord_events(const struct osc2_chord_out *co)
 {
@@ -806,7 +806,7 @@ static void sys_work_fn(struct k_work *work)
 	(void)k_work_reschedule(&sys_work, K_MSEC(MAX(next, 1)));
 }
 
-/* ---- what the rest of the library calls --------------------------------------------------------- */
+/* ---- what the rest of the library calls ------------------------------------------------------ */
 
 void osc2_sys_init(bool start)
 {
@@ -953,7 +953,24 @@ void osc2_sys_bluetooth(const struct osc2_bt_transport *transport)
 	chords.bluetooth = transport != NULL;
 }
 
-/* ---- the test hooks' environment ---------------------------------------------------------------- */
+void osc2_sys_bt_event(uint8_t event)
+{
+	switch (event) {
+	case OSC2_SYS_BT_GAVE_UP:
+		post(OSC2_SYS_EV_WIRELESS_OFF, 0);
+		break;
+	case OSC2_SYS_BT_PAIRING:
+		osc2_sys_cue_post(OPENSC2_CUE_PAIRING);
+		break;
+	case OSC2_SYS_BT_PAIRED:
+		osc2_sys_cue_post(OPENSC2_CUE_PAIRED);
+		break;
+	default:
+		break;
+	}
+}
+
+/* ---- the test hooks' environment ------------------------------------------------------------- */
 
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 static void env_status(uint8_t out[OSC2_TEST_SYS_STATUS_LEN])
@@ -1034,7 +1051,7 @@ static const struct osc2_test_sys_env sys_env = {
 };
 #endif /* CONFIG_OPENSC2_TEST_HOOKS */
 
-/* ---- the shell ---------------------------------------------------------------------------------- */
+/* ---- the shell ------------------------------------------------------------------------------- */
 
 #if defined(CONFIG_OPENSC2_SHELL)
 int osc2_sys_shell(const struct shell *sh, size_t argc, char **argv)

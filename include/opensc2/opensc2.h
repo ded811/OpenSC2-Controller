@@ -158,10 +158,15 @@ struct opensc2_vendor_cmd {
 
 /* Power requests, in the system work queue. Vendor commands are acted on about 20 ms later so their
  * answer still goes out. Without a power_request callback the library does the suggested action
- * itself (the reboots); with one, the application decides. */
+ * itself (the reboots); with one, the application decides. With CONFIG_OPENSC2_SYSTEM the system
+ * state machine takes the turn-off, the cable pulled and a host's reboot request in a state that
+ * ignores it; the application then gets OPENSC2_POWER_OFF or a reboot at the end of a shutdown. */
 enum opensc2_power_request {
-	OPENSC2_POWER_TURN_OFF_PUCK,     /* the puck sent "turn off": the PC is going to sleep */
-	OPENSC2_POWER_TURN_OFF,          /* vendor command 0x9F, or 0x95 with 0xABDF9710 (wireless only) */
+	OPENSC2_POWER_TURN_OFF_PUCK,     /* the puck sent "turn off": the PC is going to sleep (with
+					  * the system state machine: for information; the link going
+					  * OFF is its "wireless off") */
+	OPENSC2_POWER_TURN_OFF,          /* vendor command 0x9F, or 0x95 with 0xABDF9710 (wireless only;
+					  * not with the system state machine, which handles it) */
 	OPENSC2_POWER_REBOOT,            /* 0x95 with any other value: opensc2_reboot(PLAIN) */
 	OPENSC2_POWER_REBOOT_KEEP_LINK,  /* 0x95 with 0xA427AF52, Steam's "reboot into wireless mode",
 					  * or STEAM pressed while no USB host configured the wired
@@ -176,8 +181,9 @@ enum opensc2_power_request {
 					  * battery has lost its power anyway): the real controller
 					  * shuts down. Power off, or opensc2_reboot(PLAIN), which
 					  * comes back wireless without USB power (the default).
-					  * With CONFIG_OPENSC2_SYSTEM the library shuts down itself
-					  * and asks for OPENSC2_POWER_OFF instead */
+					  * With CONFIG_OPENSC2_SYSTEM the library runs its shutdown
+					  * instead, then asks for OPENSC2_POWER_OFF (a battery build)
+					  * or OPENSC2_POWER_REBOOT */
 	OPENSC2_POWER_OFF,               /* the system state machine's shutdown has run (link dropped,
 					  * the power-off cue, STEAM released): turn the board off now
 					  * (System OFF with a wake-up pin, sys_poweroff()), or reboot.

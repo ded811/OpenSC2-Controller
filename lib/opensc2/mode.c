@@ -80,8 +80,12 @@ void osc2_mode_boot(enum opensc2_boot_mode app)
 #endif
 }
 
-/* With the system state machine the machine looks at USB power and applies this rule itself. */
-#if defined(CONFIG_OPENSC2_USB) && defined(CONFIG_OPENSC2_USB_PLUG_IN_REBOOT) && 	!defined(CONFIG_OPENSC2_SYSTEM)
+/* USB power that appears while wireless. A battery build of the system state machine
+ * (CONFIG_OPENSC2_BATTERY) applies this rule itself, from its own look at the power source.
+ * Without a battery the machine takes a board that runs without USB power to be on an external
+ * supply, so this poll keeps the rule (as v0.2.0) for a board that has a battery all the same. */
+#if defined(CONFIG_OPENSC2_USB) && defined(CONFIG_OPENSC2_USB_PLUG_IN_REBOOT) && \
+	!defined(CONFIG_OPENSC2_BATTERY)
 #define PLUG_IN_POLL 1
 static bool vbus_last;
 
@@ -94,7 +98,10 @@ static void vbus_fn(struct k_work *work)
 	bool now = osc2_usb_power();
 
 	ARG_UNUSED(work);
-	if (now && !vbus_last) {
+	/* With the machine: not while the application has named another source (it decides). */
+	if (now && !vbus_last &&
+	    (!IS_ENABLED(CONFIG_OPENSC2_SYSTEM) ||
+	     opensc2_power_source() == OPENSC2_POWER_SOURCE_USB)) {
 		enum osc2_plug_in rule;
 
 		rule = osc2_plug_in_rule(osc2.policy, osc2_radio_connected(),

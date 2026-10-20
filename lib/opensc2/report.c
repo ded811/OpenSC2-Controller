@@ -85,6 +85,9 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 		(void)opensc2_set_state(s);
 	}
 	opensc2_get_state(s);
+	/* The application's sticks, triggers and touches for the idle monitor (never the injected
+	 * ones below: the report injection does not reach the system rules). */
+	osc2_sys_frame(s);
 	/* The hardware test hooks' injected inputs take the application's place here, after its state
 	 * was read and never above: there they would be stored as the application's own (and reach
 	 * the STEAM, plug-in and wakeup rules). */
@@ -94,7 +97,6 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 #endif
 	opensc2_encode_state(s, sequence++, state);
 	osc2_test_frame(state);
-	osc2_sys_frame(s);   /* sticks, triggers and touches for the idle monitor */
 }
 
 void osc2_report_lizard(const struct opensc2_state *s)

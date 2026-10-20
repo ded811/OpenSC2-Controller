@@ -26,6 +26,13 @@ struct osc2_bt_transport {
 	bool (*pairing)(void);                      /* advertising in pairing mode */
 };
 
+/* What the Bluetooth transport tells the machine, osc2_sys_bt_event(); only while it is the
+ * transport in use (started through osc2_bt_transport.start). */
+#define OSC2_SYS_BT_GAVE_UP  1   /* advertising ended without a host, or the host ended the link:
+				  * "wireless off" (on battery a shutdown) */
+#define OSC2_SYS_BT_PAIRING  2   /* pairing-mode advertising started: cue 6 */
+#define OSC2_SYS_BT_PAIRED   3   /* a new host has paired (the link is encrypted): cue 7 */
+
 /* core.c: the application's own button word. */
 uint32_t osc2_sys_app_buttons(void);
 
@@ -44,8 +51,8 @@ void osc2_sys_buttons_changed(void);
 void osc2_sys_battery_given(void);
 /* Every battery report, with the application's values (before the test hooks' injection). */
 void osc2_sys_battery_report(const struct opensc2_battery *battery);
-/* After each state report is built, with the state it was built from: analog activity for the
- * idle monitor. Any thread; cheap. */
+/* For each state report, with the application's state (before the test hooks' report
+ * injection): analog activity for the idle monitor. Any thread; cheap. */
 void osc2_sys_frame(const struct opensc2_state *state);
 /* A controller setting changed (OPENSC2_SETTINGS_ALL: every one). */
 void osc2_sys_setting(uint8_t number);
@@ -74,6 +81,8 @@ int osc2_sys_key(uint8_t opcode, const uint8_t *payload, uint8_t len);
 int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t *out, uint8_t *out_len);
 /* A Bluetooth transport (once, at start-up; NULL: none). */
 void osc2_sys_bluetooth(const struct osc2_bt_transport *bt);
+/* What the Bluetooth transport tells the machine (any thread): OSC2_SYS_BT_*. */
+void osc2_sys_bt_event(uint8_t event);
 
 #if defined(CONFIG_OPENSC2_SHELL)
 struct shell;
@@ -175,6 +184,11 @@ static inline int osc2_sys_key_read(const uint8_t *payload, uint8_t len, uint8_t
 static inline void osc2_sys_bluetooth(const struct osc2_bt_transport *bt)
 {
 	(void)bt;
+}
+
+static inline void osc2_sys_bt_event(uint8_t event)
+{
+	(void)event;
 }
 
 #endif /* CONFIG_OPENSC2_SYSTEM */
