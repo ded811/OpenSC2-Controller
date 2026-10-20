@@ -2,11 +2,12 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * Host tests only: the sensor helpers of <opensc2/sensor_helpers.h> (lib/opensc2/sensor_helpers.c) against values
- * worked out from the documented rules outside this code: the distance approximation, the
- * capacitive two-word means and levels, a pad's touch with its lift-off damping, the edge push,
- * stretch and scale, the rotation and its angle steps, the touch stabiliser, the position filter's
- * behaviour, the IMU's scaling, mounting, dead zone and bias estimate, and an ADC burst's average.
+ * Host tests only: the sensor helpers of <opensc2/sensor_helpers.h> (lib/opensc2/sensor_helpers.c)
+ * against values worked out from the documented rules outside this code: the distance
+ * approximation, the capacitive two-word means and levels, a pad's touch with its lift-off
+ * damping, the edge push, stretch and scale, the rotation and its angle steps, the touch
+ * stabiliser, the position filter's behaviour, the IMU's scaling, mounting, dead zone and bias
+ * estimate, and an ADC burst's average.
  */
 #include <math.h>
 #include <string.h>
