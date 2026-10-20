@@ -210,6 +210,10 @@ simulator); none of it has been tested on hardware yet.
 - Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does
   (it hands them to its IMU); the application still sees the values Steam wrote. A number above 85
   reads 0, also as on the real controller (it was a STALL).
+- Every controller setting has the real controller's default and range: `0x87` clamps each value to
+  its range (0.2.0 knew nine ranges and stored the rest as sent; 48, 84 and 85 still go unclamped,
+  as on the real controller), and the settings 0.2.0 had no default for start from theirs (setting
+  3 reads 1200 after a boot, 28 and 29 start above their range, as there).
 - `0xE9` reads the LED colour back the way the real controller does: a channel reads 100 when it is
   exactly 100, otherwise 0. The colour itself is kept as sent.
 - `0xBE`: byte 13 is 1 while the charge state is "charging" (else 0) and byte 14 is the charge state

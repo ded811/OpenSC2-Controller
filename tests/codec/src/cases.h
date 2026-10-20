@@ -871,7 +871,12 @@ OPENSC2_TEST(settings_defaults)
 	CHECK_EQ(opensc2_setting_default(OPENSC2_SETTING_RUMBLE_GAIN_DB), -10);
 	CHECK_EQ(opensc2_setting_default(OPENSC2_SETTING_LED_BRIGHTNESS), 50);
 	CHECK_EQ(opensc2_setting_default(OPENSC2_SETTING_IMU_MODE), 0);
-	CHECK_EQ(opensc2_setting_default(1), 0);
+	/* the documented defaults of the settings nothing reads, too; 28 lies above its range */
+	CHECK_EQ(opensc2_setting_default(0), 0);
+	CHECK_EQ(opensc2_setting_default(1), 2);
+	CHECK_EQ(opensc2_setting_default(3), 1200);
+	CHECK_EQ(opensc2_setting_default(28), 16500);
+	CHECK_EQ(opensc2_setting_default(86), 0);
 }
 
 OPENSC2_TEST(fusion)

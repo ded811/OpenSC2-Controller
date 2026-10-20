@@ -388,12 +388,11 @@ open, the library does what should work with Steam and the puck, and says so her
    [Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it)),
    and each gets the real answer or the real STALL (Steam's `0xC1` is stalled, as by the real
    controller).
-6. **Controller settings** have documented defaults; `0x87` clamps each value to its range. The
-   research documentation gives the ranges of settings 36 and 68; the ranges of 9, 11, 12, 14, 45,
-   70 and 71 come from the same authors' study of the controller's firmware (not in that
-   documentation yet). These are the ranges the library knows ([api.md](api.md#controller-settings)
-   lists them). Other settings are stored as sent. Settings 48, 84 and 85 are stored too, for the
-   application (the real controller hands them to its IMU instead), and `0x89` answers their
+6. **Controller settings** follow the documentation: every one of the 86 has its documented default
+   and range, and `0x87` clamps each value to its range ([api.md](api.md#controller-settings)),
+   also for the 49 settings nothing reads (0.2.0 knew nine ranges and stored the rest as sent, with
+   0 as the default where it knew none). Settings 48, 84 and 85 are stored as sent, for the
+   application (the real controller hands them to its IMU unclamped), and `0x89` answers their
    defaults, as on the real controller. Whether Steam reads them back is not known. `0x89` of a
    number above 85 reads 0, as on the real controller (0.2.0 stalled it).
 7. **The quaternion's W** (offset 45): one page of the research documentation calls it always 0,

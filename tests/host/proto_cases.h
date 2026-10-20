@@ -246,6 +246,68 @@ OPENSC2_TEST(proto_cmd_imu_settings)
 	}
 }
 
+/* 0x87 limits every setting to its documented range, as the real controller does (the documentation
+ * gives all 86; 48, 84 and 85 go to the IMU unclamped); 0x89 reads the stored value back. */
+OPENSC2_TEST(proto_cmd_settings_ranges)
+{
+	static const struct {
+		uint8_t number;
+		int16_t min, max;
+	} some[] = {
+		{ 2, 0, 360 }, { 8, 0, 1 }, { 24, 0, 30 }, { 27, -24, 12 }, { 46, 0, 2 },
+		{ 52, -1, 100 }, { 60, 0, 1 }, { 62, 0, 2 }, { 75, 0, 1 }, { 76, -24, 6 },
+		{ 80, 0, 2 }, { 82, 0, 3 }, { 28, 0, 4096 }, { 72, 0, 16000 }, { 25, 3, 99 },
+	};
+	static const int16_t probes[] = { -32768, -25, -2, -1, 0, 1, 2, 3, 4, 7, 9, 11, 13, 31,
+					  100, 101, 181, 200, 256, 301, 361, 401, 501, 801, 1001,
+					  1201, 2001, 4097, 16001, 16385, 20001, 25001, 32767 };
+	uint8_t reply[64];
+
+	stub_reset();
+	/* every number, values around every range: what 0x87 stores is the clamped value */
+	for (int n = 0; n < OPENSC2_SETTINGS_COUNT; n++) {
+		const uint8_t number = (uint8_t)n;
+
+		if (number == OPENSC2_SETTING_LIZARD_MODE || number == OPENSC2_SETTING_STEAM_WATCHDOG) {
+			continue;   /* they switch lizard mode and the watchdog: their own tests */
+		}
+		for (size_t i = 0; i < ARRAY_SIZE(probes); i++) {
+			uint8_t w[3] = { number };
+			int16_t want = opensc2_setting_clamp(number, probes[i]);
+
+			opensc2_put_le16(&w[1], (uint16_t)probes[i]);
+			CHECK_EQ(proto_usb(0x87, w, sizeof(w), reply), -1);   /* set-only */
+			CHECK_EQ(osc2.settings[number], want);
+			CHECK_EQ(proto_usb(0x89, &number, 1, reply), 3);
+			CHECK_EQ((int16_t)opensc2_get_le16(&reply[4]),
+				 n == 48 || n == 84 || n == 85 ? opensc2_setting_default(number) : want);
+		}
+	}
+	/* the documented ranges, by hand, for the settings the library acts on */
+	for (size_t i = 0; i < ARRAY_SIZE(some); i++) {
+		CHECK_EQ(opensc2_setting_clamp(some[i].number, (int16_t)(some[i].min - 1)),
+			 some[i].min);
+		CHECK_EQ(opensc2_setting_clamp(some[i].number, (int16_t)(some[i].max + 1)),
+			 some[i].max);
+		CHECK_EQ(opensc2_setting_clamp(some[i].number, some[i].max), some[i].max);
+	}
+	/* Steam's {8, 7} is stored as 1; the IMU's three keep any value for the application */
+	CHECK_EQ(opensc2_setting_clamp(8, 7), 1);
+	CHECK_EQ(opensc2_setting_clamp(48, -32768), -32768);
+	CHECK_EQ(opensc2_setting_clamp(84, 7), 7);
+	CHECK_EQ(opensc2_setting_clamp(85, 32767), 32767);
+	/* 28 and 29 start above their range and read back so, until a write limits them */
+	stub_reset();
+	{
+		const uint8_t n28 = 28, n29 = 29;
+
+		CHECK_EQ(proto_usb(0x89, &n28, 1, reply), 3);
+		CHECK_EQ((int16_t)opensc2_get_le16(&reply[4]), 16500);
+		CHECK_EQ(proto_usb(0x89, &n29, 1, reply), 3);
+		CHECK_EQ((int16_t)opensc2_get_le16(&reply[4]), 15000);
+	}
+}
+
 OPENSC2_TEST(proto_cmd_led_readback)
 {
 	const uint8_t colour[4] = { 100, 0, 50, 10 }, full[4] = { 100, 100, 100, 100 };

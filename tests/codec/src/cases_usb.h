@@ -532,7 +532,12 @@ OPENSC2_TEST(setting_ranges)
 	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_TRIGGER_THRESHOLD, 120), 99);
 	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_LED_BRIGHTNESS, 200), 100);
 	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_MOMENTUM_DECAY, 0), 1);
-	/* No known range: kept, -1 included (Steam writes -1 to the click thresholds). */
+	/* -1 lies within the click thresholds' range (Steam writes it), -2 does not */
 	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_LEFT_CLICK_PRESSURE, -1), -1);
+	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_LEFT_CLICK_PRESSURE, -2), -1);
+	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_PAD_IGNORE_ON_STICK, 4), 3);
+	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_HAPTIC_GAIN_DB, 30), 6);
+	/* the IMU's three go to the IMU unclamped */
 	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_IMU_MODE, 0x18), 0x18);
+	CHECK_EQ(opensc2_setting_clamp(OPENSC2_SETTING_IMU_THRESHOLD, 32767), 32767);
 }

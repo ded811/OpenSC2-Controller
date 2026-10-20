@@ -1585,14 +1585,15 @@ With `CONFIG_OPENSC2_CAL` the library also acts on 30, 31, 34, 35, 46, 52, 53, 6
 inputs, and with `CONFIG_OPENSC2_PAD_RULES` on 2, 24 and 80 for the reported pads
 ([Calibration and raw inputs](#calibration-and-raw-inputs)).
 
-`0x87` clamps a value to its range where the range is known (9 and 71: 0..1; 11: 0..1000; 12:
-1..1000; 14: 0..32767; 36 and 45: 0..100; 68: 40..99; 70: 0..2; `opensc2_setting_clamp()`); other
-settings keep any value. The defaults and the ranges of 36 and 68 are in the protocol
-documentation the same authors wrote
+`0x87` clamps every value to its setting's range (`opensc2_setting_clamp()`), as the real controller
+does: for example 2: 0..360, 24: 0..30, 27: −24..12, 46: 0..2, 52 and 53: −1..100, 60: 0..1, 62:
+0..2, 68: 40..99, 70: 0..2, 75: 0..1, 76: −24..6, 80: 0..2, 82: 0..3, and Steam's `{8, 7}` is stored
+as 1, the top of 8's range. Only 48, 84 and 85 keep any value (the real controller hands them to its
+IMU unclamped). Every default and range is in the protocol documentation the same authors wrote
 ([controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings),
-not public yet); the ranges of 9, 11, 12, 14, 45, 70 and 71 come from the same authors' study of
-the controller's firmware (not in that documentation yet). `setting_changed` is called only when a
-value changes.
+not public yet), also for the 49 settings nothing reads (stored and read back only); the defaults of
+28 and 29 (16500, 15000) lie above their range and read back so until a write limits them.
+`setting_changed` is called only when a value changes.
 `0x8E` and the Steam watchdog keep settings 48, 84 and 85 (the real controller passes those to its
 IMU instead of storing them), and `0x89` answers their defaults (0, 1, 100) whatever was written,
 as the real controller does; `opensc2_setting_get()` and the `setting_changed` callback give the
@@ -1607,8 +1608,8 @@ The functions for the settings and the other state Steam sets:
 | `opensc2_lizard_mode()` | `true` while lizard mode is on (setting 9 is not 0): from every boot until Steam turns it off, and again when the Steam watchdog brings it back |
 | `opensc2_led_get(&led)` | the LED colour and settings Steam set, as the `led` callback gets them: `red`, `green`, `blue`, `white` in percent (`0xC5`), `override` (setting 37) and `brightness` (setting 45) |
 | `opensc2_chime_level()` | the power-on chime level Steam stores with `0xDC`: 1 quiet, 2 normal (the default), anything else silent |
-| `opensc2_setting_default(n)` | pure: the default of setting `n` (0 for a number with no known default) |
-| `opensc2_setting_clamp(n, v)` | pure: `v` clamped to setting `n`'s range, as `0x87` stores it (unchanged for a number with no known range) |
+| `opensc2_setting_default(n)` | pure: the default of setting `n` (0 above 85) |
+| `opensc2_setting_clamp(n, v)` | pure: `v` clamped to setting `n`'s range, as `0x87` stores it (unchanged for 48, 84, 85 and a number above 85) |
 
 ## Kconfig options
 

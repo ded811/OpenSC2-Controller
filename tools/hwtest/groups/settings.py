@@ -149,16 +149,30 @@ def run(ctx):
     if ctx.want("settings.clamps"):
         with ctx.check(GROUP, "settings.clamps") as c:
             base.need(rig, "settings")
-            for n in (9, 11, 12, 14, 36, 45, 68, 70, 71):
+            # 9 and 71 one value at a time: they switch lizard mode and the Steam watchdog
+            for n in (9, 71):
                 lo, hi = M.setting_range(n)
-                values = [lo - 1] + ([hi + 1] if hi < 32767 else []) + [-32768, 32767]
-                for v in values:
+                for v in (lo - 1, hi + 1, -32768, 32767):
                     rig.write_settings([(n, v)])
                     c.eq("setting %d = %d reads back" % (n, v), rig.settings_read()[n],
                          M.setting_clamp(n, v))
-                    if n in (9, 71):
-                        _restore(rig, snap, (n,))
-            for n in (2, 27, 50):
+                    _restore(rig, snap, (n,))
+            # every other setting has a range too (all but 48, 84 and 85): a value just below
+            # and just above it, and both ends of s16, each read back clamped
+            ranged = [n for n in range(M.SETTINGS_COUNT) if M.setting_range(n) and
+                      n not in (9, 71)]
+            rounds = (("below", lambda lo, hi: max(lo - 1, -32768)),
+                      ("above", lambda lo, hi: min(hi + 1, 32767)),
+                      ("-32768", lambda lo, hi: -32768), ("32767", lambda lo, hi: 32767))
+            for name, pick in rounds:
+                pairs = [(n, pick(*M.setting_range(n))) for n in ranged]
+                for i in range(0, len(pairs), 4):
+                    rig.write_settings(pairs[i:i + 4])
+                s = rig.settings_read()
+                c.eq("%s each range: read back clamped" % name, [(n, s[n]) for n, _v in pairs],
+                     [(n, M.setting_clamp(n, v)) for n, v in pairs])
+            # the IMU's three are handed on unclamped: the application sees what was written
+            for n in M.IMU_SETTINGS:
                 for v in (12345, -1):
                     rig.write_settings([(n, v)])
                     c.eq("setting %d = %d (not clamped)" % (n, v), rig.settings_read()[n], v)

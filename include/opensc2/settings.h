@@ -67,14 +67,13 @@ extern "C" {
 #define OPENSC2_IMU_MODE_SEND_RAW_GYRO     0x10
 
 /* The default of a setting, as the protocol documentation gives it (not public yet;
- * docs/protocol.md lists the pages); 0 for numbers it gives no default for. */
+ * docs/protocol.md lists the pages) for all 86; 0 for a number above 85. The defaults of 28 and 29
+ * (16500, 15000) lie above their range, as on the real controller. */
 int16_t opensc2_setting_default(uint8_t number);
 
-/* `value` clamped to the setting's range, as vendor command 0x87 stores it. Only the settings
- * whose range is known are clamped (9 and 71: 0..1; 11: 0..1000; 12: 1..1000; 14: 0..32767; 36 and
- * 45: 0..100; 68: 40..99; 70: 0..2); the others keep any value. The ranges of 36 and 68 are in the
- * protocol documentation (not public yet), the others come from the same authors' study of the
- * controller's firmware (not in that documentation yet). */
+/* `value` clamped to the setting's range, as vendor command 0x87 stores it: the documentation gives
+ * every setting's range (docs/api.md lists them). Settings 48, 84 and 85, which the real controller
+ * hands to its IMU unclamped, keep any value, and so does a number above 85. */
 int16_t opensc2_setting_clamp(uint8_t number, int16_t value);
 
 #ifdef __cplusplus
