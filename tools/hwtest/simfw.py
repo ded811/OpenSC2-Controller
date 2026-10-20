@@ -585,10 +585,19 @@ class SimBoard:
         if self.fault == "glide_ignored":
             self.lizard.rules &= ~M.RULE_LIZARD_GLIDE   # lizard mode never glides
 
+    def app_state(self):
+        """The blank canvas on a bare board: all zero, but for the left stick's raw output
+        (setting 46), which reads its biased pins at half of full scale."""
+        mode = self.settings[46]
+        if mode in (1, 2):
+            v = 2048 if mode == 2 else 1650
+            return R.make_state52(lstick_x=v, lstick_y=v)
+        return R.make_state52()
+
     # ---- the frame path (report.c) ----
     def frame(self):
         """One state report built (and the lizard frame after it)."""
-        s = R.make_state52()
+        s = self.app_state()
         injected, lizard_test = self.hooks.input(self.lizard_on())
         if injected is not None:
             s = injected

@@ -417,6 +417,19 @@ static void boot(bool to_wireless)
 
 /* ---- the frame path: report.c's osc2_report_state() and osc2_report_lizard() ------------------ */
 
+/* The blank canvas (app/src/inputs.c) on a bare board: the left stick's two analog pins are held
+ * at mid-scale by the chip's bias, so its raw output (setting 46) reads half of full scale: 2048
+ * of 4095 counts, or 1650 mV. The calibrated output, and the absent right stick, read 0. */
+static void app_raw_sticks(struct opensc2_state *s)
+{
+	int16_t mode = osc2.settings[OPENSC2_SETTING_RAW_STICKS];
+
+	if (mode == 1 || mode == 2) {
+		s->stick[OPENSC2_LEFT].x = mode == 2 ? 2048 : 1650;
+		s->stick[OPENSC2_LEFT].y = mode == 2 ? 2048 : 1650;
+	}
+}
+
 static void frame(void)
 {
 	uint8_t report[OPENSC2_STATE_REPORT_LEN];
@@ -425,7 +438,8 @@ static void frame(void)
 	if (wireless && !hk.radio_connected) {
 		return;   /* no keep-alives from the puck, no reports */
 	}
-	memset(&s, 0, sizeof(s));   /* nothing wired: the application's state is all zero */
+	memset(&s, 0, sizeof(s));   /* nothing wired: the application's state is all zero ... */
+	app_raw_sticks(&s);         /* ... but for the left stick's raw output */
 	osc2_test_input(&s);
 	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, &s);
 	opensc2_encode_state(&s, sequence++, report);

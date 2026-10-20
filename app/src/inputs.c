@@ -14,6 +14,9 @@
  * not saved), and a small centre dead zone hides potentiometer noise. Analog inputs are biased by
  * the SAADC's own resistors, sticks to mid-scale and triggers to their released end, so a pin that
  * is listed but not wired reads neutral instead of drifting.
+ *
+ * Controller setting 46 asks for the sticks raw, as the real controller gives them: 2 the ADC
+ * counts on 12 bits, 1 millivolts; both skip the calibration (which keeps following the stick).
  */
 #include <stdlib.h>
 #include <zephyr/kernel.h>
@@ -154,6 +157,19 @@ static void bias_input(const struct axis_cfg *a)
 #endif
 }
 
+/* Setting 46: a stick axis raw. 2: the ADC counts on 12 bits (0..4095); 1: millivolts the way the
+ * real controller converts them, counts x 3300 / 4096 rounded down, as if VDD were 3.3 V (its
+ * sticks are read ratiometrically, full scale VDD, as the overlay reads these: gain 1/4 of
+ * VDD/4). `pin` is the reading as it comes from the pin, not inverted. */
+static int16_t stick_raw(int i, int32_t pin, int16_t mode)
+{
+	int32_t res = axes[i].adc.resolution;
+	int32_t counts = res >= 12 ? pin >> (res - 12) : pin << (12 - res);
+
+	counts = CLAMP(counts, 0, 4095);
+	return (int16_t)(mode == 2 ? counts : counts * 3300 / 4096);
+}
+
 static int16_t stick_value(int i, int32_t raw)
 {
 	int32_t d, half, dz, mag, v;
@@ -248,16 +264,22 @@ static void analog_thread(void *p1, void *p2, void *p3)
 	}
 
 	for (;;) {
+		/* Raw stick output (setting 46), read every sample: a change shows at once. An axis
+		 * that is not wired reads 0 in it. */
+		int16_t raw_sticks = opensc2_setting_get(OPENSC2_SETTING_RAW_STICKS);
 		int16_t stick[4] = { 0 };
-		int32_t raw;
+		int32_t pin, raw;
 
 		for (int i = 0; i < AXES; i++) {
-			if (!axes[i].present || read_axis(&axes[i], &raw) != 0) {
+			if (!axes[i].present || read_axis(&axes[i], &pin) != 0) {
 				continue;
 			}
-			raw = oriented(i, raw);
+			raw = oriented(i, pin);
 			if (axes[i].stick) {
 				stick[i] = stick_value(i, raw);
+				if (raw_sticks == 1 || raw_sticks == 2) {
+					stick[i] = stick_raw(i, pin, raw_sticks);
+				}
 			} else {
 				opensc2_set_trigger(i == LEFT_TRIGGER ? OPENSC2_LEFT : OPENSC2_RIGHT,
 						    trigger_value(i, raw));

@@ -7,6 +7,8 @@
 # compared with the expected-report model (proto/model.py, the input rules of the board's rule
 # word), which the shared vectors hold to the library's own rules. Lizard mode is off (0x81
 # first); the firmware refuses an injection while it is on, which inputs.lizard_lock checks.
+# inputs.raw_sticks is the one test of the application's own state: the blank canvas's left stick
+# on its biased pins.
 import random
 import struct
 
@@ -20,7 +22,8 @@ TESTS = [("inputs.buttons", "WR", []), ("inputs.sticks", "WR", []), ("inputs.tri
          ("inputs.trigger_bits", "WR", []), ("inputs.pads", "WR", []), ("inputs.imu", "WR", []),
          ("inputs.full", "WR", []), ("inputs.stick_touch", "WR", []),
          ("inputs.pad_blank", "WR", []), ("inputs.raw_trigger_bits", "WR", []),
-         ("inputs.pad_click", "WR", []), ("inputs.latency", "WR", []), ("inputs.lizard_lock", "WR", []),
+         ("inputs.pad_click", "WR", []), ("inputs.raw_sticks", "WR", []),
+         ("inputs.latency", "WR", []), ("inputs.lizard_lock", "WR", []),
          ("inputs.decoupled", "WR", [])]
 
 LT_BIT = 1 << R.BIT["LTRIGGER_DIGITAL"]
@@ -245,6 +248,44 @@ def _pad_click(rig, c):
             rig.rules_set(now)
 
 
+def _raw_sticks(rig, c):
+    """inputs.raw_sticks: setting 46 makes the application report its sticks raw: 2 the ADC
+    counts, 1 millivolts. The blank canvas's left stick sits on two analog pins the chip's bias
+    holds at half of full scale: about 2048 counts, 1650 mV (VDD/2 at 3.3 V). Nothing injected:
+    this is the application's own state."""
+    if rig.inject_active:
+        rig.inject_off()
+    start46 = rig.settings_read()[46]
+
+    def left_stick():
+        rig.sleep(0.05)       # the application samples every 4 ms
+        reps = [r for _t, r in rig.read_stream(count=6) if r[0] == C.RPT_STATE]
+        if not reps:
+            return None
+        f = R.decode_state52(R.state52_of_report(reps[-1]))
+        return f["lstick_x"], f["lstick_y"]
+
+    try:
+        got = {}
+        for v46 in (2, 1, 0):
+            rig.write_settings([(46, v46)])
+            got[v46] = left_stick()
+        if got[2] is None:
+            c.fail("no state report")
+            return
+        if got[2] == (0, 0):
+            c.skip("no analog left stick in this build (46 = 2 reads 0, 0)")
+        c.observe(counts=list(got[2]), millivolts=list(got[1] or ()), calibrated=list(got[0] or ()))
+        c.true("46 = 2: the left stick's counts near half of 4095 (%s)" % (got[2],),
+               all(1650 <= v <= 2450 for v in got[2]))
+        c.true("46 = 1: its millivolts near 1650 (%s)" % (got[1],),
+               got[1] is not None and all(1320 <= v <= 1980 for v in got[1]))
+        c.true("46 = 0: calibrated again, near the centre (%s)" % (got[0],),
+               got[0] is not None and all(abs(v) <= 6000 for v in got[0]))
+    finally:
+        _setting_back(rig, 46, start46)
+
+
 def _lizard_lock(ctx, rig, c):
     """inputs.lizard_lock: the firmware refuses an injection while lizard mode is on, and stops
     one when lizard mode comes on."""
@@ -419,6 +460,13 @@ def run(ctx):
     if ctx.want("inputs.pad_click"):
         with ctx.check(GROUP, "inputs.pad_click") as c:
             _pad_click(rig, c)
+
+    if ctx.want("inputs.raw_sticks"):
+        with ctx.check(GROUP, "inputs.raw_sticks") as c:
+            if not rig.models("app_raw_sticks"):
+                c.skip("the application's raw sticks not modelled by the %s backend"
+                       % rig.backend.kind)
+            _raw_sticks(rig, c)
 
     if ctx.want("inputs.latency"):
         with ctx.check(GROUP, "inputs.latency") as c:

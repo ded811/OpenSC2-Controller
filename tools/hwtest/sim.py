@@ -241,7 +241,7 @@ class SimBackend:
     models = {"firmware", "test_channel", "usb_framing", "usb_report_ids", "console_test", "stream",
               "battery", "battery_cadence", "app_send", "outputs", "rumble_timeout", "settings",
               "watchdog", "lease", "reboot", "radio", "puck", "lizard", "inputs", "desc",
-              "session_log", "steam", "detach_report", "deaf", "hwinfo"}
+              "session_log", "steam", "detach_report", "deaf", "hwinfo", "app_raw_sticks"}
 
     def __init__(self, start_mode="W", fault=None, clock=None, seed=1, hooks=True):
         self.hooks_built = hooks      # False: a firmware built without CONFIG_OPENSC2_TEST_HOOKS
