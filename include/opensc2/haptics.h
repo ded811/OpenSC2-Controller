@@ -14,9 +14,11 @@
  *     static const struct opensc2_haptics_output amp = { .api = &amp_api };
  *
  *     opensc2_haptics_set_output(OPENSC2_HAPTICS_GRIPS, &amp);
- *     opensc2_haptics_play_cue(OPENSC2_HAPTICS_CUE_USB_START, opensc2_chime_level());
+ *     opensc2_haptics_play_script(OPENSC2_HAPTIC_LEFT_GRIP | OPENSC2_HAPTIC_RIGHT_GRIP, 4, 0);
  *
- * The decoded outputs still reach the application's rumble and haptic callbacks as before. Every
+ * With the system state machine (CONFIG_OPENSC2_SYSTEM, on by default) the library plays the cues
+ * itself; opensc2_haptics_play_cue() is for an application without it. The decoded outputs still
+ * reach the application's rumble and haptic callbacks as before. Every
  * function and option: docs/api.md, Haptics synthesiser.
  */
 #ifndef OPENSC2_HAPTICS_H_

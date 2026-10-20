@@ -1040,7 +1040,8 @@ static const struct opensc2_haptics_output_api amp_api = { .write = amp_write };
 static const struct opensc2_haptics_output amp = { .api = &amp_api };
 
 opensc2_haptics_set_output(OPENSC2_HAPTICS_GRIPS, &amp);
-opensc2_haptics_play_cue(OPENSC2_HAPTICS_CUE_USB_START, opensc2_chime_level());
+/* the cues: the system state machine (on by default) plays them itself; a sound of your own: */
+opensc2_haptics_play_script(OPENSC2_HAPTIC_LEFT_GRIP | OPENSC2_HAPTIC_RIGHT_GRIP, 4, 0);
 ```
 
 ### The two paths

@@ -7,8 +7,8 @@
  * on the controller's haptics (rumble, pulses, clicks, tones, sweeps, scripts, PCM streams) into
  * sample blocks, and the outputs set up from the overlay play them: the grips on an I2S amplifier,
  * the pads on a PWM "DAC" (or, with drv2605.conf, one actuator on a DRV2605). This file only starts
- * the library, plays a start-up cue of OpenSC2's own, and adds a shell command to try the sounds
- * by hand:
+ * the library (whose system state machine plays the start-up cue, one of OpenSC2's own sounds)
+ * and adds a shell command to try the sounds by hand:
  *
  *   hap cue <0..10> [level]           a cue on both grips (the level: 1 quiet, 2 normal)
  *   hap script <1..17> [chan] [dB]    a built-in script (chan: OPENSC2_HAPTIC_* bits, hex)
@@ -171,11 +171,14 @@ int main(void)
 		LOG_ERR("opensc2_init failed (%d)", err);
 		return 0;
 	}
-	/* A start-up cue of OpenSC2's own at the stored chime level, as the real controller plays one:
-	 * cue 0 when wired, the puck slot's cue (3 or 4) when wireless. */
-	(void)opensc2_haptics_play_cue(opensc2_mode() == OPENSC2_MODE_WIRED ?
-				       OPENSC2_HAPTICS_CUE_USB_START :
-				       opensc2_selected_slot() ? OPENSC2_HAPTICS_CUE_PUCK_2 :
-				       OPENSC2_HAPTICS_CUE_PUCK, opensc2_chime_level());
+	/* With the system state machine (the default) the library plays the start-up cue itself, as
+	 * the real controller does: cue 0 when wired, the stored transport's when wireless, at the
+	 * stored chime level. Without the machine the application plays it. */
+	if (!IS_ENABLED(CONFIG_OPENSC2_SYSTEM)) {
+		(void)opensc2_haptics_play_cue(opensc2_mode() == OPENSC2_MODE_WIRED ?
+					       OPENSC2_HAPTICS_CUE_USB_START :
+					       opensc2_selected_slot() ? OPENSC2_HAPTICS_CUE_PUCK_2 :
+					       OPENSC2_HAPTICS_CUE_PUCK, opensc2_chime_level());
+	}
 	return 0;
 }

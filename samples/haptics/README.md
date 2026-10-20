@@ -24,8 +24,9 @@ board of their own.
 - With `drv2605.conf` on top, `CONFIG_OPENSC2_HAPTICS_OUT_DRV2605` instead: one ERM or LRA on a
   DRV2605(L) in real-time playback through Zephyr's `ti,drv2605` driver; each 8 ms block's loudness
   becomes its amplitude (the chip has no drive-frequency control: tones and sweeps lose their pitch).
-- The synthesiser's own sounds (OpenSC2's, not Valve's): a start-up cue, and a `hap` shell command
-  that plays the cues, the 17 built-in scripts, the clicks and the drop sounds by hand.
+- The synthesiser's own sounds (OpenSC2's, not Valve's): the start-up cue, which the library's
+  system state machine plays itself, and a `hap` shell command that plays the cues, the 17 built-in
+  scripts, the clicks and the drop sounds by hand.
 - The pairing button with the same rules as every sample.
 
 ## Parts
@@ -86,8 +87,10 @@ To flash, short RST to GND twice quickly: a USB drive appears. Copy `zephyr.uf2`
 
 The sample is built to do the following; none of it has run on hardware yet.
 
-- At start-up a short cue of OpenSC2's own on the grips (wired: cue 0; wireless: the puck slot's
-  cue), at the chime level Steam stores (`0xDC`; 1 quiet, 2 normal, anything else silent).
+- At start-up a short cue of OpenSC2's own on the grips (wired: cue 0; wireless: the stored
+  transport's cue), at the chime level Steam stores (`0xDC`; 1 quiet, 2 normal, anything else
+  silent). The library's system state machine plays it, as the real controller does; the sample
+  plays it itself only in a build without the machine.
 - Games' rumble through Steam: a 50 Hz tone with a slow wobble on the left grip and 50 Hz bursts
   on the right one, each lasting 500 ms from Steam's latest rumble report (Steam repeats them while
   a game rumbles), as the real controller plays it.
