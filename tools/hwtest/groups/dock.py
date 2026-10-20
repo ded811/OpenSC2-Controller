@@ -107,6 +107,8 @@ def run(ctx):
         _run(ctx, rig)
     finally:
         try:
+            # the dock's stored request as after a boot (0x83), no session, the states reset
+            rig.dock_frame(D.set_request(C.VC_ATTRIBUTES), start_session=True)
             rig.dock_end()
             rig.dock_ctrl([D.CTRL_RESET])
         except Exception:

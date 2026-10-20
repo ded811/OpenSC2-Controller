@@ -32,7 +32,7 @@ still change between minor versions.
 
 - Vendor commands run one at a time across links (a mutex in the command channel), now that the
   dock can run them beside USB or the radio.
-- The host tests are now 63 (3,034 checks), and 95 (5,778 checks) with the hardware test hooks; the
+- The host tests are now 63 (3,034 checks), and 95 (5,783 checks) with the hardware test hooks; the
   runner has 215 self-tests and its dry run includes `--dock`.
 
 ## [0.2.0] - 2026-10-19

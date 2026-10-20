@@ -722,7 +722,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_WARM_MARK_RAM` / `_GPREGRET2` | RAM; GPREGRET2 on nRF52 when no `opensc2,retained-ram` region is chosen | where the warm-restart mark is kept |
 | `CONFIG_OPENSC2_TEST_HOOKS`, `CONFIG_OPENSC2_TEST_RING_SIZE`, `CONFIG_OPENSC2_TEST_SEQ_DEPTH` | n (the blank canvas turns it on), 2048, 8 | the [hardware test hooks](#hardware-test-hooks); with them, Zephyr's `CONFIG_SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE` defaults to 256 |
 | `CONFIG_OPENSC2_DOCK_LINK` | y with the test hooks | the [dock link](#the-dock-link): the dock's protocol without pins |
-| `CONFIG_OPENSC2_DOCK` (`_THREAD_PRIORITY`, `_THREAD_STACK_SIZE`) | n (9, 1536) | the dock's UART and pilot sense, from the devicetree alias `opensc2-dock`; **built, never run on hardware** ([The UART build](#the-uart-build-untested)) |
+| `CONFIG_OPENSC2_DOCK` (`_THREAD_PRIORITY`, `_THREAD_STACK_SIZE`) | n (9, 2048) | the dock's UART and pilot sense, from the devicetree alias `opensc2-dock`; **built, never run on hardware** ([The UART build](#the-uart-build-untested)) |
 | identity: `_UNIT_SERIAL`, `_BOARD_SERIAL`, `_SERIAL_FROM_CHIP`, `_GIT_REVISION`, `_PRODUCT_ID`, `_BOARD_REVISION`, `_BUILD_TIME`, `_BOOTLOADER_BUILD_TIME` | see [Identity](#identity) | |
 
 ## Threads and timing
@@ -932,8 +932,10 @@ It needs `CONFIG_UART_ASYNC_API` and the instance's `CONFIG_UART_<n>_ASYNC`. One
 pilot between sessions and serves the requests during one; it arms the receiver for one 73-byte
 frame with a 64 ms gap timeout, answers, waits until the answer has left, and only then arms again,
 so it never hears its own answer on a shared line. The TX pin should leave the line alone between
-answers (open drain, as the SuperMini build has it). `app/dock.conf` with `app/dock.overlay` is a
-SuperMini variant; its pins, and how they would meet the puck's `P` pad, are untried guesses.
+answers (open drain, as the SuperMini build has it). The UART and the test hooks' dock ops share the
+one dock link: the thread leaves a session the test hooks started alone, so use one at a time.
+`app/dock.conf` with `app/dock.overlay` is a SuperMini variant; its pins, and how they would meet the
+puck's `P` pad, are untried guesses.
 
 ### The frame functions
 

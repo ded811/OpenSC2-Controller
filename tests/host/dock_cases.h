@@ -501,9 +501,18 @@ OPENSC2_TEST(dock_ops_probe)
 		CHECK_EQ(ents[i].d[1], 0);    /* answered */
 		CHECK_EQ(ents[i].d[2], 73);
 	}
-	/* the session ends with the arming */
+	/* the session ends with the arming, and does not come back with the next one */
 	CHECK_EQ(con_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
 	CHECK(!osc2_dock_active());
+	stub.now_ms += 5;
+	dk_arm();
+	CHECK(!osc2_dock_active());
+	CHECK_EQ(dk_run(73, 0), OSC2_TEST_NO_LINK);
+	/* a session that outlives nothing: the pilot's (the UART's) is not the hooks' to end */
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(con_op(OSC2_TEST_OP_DISARM, NULL, 0), OSC2_TEST_OK);
+	CHECK(osc2_dock_active());
+	osc2_dock_session_end(OSC2_DOCK_END_STOPPED);
 }
 
 OPENSC2_TEST(dock_ops_commands)

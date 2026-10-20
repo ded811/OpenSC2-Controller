@@ -202,7 +202,16 @@ static void dock_thread(void *a, void *b, void *c)
 	}
 	LOG_INF("Dock: checking the pilot (UNTESTED on hardware)");
 	for (;;) {
-		if (!osc2_dock_active()) {
+		struct osc2_dock_info info;
+
+		osc2_dock_info(&info);
+		if (info.active && info.starter == OSC2_DOCK_BY_TEST) {
+			/* The test hooks feed the dock link frames of their own: leave the UART alone
+			 * until their session ends (with their arming at the latest). */
+			k_sleep(K_MSEC(OSC2_DOCK_PILOT_IDLE_MS));
+			continue;
+		}
+		if (!info.active) {
 			if (!pilot_check()) {
 				k_sleep(K_MSEC(OSC2_DOCK_PILOT_IDLE_MS));
 				continue;

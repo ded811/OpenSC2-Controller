@@ -240,7 +240,7 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 63 host tests (3,034 checks); 95 (5,778 checks) with the hardware
+- **Host tests**, no hardware: 63 host tests (3,034 checks); 95 (5,783 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
   runner's 215 self-tests; its dry run against the library's own code in a firmware emulator; 6
   self-tests of `tools/fake_puck.py` and 9 of `tools/match_steam_version.py`. Run

@@ -43,8 +43,10 @@ config OPENSC2_DOCK_THREAD_PRIORITY
 
 config OPENSC2_DOCK_THREAD_STACK_SIZE
 	int "Dock thread stack size"
-	default 1536
+	default 2048
 	help
-	  The thread runs vendor commands, settings writes included.
+	  The thread runs vendor commands, flash writes included (a pairing over the dock saves the
+	  bond), as the USB stack's thread does on the cable (the blank canvas gives that one 2048
+	  bytes for the same reason).
 
 endif # OPENSC2_DOCK
