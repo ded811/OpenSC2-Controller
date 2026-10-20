@@ -800,7 +800,11 @@ static void sys_work_fn(struct k_work *work)
 	next = soonest(next, osc2_idle_next(&idle, now));
 	next = soonest(next, osc2_sys_next(&machine, now));
 	next = soonest(next, osc2_test_sys_next(now));
-	if (k_msgq_num_used_get(&osc2_sys_q) > 0) {
+	if (machine.ended) {
+		/* Nothing more happens (the application has the power-off or the reboot): what still
+		 * comes is dropped, so the queue cannot hold this work item at a 1 ms period. */
+		k_msgq_purge(&osc2_sys_q);
+	} else if (k_msgq_num_used_get(&osc2_sys_q) > 0) {
 		next = soonest(next, (int32_t)osc2_sys_wait(&machine, now));
 	}
 	(void)k_work_reschedule(&sys_work, K_MSEC(MAX(next, 1)));
