@@ -267,6 +267,9 @@ def _run(ctx, rig):
         with ctx.check(GROUP, "dock.input") as c:
             base.need(rig, "inputs")
             rig.lizard_off()
+            # a session first: the dock keeps its copy of the stream's reports only while one
+            # runs (the first GET input of a new session answers whatever the copy held)
+            _answered(c, "a probe (a session)", _frame(rig, PROBE))
             state = R.make_state52(buttons=1 << R.BIT["A"], lstick_x=1234, right_trigger=2000)
             rep, n = rig.inject_and_read(state)
             if rep is None:

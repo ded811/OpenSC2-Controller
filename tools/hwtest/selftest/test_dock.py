@@ -195,3 +195,21 @@ class DockGroup(unittest.TestCase):
             res = _results(run)
             self.assertEqual(code, C.EXIT_OK, (start, res))
             self.assertEqual(sorted(s for _l, s, _n in res), [PASS] * 17, (start, res))
+
+    def test_input_alone_against_the_emulator(self):
+        # dock.input on its own, with no test before it that left a session running: the copy
+        # of the stream's reports is kept only while a session runs
+        exe = os.environ.get("OPENSC2_FWEMU")
+        if not exe or not os.path.isfile(exe):
+            self.skipTest("OPENSC2_FWEMU is not set (tests/host/run.ps1 sets it)")
+        from hwtest import fwemu
+        backend = fwemu.FwEmuBackend(exe, start_mode="W")
+        try:
+            run = runner_mod.Runner(backend, _opt(groups={"dock"}, tests={"dock.input"},
+                                                  dock=True), mask_mod.Masker())
+            code = run.run()
+        finally:
+            backend.close()
+        res = _results(run)
+        self.assertEqual(code, C.EXIT_OK, res)
+        self.assertEqual(sorted(s for _l, s, _n in res), [PASS] * 2, res)
