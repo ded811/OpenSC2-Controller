@@ -129,8 +129,9 @@ OPENSC2_TEST(hooks_raw_inject)
 	CHECK_EQ(RES[6], present);    /* injected */
 	CHECK_EQ(RES[7], 0x03);       /* pad rules, pressure click */
 	CHECK_EQ(RES[8], 0);          /* no recording */
-	/* the left pressure filter after three frames of -20: -5, -8, -11 */
-	CHECK_EQ((int16_t)opensc2_get_le16(&RES[11]), -11);
+	/* the left pressure filter: without a usable calibration it does not follow the raw words
+	 * (three frames of -20), it stays at 0 */
+	CHECK_EQ((int16_t)opensc2_get_le16(&RES[11]), 0);
 
 	/* RAW_OFF: the application's again */
 	CHECK_EQ(usb_op(OSC2_TEST_OP_RAW_OFF, NULL, 0), OSC2_TEST_OK);

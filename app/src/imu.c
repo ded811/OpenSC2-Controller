@@ -74,8 +74,14 @@ static struct opensc2_gyro_bias bias;
 static void bias_start(void)
 {
 	float start[3];
+	int err = opensc2_cal_gyro_bias(start);
 
-	if (opensc2_cal_gyro_bias(start) == 0) {
+	if (err == -ERANGE) {
+		/* The real controller then leaves its IMU stream off; this polled IMU (OpenSC2's own
+		 * way of reading it) only starts without the stored bias. */
+		LOG_WRN("One of the gyro bias values is out of range: not used");
+	}
+	if (err == 0) {
 		/* rad/s in the sensor's axes, as the real controller stores it */
 		for (int i = 0; i < 3; i++) {
 			start[i] *= RAD_TO_DEG;

@@ -172,7 +172,9 @@ struct opensc2_pressure_proc {
 /* Set up from a stored calibration (NULL: unusable). The filter keeps its value; the click
  * clears. */
 void opensc2_pressure_setup(struct opensc2_pressure_proc *p, const struct opensc2_cal_pressure *cal);
-/* One raw word, with the side's click setting (52 or 53); a change of it clears the click. */
+/* One raw word, with the side's click setting (52 or 53); a change of it clears the click. The
+ * filter p follows the raw words only while the calibration is usable; otherwise it keeps its
+ * value (and there is no click). */
 void opensc2_pressure_sample(struct opensc2_pressure_proc *p, int16_t raw, int16_t click_setting);
 /* The report's pressure for the filter's value. */
 uint16_t opensc2_pressure_value(const struct opensc2_pressure_proc *p);
@@ -300,7 +302,9 @@ bool opensc2_cal_recording(enum opensc2_cal_rec_kind kind);
  *   the default 90, 35, 120 or 80 from a boot without a stored one, 0 after a 0xF0 until the
  *   next boot;
  *   the battery voltage offset in mV (cal/volt_offset);
- *   the gyro bias, three floats (rad/s), -ENOENT when none is stored or one is not finite. */
+ *   the gyro bias, three floats (rad/s), as the real controller takes it: -ENOENT when none is
+ *   stored (all zero), -ERANGE when one is 2^31 or more in magnitude, an infinity included (the
+ *   real controller then does not start its IMU stream), and a NaN given as 0. */
 uint8_t opensc2_cal_led_trim(uint8_t channel);
 int16_t opensc2_cal_volt_offset(void);
 int opensc2_cal_gyro_bias(float bias[3]);

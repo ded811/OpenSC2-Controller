@@ -362,7 +362,13 @@ OPENSC2_TEST(cal_pressure_forms)
 		}
 		CHECK_EQ(opensc2_pressure_value(&p), 0);
 		CHECK(!p.click);   /* never clicks */
+		CHECK_EQ(p.filtered, 100);   /* and p is left as it was */
 	}
+	/* a usable calibration again: the filter goes on from the p it had */
+	c = (struct opensc2_cal_pressure){ .format = 1, .a = 100, .b = 2100, .gain = 2000 };
+	opensc2_pressure_setup(&p, &c);
+	opensc2_pressure_sample(&p, 2100, 40);
+	CHECK_EQ(p.filtered, (3 * 100 + 2100) / 4);
 	opensc2_pressure_setup(&p, NULL);
 	CHECK(!p.usable);
 	/* 0x7FFF is uncalibrated only with format 1 */

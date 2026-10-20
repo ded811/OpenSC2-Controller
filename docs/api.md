@@ -567,9 +567,10 @@ samples from raw inputs only. The blank canvas's options do both. How each is pr
 - **Triggers.** From the released end to the pulled end moved 2 % toward it: 0 over the first 5 %,
   full from 95 % on; the direction comes from the calibration. Usable with A and B at least 100
   counts apart.
-- **Pad pressure.** A filter (p = (3 p + raw) / 4), a 5 % band at both ends of the calibrated range,
-  the calibration's gain; the click on above (setting 52 or 53 + 8) %, off below (that − 8) %, with
-  −1 counting as 100.
+- **Pad pressure.** A filter (p = (3 p + raw) / 4, stepped only while the calibration is usable;
+  without one p keeps its value), a 5 % band at both ends of the calibrated range, the calibration's
+  gain; the click on above (setting 52 or 53 + 8) %, off below (that − 8) %, with −1 counting as
+  100.
 - **Stick touch and grip.** The mean of the last two words against setting 30 (on, default 500)
   and 31 (held, 400), and against (setting 34 / 2 + 12.5) % of 1800 (on, 1125) and setting 35 % of
   that (held, 900). A change of settings 30, 31, 33, 34, 35, 52, 53, 66, 72 or 73 starts both pads
@@ -588,7 +589,7 @@ uses with the by-name commands:
 | `cal/touch_l`, `cal/touch_r` | 10 | format u16 first (the rest of the layout is unknown); kept, and readable while the format word is not 0; nothing uses them |
 | `cal/rgbw_r`, `_g`, `_b`, `_w` | 1 each | LED colour trims, percent, used whatever their value as on the real controller (0 leaves the channel dark, above 100 is brighter up to full duty; `0xED` reads one only while it lies within 1..199); 90, 35, 120, 80 from a boot with none stored, 0 after `0xF0` until the next boot: `opensc2_cal_led_trim(channel)` |
 | `cal/volt_offset` | 2 | battery voltage offset, s16 mV: `opensc2_cal_volt_offset()` |
-| `cal/sensors/gyroscope/bias` | 12 | three floats (rad/s), a starting gyro bias: `opensc2_cal_gyro_bias(bias)` |
+| `cal/sensors/gyroscope/bias` | 12 | three floats (rad/s), a starting gyro bias, taken as the real controller takes it (a NaN as 0; 2^31 or more in magnitude, an infinity too, refused with `-ERANGE`, and the real controller then leaves its IMU stream off): `opensc2_cal_gyro_bias(bias)` |
 
 `opensc2_cal_generation()` changes whenever a stick, trigger or pressure key changes in RAM, for an
 application that processes its own inputs with the [calibration helpers](#calibration-helpers); the

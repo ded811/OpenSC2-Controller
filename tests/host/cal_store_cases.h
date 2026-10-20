@@ -10,6 +10,7 @@
  * suite (its safety rule S5), so they are tested here only.
  */
 #include <errno.h>
+#include <math.h>
 #include <string.h>
 #include <opensc2/cal.h>
 #include "internal.h"
@@ -173,9 +174,28 @@ OPENSC2_TEST(cal_store_by_name)
 	CHECK(cal_named(0xEF, "cal/sensors/gyroscope/bias", NULL, 0) < 0);
 	CHECK_EQ(opensc2_cal_gyro_bias(back), 0);
 	CHECK(back[2] == 0.5f);
-	raw[0] = 0x00, raw[1] = 0x00, raw[2] = 0xC0, raw[3] = 0x7F;   /* NaN */
+	/* a NaN goes in as 0, as on the real controller */
+	raw[0] = 0x00, raw[1] = 0x00, raw[2] = 0xC0, raw[3] = 0x7F;
 	CHECK_EQ(cal_named(0xEE, "cal/sensors/gyroscope/bias", raw, 12), 0);
-	CHECK_EQ(opensc2_cal_gyro_bias(back), -ENOENT);
+	CHECK_EQ(opensc2_cal_gyro_bias(back), 0);
+	CHECK(back[0] == 0.0f && back[1] == -0.02f && back[2] == 0.5f);
+	/* 2^31 or more in magnitude, an infinity too: refused (the real controller's IMU stream then
+	 * stays off); just below 2^31 is taken */
+	{
+		static const float refused[] = { 2147483648.0f, -2147483648.0f, 3e9f, INFINITY,
+						 -INFINITY };
+		float ok = 2147483520.0f;   /* the largest float below 2^31 */
+
+		for (size_t i = 0; i < ARRAY_SIZE(refused); i++) {
+			memcpy(&raw[4], &refused[i], 4);
+			CHECK_EQ(cal_named(0xEE, "cal/sensors/gyroscope/bias", raw, 12), 0);
+			CHECK_EQ(opensc2_cal_gyro_bias(back), -ERANGE);
+		}
+		memcpy(&raw[4], &ok, 4);
+		CHECK_EQ(cal_named(0xEE, "cal/sensors/gyroscope/bias", raw, 12), 0);
+		CHECK_EQ(opensc2_cal_gyro_bias(back), 0);
+		CHECK(back[1] == ok);
+	}
 	CHECK_EQ(cal_named(0xF0, "cal/sensors/gyroscope/bias", NULL, 0), 0);
 
 	/* an unknown cal/ name is the application's: refused by the blank canvas */

@@ -11,7 +11,8 @@
  * stream is submitted again 500 ms later. Setting 48 = 0 cancels the read (not with
  * CONFIG_APP_IMU_ALWAYS) and any other value submits it again; while it is off the report keeps
  * the last sample. The stored gyro bias (cal/sensors/gyroscope/bias) is programmed as the fusion
- * block's starting bias.
+ * block's starting bias; one the real controller refuses (2^31 or more in magnitude) keeps the
+ * stream from starting at boot, as there.
  *
  * The overlay gives the IMU its interrupt (int1-gpios) and its FIFO and fusion settings
  * (app/imu-stream.overlay).
@@ -161,14 +162,21 @@ static void decode(const struct sensor_decoder_api *dec, const uint8_t *buf)
 	}
 }
 
-/* The stored gyro bias (rad/s, the chip's axes) as the fusion block's starting bias. */
-static void program_bias(void)
+/* The stored gyro bias (rad/s, the chip's axes) as the fusion block's starting bias. False when the
+ * stored bias is refused (2^31 or more in magnitude): the real controller then does not start its
+ * stream at boot. */
+static bool program_bias(void)
 {
 	struct sensor_value v[3];
 	float b[3];
+	int err = opensc2_cal_gyro_bias(b);
 
-	if (opensc2_cal_gyro_bias(b) != 0) {
-		return;
+	if (err == -ERANGE) {
+		LOG_WRN("One of the gyro bias values is out of range: the IMU stream is not started");
+		return false;
+	}
+	if (err != 0) {
+		return true;   /* none stored */
 	}
 	for (int i = 0; i < 3; i++) {
 		(void)sensor_value_from_float(&v[i], b[i]);
@@ -176,6 +184,7 @@ static void program_bias(void)
 	if (sensor_attr_set(imu, SENSOR_CHAN_GBIAS_XYZ, SENSOR_ATTR_OFFSET, v) != 0) {
 		LOG_WRN("The stored gyro bias could not be programmed");
 	}
+	return true;
 }
 
 /* A completion's buffer while it is still this thread's to release: a successful completion's,
@@ -207,8 +216,9 @@ static void imu_thread(void *p1, void *p2, void *p3)
 		LOG_ERR("IMU %s not ready", imu->name);
 		return;
 	}
-	program_bias();
-	stream_start();
+	if (program_bias()) {
+		stream_start();   /* from boot; setting 48 stops and starts it later */
+	}
 	for (;;) {
 		struct rtio_cqe *cqe = rtio_cqe_consume_block(&imu_ctx);
 		int result = cqe->result;

@@ -653,9 +653,11 @@ open, the library does what should work with Steam and the puck, and says so her
 33. **Setting 85.** The real controller hands it to its IMU's fusion block, where its role is not
     known. OpenSC2's rest-based gyro-bias estimate (`<opensc2/sensor_helpers.h>`, for IMUs
     without one of their own) takes it as its rest threshold in report units. The blank canvas's
-    LSM6DSV16X stream option (`app/imu-stream.conf`) starts its stream at boot even when the stored
-    gyro bias is not a finite number or cannot be programmed (it then starts without it); the
-    real controller waits for a host to write setting 48 in that case.
+    LSM6DSV16X stream option (`app/imu-stream.conf`) takes the stored gyro bias as the real
+    controller does: a NaN goes in as 0, and a value of 2^31 or more in magnitude (an infinity
+    included) is refused, so the stream does not start at boot and waits for a host to write
+    setting 48. A bias the IMU's driver cannot program is left out and the stream starts
+    without it.
 34. **The system state machine** (power, chords, the status LED and cues; built, not yet tested on
     hardware). OpenSC2 follows the documented machine ([in brief](#overview-power-chords-and-the-status-led);
     [api.md](api.md#power-and-the-system-state-machine)), with these differences and choices:

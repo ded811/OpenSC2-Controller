@@ -308,15 +308,17 @@ void opensc2_pressure_sample(struct opensc2_pressure_proc *p, int16_t raw, int16
 	int64_t num, den;
 	int32_t s;
 
-	p->filtered = (3 * p->filtered + raw) / 4;
 	if (click_setting != p->click_setting) {
 		p->click = false;
 		p->click_setting = click_setting;
 	}
 	if (!p->usable) {
+		/* p only follows the raw word while the calibration is usable; without one it is left
+		 * as it is, so a calibration that arrives later starts from the p it had */
 		p->click = false;
 		return;
 	}
+	p->filtered = (3 * p->filtered + raw) / 4;
 	s = click_setting < 0 || click_setting > 100 ? 100 : click_setting;   /* -1 means 100 */
 	pressure_fraction(p, &num, &den);
 	/* On when v passes (s + 8) %, off below (s - 8) %. */

@@ -872,10 +872,14 @@ int opensc2_cal_gyro_bias(float bias[3])
 		uint32_t word = opensc2_get_le32(&v[4 * i]);
 
 		memcpy(&bias[i], &word, sizeof(bias[i]));
-		if (bias[i] != bias[i] || bias[i] > 1e30f || bias[i] < -1e30f) {
-			return -ENOENT;   /* not a finite number: refused, as on the real controller */
-		}
 		any |= word != 0;
+		if (bias[i] != bias[i]) {
+			bias[i] = 0.0f;   /* a NaN: the real controller does not catch it, it goes in as 0 */
+		} else if (bias[i] >= 2147483648.0f || bias[i] <= -2147483648.0f) {
+			/* 2^31 or more in magnitude, an infinity too: refused, and the real controller
+			 * then does not start its IMU stream */
+			return -ERANGE;
+		}
 	}
 	return any ? 0 : -ENOENT;
 }
