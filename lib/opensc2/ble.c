@@ -141,6 +141,7 @@ static atomic_t owns_radio;            /* the stack is (being) enabled: ESB must
 static atomic_t forgetting;            /* a factory reset deleted bt/: nothing more until reboot */
 static atomic_t deleted_ids;           /* identities whose bond the stack reported deleted */
 static volatile bool gate;              /* past the gate: the active transport */
+static volatile bool ending;            /* the board is ending the link: no more state reports */
 static volatile uint32_t interval_us;
 static struct k_spinlock conn_lock;     /* ble.conn for the other threads */
 
@@ -1238,7 +1239,7 @@ static void rpt_thread_fn(void *p1, void *p2, void *p3)
 			if (at > k_uptime_ticks()) {
 				k_sleep(K_TIMEOUT_ABS_TICKS(at));
 			}
-			if (gate) {
+			if (gate && !ending) {
 				send_state();
 			}
 		}
@@ -1258,6 +1259,7 @@ static K_SEM_DEFINE(disconnected_sem, 0, 1);
 static void link_reset(void)
 {
 	gate = false;
+	ending = false;
 	ble.trigger = false;
 	trigger_set(false);
 	atomic_set(&inflight, 0);
@@ -1292,6 +1294,10 @@ static void end_link(void)
 		return;
 	}
 	if (gate) {
+		/* The state reports stop first (as on USB before it leaves the bus), so the zero
+		 * report is the last state the host sees: a state report built meanwhile goes out
+		 * before it, none after. */
+		ending = true;
 		(void)osc2_ble_send(zero, sizeof(zero), false);
 		k_msleep(ZERO_REPORT_MS);
 	}
