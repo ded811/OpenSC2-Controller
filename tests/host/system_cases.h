@@ -594,6 +594,73 @@ OPENSC2_TEST(sys_usb_rules)
 	CHECK_EQ(sysout.led_flags, 0);
 }
 
+OPENSC2_TEST(sys_requests_by_state)
+{
+	static const uint8_t requests[] = { OSC2_SYS_EV_BOOTLOADER, OSC2_SYS_EV_REBOOT,
+					    OSC2_SYS_EV_WARM_REBOOT };
+
+	for (size_t i = 0; i < sizeof(requests); i++) {
+		/* A host's requests reach the application wired once configured (Steam's reboot
+		 * into wireless mode after a cable pairing), wireless on USB power and docked with
+		 * the link on (its reboots through the puck) ... */
+		sys_in_reset();
+		sys_boot(true, false, OSC2_SRC_USB, 0);
+		ev(OSC2_SYS_EV_CONFIGURED, 0, 100);
+		ev(requests[i], 0, 200);
+		CHECK(HAS(OSC2_SYS_DO_PASS));
+		CHECK_EQ(sm.state, OSC2_SYS_WIRED);
+		sys_boot(false, true, OSC2_SRC_USB, 0);
+		ev(requests[i], 0, 200);
+		CHECK(HAS(OSC2_SYS_DO_PASS));
+		CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_ON);
+		sys_boot(false, true, OSC2_SRC_DOCK, 0);
+		ev(requests[i], 0, 200);
+		CHECK(HAS(OSC2_SYS_DO_PASS));
+		CHECK_EQ(sm.state, OSC2_SYS_DOCK_ON);
+		/* ... and nowhere else: before a host configured the device, with wireless off, in
+		 * the battery wait and in a chord state. */
+		sys_boot(true, false, OSC2_SRC_USB, 0);
+		ev(requests[i], 0, 200);
+		CHECK(!HAS(OSC2_SYS_DO_PASS));
+		sys_boot(false, true, OSC2_SRC_USB, 0);
+		ev(OSC2_SYS_EV_TURN_OFF, 0, 100);
+		ev(requests[i], 0, 200);
+		CHECK(!HAS(OSC2_SYS_DO_PASS));
+		CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_OFF);
+		sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+		ev(requests[i], 0, 200);
+		CHECK(!HAS(OSC2_SYS_DO_PASS));
+		sysin.chord = OSC2_CHORD_PUCK1;
+		sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+		ev(requests[i], 0, 600);
+		CHECK(!HAS(OSC2_SYS_DO_PASS));
+		CHECK_EQ(sm.state, OSC2_SYS_CHORD);
+	}
+
+	/* On USB power the idle timeout, a level of 0, STEAM held (wired) and the keylock chord do
+	 * nothing: a board without a battery must never turn itself off for them. */
+	sys_in_reset();
+	sys_boot(false, true, OSC2_SRC_USB, 0);
+	ev(OSC2_SYS_EV_IDLE, 0, 100);
+	CHECK_EQ(sysout.actions, 0);
+	ev(OSC2_SYS_EV_LEVEL, 0, 200);
+	CHECK_EQ(sysout.actions, 0);
+	ev(OSC2_SYS_EV_KEYLOCK_HELD, 0, 300);
+	CHECK_EQ(sysout.actions, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_ON);
+	sys_boot(true, false, OSC2_SRC_USB, 0);
+	ev(OSC2_SYS_EV_CONFIGURED, 0, 100);
+	ev(OSC2_SYS_EV_IDLE, 0, 200);
+	CHECK_EQ(sysout.actions, 0);
+	ev(OSC2_SYS_EV_LEVEL, 0, 300);
+	CHECK_EQ(sysout.actions, 0);
+	ev(OSC2_SYS_EV_STEAM_HELD, 0, 7000);
+	CHECK_EQ(sysout.actions, 0);
+	ev(OSC2_SYS_EV_WIRELESS_OFF, 0, 7100);
+	CHECK_EQ(sysout.actions, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_WIRED);
+}
+
 OPENSC2_TEST(sys_dock_rules)
 {
 	sys_in_reset();
