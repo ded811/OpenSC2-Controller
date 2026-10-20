@@ -571,6 +571,9 @@ static int32_t rumble_sample(struct osc2_hap *h, struct osc2_hap_gen *g)
 		} else {
 			g->rumble.started = true;
 			g->rumble.burst_q16 = OSC2_HAP_ONE_Q16;
+			/* The first burst of a fresh start counts one sample more: the second comes
+			 * P + 1 samples after it, every later one P + 2 (the real controller's) */
+			g->rumble.pos++;
 		}
 	}
 	if (g->rumble.phase < TWO_CYCLES) {

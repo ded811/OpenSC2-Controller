@@ -662,14 +662,17 @@ OPENSC2_TEST(haptics_rumble_bursts)
 	hap_queue_ok(&a.cmd[0]);
 	hap_queue_ok(&a.cmd[1]);
 	hap_run(OSC2_HAP_GRIPS, 64, true);
-	/* a burst every 668 samples (83.5 ms), two periods of 50 Hz (320 samples), then silence */
+	/* a burst every 668 samples (83.5 ms), the second of a fresh start 667 after the first, two
+	 * periods of 50 Hz (320 samples), then silence */
 	for (int b = 0; b < 6; b++) {
-		uint32_t at = 32 + (uint32_t)b * 668;
+		uint32_t at = 32 + (b ? 667u + (uint32_t)(b - 1) * 668u : 0u);
+		uint32_t next = 32 + 667u + (uint32_t)b * 668u;
 
 		CHECK(cap.s[1][at] != 0);                       /* the phase moves first: not 0 */
-		CHECK_EQ(hap_peak(1, at + 322, at + 668), 0);
+		CHECK_EQ(hap_peak(1, at + 322, next), 0);
 		burst_peak[b] = hap_peak(1, at, at + 320);
 	}
+	CHECK_EQ(cap.s[1][32 + 666], 0);                    /* not one sample earlier */
 	/* the first burst at 0 dB (-8 dB of the gain: 13045), the later ones random */
 	CHECK(abs(burst_peak[0] - 13045) <= 40);
 	for (int b = 1; b < 6; b++) {
@@ -691,8 +694,8 @@ OPENSC2_TEST(haptics_rumble_bursts)
 	osc2_hap_actions(&o, -10, &a);
 	hap_queue_ok(&a.cmd[0]);
 	hap_run(OSC2_HAP_GRIPS, 20, false);
-	CHECK(cap.s[1][32 + 1336] != 0);                 /* the third burst where it was due */
-	CHECK_EQ(hap_peak(1, 32 + 668 + 322, 32 + 1336), 0);
+	CHECK(cap.s[1][32 + 1335] != 0);                 /* the third burst where it was due */
+	CHECK_EQ(hap_peak(1, 32 + 667 + 322, 32 + 1335), 0);
 
 	/* a timeout from the library does nothing */
 	o.rumble.timeout = true;
