@@ -185,8 +185,8 @@ puck's records carry them is above. What Steam was seen sending:
 | `0x95` with `0xA427AF52` | reboots into wireless mode | at the end of that pairing |
 
 **Controller settings** are 86 numbered 16-bit values, in RAM only and back to their defaults at
-every boot. `0x87` writes any number of them (each clamped to its range where the range is known),
-`0x89` reads one, `0x8E` restores the defaults. Setting 9 is lizard mode, 37 the LED colour
+every boot. `0x87` writes any number of them (each clamped to its range, but for the IMU's 48, 84
+and 85), `0x89` reads one, `0x8E` restores the defaults. Setting 9 is lizard mode, 37 the LED colour
 override, 45 the LED brightness, 48 the IMU stream and 71 the Steam watchdog.
 
 The controller also takes `0x90`, and `0x95` with `0xECAABAC0`, as a request to reboot into its
