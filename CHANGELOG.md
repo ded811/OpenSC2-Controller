@@ -16,6 +16,10 @@ controller is listed in docs/protocol.md's gaps.
 
 **Protocol completeness**
 
+- `opensc2_radio_set_tx_power()` and `opensc2_radio_tx_power()`: the puck link's transmit power at
+  run time, for boards with an amplifier or a weaker antenna (from the next time the link listens);
+  `opensc2_transport_key()`: `user/wireless_transport` as a host reads it.
+
 - The real controller's haptic stream status replies: every stop-all (`0x81` with an on time of 0,
   `0x82` command 0, a zero speed in `0x80`) and `0x86`'s stream stop send `0x44 {channel, 0x02}`
   for each channel they reach (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default, and selected by
@@ -254,9 +258,39 @@ controller is listed in docs/protocol.md's gaps.
 - A transport or puck slot chosen at run time (`opensc2_select_slot()`, the shell's `opensc2 slot`)
   is stored once its link is up, as the October 2026 firmware does, instead of at once. It is
   stored as `opensc2/transport`, with `opensc2/slot` still written for a puck transport.
-- Through the puck, lizard mode's and the application's reports wait for room in the radio's queue
-  (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`, 8) instead of being dropped, and lizard mode waits with its
-  next frame meanwhile; the battery report is still dropped when the queue is full.
+- The puck's radio link turn by turn as on the real controller: only a keep-alive gets a state
+  report (a hello, a channel change or the PC-asleep packet no longer do, so the sequence number no
+  longer moves on for them); its slot is 2075 µs after the keep-alive is handled and the report is
+  built early by the longest build of the last 65 (`CONFIG_OPENSC2_REPORT_DELAY_US`, was 2000 µs
+  from its arrival); "disconnecting" (every turn), the version answer and the identity are queued
+  at once, each its own payload, and keep-alives still get state reports while disconnecting; one
+  GET answer and one SET result wait, one each, the GET answer first (was one queue of 4); lizard
+  mode's reports of a frame ride with the next state report; up to 5 other reports wait
+  (`CONFIG_OPENSC2_REPORT_QUEUE_DEPTH`, was 6) and one that finds them full is dropped, lizard
+  mode's included (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`, OpenSC2's option to let them wait, is now 0
+  by default); a SET record is zero padded to a whole command; an output record is handed on with
+  its record's length, one more than the report (so `0x87` and `0x89` through the puck behave as on
+  the real controller); after 10 ms of silence the walk listens 13 ms on each entry of the channel
+  list in turn, the first one included, and a channel change moves 0.5 ms after the packet.
+- Listening and waiting for a bond as on the real controller: ESB is set up again every time the
+  link listens; a connection request must be exactly 18 bytes; any bond write (either slot) starts
+  listening again, with a fresh 60 s, also one that leaves the slot empty (it then listens for IDs
+  0 and 0); the first disconnect reason of a connection stays, so a stop after the puck's turn-off
+  keeps reason 3 and the link goes `OFF` (wireless off). A slot chosen at run time posts an event
+  of its own.
+- `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` (60 s) and `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` (10 s) are on in
+  every build, as on the real controller (they were 0, never, without `CONFIG_OPENSC2_BATTERY`):
+  a board on USB power that finds no puck goes "wireless off" (amber), and STEAM reboots it wired.
+- `user/wireless_transport` as on the real controller: `0xEE` takes any one byte and leaves the
+  running link alone (a new puck slot no longer counts at once; 0 and 1 without Bluetooth and values
+  above 3 are kept as written), `0xED` reads it back, `0xF0` sets 2 and leaves the link alone; the
+  running transport is written back into the key at every connection; a choice made at run time
+  shows in the key only once its link is up. At boot 3 runs the second puck, 0 and 1 Bluetooth, any
+  other byte the main puck.
+- The bond keys as on the real controller: `0xEE` keeps a 24-byte bond as written (one with an ID of
+  0 reads back empty), `0xEF` of an empty bond answers `-ENODEV` (was `-ENOENT`), `0xF0` empties
+  the RAM bond only once the stored one is deleted, and `0xA2` writes the stored bond only, from a
+  work item: it counts from the next boot (it took effect at once).
 - With the system state machine, `opensc2_init()` leaves starting the link to it (still only when
   `config.start` is set); the turn-off command and the cable pulled are its events, and the
   application gets `OPENSC2_POWER_OFF` or a reboot at the end of a shutdown; a host's reboot and
@@ -268,7 +302,6 @@ controller is listed in docs/protocol.md's gaps.
 - The blank canvas's LED shows the real controller's patterns (on its one-colour LED: on once set up
   or connected, a slow blink while it looks for the puck, two quick flashes while it pairs over the
   air, a short dark blink every second for amber).
-- `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` defaults to 60 s in a battery build.
 - The retained RAM area's layout is version 2 (the crash record's slot and the test hooks' system
   words), so the first boot of this firmware starts with an empty USB session log.
 - Vendor commands run one at a time across links (a mutex in the command channel), now that the dock
