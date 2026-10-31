@@ -20,7 +20,8 @@ board of their own.
 - Two built-in outputs, set up from the overlay's devicetree nodes:
   `CONFIG_OPENSC2_HAPTICS_OUT_I2S` (`opensc2,haptics-i2s`: Zephyr's I2S driver as master, 16-bit
   stereo at 8 kHz) and `CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC` (`opensc2,haptics-pwm-dac`: nrfx's PWM
-  sequence playback, each sample a duty cycle, exactly 4 kHz).
+  sequence playback, each sample a duty cycle of 256 steps held 16 periods of 16 us, about
+  3906 Hz as on the real controller; `CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K` for 4 kHz).
 - With `drv2605.conf` on top, `CONFIG_OPENSC2_HAPTICS_OUT_DRV2605` instead: one ERM or LRA on a
   DRV2605(L) in real-time playback through Zephyr's `ti,drv2605` driver; each 8 ms block's loudness
   becomes its amplitude (the chip has no drive-frequency control: tones and sweeps lose their pitch).
@@ -97,15 +98,21 @@ The sample is built to do the following; none of it has run on hardware yet.
 - Steam's haptic effects: pulse trains, clicks on the pads, tones, sweeps and scripts, each with
   its gain and Steam's master gain (setting 76). PCM streams play once Steam has set their format.
 - `hap cue 5`, `hap script 13 3`, `hap click a`, `hap fall`, `hap info` in the shell (wireless
-  mode, [Reach the shell](../../docs/getting-started.md#reach-the-shell)).
+  mode, [Reach the shell](../../docs/getting-started.md#reach-the-shell)). `hap own on` swaps in
+  sounds of the board's own (click A, the power-on cue's script 1, the drop sound's script 16),
+  `hap own off` brings back OpenSC2's.
 
 ## Change it
 
 - **One output only**: delete the node you do not use from the overlay and turn its option off
   in `prj.conf`.
 - **An output of your own**: implement `struct opensc2_haptics_output_api` (`write` is the only
-  required call) and register it with `opensc2_haptics_set_output()`, or take only each block's
-  loudness with `opensc2_haptics_set_level_output()` ([API reference](../../docs/api.md#the-haptics-synthesiser)).
+  required call; `ready` gives the real controller's timing) and register it with
+  `opensc2_haptics_set_output()`, or take only each block's loudness with
+  `opensc2_haptics_set_level_output()` ([API reference](../../docs/api.md#the-haptics-synthesiser)).
+- **Sounds of your own**: recordings for the clicks and steps for any of the 17 scripts (the cues'
+  and the drop sounds' included) with `opensc2_haptics_set_click()` and
+  `opensc2_haptics_set_script()`, as `hap own` does ([API reference](../../docs/api.md#sounds-the-application-supplies)).
 - **Your own project**: start from [template/](../../template)
   ([docs/integration.md](../../docs/integration.md)).
 
