@@ -166,6 +166,9 @@ controller is listed in docs/protocol.md's gaps.
 - `opensc2_ble_status()` (`include/opensc2/ble.h`): Bluetooth's state for the application (which
   identities hold a bond, security, the ATT MTU, the interval, the window left, the name and
   address), so a custom board can show what the shell's `opensc2 ble status` shows.
+- `CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK` (on by default, as the real controller): the vendor
+  `0x45` flag quirk below can be turned off by a board that switches from the puck to Bluetooth at
+  run time and serves Windows.
 - The log has the connection's details, the PHYs at connection and at every change
   (`CONFIG_BT_USER_PHY_UPDATE` in the app's configuration), a warning when a host asks for an
   interval longer than 7.5 ms, and the bonds of each identity at every start, as the real

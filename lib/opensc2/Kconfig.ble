@@ -83,6 +83,21 @@ config OPENSC2_BLE_VENDOR_SERVICE
 	  out on the vendor characteristic when the host enabled its notifications there, else on
 	  the HID service's.
 
+config OPENSC2_BLE_VENDOR_STATE_QUIRK
+	bool "The vendor 0x45 subscription flag as on the real controller"
+	depends on OPENSC2_BLE_VENDOR_SERVICE
+	default y
+	help
+	  As on the real controller, the vendor service's flag for the state report (0x45) is
+	  bit 0 of the puck link's last disconnect reason (what vendor command 0xF2 selector 2
+	  reports): a host's subscription to the vendor 0x45 sets that bit and its end clears it,
+	  and after a puck link that ended with an odd reason (1, link lost; 3, turned off by the
+	  puck) in the same boot, state reports go to the vendor characteristic whatever the host
+	  subscribed to, so a host that uses only the HID service (Windows) gets none. The real
+	  controller reaches that only through the dock; OpenSC2 also through a switch from the
+	  puck to Bluetooth at run time (opensc2_select_transport(), `opensc2 transport ble`).
+	  Say n to send state reports where the host subscribed, as for every other report.
+
 config OPENSC2_BLE_ADV_WINDOW_S
 	int "Advertising window, seconds (0: advertise until a host connects)"
 	default 60

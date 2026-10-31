@@ -554,7 +554,11 @@ open, the library does what should work with Steam and the puck, and says so her
     an odd reason (1, link lost; 3, turned off by the puck) in the same boot, state reports go to
     the vendor characteristic whatever the host subscribed to: a host that uses only the HID
     service gets none until the board resets or a vendor `0x45` subscription ends. The library does
-    the same (read from the protocol documentation, not observed on a real controller).
+    the same (read from the protocol documentation, not observed on a real controller;
+    `CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK`, on by default). The real controller reaches it only
+    through the dock (a puck link, then Bluetooth chosen there); OpenSC2 also through a switch from
+    the puck to Bluetooth at run time (`opensc2_select_transport()`, `opensc2 transport ble`), so a
+    board that switches at run time and serves Windows may want it off.
 24. **`0xE9`'s read-back, copied.** The real controller converts the stored colour in a way that
     truncates before it scales, so each channel of `0xE9` reads 0 below 100, 100 from 100 to 199
     and 200 from 200. A host can see that answer, so the library gives the same one; the colour

@@ -278,7 +278,7 @@ static void ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
 	LOG_DBG("Notifications %s", value & BT_GATT_CCC_NOTIFY ? "on" : "off");
 }
 
-#if defined(CONFIG_OPENSC2_BLE_VENDOR_SERVICE)
+#if defined(CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK)
 /* The vendor service's state report (0x45): as on the real controller, its notification flag is
  * bit 0 of the puck link's last disconnect reason (0xF2 selector 2), which this sets and clears
  * (the stack clears it at a disconnect too). See osc2_ble_vendor_flag(). */
@@ -487,7 +487,11 @@ BT_GATT_SERVICE_DEFINE(osc2_1_vendor_svc,
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE, PERM_RW, read_feature,
 			       write_feature, (void *)&osc2_ble_reports[16]),
 	VENDOR_INPUT(0), VENDOR_INPUT(1), VENDOR_INPUT(2), VENDOR_INPUT(3), VENDOR_INPUT(4),
+#if defined(CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK)
 	VENDOR_INPUT_CCC(5, vendor_state_ccc_changed),
+#else
+	VENDOR_INPUT(5),
+#endif
 	VENDOR_OUTPUT(0), VENDOR_OUTPUT(1), VENDOR_OUTPUT(2), VENDOR_OUTPUT(3), VENDOR_OUTPUT(4),
 	VENDOR_OUTPUT(5), VENDOR_OUTPUT(6), VENDOR_OUTPUT(7), VENDOR_OUTPUT(8), VENDOR_OUTPUT(9),
 );
@@ -1193,16 +1197,19 @@ static struct bt_conn *conn_get(void)
 }
 
 /* Where input `index` goes for this host: the vendor service's characteristic if its flag there is
- * set (the host's subscription; for 0x45 the real controller's quirk, osc2_ble_vendor_flag()),
+ * set (the host's subscription; for 0x45 the real controller's quirk, osc2_ble_vendor_flag(), unless
+ * CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK is off),
  * else the HID service's if the host enabled notifications there, else nowhere. */
 static const struct bt_gatt_attr *input_target(struct bt_conn *conn, int index)
 {
 	bool vendor = false;
 
-#if defined(CONFIG_OPENSC2_BLE_VENDOR_SERVICE)
+#if defined(CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK)
 	vendor = osc2_ble_vendor_flag(index, bt_gatt_is_subscribed(conn, VENDOR_INPUT_ATTR(index),
 								   BT_GATT_CCC_NOTIFY),
 				      osc2.last_disconnect_reason);
+#elif defined(CONFIG_OPENSC2_BLE_VENDOR_SERVICE)
+	vendor = bt_gatt_is_subscribed(conn, VENDOR_INPUT_ATTR(index), BT_GATT_CCC_NOTIFY);
 #endif
 	switch (osc2_ble_input_target(vendor, bt_gatt_is_subscribed(conn, HID_INPUT_ATTR(index),
 								   BT_GATT_CCC_NOTIFY))) {

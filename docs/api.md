@@ -1763,6 +1763,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_BLE_PNP_VENDOR`, `_PNP_PRODUCT`, `_PNP_VERSION` | 0x28DE, 0x1303, 0x0100 | the Device Information Service's PnP ID (vendor ID source: the USB-IF) |
 | `CONFIG_OPENSC2_BLE_MODEL`, `_MANUFACTURER` | "Steam Controller", "" | its model number and manufacturer name |
 | `CONFIG_OPENSC2_BLE_VENDOR_SERVICE` | y | Valve's vendor GATT service, for SDL on Android and Apple platforms |
+| `CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK` | y | the vendor `0x45` subscription flag as on the real controller: bit 0 of the puck link's last disconnect reason, so after an odd one in the same boot a host that uses only the HID service (Windows) gets no state reports ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23); n: state reports go where the host subscribed |
 | `CONFIG_OPENSC2_BLE_ADV_WINDOW_S` | 60 | the advertising window, then "wireless off"; 0 to 3600, 0: advertise until a host connects |
 | `CONFIG_OPENSC2_BLE_THREAD_PRIORITY`, `_STACK_SIZE` | 6, 2048 | the Bluetooth thread |
 | `CONFIG_OPENSC2_BLE_REPORT_THREAD_PRIORITY`, `_STACK_SIZE` | 4, 1536 | the Bluetooth report thread |
