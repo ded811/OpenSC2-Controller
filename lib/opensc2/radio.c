@@ -700,6 +700,25 @@ static void push_answer(uint8_t type, const uint8_t *data, uint8_t len)
 	conn.answer_count++;
 }
 
+/* An output report from a record. Its handlers on the real controller get the record's length,
+ * which counts the report ID too, one more than the bytes after it: the PCM reports, the only
+ * ones that read their length, take one byte from beyond the report (0x87 one more sample byte,
+ * 0x89 an n one larger), the next record's length byte or whatever the receive buffer still holds
+ * there. Every other report has its own length, as on USB. */
+static void output_record(const struct rx_item *it, const struct opensc2_record *rec)
+{
+	uint8_t report[64];
+	size_t at = (size_t)(rec->data - it->data) + rec->len;
+
+	if ((rec->data[0] != 0x87 && rec->data[0] != 0x89) || rec->len >= sizeof(report)) {
+		(void)osc2_output_dispatch(OSC2_LINK_RADIO, rec->data, rec->len);
+		return;
+	}
+	memcpy(report, rec->data, rec->len);
+	report[rec->len] = at < sizeof(it->data) ? it->data[at] : 0u;
+	(void)osc2_output_dispatch(OSC2_LINK_RADIO, report, (size_t)rec->len + 1u);
+}
+
 static void handle_records(const struct rx_item *it)
 {
 	struct opensc2_record rec;
@@ -727,12 +746,8 @@ static void handle_records(const struct rx_item *it)
 			break;
 		}
 		case OPENSC2_REC_OUTPUT:
-			/* The report's own length, as on USB. The real controller's handlers get the
-			 * record's, one more (it counts the report ID): its 0x87 takes a byte from
-			 * beyond the report, its 0x89 allows n one larger; not copied (protocol.md,
-			 * gap 35). */
 			if (rec.len >= 1) {
-				(void)osc2_output_dispatch(OSC2_LINK_RADIO, rec.data, rec.len);
+				output_record(it, &rec);
 			}
 			break;
 		default:
