@@ -1066,6 +1066,7 @@ class Hooks:
             "build_flags": ((1 << C.CAP_TRIGGER_CLICK_AUTO) | (1 << C.CAP_LIZARD_MODE) |
                             (1 << C.CAP_STEAM_WATCHDOG) | (1 << C.CAP_USB) |
                             (1 << C.CAP_USB_CONSOLE) | (1 << C.CAP_STORAGE) |
+                            (1 << C.CAP_USB_PROFILE_OCTOBER) |
                             (1 << C.CAP_USB_LOG) | (1 << C.CAP_USB_PLUG_IN_REBOOT) |
                             (1 << C.CAP_SHELL) | (1 << C.CAP_RULES) |
                             (1 << C.CAP_HAPTIC_STOP_STATUS) |

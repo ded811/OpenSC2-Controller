@@ -682,7 +682,7 @@ int main(void)
 			uint8_t op = 0, nn = 0;
 			unsigned long wlength = *arg ? strtoul(arg, NULL, 10) : 64;
 			int rc = wireless ? -ENODEV :
-				 osc2_usb_feature_get(buf, (uint16_t)wlength, 64, &op, &nn);
+				 osc2_usb_feature_get(buf, (uint16_t)wlength, 63, &op, &nn);
 
 			if (rc <= 0) {
 				printf("STALL %d\n", rc < 0 ? rc : -EIO);
