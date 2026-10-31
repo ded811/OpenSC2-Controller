@@ -279,6 +279,40 @@ controller is listed in docs/protocol.md's gaps.
 - The hardware test suite's lizard group runs its mapping tests with lizard mode's processing
   switched off, and follows every sequence until lizard mode goes quiet (a glide keeps the reports
   going); `outputs.stop_status` expects the replies by the build's caps.
+- The USB device, HID and the command channel behave as the real controller's (October 2026):
+  - The October device form is the default (USB 2.01 with its BOS descriptor, class `00/00/00`,
+    release 4.04, 63-byte GET replies); July's stays as `CONFIG_OPENSC2_USB_PROFILE_JULY`. The
+    test hooks' own opcode keeps 64-byte replies.
+  - The report descriptor's mouse and keyboard items are in the real controller's order: all 372
+    bytes are its own (also as the Bluetooth report map).
+  - Reports are built while the bus is suspended and wait in the eight IN buffers for the resume;
+    a report that finds no buffer is lost (a state report with its sequence number), lizard
+    mode's and the application's too: nothing waits for a buffer on USB any more. The all-zero
+    report before leaving the bus is tried once.
+  - A wired boot with STEAM held goes on the bus once STEAM is released.
+  - A GET's reply carries the request's bytes after the answer, then the rest of the last
+    `SET_REPORT` (0.2.0: zeros); commands read their payload whatever the length says (a puck
+    record shorter than its length reads zeros: it was refused).
+  - The result codes are the real controller's: `-22` for an opcode nobody knows (through the
+    puck it was `-134`; the application's `vendor_command` returning `-ENOTSUP` now means "not
+    mine"), `-95` for a GET of a command that only acts.
+  - `0x87` takes length / 3 triplets and ignores the bytes after the last one (a length that was
+    not a multiple of 3 was refused). `0xDC` acknowledges every type and a failed save, and uses
+    a new chime level only once it is saved. `0xC5` keeps channels above 100 (they were clamped).
+  - `0xA2` stores the bond for the next boot after the answer, and the bond in use stays (it was
+    in use at once). `0x86` deletes from flash 10 ms after the answer and leaves the values in
+    RAM until its reboot 100 ms later (they were cleared at once). A host's power requests keep
+    the first request's 20 ms when a second one follows within them.
+  - Settings by name follow the real controller's handlers: an empty `0xED` name is refused, a name
+    nobody has is `-22` for `0xEE` and `0xEF` and acknowledged by `0xF0`, `0xEF` of a key without a
+    read function is `-134` and of one with nothing valid to read `-19`, and names no library key
+    has reach any other Zephyr settings handler of the build (Bluetooth's, the application's;
+    `CONFIG_OPENSC2_STORAGE` implies `CONFIG_SETTINGS_RUNTIME`), never the library's `opensc2/`
+    subtree. `user/wireless_transport` takes any byte into RAM and changes nothing at once (it
+    switched the puck slot at once and refused values above 3); `0xF0` of it no longer resets the
+    slot.
+  - Through the puck, output reports `0x87` and `0x89` are told the record's length, one more than
+    the report's payload, as the real controller's handlers are.
 - Host tests: 188 (25,251 checks), and 235 (28,483 checks) with the hardware test hooks built in;
   each test also checks that every mutex the library took was let go again. The runner has 281
   self-tests; its dry runs against the firmware emulator pass 233 tests and skip 26

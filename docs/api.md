@@ -73,6 +73,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_select_slot(slot)`, `opensc2_selected_slot()` | the pairing slot in use (0 or 1) | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_identity_get(&id)`, `opensc2_identity_store(&id)`, `opensc2_identity_clear()` | who the controller says it is | [Identity](#identity) |
 | `opensc2_setting_get(n)`, `opensc2_lizard_mode()`, `opensc2_led_get(&led)`, `opensc2_chime_level()` | the controller settings and the other state Steam sets | [Controller settings](#controller-settings) |
+| `opensc2_setting_set(n, v)`, `opensc2_led_set_color(r, g, b, w)`, `opensc2_chime_level_set(l)` | the same changes from the board, as Steam's `0x87`, `0xC5`, `0xDC` make them | [Controller settings](#controller-settings) |
 | `opensc2_setting_default(n)`, `opensc2_setting_clamp(n, v)` | a setting's default and range (pure) | [Controller settings](#controller-settings) |
 | `opensc2_set_power_source(s)`, `opensc2_power_source()` | what powers the board: a battery, USB or the dock | [Power and the system state machine](#power-and-the-system-state-machine) |
 | `opensc2_keylock()` | whether the keylock (travel lock) is stored | [The keylock](#the-keylock) |
@@ -277,14 +278,15 @@ full-speed USB device with the real controller's descriptors:
 | --- | --- |
 | Device | `28DE:1302`, strings "Valve Software" (Kconfig), the identity's product name ("Steam Controller" unless one is stored, [Identity](#identity)) and its 13-character unit serial (the same string `0xAE` tag 1 answers); one configuration, bus powered, remote wakeup advertised, 500 mA |
 | Interface 0 | HID, no boot protocol; interrupt IN `0x81` and OUT `0x01`, 64 bytes, every 1 ms |
-| Report descriptor | 372 bytes: a mouse collection (`0x40`), a keyboard collection (`0x41`) and the vendor collection with every other report, in that order (Windows' `Col01`, `Col02`, `Col03`) |
-| Form | `CONFIG_OPENSC2_USB_PROFILE_JULY` (default): USB 2.00, class `EF/02/01`, release 3.07, 64-byte GET replies, the form Steam was seen pairing over the cable. `..._OCTOBER`: USB 2.01 with a USB 2.0 extension BOS descriptor, class `00/00/00`, release 4.04, 63-byte GET replies |
-| Feature report 1 | the vendor commands: a 64-byte `SET_REPORT(Feature 1)` runs a command (`01 <opcode> <n> <payload>`) and, when it succeeds, becomes USB's stored request; `GET_REPORT(Feature 1)` answers the stored request, 64 bytes whatever wLength (Steam asks 65 first) and zeros after the answer. Anything refused is a STALL: an unknown opcode, a SET that is not 64 bytes or has n above 61, a GET of a command without an answer. Other report types and IDs (also output reports on the control endpoint, feature report 2) stall |
+| Report descriptor | the real controller's 372 bytes, byte for byte: a mouse collection (`0x40`), a keyboard collection (`0x41`) and the vendor collection with every other report, in that order (Windows' `Col01`, `Col02`, `Col03`); the same bytes are the Bluetooth report map |
+| Form | `CONFIG_OPENSC2_USB_PROFILE_OCTOBER` (default): the October 2026 firmware's, USB 2.01 with a USB 2.0 extension BOS descriptor, class `00/00/00`, release 4.04, 63-byte GET replies. `..._JULY`: USB 2.00, class `EF/02/01`, release 3.07, 64-byte GET replies, the form Steam was seen pairing over the cable with OpenSC2 0.2.0 |
+| Feature report 1 | the vendor commands: a 64-byte `SET_REPORT(Feature 1)` runs a command (`01 <opcode> <n> <payload>`) and, when it succeeds, becomes USB's stored request; `GET_REPORT(Feature 1)` answers the stored request, the form's reply length whatever wLength (Steam asks 65 first), the request's bytes and then the last SET's after the answer ([Vendor commands](#vendor-commands)). Anything refused is a STALL: an unknown opcode, a SET that is not 64 bytes or has n above 61, a GET of a command without an answer. Other report types and IDs (also output reports on the control endpoint, feature report 2) stall |
 | Output reports | on interrupt OUT, at their declared length or longer, decoded as on the radio link |
-| Input reports | the state report `0x42` every 132 ticks of the 32,768 Hz clock (a 4000 µs timer, 4.03 ms) from the moment the host configures the device; the battery report `0x43` every 3.5 s; lizard-mode reports; `opensc2_send_report()`. Eight IN buffers: a state report that finds none free is dropped, so nothing waits for the host; lizard and application reports wait for a free buffer |
-| Suspend | nothing changes (as the October 2026 controller), but reports are dropped while the bus is suspended. `CONFIG_OPENSC2_USB_REMOTE_WAKEUP`: STEAM held about 20 ms wakes the PC, as the July 2026 controller did |
+| Input reports | the state report `0x42` every 132 ticks of the 32,768 Hz clock (a 4000 µs timer, 4.03 ms) from the moment the host configures the device; the battery report `0x43` every 3.5 s; lizard-mode reports; `opensc2_send_report()`. Eight IN buffers, as on the real controller: every report is copied into a free one or lost (`-ENOMEM`), nothing waits; a state report lost this way keeps its sequence number, so the host sees a gap |
+| Suspend | nothing changes, as on the October 2026 controller: reports go on being built and wait in the eight buffers, so after a resume the host first reads up to eight older ones; the rest are lost. `CONFIG_OPENSC2_USB_REMOTE_WAKEUP`: STEAM held about 20 ms wakes the PC, as the July 2026 controller did |
 | Leaving | only on the way to a reboot: one all-zero `0x42` (sequence 0), 10 ms, USB off. Steam's `0x95` with `0xA427AF52` is acknowledged and acted on 20 ms later |
 | Turn-off | `0x9F` and `0x95` with `0xABDF9710` are acknowledged and ignored while wired (the real controller's wired state does not act on them either) |
+| STEAM held at a wired boot | the device goes on the bus once STEAM is released, as on the real controller (`OPENSC2_USB_OFF` until then). The library sees a press the application reported before `opensc2_init()` (the blank canvas reports the buttons held at power-up) |
 | While waiting for the host | `OPENSC2_USB_ATTACHED` for 0.5 s, then `OPENSC2_USB_NO_HOST`; STEAM pressed asks for `OPENSC2_POWER_REBOOT_KEEP_LINK` (back to wireless, as the real controller). In a charger test build only, no request from a host within `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS` asks for it too ([above](#test-builds-only-no-host-then-wireless)) |
 | Cable pulled | matters only to a board that keeps running (a battery). USB power gone for 0.2 s: the reports stop, the state goes `OFF`, and the library asks for `OPENSC2_POWER_USB_UNPLUGGED` (without a callback: a plain reboot, which comes back wireless). A shorter dip changes nothing. The real controller shuts down, and so does the library with `CONFIG_OPENSC2_SYSTEM` (the default): the device leaves the bus, then the [shutdown](#shutdown-and-power-off) runs and ends in `OPENSC2_POWER_OFF` on a battery build, a reboot otherwise |
 
@@ -1521,34 +1523,62 @@ choose another as `opensc2,ble-egu` (ESB uses `egu0`, MPSL `egu5`).
 
 Steam's feature report 1 reaches the controller through the puck, as records in its packets, on
 USB, as a 64-byte SET and a GET, and over Bluetooth as a write and a read of the feature report's
-characteristic. All work the same way: a SET runs a command and, if it succeeds, stores it; a GET
-answers the stored one. Each link keeps its own stored request, `0x83` until a SET (Bluetooth's
-starts again at every connection, as the radio's does). A GET record's one byte is not the opcode:
-Valve's puck leaves it unset, and drops an answer whose opcode is not its SET's. A refused command
-is a result code through the puck, a STALL on USB and ATT error `0x04` over Bluetooth; a GET of a
-command that has no answer is `{opcode, 0}` through the puck, a STALL on USB and ATT error `0x04`
-over Bluetooth. The library answers these itself:
+characteristic. All work the same way, as on the real controller: a SET runs a command and, if it
+succeeds, stores it; a GET answers the stored one. Each link keeps its own stored request, `0x83`
+until a SET (Bluetooth's starts again at every connection, as the radio's does). A GET record's one
+byte is not the opcode: Valve's puck leaves it unset, and drops an answer whose opcode is not its
+SET's. A refused command is a result code through the puck, a STALL on USB and ATT error `0x04`
+over Bluetooth; a GET of a command that has no answer is `{opcode, 0}` through the puck, a STALL on
+USB and ATT error `0x04` over Bluetooth.
+
+The rules every command follows, the real controller's:
+
+- **The payload is read whatever the length says.** A request is `{opcode, length, payload}`, the
+  payload read from a 61-byte buffer: the bytes the link carried after the length, zeros after
+  them (a puck record shorter than its length reads zeros). So `0x95` with a length of 0 still
+  reads its key, `0xDC` its type and level, `0xC5` its four channels.
+- **The result codes** through the puck (and the dock, and the test hooks' host emulation) are the
+  real controller's numbers: `-22` (`EINVAL`) for an opcode nobody knows, a length over 61, a
+  malformed name and the handlers' refusals; `-95` (`EOPNOTSUPP`) for a GET of a command that only
+  acts; `-19` (`ENODEV`) and `-134` (`ENOTSUP`) from the settings by name (below). On USB every
+  refusal is a STALL. (The numbers are the nRF Connect SDK C library's, which are the real
+  controller's; a host build of the library has its platform's.)
+- **A GET's reply** starts as the stored request (its length + 2 bytes) with the answer written
+  over it, so the bytes after the answer are the request's, then the reply buffer's: on USB the
+  rest of the last `SET_REPORT` the board received (the USB stack reuses that buffer), elsewhere
+  zeros. A command reads its parameters in the reply too: a `0xED` name sent without its NUL runs
+  on into those bytes (Steam's zero padding ends it).
+- **The USB reply length** is the device form's: 63 bytes in the October form (the default: the
+  61st byte of a 61-byte answer is not sent; no answer of the real controller is that long), 64 in
+  July's. The hardware test channel's own opcode (`0x7E`, answered only while the hooks are armed)
+  always gets 64.
+- **What runs after the answer:** the power requests 20 ms later (one waits at a time: a later one
+  takes its place but keeps the first one's time; a turn-off is dropped then while wired), the
+  factory reset 10 ms later, a `0xA2` bond as soon as the system work queue runs it.
+
+The library answers these itself:
 
 | Opcode | Kind | Answer / action |
 | --- | --- | --- |
-| `0x83` | get | six `{tag, u32}`: 1 product ID, 2 capabilities (0), 10 bootloader build time, 4 build time, 9 board revision, 11 the current link's report interval, whichever link asks: 4000 µs on USB and through the puck, the connection interval over Bluetooth once it is active (0 before), 64000 µs while the [dock](#the-dock) is the only link |
-| `0xAE` | get | the tag (only the tag byte counts, whatever the length), then a string zero padded to 20 bytes: 1 unit serial, 0 and 4 board serial, 3 git revision, others "NA" |
-| `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: the last crash record as it is (33 bytes, zeros when there is none), after which a new record is marked seen and saved again ([Crash records](#crash-records)); 2: uptime in ms (u32) and the last disconnect reason (u32) |
-| `0xA1` | get | 18 bytes. Selector 1: 1, a byte of reset-cause flags in the real controller's encoding (`0x01` power-on, `0x02` brown-out, `0x08` debug, a low-power wake, a CPU lock-up or any other cause, `0x10` the reset pin, `0x20` the watchdog, `0x40` software), the chip's 8-byte device ID, 8 zero bytes; any other selector: 0 and 17 zero bytes. The flags come from Zephyr's `hwinfo_get_reset_cause()`; nothing clears the chip's register, so the causes of several resets add up until a power-on, as on the real controller |
+| `0x83` | get | six `{tag, u32}`: 1 product ID, 2 capabilities (0), 10 bootloader build time, 4 build time, 9 board revision, 11 the current link's report interval, whichever link asks: 4000 µs on USB and through the puck, the connection interval over Bluetooth once it is active (0 before), 64000 µs while the [dock](#the-dock) is the only link. Every value comes from the [identity](#identity) except 11 |
+| `0xAE` | get | the tag, then a string zero padded to 20 bytes: 1 unit serial, 0 and 4 board serial, 3 git revision, others "NA" (the tag byte is read whatever the length; the byte after the answer is written 0, the place of a twentieth character) |
+| `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: the last crash record as it is (33 bytes, zeros when there is none), after which a new record is marked seen and saved again ([Crash records](#crash-records)); 2: uptime in ms (u32) and the last disconnect reason (u32); any other: length 0 |
+| `0xA1` | get | 18 bytes. Selector 1: 1, a byte of reset-cause flags in the real controller's encoding (`0x01` power-on, `0x02` brown-out, `0x08` debug, a low-power wake, a CPU lock-up or any other cause, `0x10` the reset pin, `0x20` the watchdog, `0x40` software), the chip's device ID (`hwinfo_get_device_id()`, 16 bytes of room: 8 bytes and 8 zeros on an nRF52); any other selector: 0 and 17 zero bytes. The flags come from Zephyr's `hwinfo_get_reset_cause()`; nothing clears the chip's register, so the causes of several resets add up until a power-on, as on the real controller. A cause that cannot be read refuses the GET, as on the real controller (a chip without the function, `-ENOSYS`, reports none) |
 | `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`; byte 13 is 1 while charging, byte 14 the charge state without a `0x80` flag: [Battery](#battery)) |
-| `0xE9` / `0xC5` | get / set | LED colour, four percentages (`0xC5` clamps each to 100 and calls `led`). `0xE9` reads it back as the real controller does, cut to whole hundreds: a channel reads 100 when it is exactly 100, otherwise 0 (`opensc2_led_get()` has the colour as kept; [protocol.md, gap 24](protocol.md#where-this-library-had-to-fill-gaps)) |
-| `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level (stored; `opensc2_chime_level()`) |
-| `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
+| `0xE9` / `0xC5` | get / set | LED colour, four percentages. `0xC5` keeps each as sent, 0..255, as the real controller does (above 100 is brighter, up to full duty: the system state machine's LED rules render it so) and calls `led`; `0xE9` reads it back as the real controller does, cut to whole hundreds: 0 below 100, 100 from 100 to 199, 200 from 200 ([protocol.md, gap 24](protocol.md#where-this-library-had-to-fill-gaps)) |
+| `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level. `0xDC` type 1 saves it and then uses it (a save that fails leaves the level in use as it was); other types do nothing; both are acknowledged (`opensc2_chime_level()`) |
+| `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x87` takes length ÷ 3 triplets, ignoring bytes after the last whole one; `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate); from the dock acknowledged and ignored |
-| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | every key of the real controller ([below](#settings-by-name)): `esb/bond`, `esb/bond_2`, `user/wireless_transport` (0 and 1 Bluetooth, 2 the puck's first slot, 3 its second: [Wireless transports](#wireless-transports-and-bluetooth-le)), `user/haptic_boot_level`, the keys the library keeps (`user/keylock` and `user/fully_charged_led_intensity`, which the system state machine acts on: [The keylock](#the-keylock), [Status LED](#status-led); `mte/charge_level`, `debug/resetreason`, `settings/haptics/...`), and the calibration keys (`cal/...`: with `CONFIG_OPENSC2_CAL` the library's, [Calibration and raw inputs](#calibration-and-raw-inputs); without it the application's). `0xED` answers length 0 for an empty bond, a key without a read function (the `settings/haptics/` keys, the gyro bias), an invalid charge window, a calibration key of a stick, trigger, pad pressure or pad touch whose format word is 0 and an LED trim outside 1..199; `0xEE` refuses an empty value and a value that is not the key's size; `0xEF` needs the key's NUL as the last byte and saves only what `0xED` would read back, as the real controller saves what the key's read function gives: it refuses every one of those and writes nothing; other names go to `vendor_command` (a `0xED` nobody answers gets an empty answer) |
+| `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | [below](#settings-by-name) |
 | `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 |
 | `0xD8`, `0xC0`, `0xC3`, `0xFE` | set | with `CONFIG_OPENSC2_CAL`: the stick, trigger and pressure recordings and the calibration erase ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
-| `0xA2` | set | write the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes (an ID of zero deletes it) |
-| `0x86`, `0x90`, `0x95`, `0x9F` | set | factory reset, bootloader, reboot, turn off: `power_request`; turn-off is ignored while wired. With the system state machine the turn-off is its event, and the bootloader and reboot requests reach `power_request` in the states that act on them ([The states while it runs](#the-states-while-it-runs)) |
+| `0xA2` | set | the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes, stored for the next boot (an ID of zero deletes the stored one); the bond in use, and `0xED esb/bond`, stay as they are until then, as on the real controller. Steam pairs with `0xEE` and `0xEF` instead |
+| `0x86` | set | factory reset, only with its key `0xEFC1A917` (another is acknowledged and ignored): 10 ms later the bonds, the transport choice, the chime level, the kept keys of the `user`, `mte` and `debug` groups and the Bluetooth keys are deleted from flash (calibration, the identity and the mode policy stay), then `power_request(OPENSC2_POWER_FACTORY_RESET)` 100 ms later. The values in RAM stay as they are until that reboot |
+| `0x90`, `0x95`, `0x9F` | set | bootloader, reboot, turn off: `power_request`, 20 ms later; turn-off is ignored while wired. With the system state machine the turn-off is its event, and the bootloader and reboot requests reach `power_request` in the states that act on them ([The states while it runs](#the-states-while-it-runs)) |
 
 Everything else (anything new, and without `CONFIG_OPENSC2_CAL` the calibration commands `0xD8`,
-`0xC0`, `0xC3` and `0xFE`) goes to `vendor_command`; a command nobody knows is refused (on USB a
-STALL, as the real controller stalls Steam's `0xC1`):
+`0xC0`, `0xC3` and `0xFE`) goes to `vendor_command`; a command nobody knows is refused with `-22`
+(on USB a STALL, as the real controller stalls Steam's `0xC1`):
 
 ```c
 static int on_vendor(const struct opensc2_vendor_cmd *cmd, uint8_t *answer, uint8_t *answer_len,
@@ -1558,45 +1588,60 @@ static int on_vendor(const struct opensc2_vendor_cmd *cmd, uint8_t *answer, uint
         do_my_thing(cmd->payload, cmd->len);
         return 0;                 /* SET result 0 */
     }
-    return -ENOTSUP;              /* unknown: the SET fails, a GET answers {opcode, 0} */
+    return -ENOTSUP;              /* not mine: refused as an opcode nobody knows (-22) */
 }
 ```
 
-For a GET, write at most 61 bytes to `answer` and set `*answer_len`. `cmd->payload` of a GET is the
-payload of the SET before it. Commands may take their time (a flash write): Steam waits for each.
-While wired the callback runs in Zephyr's USB stack thread, inside the host's control request: only
-its return value counts. (The stack would stall a GET that leaves `errno` set, which C library calls
-may do; the library clears it before it answers.)
+For a GET, write at most 61 bytes to `answer` and set `*answer_len`; `answer` is the reply in
+place, so bytes you do not write keep the request's, as the library's own answers do.
+`cmd->payload` of a GET is the payload of the SET before it. Return `-ENOTSUP` for a command you do
+not know (the library turns it into the real controller's `-22`); any other error is passed on as
+it is. Commands may take their time (a flash write): Steam waits for each. While wired the
+callback runs in Zephyr's USB stack thread, inside the host's control request: only its return
+value counts. (The stack would stall a GET that leaves `errno` set, which C library calls may do;
+the library clears it before it answers.)
 
 ### Settings by name
 
 `0xED` reads a key, `0xEE` sets it in RAM, `0xEF` saves the RAM value and `0xF0` deletes it (from
-flash, and the RAM value goes back to its default). The payload is the key's name with its NUL,
-then for `0xEE` the value; `0xEF` and `0xF0` need the NUL as the last byte. The library knows every
-key of the real controller and nothing else, so a host cannot fill the storage partition with
-names of its own:
+flash, then the RAM value is what the key holds when nothing is stored). The payload is the key's
+name with its NUL, then for `0xEE` the value. The rules are the real controller's, whose commands
+hand the name to its settings handlers:
+
+| Command | Refused (`-22`) | Otherwise |
+| --- | --- | --- |
+| `0xED` | an empty name (the GET) | the value, at most 61 bytes; length 0 for a name nobody has, a key without a read function, a read function with nothing valid to give, and a name with no NUL in the 61 bytes |
+| `0xEE` | an empty name, no value, a value of another size than the key's, a name nobody has | the value in RAM only |
+| `0xEF` | the NUL not the last byte, a name nobody has | saves what the key's read function gives; `-134` (`ENOTSUP`) for a key without one, `-19` (`ENODEV`) when it has nothing valid to give; nothing is written then |
+| `0xF0` | the NUL not the last byte | deletes it from flash and gives the RAM value what a deleted key holds; a name nothing stores is acknowledged |
+
+A name goes, in this order, to the library's keys (the table below: every key of the real
+controller), the calibration store (with `CONFIG_OPENSC2_CAL`), the application's `vendor_command`
+(return `-ENOTSUP` to pass), and then to **any other Zephyr settings handler of the build**, as on
+the real controller: Bluetooth's `bt/...` keys in a Bluetooth build, and every handler your
+application registers (`settings_runtime_set()`, `_get()`, `settings_save_one()`,
+`settings_delete()`; needs `CONFIG_SETTINGS_RUNTIME`, which `CONFIG_OPENSC2_STORAGE` implies). A custom board
+can so expose keys of its own to Steam-style tools; keep anything a host must not change out of the
+settings handlers, or answer its names in `vendor_command`. The library's own subtree (`opensc2/`)
+is never reached this way.
 
 | Key | Size | `0xED` | Kept as | The factory reset (`0x86`) |
 | --- | --- | --- | --- | --- |
-| `esb/bond`, `esb/bond_2` | 24 | the bond, length 0 when empty | the two bonds (`opensc2/bond0`, `bond1`) | deletes |
-| `user/wireless_transport` | 1 | the transport, 0 to 3 ([Wireless transports](#wireless-transports-and-bluetooth-le)) | `opensc2/transport`, and `opensc2/slot` for a puck transport; 0 and 1 (Bluetooth) only in a build with `CONFIG_OPENSC2_BLE`, taken and ignored without it | deletes |
+| `esb/bond`, `esb/bond_2` | 24 | the bond, length 0 when empty (`0xEF` of an empty one: `-19`) | the two bonds (`opensc2/bond0`, `bond1`) | deletes |
+| `user/wireless_transport` | 1 | the byte in RAM: the transport stored, or chosen at boot when nothing is ([Wireless transports](#wireless-transports-and-bluetooth-le)) | `opensc2/transport`, and `opensc2/slot` for a puck transport. `0xEE` takes any byte into RAM and changes nothing else; once saved, the next boot runs it (a value that names no transport, or Bluetooth in a build without it, starts the main puck); `0xF0` gives back 2 | deletes |
 | `user/haptic_boot_level` | 1 | the chime level | `opensc2/chime` | deletes |
 | `user/keylock` | 4 | the value, zeros until set | `opensc2/k/keylock` | deletes |
 | `user/fully_charged_led_intensity` | 1 | the level, 3 until set | `opensc2/k/fcled` | deletes |
-| `mte/charge_level` | 8 | the value, zeros until set, while it is a valid window (both values 0, or a lower one of at least 3400 and an upper one of at most 4120, u32 mV each, in 10 mV steps); otherwise length 0 | `opensc2/k/mte` | deletes |
+| `mte/charge_level` | 8 | the value, zeros until set, while it is a valid window (both values 0, or a lower one of at least 3400 and an upper one of at most 4120, u32 mV each, in 10 mV steps); otherwise length 0 (`0xEF`: `-19`) | `opensc2/k/mte` | deletes |
 | `debug/resetreason` | 33 | the crash record, zeros when there is none | `opensc2/k/crash` | deletes |
-| `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled` | 2 each | length 0 (no read function) | `opensc2/k/hgain`, `hamp`, `hen` | keeps |
+| `settings/haptics/haptic_master_gain_db`, `amplifier_mode`, `enabled` | 2 each | length 0 (no read function; `0xEF`: `-134`) | `opensc2/k/hgain`, `hamp`, `hen` | keeps |
 | `cal/joy_l`, `_r` (18), `cal/trg_l`, `_r` (7), `cal/prs_l`, `_r` (8), `cal/touch_l`, `_r` (10), `cal/rgbw_r`, `_g`, `_b`, `_w` (1), `cal/volt_offset` (2), `cal/sensors/gyroscope/bias` (12) | as listed | with `CONFIG_OPENSC2_CAL` the library's calibration store ([Calibration and raw inputs](#calibration-and-raw-inputs)): a stick, trigger, pressure or touch key while its format word is not 0, the battery offset always, an LED trim while it lies within 1..199, the gyro bias never; without it the application's `vendor_command`, length 0 without one | `opensc2/cal/...` with `CONFIG_OPENSC2_CAL`, else the application's | keeps |
 
-`0xEE` takes exactly the key's size (another length is refused, as on the real controller). `0xEF`
-saves what `0xED` reads back, as the real controller does: it fails for a key without a read
-function (the haptics keys, which `0xEE` sets in RAM and `0xF0` deletes) and for a value `0xED`
-would not show (an invalid charge window), and writes nothing then. The system state machine acts on
-`user/keylock` ([The keylock](#the-keylock)) and `user/fully_charged_led_intensity`
-([Status LED](#status-led)); `mte/charge_level` and the haptics keys are kept, but nothing in the
-library acts on them yet; `debug/resetreason` holds the [crash record](#crash-records). With
-`CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`, `0xEE` also takes OpenSC2's identity keys
-([Identity](#identity)).
+The system state machine acts on `user/keylock` ([The keylock](#the-keylock)) and
+`user/fully_charged_led_intensity` ([Status LED](#status-led)); `mte/charge_level` and the haptics
+keys are kept, but nothing in the library acts on them yet; `debug/resetreason` holds the
+[crash record](#crash-records). With `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE`, `0xEE` also takes
+OpenSC2's identity keys ([Identity](#identity)).
 
 ## Controller settings
 
@@ -1652,8 +1697,11 @@ The functions for the settings and the other state Steam sets:
 | --- | --- |
 | `opensc2_setting_get(n)` | setting `n` as it is now (Steam's last write, or its default); 0 for a number above 85 |
 | `opensc2_lizard_mode()` | `true` while lizard mode is on (setting 9 is not 0): from every boot until Steam turns it off, and again when the Steam watchdog brings it back |
-| `opensc2_led_get(&led)` | the LED colour and settings Steam set, as the `led` callback gets them: `red`, `green`, `blue`, `white` in percent (`0xC5`), `override` (setting 37) and `brightness` (setting 45) |
+| `opensc2_led_get(&led)` | the LED colour and settings Steam set, as the `led` callback gets them: `red`, `green`, `blue`, `white` in percent (`0xC5`, 0..255: above 100 is brighter, up to full duty), `override` (setting 37) and `brightness` (setting 45) |
 | `opensc2_chime_level()` | the power-on chime level Steam stores with `0xDC`: 1 quiet, 2 normal (the default), anything else silent |
+| `opensc2_setting_set(n, v)` | set setting `n` from the board, exactly as one triplet of `0x87` (clamped; setting 9 switches lizard mode, 71 the Steam watchdog, 37 and 45 call `led`; `setting_changed` on a change); -EINVAL above 85 |
+| `opensc2_led_set_color(r, g, b, w)` | the LED override colour from the board, as `0xC5` (0..255 percent each; shown while setting 37 is not 0) |
+| `opensc2_chime_level_set(l)` | the chime level from the board, as `0xDC` type 1: saved, then in use; a failed save is returned and changes nothing |
 | `opensc2_setting_default(n)` | pure: the default of setting `n` (0 above 85) |
 | `opensc2_setting_clamp(n, v)` | pure: `v` clamped to setting `n`'s range, as `0x87` stores it (unchanged for 48, 84, 85 and a number above 85) |
 
@@ -1699,7 +1747,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH`, `_REPORT_WAIT_DEPTH` | 8, 6, 8 | the radio's queues; lizard and application reports wait for room in the last 8 instead of being dropped |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
 | `CONFIG_OPENSC2_USB` | y with the `opensc2,usb-hid` node | wired mode |
-| `CONFIG_OPENSC2_USB_PROFILE_JULY` / `_OCTOBER` | July | the USB device's form |
+| `CONFIG_OPENSC2_USB_PROFILE_JULY` / `_OCTOBER` | October | the USB device's form |
 | `CONFIG_OPENSC2_USB_MANUFACTURER`, `_PRODUCT` | "Valve Software", "Steam Controller" | the USB strings (`_PRODUCT`: the default of the identity's product name) |
 | `CONFIG_OPENSC2_USB_THREAD_PRIORITY`, `_STACK_SIZE` | 5, 1536 | the USB report thread |
 | `CONFIG_OPENSC2_USB_REMOTE_WAKEUP` | n | STEAM wakes a suspended PC |
