@@ -102,8 +102,9 @@ def run(ctx):
                     # is its own buffer's old content, so a 16th byte cannot be checked here.
                 be = rig.vendor(C.VC_BATTERY_DATA)
                 results.append((name, b, be))
-            c.true("the level is clamped to 100",
-                   R.encode_battery(dict(BASE, level=101))[2] == 100)
+            c.true("a level over 100 is sent as 100, 255 (no reading) as it is",
+                   R.encode_battery(dict(BASE, level=101))[2] == 100 and
+                   R.encode_battery(dict(BASE, level=255))[2] == 255)
             if last is not None:
                 nxt = rig.wait_report(_is_43, interval / 1000.0 + 0.5)
                 if nxt is None:
