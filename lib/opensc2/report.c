@@ -169,9 +169,9 @@ void osc2_report_lizard(const struct opensc2_state *s)
 	}
 	k_mutex_lock(&lizard_lock, K_FOREVER);
 	if (osc2_mode_link() == OSC2_LINK_RADIO && osc2_radio_backlog()) {
-		/* Reports wait for room in the radio's queue: lizard mode waits with them, as the real
-		 * controller's mouse and keyboard wait for a free buffer. The next frame it runs takes
-		 * up the motion (a difference of positions). */
+		/* Reports wait for room in the radio's queue (CONFIG_OPENSC2_REPORT_WAIT_DEPTH above
+		 * 0, OpenSC2's option; the real controller drops them): lizard mode waits with them.
+		 * The next frame it runs takes up the motion (a difference of positions). */
 		k_mutex_unlock(&lizard_lock);
 		return;
 	}

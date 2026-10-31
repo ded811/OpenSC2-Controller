@@ -6,11 +6,11 @@
  * acknowledgements (radio.c): lizard mode's, the battery report and the application's, in the
  * order they were sent. Pure logic (radio.c guards it with a lock), so the host tests run it.
  *
- * The real controller's input records wait for a free buffer rather than being dropped. Here a
- * queue of `cap` reports does the same: up to `depth` reports queue as before; past that only the
- * ones that must not be lost (lizard mode's and the application's) are taken, behind the others,
- * while a droppable one (the battery report) is dropped. Whoever can wait (lizard mode) waits
- * while `depth` or more are queued.
+ * The real controller queues `depth` (5) such reports and drops one that finds the queue full
+ * (cap == depth, the default). With room beyond `depth` (CONFIG_OPENSC2_REPORT_WAIT_DEPTH,
+ * OpenSC2's option) only the ones that must not be lost (lizard mode's and the application's) are
+ * taken past `depth`, behind the others, while a droppable one (the battery report) is dropped;
+ * whoever can wait (lizard mode) waits while `depth` or more are queued.
  */
 #ifndef OPENSC2_REPORT_QUEUE_H_
 #define OPENSC2_REPORT_QUEUE_H_

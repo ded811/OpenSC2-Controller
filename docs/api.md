@@ -1768,6 +1768,7 @@ The functions for the settings and the other state Steam sets:
   change, at the power source every `CONFIG_OPENSC2_POWER_POLL_MS`, and at its own timers when they
   are due; the events of the rest of the library wait in a queue of ten.
 - Lizard mode runs one frame after each state report, in the thread that built it; through the puck
+  its reports ride with the next state report, and with `CONFIG_OPENSC2_REPORT_WAIT_DEPTH` above 0
   a frame waits while reports wait for room in the radio's queue.
 - With the haptics synthesiser: two more threads, one per haptic path
   ([its threads](#settings-threads-and-memory)).
