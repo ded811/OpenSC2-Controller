@@ -501,7 +501,8 @@ struct opensc2_lizard_status {
 	bool mouse_active;      /* the last mouse report was not all zero */
 	bool gliding[2];        /* a pad (0 left, 1 right) glides after a flick */
 };
-/* -ENOTSUP in a build without lizard mode (`mode` is still filled in). */
+/* From a thread, not an interrupt. -ENOTSUP in a build without lizard mode (`mode` is still filled
+ * in). */
 int opensc2_lizard_status(struct opensc2_lizard_status *status);
 void opensc2_led_get(struct opensc2_led *led);
 /* The power-on chime level Steam stores with vendor command 0xDC: 1 quiet, 2 normal (default),

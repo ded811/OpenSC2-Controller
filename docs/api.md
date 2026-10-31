@@ -562,8 +562,9 @@ application hands over; the application supplies nothing else for it
   the trackers over, as on the real controller: no frames run meanwhile, and the first frame after
   the gap compares the pads (and the buttons) with the frame before it.
 
-`opensc2_lizard_status(&st)` tells the application what lizard mode is doing (`-ENOTSUP` without
-`CONFIG_OPENSC2_LIZARD_MODE`; `mode` is filled in then too):
+`opensc2_lizard_status(&st)` tells the application what lizard mode is doing, from any thread (it
+takes lizard mode's lock; not from an interrupt). `-ENOTSUP` without `CONFIG_OPENSC2_LIZARD_MODE`
+(`mode` is filled in then too):
 
 | Field | Meaning |
 | --- | --- |
