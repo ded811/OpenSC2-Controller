@@ -1211,6 +1211,11 @@ int osc2_ble_send(const uint8_t *report, size_t len, bool droppable)
 	if (!gate) {
 		return -ENOTCONN;
 	}
+	/* The state reports take every free buffer at each connection event, so a battery report
+	 * that may be dropped would often be lost (seen on hardware); it waits for room instead. */
+	if (report[0] == OPENSC2_RPT_BATTERY) {
+		item.droppable = droppable = false;
+	}
 	if (k_current_get() == &rpt_thread_data &&
 	    (droppable || (atomic_get(&inflight) < TX_LIMIT &&
 			   k_msgq_num_used_get(&osc2_ble_tx_q) == 0))) {
