@@ -55,6 +55,7 @@
 #include <hal/nrf_egu.h>
 #include <hal/nrf_radio.h>
 #include <mpsl.h>
+#include <opensc2/ble.h>
 #include "internal.h"
 #include "ble_rules.h"
 #include "system.h"
@@ -2035,6 +2036,37 @@ int osc2_ble_init(void)
 	k_thread_create(&rpt_thread_data, rpt_stack, K_THREAD_STACK_SIZEOF(rpt_stack), rpt_thread_fn,
 			NULL, NULL, NULL, CONFIG_OPENSC2_BLE_REPORT_THREAD_PRIORITY, 0, K_NO_WAIT);
 	k_thread_name_set(&rpt_thread_data, "opensc2_blerpt");
+	return 0;
+}
+
+int opensc2_ble_status(struct opensc2_ble_status *status)
+{
+	struct osc2_ble_status st;
+
+	if (!osc2.initialised) {
+		return -EACCES;
+	}
+	osc2_ble_status(&st);
+	memset(status, 0, sizeof(*status));
+	status->enabled = st.enabled;
+	status->running = st.running;
+	status->advertising = st.advertising;
+	status->pairing_mode = st.open;
+	status->connected = st.connected;
+	status->active = st.active;
+	status->wireless_off = st.wireless_off;
+	status->slot = st.slot;
+	status->identity = st.id;
+	status->bonded = st.bonded;
+	status->security = st.security;
+	status->last_reason = st.last_reason;
+	status->mtu = st.mtu;
+	status->interval_us = st.interval_us;
+	status->window_left_ms = st.window_left_ms;
+	status->reports = st.reports;
+	status->dropped = st.dropped;
+	memcpy(status->name, st.name, sizeof(status->name));
+	memcpy(status->address, st.address, sizeof(status->address));
 	return 0;
 }
 
