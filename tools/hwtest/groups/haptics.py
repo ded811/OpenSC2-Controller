@@ -346,6 +346,9 @@ def _run(ctx, rig):
             c.eq("the last write did not fit: 0x01, the ring full",
                  (writes[-1]["flags"], writes[-1]["fill"]) if writes else None,
                  (H.FLAG_DROPPED, 512))
+            # without a format the water mark is 0, as on the real controller: no 0x08 at all
+            c.eq("no 0x08 before a format", [w["flags"] for w in writes[:-1]],
+                 [0] * max(0, len(writes) - 1))
             # 0x86's stop empties it
             start = rig.ring_next()
             rig.output(bytes([0x86, 1, 3, 0]))
@@ -388,6 +391,21 @@ def _run(ctx, rig):
             es = _wait(rig, start, H.RING_HAP_SCRIPT, 1, 1.0, what=H.SCRIPT_DROP)
             drops = H.entries(es, H.RING_HAP_SCRIPT, what=H.SCRIPT_DROP)
             c.eq("byte 200 picks no sound", [(d["id"], d["extra"]) for d in drops], [(0, 200)])
+            # the IMU stopping within the 5 s after a fall cancels the sound and the re-arm: the
+            # drop sounds stay off until a reboot (here: until HAP_RESET)
+            _reset(rig)
+            c.eq("the IMU stopped while armed: nothing to cancel", _play(rig, H.PLAY_IMU_OFF), 0)
+            start = rig.ring_next()
+            c.eq("a free fall is taken", _play(rig, H.PLAY_FALL, 10), 1)
+            c.eq("the IMU stopped after it: cancelled", _play(rig, H.PLAY_IMU_OFF), 1)
+            rig.sleep(0.4)
+            es = rig.ring_all(start)[2]
+            c.eq("no drop sound came", H.entries(es, H.RING_HAP_SCRIPT, what=H.SCRIPT_DROP), [])
+            c.eq("a later fall is not taken", _play(rig, H.PLAY_FALL, 10), 0)
+            st = _status(rig)
+            c.eq("the drop sounds off (state 3)", st["drop_state"], 3)
+            _reset(rig)
+            c.eq("armed again after HAP_RESET", _status(rig)["drop_state"], 0)
 
     if ctx.want("haptics.amp_mode"):
         with ctx.check(GROUP, "haptics.amp_mode") as c:

@@ -25,6 +25,7 @@ PLAY_CLICK = 1           # channels, click (1 A, 2 B), gain
 PLAY_SCRIPT = 2          # channels, id, gain
 PLAY_FALL = 3            # the random byte the drop sound will use
 PLAY_STOP = 4            # channels
+PLAY_IMU_OFF = 5         # (none): the IMU stopped -> 1 when it cancelled a drop sound or re-arm
 
 # ring entry kinds
 RING_HAP_GEN = 0x60
@@ -47,7 +48,7 @@ STREAM_QUEUED, STREAM_START, STREAM_DRY, STREAM_EMPTIED, STREAM_FORMAT, STREAM_W
     STREAM_STATUS = 1, 2, 3, 4, 5, 6, 7
 # HAP_SCRIPT what
 SCRIPT_START, SCRIPT_REFUSED, SCRIPT_STEP, SCRIPT_DONE, SCRIPT_CUE, SCRIPT_FALL, SCRIPT_DROP, \
-    SCRIPT_REARM = 1, 2, 3, 4, 5, 6, 7, 8
+    SCRIPT_REARM, SCRIPT_IMU_OFF = 1, 2, 3, 4, 5, 6, 7, 8, 9
 # HAP_BLOCK flags
 BLOCK_FIRST, BLOCK_LAST = 0x01, 0x02
 
