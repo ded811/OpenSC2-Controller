@@ -1473,7 +1473,8 @@ summary and the gaps):
   then Bluetooth is the active transport (`0x81` and `0x85` act, attribute 11 of `0x83` is the
   connection interval in µs) and the choice is stored. As on the real controller the MTU is kept
   across links, so a later host needs only encryption (one that keeps the default MTU then gets
-  every state report refused by the stack, each logged as an error).
+  every state report refused by the stack, each logged as an error), and once open the gate stays
+  open until the link ends, also when a later MTU exchange on it gives less than 64.
 - **Reports**: one state report per connection event, due one connection interval after the event
   less `CONFIG_OPENSC2_BLE_REPORT_LEAD_US` (500 µs), sampled ahead of that slot by the sampling
   margin (the longest frame of the current and the last run of 65 frames, about 2.5 ms until the

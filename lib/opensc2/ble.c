@@ -1127,24 +1127,20 @@ static void trigger_set(bool on)
 
 /* ---- the gate --------------------------------------------------------------------------------- */
 
+/* The gate only opens: as on the real controller, a link past it stays active until it ends
+ * (link_reset()), also when a later MTU exchange on it gives less than 64 (its state reports are
+ * then refused by the stack and logged). */
 static void gate_check(void)
 {
-	bool now = ble.conn && osc2_ble_gate(ble.security, ble.mtu);
-
-	if (now == gate) {
+	if (gate || !ble.conn || !osc2_ble_gate(ble.security, ble.mtu)) {
 		return;
 	}
-	gate = now;
-	osc2_test_note_ble(OSC2_TEST_BLE_GATE, now, ble.mtu, interval_us);
-	if (now) {
-		LOG_INF("Bluetooth active: encrypted, ATT MTU %u, interval %u us", ble.mtu,
-			interval_us);
-		atomic_set(&margin_restart, 1);
-		trigger_set(true);
-		osc2_transport_link_up((uint8_t)(OSC2_TRANSPORT_BLE_1 + ble.slot));
-	} else {
-		trigger_set(false);
-	}
+	gate = true;
+	osc2_test_note_ble(OSC2_TEST_BLE_GATE, true, ble.mtu, interval_us);
+	LOG_INF("Bluetooth active: encrypted, ATT MTU %u, interval %u us", ble.mtu, interval_us);
+	atomic_set(&margin_restart, 1);
+	trigger_set(true);
+	osc2_transport_link_up((uint8_t)(OSC2_TRANSPORT_BLE_1 + ble.slot));
 }
 
 bool osc2_ble_active(void)
