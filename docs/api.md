@@ -1296,6 +1296,7 @@ opensc2_haptics_set_script(16, drop, ARRAY_SIZE(drop));   /* the first drop soun
 | `opensc2_haptics_play_script(channels, id, dB)` | script 1..17 on the channels (`OPENSC2_HAPTIC_*` bits): how many channels it started on |
 | `opensc2_haptics_click(channels, click, dB)` | click A or B (`OPENSC2_HAPTIC_CMD_CLICK_A`, `_B`) on the pads: how many it queued |
 | `opensc2_haptics_stop(channels)` | stop everything on the channels: how many it queued |
+| `opensc2_haptics_play_report(report, len)` | any output report `0x80`..`0x89` played as if a host sent it (rumble, pulses, tones, sweeps, scripts, PCM), with the real controller's rules and `0x44` replies, without the callbacks: how many outputs it decoded, `-EINVAL` for a short report |
 | `opensc2_haptics_play_clip(channel, data, samples, format, dB)` | a recording of your own in a stream format (0..11); `data` stays valid until it has played |
 | `opensc2_haptics_free_fall()` | a free fall: maybe a drop sound. From any context, an IMU's free-fall interrupt included: it notes the time, the rest runs on the system work queue |
 | `opensc2_haptics_imu_stopped()` | the IMU stopped streaming: a drop sound still due and the re-arm cancelled (the drop sounds then off until a reboot) |

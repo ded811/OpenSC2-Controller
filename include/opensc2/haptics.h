@@ -144,6 +144,13 @@ int opensc2_haptics_click(uint8_t channels, uint8_t click, int8_t gain_db);
  * channels it queued, or a negative errno. */
 int opensc2_haptics_stop(uint8_t channels);
 
+/* Play an output report (`report[0]` its ID, 0x80..0x89, then its fields) through the synthesiser
+ * as if a host had sent it: any rumble, pulse, click, tone, sweep, script or PCM stream, with the
+ * real controller's rules and 0x44 replies (the application's rumble and haptic callbacks are not
+ * called). The number of outputs it decoded (0: an ID that plays nothing), -EINVAL for a report
+ * shorter than its fields, -ENOTSUP without the synthesiser. */
+int opensc2_haptics_play_report(const uint8_t *report, size_t len);
+
 /* Play a recording on `channel` (0..3): `samples` samples in stream format `format` (0..11, as
  * report 0x86 numbers them: format / 4 is s16le, s8 or mu-law, format % 4 the rate 8, 4, 2 or
  * 1 kHz) at `gain_db`. `data` must stay valid until it has played. */

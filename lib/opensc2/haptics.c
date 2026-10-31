@@ -23,6 +23,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/random/random.h>
+#include <opensc2/codec.h>
 #include <opensc2/haptics.h>
 #include "internal.h"
 #include "haptics_glue.h"
@@ -558,6 +559,32 @@ void opensc2_haptics_free_fall(void)
 	atomic_set(&fall_waiting, 1);
 	(void)k_work_submit(&fall_work);
 #endif
+}
+
+int opensc2_haptics_play_report(const uint8_t *report, size_t len)
+{
+	struct opensc2_output out[2];
+	uint8_t paths;
+	int n;
+
+	if (!report || len < 1) {
+		return -EINVAL;
+	}
+	n = opensc2_decode_output(report, len, out);
+	if (n < 0) {
+		return -EINVAL;
+	}
+	if (n == 0) {
+		return 0;
+	}
+	lock();
+	paths = osc2_hap_rt_feed(&rt, OSC2_HAP_LINK_NONE, out, n,
+				 opensc2_setting_get(OPENSC2_SETTING_RUMBLE_GAIN_DB), now_ms());
+	schedule_locked();
+	unlock();
+	wake(paths);
+	flush();
+	return n;
 }
 
 void opensc2_haptics_imu_stopped(void)

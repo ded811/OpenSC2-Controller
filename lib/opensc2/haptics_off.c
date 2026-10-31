@@ -71,6 +71,13 @@ void opensc2_haptics_free_fall(void)
 {
 }
 
+int opensc2_haptics_play_report(const uint8_t *report, size_t len)
+{
+	(void)report;
+	(void)len;
+	return -ENOTSUP;
+}
+
 void opensc2_haptics_imu_stopped(void)
 {
 }
