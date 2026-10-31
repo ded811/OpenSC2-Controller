@@ -97,6 +97,16 @@ that ESB also supports are untested.
    (`egu3` by default) and the 32.768 kHz source of the table above (MPSL then calibrates an RC
    oscillator every 4 s).
 
+10. **The dock (optional).** A board that rests on Valve's puck as the real controller does needs
+    its pilot (an ADC channel with no divider, or a window comparator's output), its serial link
+    (a UART at 115200 baud 8N1, or a wire of its own) and, if its `+` must not reach VBUS, a sense
+    input for the `+`. Name them in an `opensc2,dock` node (`CONFIG_OPENSC2_DOCK`), or give them at
+    run time through `<opensc2/docking.h>` (`opensc2_dock_set_board()`, `opensc2_dock_frame()`);
+    a board whose sticks react to the dock's magnets gives its docked stick offsets
+    (`opensc2_dock_set_stick_offsets()`). Without a pilot the board is never docked
+    ([api.md, The dock](api.md#what-a-board-supplies)). Nothing may be connected to Valve's puck's
+    pads without the owner's go-ahead ([testing.md](testing.md#the-dock)).
+
 ## Wired mode
 
 `CONFIG_OPENSC2_USB` turns itself on when the devicetree has the HID node below; without it every

@@ -325,6 +325,7 @@ The library reads two chosen nodes. Everything else in the overlay belongs to yo
 | `opensc2,retained-ram`: a `zephyr,memory-region` of 16 KB, with `sram0` shrunk by its size | RAM that a soft reset keeps, for the warm-restart mark (Steam's "reboot into wireless mode"), the USB session log and a crash record waiting for the next boot. Recommended: without it the build warns | your overlay |
 | `storage_partition` | where the settings (the bonds) live | the board |
 | `zephyr_udc0` and a `zephyr,cdc-acm-uart` node | the USB device controller, and the serial console in wireless mode | the board (the SuperMini's files have both) |
+| optional: an `opensc2,dock` node aliased `opensc2-dock` | the dock's UART, pilot and `+` sense, for `CONFIG_OPENSC2_DOCK` (or give them at run time, [api.md](api.md#what-a-board-supplies)) | your overlay |
 
 The wired-mode part of the template's overlay:
 

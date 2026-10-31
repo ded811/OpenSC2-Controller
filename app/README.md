@@ -680,8 +680,10 @@ USB-UART adapter that plays the puck ([tools/fake_puck.py](../tools/fake_puck.py
 the puck itself. With nothing on P0.31 the pin floats and may now and then read inside the pilot's
 window, which starts dock sessions nobody asked for: on a board with nothing attached, tie it to
 ground through a resistor (100 kΩ, say) before running the `dock` group on this build. The overlay
-has no input for the dock's `+` pad (`plus-gpios`), so this build never counts as powered by the
-dock and the system state machine never enters its dock states. What the library does on the dock:
+has no input for the dock's `+` pad (`plus-gpios`): as on the real controller VBUS stands for it,
+so USB power that appears while the pilot reads inside its window counts as the dock's power, and
+the board then boots into, or enters, the dock states (radio off, amber) instead of wired mode. A
+floating P0.31 can do that with a USB cable: tie it to ground on a board with nothing attached. What the library does on the dock:
 [docs/api.md](../docs/api.md#the-dock).
 
 ## Test build: everything without parts
