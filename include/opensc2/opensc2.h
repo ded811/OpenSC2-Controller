@@ -478,7 +478,8 @@ void opensc2_identity_get(struct opensc2_identity *identity);
 /* Store an identity on the board (Zephyr settings). Empty / zero fields are not stored and keep
  * their configured value (the shell's `opensc2 id set` stores one field as given, 0 included).
  * Validated first (-EINVAL). Takes effect at once for new connections (on USB: at the next boot,
- * since the strings are set when the device attaches). */
+ * since the strings are set when the device attaches; on the dock too, whose probe record is
+ * taken once per boot, as on the real controller). */
 int opensc2_identity_store(const struct opensc2_identity *identity);
 /* Forget the stored identity: back to the opensc2_init() / Kconfig values. */
 int opensc2_identity_clear(void);

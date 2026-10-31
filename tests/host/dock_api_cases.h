@@ -203,3 +203,27 @@ OPENSC2_TEST(dock_public_wire)
 	CHECK(st.stick_offsets);
 	osc2_dock_offsets_docked(false);
 }
+
+/* The probe's record is taken once per boot, at the first probe, as the real controller fills it
+ * at start-up: an identity changed later shows at the next boot. */
+OPENSC2_TEST(dock_probe_record_once_per_boot)
+{
+	uint8_t first[OPENSC2_DOCK_FRAME_LEN];
+	uint32_t build;
+
+	stub_reset();
+	build = osc2.identity.build_time;
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	memcpy(first, dk_ans, sizeof(first));
+	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build);
+	osc2.identity.build_time = build + 1;
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK(memcmp(first, dk_ans, sizeof(first)) == 0);
+	/* a boot */
+	osc2_dock_reset();
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build + 1);
+	osc2.identity.build_time = build;
+}
