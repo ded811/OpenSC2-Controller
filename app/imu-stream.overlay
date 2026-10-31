@@ -5,11 +5,12 @@
  * The devicetree half of the build imu-stream.conf (app/CMakeLists.txt adds it with that
  * fragment): the real controller's IMU, an ST LSM6DSV16X, on I2C instead of the two D-pad buttons
  * whose pins it takes (left P0.17 is SDA, right P0.20 is SCL), its INT1 on the left trigger
- * button's pin (P0.24), set up close to the real controller: +-2 g and +-2000 deg/s at 240 Hz (the
- * real controller runs at 250 Hz, a rate of the chip's high-accuracy mode,
- * LSM6DSVXXX_DT_ODR_HA01_AT_250Hz, which this untested overlay does not use), a FIFO watermark of
- * 4, the fusion block at 240 Hz with its game rotation vector and gyro-bias estimate in the FIFO,
- * and the real controller's mounting matrix. Untested on hardware: check the pins and the address
+ * button's pin (P0.24), set up as the real controller's: +-2 g and +-2000 deg/s at 250 Hz, a rate
+ * of the chip's high-accuracy table (LSM6DSVXXX_DT_ODR_HA01_AT_250Hz; src/imu_board.c switches
+ * both sensors into high-accuracy mode once the driver has started, and sets the free-fall window
+ * and the fusion block's alpha-blending factor), a FIFO watermark of 4, both batched at the
+ * 240 Hz code, the fusion block at 240 Hz with its game rotation vector and gyro-bias estimate in
+ * the FIFO, and the real controller's mounting matrix. Untested on hardware: check the pins and the address
  * (0x6A, or 0x6B with its SA0 pin high) against your board.
  */
 #include <zephyr/dt-bindings/i2c/i2c.h>
@@ -60,8 +61,8 @@
 		drdy-pin = <1>;
 		accel-range = <LSM6DSV16X_DT_FS_2G>;
 		gyro-range = <LSM6DSV16X_DT_FS_2000DPS>;
-		accel-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
-		gyro-odr = <LSM6DSVXXX_DT_ODR_AT_240Hz>;
+		accel-odr = <LSM6DSVXXX_DT_ODR_HA01_AT_250Hz>;
+		gyro-odr = <LSM6DSVXXX_DT_ODR_HA01_AT_250Hz>;
 		fifo-watermark = <4>;
 		accel-fifo-batch-rate = <LSM6DSVXXX_DT_XL_BATCHED_AT_240Hz>;
 		gyro-fifo-batch-rate = <LSM6DSVXXX_DT_GY_BATCHED_AT_240Hz>;

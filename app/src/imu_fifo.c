@@ -267,6 +267,7 @@ int imu_init(void)
 	for (int i = 0; i < 9; i++) {
 		mounting[i] = (int8_t)(int32_t)mounting_cells[i];
 	}
+	imu_board_setup();   /* free-fall window, fusion blend, high-accuracy mode */
 	k_thread_start(imu_tid);
 	return 0;
 }
