@@ -139,15 +139,17 @@ def run(ctx):
         with ctx.check(GROUP, "ble.feature") as c:
             # feature report 1 over Bluetooth as the real controller answers it: the GET's answer
             # over the stored request over the characteristic's value, so after a 0xAE request
-            # longer than its 20-byte answer the request's own bytes follow the answer, then what
-            # the SET wrote (Windows pads it with zeros); USB answers zeros there
+            # longer than its 20-byte answer (and the string's padding byte after it: the GET
+            # writes its tag and 20 characters) the request's own bytes follow, then what the SET
+            # wrote (Windows pads it with zeros); USB answers zeros there
             filler = 0xA5
             payload = bytes([1]) + bytes([filler]) * 40      # tag 1, then 40 bytes nobody reads
             raw = rig.vendor_raw(C.VC_STRING_ATTR, payload)
             c.eq("the answer: 0xAE, n = 20", (raw[1], raw[2]), (C.VC_STRING_ATTR, 20))
             req_end = 1 + 2 + len(payload)                    # in Windows' buffer (report ID first)
-            c.eq("then the request's left-over bytes (%d to %d)" % (3 + 20, req_end - 1),
-                 list(raw[3 + 20:req_end]), [filler] * (req_end - 23))
+            c.eq("then the string's padding byte (23)", raw[3 + 20], 0)
+            c.eq("then the request's left-over bytes (%d to %d)" % (3 + 21, req_end - 1),
+                 list(raw[3 + 21:req_end]), [filler] * (req_end - 24))
             c.true("then the SET's own bytes (zeros)", not any(raw[req_end:]))
             # the stored request stays: a plain GET answers 0xAE again
             a = rig.vendor_get()

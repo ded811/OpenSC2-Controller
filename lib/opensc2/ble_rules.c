@@ -404,7 +404,6 @@ size_t osc2_ble_feature_read(const uint8_t value[OSC2_BLE_FEATURE_LEN], uint16_t
 			     const uint8_t *answer, uint8_t out[OSC2_BLE_FEATURE_LEN])
 {
 	size_t n = offset < OSC2_BLE_FEATURE_LEN ? OSC2_BLE_FEATURE_LEN - offset : 0;
-	uint8_t data_len = answer[1];
 
 	memset(out, 0, OSC2_BLE_FEATURE_LEN);
 	memcpy(out, &value[offset < OSC2_BLE_FEATURE_LEN ? offset : 0], n);
@@ -412,12 +411,19 @@ size_t osc2_ble_feature_read(const uint8_t value[OSC2_BLE_FEATURE_LEN], uint16_t
 		request_len = OSC2_BLE_FEATURE_LEN;
 	}
 	memcpy(out, request, request_len);
-	if (data_len > OSC2_BLE_FEATURE_LEN - 2) {
-		data_len = OSC2_BLE_FEATURE_LEN - 2;
-	}
 	out[1] = answer[1];
-	memcpy(&out[2], &answer[2], data_len);
+	memcpy(&out[2], &answer[2], osc2_ble_get_span(answer[0], answer[1]));
 	return n < len ? n : len;
+}
+
+uint8_t osc2_ble_get_span(uint8_t opcode, uint8_t n)
+{
+	uint8_t span = n;
+
+	if (opcode == 0xAE && n == 20) {
+		span = 21;   /* the tag, then 20 characters: one byte more than it counts */
+	}
+	return span > 61 ? 61 : span;
 }
 
 bool osc2_ble_interval_suboptimal(uint32_t interval_us)

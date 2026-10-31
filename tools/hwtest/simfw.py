@@ -635,7 +635,8 @@ class SimBoard:
         """A read: the stored request's GET; a command without one, or a failed one, is an ATT
         error. As ble.c (osc2_ble_feature_read()): the answer over the stored request over the
         characteristic's value, so the bytes after the answer are left-overs. (rc, the 64 bytes
-        Windows hands over: report ID, then the value's first 63)."""
+        Windows hands over: report ID, then the value's first 63). The string attribute (0xAE)
+        writes one byte more than it counts, its padding (osc2_ble_get_span())."""
         opcode, payload = self.stored["ble"]
         rc, opcode, data = self.command_get("ble")
         if rc:
@@ -646,6 +647,8 @@ class SimBoard:
         n = min(len(data), 61)
         img[1] = n
         img[2:2 + n] = data[:n]
+        if opcode == 0xAE and n == 20:
+            img[22] = 0                   # the string's padding byte past its length
         return 0, bytes([1]) + bytes(img[:63])
 
     # ---- output reports (report.c) ----

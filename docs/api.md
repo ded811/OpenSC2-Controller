@@ -1489,10 +1489,11 @@ summary and the gaps):
   read a GET), with refusals as ATT error `0x04` and a write past 64 bytes as `0x07`. Its value is
   64 bytes per connection, as on the real controller: every read runs the stored request's GET
   again (a read blob too) and answers over the start of the value, so the bytes after the answer are
-  left-overs of the request and of the last write, and a read blob gets the start again. The stored
-  request stays from one connection to the next (`0x83` until the first SET after boot). Power and
-  reboot commands act as on the other links; a reboot into wireless mode comes back on Bluetooth when
-  Bluetooth is the stored transport.
+  left-overs of the request and of the last write (except one: `0xAE` writes its tag and 20
+  characters but counts 20, so the byte after its answer is the string's padding), and a read blob
+  gets the start again. The stored request stays from one connection to the next (`0x83` until the
+  first SET after boot). Power and reboot commands act as on the other links; a reboot into wireless
+  mode comes back on Bluetooth when Bluetooth is the stored transport.
 - **Connection**: 7.5 ms, latency 0 and 420 ms asked for 5 s after connecting, every valid host
   request accepted (the stack refuses invalid ones; a longer interval is logged as suboptimal), the
   2M PHY asked for; no data-length update of its own.

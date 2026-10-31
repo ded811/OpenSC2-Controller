@@ -432,6 +432,28 @@ OPENSC2_TEST(ble_feature_read)
 	CHECK_EQ(out[1], 61);
 	CHECK_EQ(out[4], 0);
 	CHECK_EQ(out[63], 0xA0 + 63);
+
+	/* The string attribute writes its tag and 20 characters but counts 20: the byte after its
+	 * answer is the string's padding, the request's own bytes follow from there. */
+	{
+		uint8_t req[63] = { 0xAE, 41, 0x01 };
+		uint8_t ans[63] = { 0xAE, 20, 0x01, 'O', 'S', 'C' };   /* zeros after the text */
+
+		memset(&req[3], 0xA5, 40);
+		CHECK_EQ(osc2_ble_get_span(0xAE, 20), 21);
+		CHECK_EQ(osc2_ble_get_span(0xAE, 0), 0);
+		CHECK_EQ(osc2_ble_get_span(0x83, 30), 30);
+		CHECK_EQ(osc2_ble_get_span(0xF2, 61), 61);
+		CHECK_EQ(osc2_ble_feature_read(value, 0, 64, req, 43, ans, out), 64);
+		CHECK_EQ(out[1], 20);
+		CHECK_EQ(out[2], 0x01);
+		CHECK_EQ(out[3], 'O');
+		CHECK_EQ(out[21], 0);
+		CHECK_EQ(out[22], 0);       /* the padding, not the request's 0xA5 */
+		CHECK_EQ(out[23], 0xA5);    /* then the request's left-overs */
+		CHECK_EQ(out[42], 0xA5);
+		CHECK_EQ(out[43], 0xA0 + 43);
+	}
 }
 
 /* The vendor service's flags: the host's subscription, except for 0x45, whose flag is bit 0 of the

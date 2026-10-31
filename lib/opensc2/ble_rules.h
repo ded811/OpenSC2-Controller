@@ -220,14 +220,19 @@ uint8_t osc2_ble_write_check(uint16_t offset, uint16_t len, uint16_t size);
 /* A read of the feature report's value at `offset`, `len` bytes at most, as the real controller
  * answers it: the stored value from `offset` (what the host last wrote on this connection, zero at
  * its start), with the stored request {opcode, length, payload} (`request_len` bytes) written over
- * its start, and the GET's answer over that ({opcode, n, data}: `answer[1]` = n, then n bytes from
- * `answer[2]`). So the bytes after the answer are left-overs of the request and of the last write,
- * and a read at any offset gets the answer at its start: the value cannot be read in parts. Into
- * `out` (64 bytes); returns the bytes read, 0 for an offset at or past the end (the caller refuses
- * one past it). */
+ * its start, and the GET's answer over that ({opcode, n, data}: `answer[1]` = n, then the bytes the
+ * GET writes from `answer[2]`, osc2_ble_get_span(); `answer` holds 63 bytes). So the bytes after
+ * the answer are left-overs of the request and of the last write, and a read at any offset gets
+ * the answer at its start: the value cannot be read in parts. Into `out` (64 bytes); returns the
+ * bytes read, 0 for an offset at or past the end (the caller refuses one past it). */
 size_t osc2_ble_feature_read(const uint8_t value[OSC2_BLE_FEATURE_LEN], uint16_t offset,
 			     uint16_t len, const uint8_t *request, uint8_t request_len,
 			     const uint8_t *answer, uint8_t out[OSC2_BLE_FEATURE_LEN]);
+/* How many bytes after its length byte a GET of `opcode` that answered `n` bytes writes, as on the
+ * real controller: `n`, except the string attribute's (0xAE), which writes its tag and 20
+ * characters padded with zeros while it counts 20 bytes, so the byte after its answer is the
+ * string's padding, not a left-over. At most 61. */
+uint8_t osc2_ble_get_span(uint8_t opcode, uint8_t n);
 
 /* ---- Valve's vendor service ------------------------------------------------------------------- */
 
