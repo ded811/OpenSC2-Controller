@@ -970,9 +970,16 @@ OPENSC2_TEST(dock_ops_ctrl)
 	/* STATUS: nothing yet */
 	args[0] = 0;
 	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 1), OSC2_TEST_OK);
-	CHECK_EQ(hans_len, 4 + 22);
+	CHECK_EQ(hans_len, 4 + 23);
 	CHECK_EQ(RES[0], 0);
 	CHECK_EQ(RES[20], 0x83);   /* the dock's stored request after a boot */
+	CHECK_EQ(RES[22], 0);      /* no docked stick offsets, the supply rule's view "none" */
+	osc2_dock_offsets_docked(true);
+	(void)osc2_dock_supply_step(true, false, NULL);
+	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 1), OSC2_TEST_OK);
+	CHECK_EQ(RES[22], 0x01 | (OSC2_DOCK_SUPPLY_USB << 1));
+	osc2_dock_offsets_docked(false);
+	osc2_dock_reset();
 	/* the pilot: one reading inside is not enough; two start a session */
 	args[0] = 2;
 	opensc2_put_le16(&args[1], 1999);

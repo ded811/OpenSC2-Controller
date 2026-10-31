@@ -224,7 +224,10 @@ def parse_status(result):
             "frames": struct.unpack_from("<I", r, 6)[0],
             "errors": struct.unpack_from("<I", r, 10)[0],
             "slowest_us": struct.unpack_from("<I", r, 14)[0], "sm_state": r[18],
-            "supply": r[19], "stored": r[20], "cache_valid": bool(r[21])}
+            "supply": r[19], "stored": r[20], "cache_valid": bool(r[21]),
+            # byte 22 (later firmware): the docked stick offsets in effect, the supply rule's view
+            "offsets": bool(r[22] & 1) if len(r) > 22 else None,
+            "rule_supply": (r[22] >> 1) & 3 if len(r) > 22 else None}
 
 
 def encode_status(d):
@@ -234,7 +237,8 @@ def encode_status(d):
             struct.pack("<IIII", d.get("sessions", 0), d.get("frames", 0), d.get("errors", 0),
                         d.get("slowest_us", 0)) +
             bytes([d.get("sm_state", 0), d.get("supply", 0), d.get("stored", 0x83),
-                   1 if d.get("cache_valid") else 0]))
+                   1 if d.get("cache_valid") else 0,
+                   (1 if d.get("offsets") else 0) | ((d.get("rule_supply") or 0) << 1)]))
 
 
 def pilot_args(mv):

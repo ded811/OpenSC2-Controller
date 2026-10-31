@@ -11,14 +11,17 @@
 # on the dock's own
 # stored request, 0x81 and 0x85 doing nothing there, GET input from the copy of the latest state
 # report without taking a sequence number, the dock alone with the radio stopped (attribute 11 =
-# 64000, one new report per request, no 0x43, 0xBE answered), the pilot's 2-of-3 rule, and the
-# docked states on injected supply and events, which the board records and does not act on.
+# 64000, one new report per request, no 0x43, 0xBE answered), the pilot's 2-of-3 rule, the
+# docked states on injected supply and events, which the board records and does not act on, and
+# (wireless) the system state machine on an injected dock power source with the docked stick
+# offsets.
 import struct
 
 from . import base
 from .. import config as C
 from ..proto import dock as D
 from ..proto import reports as R
+from ..proto import sysproto as S
 from ..proto import testproto as T
 from ..proto import vendor as V
 
@@ -28,7 +31,7 @@ TESTS = [("dock.present", "WR", ["dock"]), ("dock.frames", "WR", ["dock"]),
          ("dock.probe", "WR", ["dock"]), ("dock.commands", "WR", ["dock"]),
          ("dock.lizard", "WR", ["dock"]), ("dock.input", "WR", ["dock"]),
          ("dock.alone", "R", ["dock"]), ("dock.pilot", "WR", ["dock"]),
-         ("dock.states", "WR", ["dock"])]
+         ("dock.states", "WR", ["dock"]), ("dock.power", "R", ["dock"])]
 
 PROBE = D.build_request(D.PROBE)
 INPUT = D.build_request(D.INPUT)
@@ -348,6 +351,10 @@ def _run(ctx, rig):
         with ctx.check(GROUP, "dock.states") as c:
             _states(c, rig)
 
+    if ctx.want("dock.power") and path == "R":
+        with ctx.check(GROUP, "dock.power") as c:
+            _power(c, rig)
+
 
 def _alone(c, rig):
     """The radio stopped: the dock is the board's only link."""
@@ -396,6 +403,62 @@ def _alone(c, rig):
             rig.dock_end()
             rig.console_run("opensc2 start")
             c.true("connected again within 3 s", rig.wait_link("connected", 3.0))
+
+
+def _sys_state(rig, names, timeout):
+    """SYS_STATUS until the state is one of `names`; the last status."""
+    deadline = rig.clock.monotonic() + rig.t(timeout)
+    while True:
+        st = rig.sys_status()
+        if st and st["state_name"] in names or rig.clock.monotonic() >= deadline:
+            return st
+        rig.sleep(0.1)
+
+
+def _power(c, rig):
+    """The system state machine on the dock's power, injected (no pads involved): on the dock with
+    the link up and off it again, the link kept, and the docked stick offsets on and off with it.
+    Wireless on USB power only: the injection reaches the firmware's rules, never a report."""
+    base.need(rig, "system")
+    caps = rig.caps or rig.arm()
+    if not T.cap_flag(caps, C.CAP_SYSTEM):
+        c.skip("firmware built without CONFIG_OPENSC2_SYSTEM")
+        return
+    if rig.dock_status().get("offsets") is None:
+        c.skip("this firmware's dock STATUS has no offsets byte")
+        return
+    # USB power back with the link down would be a plug-in reboot: only with the link up
+    if not rig.wait_link("connected", 1.0):
+        c.skip("the radio link is not up")
+        return
+    start = rig.ring_next()
+    try:
+        rig.sys_inject(S.INJECT_SOURCE, source=S.SRC_BATTERY)
+        st = _sys_state(rig, ("battery",), 1.0)
+        c.eq("power gone: battery operation", st and st["state_name"], "battery")
+        c.true("no docked stick offsets on battery", not rig.dock_status()["offsets"])
+        rig.sys_inject(S.INJECT_SOURCE, source=S.SRC_DOCK)
+        st = _sys_state(rig, ("dock-on",), 1.0)
+        c.eq("the dock's power with the link up: dock-on", st and st["state_name"], "dock-on")
+        if st:
+            c.eq("the transport's LED on external power",
+                 (st["led_mode"], bool(st["led_flags"] & S.LED_EXTERNAL)), (S.LED_PUCK, True))
+        c.true("the docked stick offsets on", rig.dock_status()["offsets"])
+        rig.sys_inject(S.INJECT_SOURCE, source=S.SRC_BATTERY)
+        st = _sys_state(rig, ("battery",), 1.0)
+        c.eq("lifted off: battery operation, the link kept", st and st["state_name"], "battery")
+        c.true("the docked stick offsets off again", not rig.dock_status()["offsets"])
+    finally:
+        rig.sys_inject_off()
+    st = _sys_state(rig, ("usb-link-on",), 1.0)
+    c.eq("USB power again, the link up", st and st["state_name"], "usb-link-on")
+    entries = rig.ring_all(start)[2]
+    states = [(e["from_name"], e["to_name"], e["cause_name"])
+              for e in base.of_kind(entries, C.RING_SYS_STATE) if "from_name" in e]
+    c.eq("SYS_STATE entries", states,
+         [("usb-link-on", "battery", "power-none"), ("battery", "dock-on", "power-dock"),
+          ("dock-on", "battery", "power-none"), ("battery", "usb-link-on", "power-usb")])
+    c.true("the link stayed up", rig.wait_link("connected", 1.0))
 
 
 def _states(c, rig):

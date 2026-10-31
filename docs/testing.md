@@ -56,7 +56,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, the kept keys `user/keylock`, `mte/charge_level` and `debug/resetreason` saved as they read, restating the mode policy); see [the note below](#what---flash-writes) |
 | `lizard` | W R B | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, also from the click by pressure switched on for the test, thumb on the stick by its sensor's bit or the stick-touch fallback, lizard mode off and back, with its processing switched off), then its processing part by part (the touch stabilisers with setting 80 at 0, 1 and 2, the 8-frame average, the glide after a flick and what ends it: a new touch, `0x81`, an `ARM`, and the haptic ticks and clicks) and all together as the build has it, each sequence followed until lizard mode goes quiet, with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path (before the `system` group, whose reboots come at the very end), and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
 | `puck` | P | opt-in `--through-puck`: rumble, haptics, vendor commands and the test channel through the puck ([below](#the---through-puck-opt-in)) |
-| `dock` | W R | opt-in `--dock`: the board's dock link, fed 73-byte frames through the test hooks as if the puck had sent them over its pads, nothing wired ([below](#the-dock)): the frame rules (the CRC, a short frame, nothing arriving, the start byte ignored), each answer built over the previous one (a probe keeping its type and result, a type the puck never sends repeating the previous answer), the probe's identity record against the board's identity (its serials by CRC-32 only), commands on the dock's own stored request, `0x81` and `0x85` doing nothing there, GET input from the stream's latest report without taking a sequence number, every answer within 50 ms; on R the dock alone with the radio stopped (attribute 11 = 64000, one new report per request, answered by the next, no `0x43`, `0xBE` answered); the pilot's 2-of-3 rule; the docked states on injected supply and events, recorded and not acted on |
+| `dock` | W R | opt-in `--dock`: the board's dock link, fed 73-byte frames through the test hooks as if the puck had sent them over its pads, nothing wired ([below](#the-dock)): the frame rules (the CRC, a short frame, nothing arriving, the start byte ignored), each answer built over the previous one (a probe keeping its type and result, a type the puck never sends repeating the previous answer), the probe's identity record against the board's identity (its serials by CRC-32 only), commands on the dock's own stored request, `0x81` and `0x85` doing nothing there, GET input from the stream's latest report without taking a sequence number, every answer within 50 ms; on R the dock alone with the radio stopped (attribute 11 = 64000, one new report per request, answered by the next, no `0x43`, `0xBE` answered); the pilot's 2-of-3 rule; the docked states on injected supply and events, recorded and not acted on; on R the system state machine on an injected dock power source (dock-on with the link kept, the docked stick offsets on, and off again on battery) |
 | `steam` | S | opt-in `--with-steam`: what Steam sends to the board through the puck (the vendor commands, and `steam.session` counts the output reports by ID, rumble, haptic commands by kind, PCM bytes and stops, and checks the `0x44` reply to each stop; the counts go into `report.json`), the lines it logs on a reconnect (masked), the wired stream with Steam open; passive |
 
 Because nothing is wired, the board's own inputs read neutral; the inputs come from the test
@@ -179,14 +179,14 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and two dry runs of
-the suite against that emulator. Today that is 188 host tests (25,251 checks); 235 (28,483 checks)
+the suite against that emulator. Today that is 193 host tests (25,482 checks); 240 (28,797 checks)
 with the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for
 byte alike (after every test, each mutex the library took must have been let go again); a compile of
 the library files whose calibration calls become stand-ins without `CONFIG_OPENSC2_CAL`; the
-runner's 281 self-tests (a dry run of the Bluetooth path among them); its dry runs against the
-library's own code in a firmware emulator (`--lizard --dock`: 233 tests pass, 26 are skipped; and
+runner's 282 self-tests (a dry run of the Bluetooth path among them); its dry runs against the
+library's own code in a firmware emulator (`--lizard --dock`: 234 tests pass, 26 are skipped; and
 `--flash --lizard --dock`, with the `flash` group and the tests that store something, such as
-`system.keylock`: 241 pass, 18 skipped), which has the system state machine, the calibration, the
+`system.keylock`: 242 pass, 18 skipped), which has the system state machine, the calibration, the
 dock link and the haptics synthesiser built in (as `app/haptics.conf`), so the `system`, `cal`,
 `dock` and `haptics` groups run there too; 6 self-tests of `tools/fake_puck.py`; 9 self-tests of
 `tools/match_steam_version.py`. With every opt-in that runs offline, the simulator passes 182
@@ -487,7 +487,7 @@ python -I tools\fake_puck.py --test-op --polls 20
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 281 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 282 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking (Bluetooth addresses too), every
   safety rule (including the source scan of the puck reader, that every function that sends checks
   the exact bytes, and which Bluetooth node is the board's), the link lock against a racing

@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <string.h>
 #include "internal.h"
+#include "dock_link.h"
 #include "chord_rules.h"
 #include "key_store.h"
 #include "idle_rules.h"
@@ -147,6 +148,7 @@ static void end(const struct osc2_sys_out *o)
 static void apply(const struct osc2_sys_out *o)
 {
 	if (o->actions & OSC2_SYS_DO_STATE) {
+		osc2_dock_offsets_follow(o->from, o->to);   /* as system.c */
 		osc2_test_sys_note_state(o->from, o->to, o->cause, machine.chosen, source);
 	}
 	if (o->actions & OSC2_SYS_DO_IR_OFF) {
@@ -262,7 +264,9 @@ void emu_sys_process(void)
 	s = detect_source();
 	if (s == source) {
 		gone = false;
-	} else if (s == OSC2_SRC_BATTERY && (!gone || now - gone_at < POWER_GONE_MS)) {
+	} else if (s == OSC2_SRC_BATTERY && source != OSC2_SRC_DOCK &&
+		   (!gone || now - gone_at < POWER_GONE_MS)) {
+		/* USB power must stay away 0.2 s; the dock's counts at the next poll (system.c) */
 		if (!gone) {
 			gone = true;
 			gone_at = now;

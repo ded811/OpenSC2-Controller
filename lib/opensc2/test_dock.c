@@ -15,6 +15,7 @@
  * chip ID never come back (zeros instead, with a CRC-32 to compare).
  */
 #include <string.h>
+#include <opensc2/docking.h>
 #include "internal.h"
 #include "dock_link.h"
 #include "retained.h"   /* osc2_crc32() */
@@ -351,7 +352,9 @@ static uint8_t op_ctrl(const uint8_t *args, uint8_t *result, uint8_t *rlen)
 		result[19] = (uint8_t)t.power.kind;
 		result[20] = stored[0];   /* the dock's stored request */
 		result[21] = info.cache_valid ? 1 : 0;
-		*rlen = 22;
+		result[22] = (opensc2_dock_stick_offsets_active() ? 0x01 : 0) |
+			     (info.supply << 1);   /* bits 1 and 2: the supply rule's view */
+		*rlen = 23;
 		return OSC2_TEST_OK;
 	}
 	case CTRL_END:

@@ -124,7 +124,8 @@ class DockCodec(unittest.TestCase):
         self.assertEqual(D.parse_run(D.encode_run(run)), run)
         st = {"active": True, "alone": False, "test": True, "uart": False, "last_end": 2,
               "sessions": 3, "frames": 7, "errors": 1, "slowest_us": 900, "sm_state": 4,
-              "supply": 2, "stored": 0x89, "cache_valid": True}
+              "supply": 2, "stored": 0x89, "cache_valid": True, "offsets": True,
+              "rule_supply": 1}
         self.assertEqual(D.parse_status(D.encode_status(st)), st)
         self.assertEqual(D.pilot_args([2500, None, 3300]),
                          bytes([D.CTRL_PILOT, 0xC4, 0x09, 0xFF, 0xFF, 0xE4, 0x0C]))
@@ -217,7 +218,7 @@ class DockGroup(unittest.TestCase):
                 backend.close()
             res = _results(run)
             self.assertEqual(code, C.EXIT_OK, (start, res))
-            self.assertEqual(sorted(s for _l, s, _n in res), [PASS] * 17, (start, res))
+            self.assertEqual(sorted(s for _l, s, _n in res), [PASS] * 18, (start, res))
 
     def test_input_alone_against_the_emulator(self):
         # dock.input on its own, with no test before it that left a session running: the copy
