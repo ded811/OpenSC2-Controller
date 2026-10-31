@@ -815,8 +815,9 @@ every power request goes to the application, `opensc2_led_status()` selects no m
 input type; `opensc2_power_source()` returns the source in effect. The library looks at it every
 `CONFIG_OPENSC2_POWER_POLL_MS` (50 ms, as often as the real controller polls its USB power
 detection); a change counts at that poll, whichever way. Only a change of "power present" is an
-event: USB to the dock with power all along changes nothing. Set it before `opensc2_init()` for the power-on decision: a boot with VBUS whose source is
-the battery or the dock is not wired (`OPENSC2_MODE_NO_USB_POWER`).
+event: USB to the dock with power all along changes nothing. Set it before `opensc2_init()` for
+the power-on decision: a boot with VBUS whose source is the battery or the dock is not wired
+(`OPENSC2_MODE_NO_USB_POWER`).
 
 ### The power-on decision
 
