@@ -33,6 +33,19 @@ struct stub_record {
 	struct osc2_blob_store blobs;
 	uint32_t key_saves, key_deletes;
 	int key_factory_resets;
+	/* storage.c's flash-only stores, and an error they all return (0: none) */
+	struct opensc2_bond stored_bonds[OPENSC2_BOND_SLOTS];
+	uint8_t stored_chime;
+	int storage_error;
+	int storage_factory_resets;
+	/* another settings handler's stand-in ("app/thing", 2 bytes) */
+	uint8_t named_value[2];
+	int named_saves, named_saved_len, named_deletes;
+	/* cmd_deferred.c's calls */
+	int cmd_power;
+	enum opensc2_power_request cmd_power_last;
+	int factory_resets;
+	int bond_writes;
 };
 
 extern struct stub_record stub;

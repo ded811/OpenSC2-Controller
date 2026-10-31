@@ -19,6 +19,7 @@ zephyr_library_sources(
 	codec.c
 	core.c
 	commands.c
+	cmd_deferred.c
 	crash.c
 	crash_rules.c
 	gauge.c

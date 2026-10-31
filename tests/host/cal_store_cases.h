@@ -198,10 +198,11 @@ OPENSC2_TEST(cal_store_by_name)
 	}
 	CHECK_EQ(cal_named(0xF0, "cal/sensors/gyroscope/bias", NULL, 0), 0);
 
-	/* an unknown cal/ name is the application's: refused by the blank canvas */
+	/* an unknown cal/ name is no key: as on the real controller, setting it is refused, and
+	 * deleting it is acknowledged (nothing of that name is stored) */
 	CHECK_EQ(cal_read("cal/foo", out), 0);
-	CHECK(cal_named(0xEE, "cal/foo", "x", 1) < 0);
-	CHECK(cal_named(0xF0, "cal/foo", NULL, 0) < 0);
+	CHECK_EQ(cal_named(0xEE, "cal/foo", "x", 1), -EINVAL);
+	CHECK_EQ(cal_named(0xF0, "cal/foo", NULL, 0), 0);
 }
 
 /* 0xEF saves what 0xED would read back, as the real controller saves what the key's read function

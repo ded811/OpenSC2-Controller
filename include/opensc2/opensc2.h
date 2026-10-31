@@ -137,9 +137,9 @@ enum opensc2_usb_state {
 struct opensc2_usb_info {
 	enum opensc2_usb_state state;
 	bool active;                 /* configured right now (a bus reset deconfigures) */
-	bool suspended;              /* the bus is suspended: reports are dropped */
+	bool suspended;              /* the bus is suspended: reports wait in the eight buffers */
 	uint32_t reports;            /* state reports sent since the configuration */
-	uint32_t dropped;            /* state reports not sent (no free buffer, suspended) */
+	uint32_t dropped;            /* state reports lost: no free buffer (a stall, a suspended bus) */
 	uint32_t requests;           /* feature reports (vendor commands) received */
 	uint32_t stalls;             /* requests refused with a STALL */
 	uint32_t outputs;            /* output reports received */
@@ -491,6 +491,21 @@ void opensc2_led_get(struct opensc2_led *led);
 /* The power-on chime level Steam stores with vendor command 0xDC: 1 quiet, 2 normal (default),
  * anything else silent. */
 uint8_t opensc2_chime_level(void);
+
+/* The same changes from the board itself, exactly as the host's commands make them (the side
+ * effects, the callbacks and the stored values included); any time after opensc2_init(), from any
+ * thread but the library's own callbacks (one command runs at a time). -EACCES before
+ * opensc2_init(). */
+/* One controller setting, as one triplet of 0x87: clamped to its range; setting 9 turns lizard
+ * mode on or off, 71 arms or cancels the Steam watchdog, 37 and 45 call `led`; setting_changed
+ * when the value changes. -EINVAL above 85. */
+int opensc2_setting_set(uint8_t number, int16_t value);
+/* The LED override colour, as 0xC5: four percentages, 0..255 (above 100 is brighter on the real
+ * controller, up to full duty), shown while setting 37 is not 0; calls `led`. */
+int opensc2_led_set_color(uint8_t red, uint8_t green, uint8_t blue, uint8_t white);
+/* The power-on chime level, as 0xDC type 1: saved, then in use (a failed save leaves the level in
+ * use as it was and is returned). */
+int opensc2_chime_level_set(uint8_t level);
 
 /* ---- Power and the system state machine (CONFIG_OPENSC2_SYSTEM) ------------------------------ */
 

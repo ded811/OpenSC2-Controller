@@ -120,8 +120,11 @@ config OPENSC2_STORAGE
 	bool "Keep bonds, the identity and the mode policy in Zephyr settings"
 	default y
 	depends on SETTINGS
+	imply SETTINGS_RUNTIME
 	help
-	  Keys under "opensc2/". Without it, pairings are lost at every reboot.
+	  Keys under "opensc2/". Without it, pairings are lost at every reboot. With
+	  SETTINGS_RUNTIME (implied) the vendor commands by name also reach every other settings
+	  handler of the build, as on the real controller (Bluetooth's keys, the application's).
 
 config OPENSC2_SHELL
 	bool "Shell commands (opensc2 ...)"

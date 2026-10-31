@@ -29,7 +29,8 @@ int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save);
 /* Store `value` (exactly the key's size) for the next boot and leave the RAM value as it is (the
  * keylock chord, whose lock counts from the next power-on). */
 int osc2_keys_store(uint8_t id, const uint8_t *value, uint8_t len);
-/* The factory reset (0x86): every blob it deletes (OSC2_KEYF_FACTORY), in RAM and in flash. */
+/* The factory reset (0x86): every blob it deletes (OSC2_KEYF_FACTORY), from flash only (the RAM
+ * values stay until the reboot that follows). */
 int osc2_keys_factory_reset(void);
 
 #endif /* OPENSC2_KEY_STORE_H_ */

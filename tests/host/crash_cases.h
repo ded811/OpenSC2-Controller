@@ -121,13 +121,15 @@ OPENSC2_TEST(crash_cmd_f2)
 	CHECK_EQ(reply[4], 0);
 	CHECK(memcmp(&reply[5], &r[1], OSC2_CRASH_LEN - 1) == 0);
 	CHECK_EQ(stub.key_saves, 0);
-	/* 0xED reads the same record, and the factory reset deletes it. */
+	/* 0xED reads the same record, and the factory reset deletes it from flash; the record in RAM
+	 * stays until the reboot that follows, as on the real controller. */
 	CHECK_EQ(proto_usb(0xED, name, sizeof(name), reply), 33);
 	CHECK_EQ(reply[3], 0);
 	CHECK(memcmp(&reply[4], &r[1], OSC2_CRASH_LEN - 1) == 0);
 	CHECK_EQ(proto_usb(0x86, (const uint8_t[]){ 0x17, 0xA9, 0xC1, 0xEF }, 4, reply), -1);
+	CHECK(stub.key_deletes & (1u << OSC2_KEY_RESET_REASON));
 	CHECK_EQ(proto_usb(0xF2, &sel1, 1, reply), 34);
-	CHECK(memcmp(&reply[4], (const uint8_t[OSC2_CRASH_LEN]){ 0 }, OSC2_CRASH_LEN) == 0);
+	CHECK(memcmp(&reply[5], &r[1], OSC2_CRASH_LEN - 1) == 0);
 	/* The host emulation never asks for selector 1: its GET writes flash. */
 	CHECK(!osc2_test_host_set_allowed(0xF2, &sel1, 1));
 	CHECK(osc2_test_host_set_allowed(0xF2, (const uint8_t[]){ 0 }, 1));

@@ -84,8 +84,10 @@ OPENSC2_TEST(transport_rules)
 	CHECK_EQ(osc2_transport_from_word("bluetooth"), -1);
 }
 
-/* The key in a build without Bluetooth (the host tests' build): 2 and 3 select the puck's slot in
- * RAM, 0 and 1 are taken and change nothing (as before), 0xEF stores, 0xF0 deletes. */
+/* The key as the real controller keeps it (its handler's RAM byte): 0xEE takes any byte and
+ * changes nothing else (the transport running, the radio's slot), 0xED reads it back, 0xEF stores
+ * it as it is, 0xF0 deletes it and the key reads 2 again; the factory reset deletes it from flash
+ * and leaves RAM until the reboot. */
 OPENSC2_TEST(transport_key_without_ble)
 {
 	uint8_t reply[64];
@@ -101,37 +103,42 @@ OPENSC2_TEST(transport_key_without_ble)
 	memcpy(named, key_transport, key_len);
 	named[key_len] = 3;
 	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
-	CHECK_EQ(osc2.transport, 3);
-	CHECK_EQ(osc2.slot, 1);
-	CHECK(stub.radio_events & OSC2_EV_BOND);
+	CHECK_EQ(osc2.transport_key, 3);
+	CHECK_EQ(osc2.transport, 2);      /* nothing runs at once */
+	CHECK_EQ(osc2.slot, 0);
+	CHECK(!(stub.radio_events & OSC2_EV_BOND));
 	CHECK_EQ(stub.saved_transport, 0);   /* RAM only */
-	named[key_len] = 1;   /* Bluetooth: no Bluetooth in this build */
+	named[key_len] = 1;   /* Bluetooth: no Bluetooth in this build, kept all the same */
 	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
-	CHECK_EQ(osc2.transport, 3);
-	named[key_len] = 7;   /* above 3 */
+	CHECK_EQ(osc2.transport_key, 1);
+	named[key_len] = 7;   /* above 3: kept as it is */
 	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
-	CHECK_EQ(osc2.transport, 3);
-	CHECK(usb_set(0xEE, named, (uint8_t)key_len) < 0);   /* no value byte */
+	CHECK_EQ(osc2.transport_key, 7);
+	CHECK_EQ(usb_set(0xEE, named, (uint8_t)key_len), -EINVAL);   /* no value byte */
+	named[key_len + 1] = 3;
+	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 2)), -EINVAL);   /* two bytes */
 	CHECK_EQ(usb_set(0xED, key_transport, (uint8_t)key_len), 0);
 	CHECK_EQ(usb_get(reply, 64), 64);
-	CHECK_EQ(reply[3], 3);
+	CHECK_EQ(reply[3], 7);
 
-	/* 0xEF stores the choice in RAM; 0xF0 deletes it and goes back to the default. */
+	/* 0xEF stores the byte as it is; 0xF0 deletes it and the key reads the default. */
 	CHECK_EQ(usb_set(0xEF, key_transport, (uint8_t)key_len), 0);
 	CHECK_EQ(stub.saved_transport, 1);
-	CHECK_EQ(stub.stored_transport, 3);
+	CHECK_EQ(stub.stored_transport, 7);
+	CHECK_EQ(osc2.transport, 2);
 	CHECK_EQ(usb_set(0xF0, key_transport, (uint8_t)key_len), 0);
 	CHECK_EQ(stub.deleted_transport, 1);
+	CHECK_EQ(osc2.transport_key, 2);
 	CHECK_EQ(osc2.transport, 2);
-	CHECK_EQ(osc2.slot, 0);
 	CHECK_EQ(stub.stored_transport, OSC2_TRANSPORT_NONE);
 
-	/* The factory reset forgets the choice too. */
-	osc2.transport = 3;
-	osc2.slot = 1;
+	/* The factory reset deletes the stored choice; the RAM values stay until its reboot. */
+	osc2.transport_key = 3;
 	CHECK_EQ(usb_set(0x86, (const uint8_t[]){ 0x17, 0xA9, 0xC1, 0xEF }, 4), 0);
-	CHECK_EQ(osc2.transport, 2);
-	CHECK_EQ(osc2.slot, 0);
+	CHECK_EQ(stub.factory_resets, 1);
+	CHECK_EQ(stub.storage_factory_resets, 1);
+	CHECK_EQ(osc2.transport_key, 3);
+	CHECK_EQ(stub.power, OPENSC2_POWER_FACTORY_RESET);
 }
 
 /* Attribute 11 is the current link's report interval, whichever link asks (CMD-3): 4000 while USB

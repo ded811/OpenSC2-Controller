@@ -217,16 +217,16 @@ OPENSC2_TEST(keys_cmd_kept)
 	CHECK(!(stub.key_saves & (1u << OSC2_KEY_HAPTIC_ENABLED)));
 	CHECK_EQ(named_set(0xF0, "settings/haptics/amplifier_mode", NULL, 0), 0);
 	CHECK(stub.key_deletes & (1u << OSC2_KEY_HAPTIC_AMP));
-	/* The factory reset deletes the user, mte and debug keys and keeps settings/haptics. */
+	/* The factory reset deletes the user, mte and debug keys from flash and keeps
+	 * settings/haptics; the values in RAM stay until the reboot that follows. */
 	{
 		const uint8_t key[4] = { 0x17, 0xA9, 0xC1, 0xEF };
 
 		CHECK_EQ(proto_usb(0x86, key, 4, reply), -1);   /* set-only: the GET stalls */
 		CHECK_EQ(stub.key_factory_resets, 1);
 		CHECK_EQ(osc2_keys_get(OSC2_KEY_FULL_LED, v, &len), 0);
-		CHECK_EQ(v[0], 3);
-		CHECK_EQ(osc2_keys_get(OSC2_KEY_CHARGE_WINDOW, v, &len), 0);
-		CHECK(memcmp(v, (const uint8_t[8]){ 0 }, 8) == 0);
+		CHECK_EQ(v[0], 1);
+		CHECK(stub.key_deletes & (1u << OSC2_KEY_FULL_LED));
 		CHECK_EQ(osc2_keys_get(OSC2_KEY_HAPTIC_GAIN, v, &len), 0);
 		CHECK_EQ((int16_t)opensc2_get_le16(v), -6);
 		CHECK(stub.key_deletes & (1u << OSC2_KEY_RESET_REASON));

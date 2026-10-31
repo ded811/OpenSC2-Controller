@@ -200,10 +200,11 @@ int osc2_keys_factory_reset(void)
 {
 	int err = 0;
 
+	/* Flash only: the RAM values stay until the reboot that follows, as on the real controller. */
 	for (uint8_t id = 1; id < OSC2_KEY_COUNT; id++) {
 		const struct osc2_key_info *k = blob_key(id);
 
-		if (k && (k->flags & OSC2_KEYF_FACTORY) && osc2_keys_delete(id) != 0) {
+		if (k && (k->flags & OSC2_KEYF_FACTORY) && store_delete(k) != 0) {
 			err = -EIO;
 		}
 	}

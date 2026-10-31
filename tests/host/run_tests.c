@@ -88,6 +88,7 @@ static void register_test(const char *name, test_fn fn)
 #include "../codec/src/cases_input.h"
 #include "../codec/src/cases_dock.h"
 #include "commands_cases.h"
+#include "channel_cases.h"
 #include "proto_cases.h"
 #include "keys_cases.h"
 #include "crash_cases.h"

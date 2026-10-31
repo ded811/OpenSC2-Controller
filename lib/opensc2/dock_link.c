@@ -193,7 +193,7 @@ static int32_t op_get(void *ctx, uint8_t out[OPENSC2_DOCK_PAYLOAD_LEN])
 		return OSC2_DOCK_RESULT_GET_OK;
 	}
 	/* A command that only acts (a SET of 0x87 selected nothing to read): -95 (EOPNOTSUPP). */
-	return rc == -ENOTSUP ? OSC2_DOCK_RESULT_NOTHING_TO_READ : rc;
+	return rc == -ENOTSUP || rc == -EOPNOTSUPP ? OSC2_DOCK_RESULT_NOTHING_TO_READ : rc;
 }
 
 static void op_input(void *ctx, uint8_t out[REPORT_BODY])

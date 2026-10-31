@@ -159,7 +159,8 @@ def run(ctx):
             a = rig.vendor(C.VC_USER_STORE_GET)
             c.eq("0xDB", (a.n, a.data[:1]), (2, b"\x01"))
             chime = a.data[1] if a.n >= 2 else None
-            c.true("0xDC with type 2 is refused", rig.refused(C.VC_USER_STORE_SET, b"\x02\x01"))
+            c.true("0xDC with type 2 is acknowledged (it does nothing)",
+                   not rig.refused(C.VC_USER_STORE_SET, b"\x02\x01"))
             a = rig.vendor(C.VC_USER_STORE_GET)
             c.eq("the chime level unchanged", a.data[1:2], bytes([chime]) if chime is not None
                  else b"")
@@ -213,8 +214,10 @@ def run(ctx):
                     c.observe(cal_joy_l="empty" if a.n == 0 else "stored")
             a = rig.vendor(C.VC_BY_NAME_READ, C.NO_KEY.encode() + b"\0")
             c.eq("a name that is no key: n", a.n, 0)
+            # the name is read in the reply buffer, where the request's zero padding ends it
             a = rig.vendor(C.VC_BY_NAME_READ, TRANSPORT[:-1])
-            c.eq("a name without its NUL: n", a.n, 0)
+            c.eq("a name without its NUL (the padding ends it): the key's value",
+                 (a.n, a.data[:1]), (t.n, t.data[:1]))
 
     if ctx.want("cmd.by_name_refusals"):
         with ctx.check(GROUP, "cmd.by_name_refusals") as c:
@@ -289,8 +292,10 @@ def run(ctx):
                    rig.refused(C.VC_BY_NAME_SAVE, CHIME + b"\x01"))
             c.true("0xEF user/keylock with a byte after the NUL is refused",
                    rig.refused(C.VC_BY_NAME_SAVE, b"user/keylock\0\x01"))
-            c.true("0xF0 of a name that is no key is refused",
-                   rig.refused(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\0"))
+            c.true("0xF0 of a name nothing stores is acknowledged",
+                   not rig.refused(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\0"))
+            c.true("0xF0 of a name with a byte after its NUL is refused",
+                   rig.refused(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\0\x01"))
             c.true("0xEF cal/joy_l with a byte after the NUL is refused",
                    rig.refused(C.VC_BY_NAME_SAVE, b"cal/joy_l\0\x00"))
             c.true("nothing stored", rig.read_named(BOND2).data == b2.data and

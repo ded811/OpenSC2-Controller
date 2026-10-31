@@ -1348,7 +1348,7 @@ OPENSC2_TEST(hooks_vendor_entries)
 	i = find_kind(OSC2_TEST_KIND_VENDOR, i + 1);   /* the GET of the 0x87 */
 	CHECK_EQ(ents[i].d[0], 1);
 	CHECK_EQ(ents[i].d[2], 0);
-	CHECK_EQ((int32_t)opensc2_get_le32(&ents[i].d[3]), -ENOTSUP);
+	CHECK_EQ((int32_t)opensc2_get_le32(&ents[i].d[3]), -EOPNOTSUPP);
 	CHECK_EQ(ents[i].len, 7 + 3);   /* the stored request's triplet */
 	i = find_kind(OSC2_TEST_KIND_VENDOR, i + 1);
 	CHECK_EQ(ents[i].d[1], 0xC1);
