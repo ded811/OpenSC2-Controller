@@ -673,6 +673,7 @@ class SimBackend:
         if self._no_reconnect or not self.puck_present:
             b.link_state = 3
             b.hooks.note(C.RING_LINK, 0, bytes([3, 0, b.slot, 0, 0]))
+            b.listen_started()
             return
         b.link_state = 3
         b.hooks.note(C.RING_LINK, 0, bytes([3, 0, b.slot, 0, 0]))
@@ -706,6 +707,7 @@ class SimBackend:
                 b.link_state = 3
                 b.last_reason = 1
                 b.hooks.note(C.RING_LINK, 0, bytes([3, 1, b.slot, 0, 0]))
+                b.listen_started()
                 b.link_down()
                 self._puck_reports.append((self.clock.monotonic(),
                                            bytes([C.RPT_LINK_QUALITY]) + struct.pack(
