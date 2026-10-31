@@ -346,14 +346,22 @@ static const char *const builtin_lizard[] = {
 	"LEAVE -> 410000000000000000 400000000000",
 	"LEAVE -> -",
 	"ENTER -> 410000000000000000 400000000000",
-	"FRAME buttons=0x00000001 -> -",
+	"FRAME buttons=0x00000001 -> 410000280000000000",
 	"FRAME -> 410000000000000000",
-	"SWITCHES down -> -",
+	"SWITCHES down -> 410000000000000000",
 	"FRAME buttons=0x00000001 -> -",
 	"FRAME buttons=0x00800000 -> -",
-	"SWITCHES up -> -",
-	"FRAME buttons=0x00000001 -> -",
+	"SWITCHES up -> 410000000000000000",
+	"FRAME buttons=0x00000001 -> 410000280000000000",
 	"FRAME -> 410000000000000000",
+	"CMD85 -> -",
+	"CMD81 -> 410000000000000000 410000000000000000 400000000000",
+	"FRAME buttons=0x00000001 -> 410000280000000000",
+	"FRAME -> 410000000000000000",
+	"CMD81 -> 410000000000000000",
+	"FRAME buttons=0x00000001 -> -",
+	"FRAME -> -",
+	"ENTER -> 410000000000000000 400000000000",
 	"# resync",
 	"FRAME buttons=0x00200000 rpad=0,0 -> -",
 	"FRAME buttons=0x00200000 rpad=640,0 -> 400005000000",
@@ -411,9 +419,12 @@ static bool parse_xy(const char *text, int16_t *x, int16_t *y)
 static void lizard_line(char *tok[], int n, void *ctx)
 {
 	struct lizard_run *run = ctx;
-	uint8_t want[64], got[64], keyboard[9], mouse[6];
+	uint8_t want[64], got[64];
+	struct opensc2_lizard_out out;
 	int arrow = vec_find(tok, n, "->"), want_len = 0, got_len = 0, events_at = n;
 	uint32_t made = 0;
+
+	out.n = 0;
 
 	if (strcmp(tok[0], "START") == 0) {
 		lizard_start(run);
@@ -471,8 +482,7 @@ static void lizard_line(char *tok[], int n, void *ctx)
 			int16_t keep = run->settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK];
 
 			run->settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK] = s82;
-			made = opensc2_lizard_step(&run->lz, &s, run->settings, run->rules, keyboard,
-						   mouse);
+			made = opensc2_lizard_step(&run->lz, &s, run->settings, run->rules, &out);
 			run->settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK] = keep;
 		}
 		/* The haptic events after the reports, in order. */
@@ -481,38 +491,40 @@ static void lizard_line(char *tok[], int n, void *ctx)
 		for (int i = 0; i < count && events_at + i < n; i++) {
 			CHECK(strcmp(tok[events_at + i], words[i]) == 0);
 		}
-		/* osc2_report_lizard() sends the keyboard report first. */
-		if (made & OPENSC2_LIZARD_KEYBOARD) {
-			memcpy(&got[got_len], keyboard, sizeof(keyboard));
-			got_len += (int)sizeof(keyboard);
+	} else if (strcmp(tok[0], "ENTER") == 0 || strcmp(tok[0], "LEAVE") == 0) {
+		/* A write of setting 9 (1 or 0): lizard mode hears of it only on a change, as
+		 * osc2_lizard_set() from commands.c. */
+		bool on = strcmp(tok[0], "ENTER") == 0;
+
+		CHECK(arrow == 1);
+		if ((run->settings[OPENSC2_SETTING_LIZARD_MODE] != 0) != on) {
+			run->settings[OPENSC2_SETTING_LIZARD_MODE] = on ? 1 : 0;
+			(void)opensc2_lizard_setting(&run->lz, on, &out);
 		}
-		if (made & OPENSC2_LIZARD_MOUSE) {
-			memcpy(&got[got_len], mouse, sizeof(mouse));
-			got_len += (int)sizeof(mouse);
+	} else if (strcmp(tok[0], "CMD81") == 0) {
+		/* 0x81: setting 9 off with the switches, or (already off) the switches alone. */
+		CHECK(arrow == 1);
+		if (run->settings[OPENSC2_SETTING_LIZARD_MODE] != 0) {
+			run->settings[OPENSC2_SETTING_LIZARD_MODE] = 0;
+			(void)opensc2_lizard_setting(&run->lz, false, &out);
+		} else {
+			(void)opensc2_lizard_switches(&run->lz, false, &out);
 		}
-	} else if (strcmp(tok[0], "ENTER") == 0) {
-		/* osc2_lizard_set(true): the keyboard report, then the mouse one. */
-		made = opensc2_lizard_enter(&run->lz, keyboard, mouse);
-		if (made) {
-			memcpy(&got[0], keyboard, sizeof(keyboard));
-			memcpy(&got[sizeof(keyboard)], mouse, sizeof(mouse));
-			got_len = (int)(sizeof(mouse) + sizeof(keyboard));
-		}
-	} else if (strcmp(tok[0], "LEAVE") == 0) {
-		/* osc2_lizard_set(false): the keyboard report, then the mouse one. */
-		made = opensc2_lizard_leave(&run->lz, keyboard, mouse);
-		if (made) {
-			memcpy(&got[0], keyboard, sizeof(keyboard));
-			memcpy(&got[sizeof(keyboard)], mouse, sizeof(mouse));
-			got_len = (int)(sizeof(mouse) + sizeof(keyboard));
-		}
-	} else if (strcmp(tok[0], "SWITCHES") == 0) {
-		CHECK(arrow == 2);
-		opensc2_lizard_switches(&run->lz, strcmp(tok[1], "up") == 0);
+	} else if (strcmp(tok[0], "CMD85") == 0 || strcmp(tok[0], "SWITCHES") == 0) {
+		bool up = strcmp(tok[0], "CMD85") == 0 || (arrow == 2 && strcmp(tok[1], "up") == 0);
+
+		CHECK(strcmp(tok[0], "CMD85") == 0 ? arrow == 1 : arrow == 2);
+		(void)opensc2_lizard_switches(&run->lz, up, &out);
 	} else if (strcmp(tok[0], "RESYNC") == 0) {
 		opensc2_lizard_resync(&run->lz);
+	} else if (strcmp(tok[0], "RELEASE") == 0) {
+		(void)opensc2_lizard_release(&run->lz, &out);
 	} else {
 		CHECK(false);   /* an unknown lizard action */
+	}
+	for (uint8_t i = 0; i < out.n; i++) {
+		memcpy(&got[got_len], out.report[i], out.len[i]);
+		got_len += out.len[i];
 	}
 	if (strcmp(tok[0], "FRAME") != 0) {
 		CHECK_EQ(n, events_at);   /* only a frame has haptic events */
@@ -539,7 +551,7 @@ OPENSC2_TEST(lizard_resync)
 {
 	struct opensc2_lizard lz;
 	struct opensc2_state s;
-	uint8_t keyboard[9], mouse[6];
+	struct opensc2_lizard_out out;
 	static const uint8_t empty_kb[9] = { 0x41 }, zero_mouse[6] = { 0x40 };
 	int16_t defaults[OPENSC2_SETTINGS_COUNT];
 
@@ -548,47 +560,52 @@ OPENSC2_TEST(lizard_resync)
 	/* A held key: the release sends both empty reports, then has nothing left to release. */
 	opensc2_lizard_reset(&lz);
 	memset(&s, 0, sizeof(s));
-	(void)opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse);
+	(void)opensc2_lizard_step(&lz, &s, defaults, 0, &out);
 	s.buttons = OPENSC2_BTN_A;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), OPENSC2_LIZARD_KEYBOARD);
-	CHECK_EQ(opensc2_lizard_release(&lz, keyboard, mouse),
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, &out), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(opensc2_lizard_release(&lz, &out),
 		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
-	CHECK(memcmp(keyboard, empty_kb, sizeof(keyboard)) == 0);
-	CHECK(memcmp(mouse, zero_mouse, sizeof(mouse)) == 0);
-	CHECK_EQ(opensc2_lizard_release(&lz, keyboard, mouse), 0);
+	CHECK_EQ(out.n, 2);
+	CHECK(memcmp(out.report[0], empty_kb, sizeof(empty_kb)) == 0);
+	CHECK(memcmp(out.report[1], zero_mouse, sizeof(zero_mouse)) == 0);
+	CHECK_EQ(opensc2_lizard_release(&lz, &out), 0);
+	CHECK_EQ(out.n, 0);
 
 	/* An owed zero mouse report counts as held too. */
 	opensc2_lizard_reset(&lz);
 	memset(&s, 0, sizeof(s));
 	s.buttons = OPENSC2_TOUCH_RIGHT_PAD;
 	s.pad[OPENSC2_RIGHT].touched = true;
-	(void)opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse);   /* keyboard sync, touch-down */
+	(void)opensc2_lizard_step(&lz, &s, defaults, 0, &out);   /* the touch-down */
 	s.pad[OPENSC2_RIGHT].x = 640;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), OPENSC2_LIZARD_MOUSE);
-	CHECK_EQ(opensc2_lizard_release(&lz, keyboard, mouse),
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, &out), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ(opensc2_lizard_release(&lz, &out),
 		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), 0);   /* nothing owed now */
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, &out), 0);   /* nothing owed now */
 
 	/* Nothing held, or lizard mode off: nothing to release. */
 	opensc2_lizard_reset(&lz);
-	CHECK_EQ(opensc2_lizard_release(&lz, keyboard, mouse), 0);
-	s.buttons = OPENSC2_BTN_B;
-	(void)opensc2_lizard_leave(&lz, keyboard, mouse);
-	CHECK_EQ(opensc2_lizard_release(&lz, keyboard, mouse), 0);
+	CHECK_EQ(opensc2_lizard_release(&lz, &out), 0);
+	(void)opensc2_lizard_setting(&lz, false, &out);
+	CHECK_EQ(opensc2_lizard_release(&lz, &out), 0);
 
-	/* A resync keeps lizard mode on and its switches as they are, and adopts what is held. */
-	(void)opensc2_lizard_enter(&lz, keyboard, mouse);
-	opensc2_lizard_switches(&lz, false);
+	/* A resync keeps what runs and the switches as they are, and adopts what is held. */
+	(void)opensc2_lizard_setting(&lz, true, &out);
+	(void)opensc2_lizard_switches(&lz, false, &out);   /* the keyboard stops */
+	CHECK_EQ(out.n, 1);
 	opensc2_lizard_resync(&lz);
-	CHECK(lz.active);
-	CHECK(!lz.keyboard_on);
-	CHECK(!lz.buttons_on);
-	opensc2_lizard_switches(&lz, true);
+	CHECK(lz.ms_on);
+	CHECK(!lz.kb_on);
+	CHECK(!lz.kb_switch);
+	CHECK(!lz.ms_switch);
+	(void)opensc2_lizard_switches(&lz, true, &out);    /* setting 9 is on: it starts again */
+	CHECK_EQ(out.n, 1);
+	CHECK(lz.kb_on);
 	memset(&s, 0, sizeof(s));
 	s.buttons = OPENSC2_BTN_A;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), 0);   /* adopted */
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, &out), 0);   /* adopted */
 	s.buttons = 0;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, keyboard, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(opensc2_lizard_step(&lz, &s, defaults, 0, &out), OPENSC2_LIZARD_KEYBOARD);
 }
 
 /* ---- testproto.txt ---------------------------------------------------------------------------- */

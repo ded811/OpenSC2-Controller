@@ -145,8 +145,7 @@ class SimBoard:
     def _timer_watchdog(self, t):
         if self.settings[9] != 0:
             return
-        self.lizard.switches(True)
-        self.hooks.note_lizard(C.LIZARD_SWITCHES_UP, LINK_NONE)
+        self.lizard_switches(True, LINK_NONE)
         keep = {n: self.settings[n] for n in (48, 84, 85)}
         self.settings = M.default_settings()
         for n, v in keep.items():
@@ -261,11 +260,19 @@ class SimBoard:
         return self.settings[9] != 0
 
     def lizard_set(self, on, link):
-        made = self.lizard.enter() if on else self.lizard.leave()
+        made = self.lizard.setting(on)
         if made:
             self.hooks.note_lizard(C.LIZARD_ENTER if on else C.LIZARD_LEAVE, link)
-            self.hooks.count("lizard_made", 2)
         for _kind, rep in made:
+            self.hooks.count("lizard_made")
+            self.input_send(rep)
+
+    def lizard_switches(self, up, link):
+        """report.c's osc2_lizard_switches(): a running keyboard may stop (or stop and start)."""
+        made = self.lizard.switches(up)
+        self.hooks.note_lizard(C.LIZARD_SWITCHES_UP if up else C.LIZARD_SWITCHES_DOWN, link)
+        for _kind, rep in made:
+            self.hooks.count("lizard_made")
             self.input_send(rep)
 
     def notify_led(self, link):
@@ -334,8 +341,7 @@ class SimBoard:
         if old != 0:
             self.lizard_set(False, link)
         else:
-            self.lizard.switches(False)
-            self.hooks.note_lizard(C.LIZARD_SWITCHES_DOWN, link)
+            self.lizard_switches(False, link)
         self.watchdog_arm()
         if old != 0:
             self.hooks.note_setting(9, 0, link)
@@ -376,8 +382,7 @@ class SimBoard:
         if opcode == 0x85:
             if not self.link_active(link):
                 return EINVAL
-            self.lizard.switches(True)
-            self.hooks.note_lizard(C.LIZARD_SWITCHES_UP, link)
+            self.lizard_switches(True, link)
             return 0
         if opcode == 0xC5:
             self.led_color_write((list(payload) + [0, 0, 0, 0])[:4], link)
@@ -730,8 +735,9 @@ class SimBoard:
                 self.ble.dropped += 1
         elif rc == 0:
             self.hooks.count("radio_sent")
-        # lizard mode: never on a frame injected without the lizard test
-        if self.lizard_on() and not (injected is not None and not lizard_test):
+        # lizard mode, every frame (also while it is off: the keyboard follows the buttons), but
+        # never on a frame injected without the lizard test
+        if not (injected is not None and not lizard_test):
             made = self.lizard.step_state52(exp, self.settings)
             for _kind, rep in made:
                 self.hooks.count("lizard_made")
@@ -1030,12 +1036,7 @@ class Hooks:
         fresh = not self.armed and not self.guard
         want = bool(flags & C.ARM_FLAG_RESTORE) and self.snapshot is None
         if fresh:
-            made = []
-            if self.b.lizard.active and (self.b.lizard.mapped or self.b.lizard.mouse_owed):
-                made = [M._keyboard_report([]), M._mouse_report(0, 0, 0, 0, 0)]
-                self.b.lizard.mapped = 0
-                self.b.lizard.mouse_owed = False
-            for rep in made:
+            for _kind, rep in self.b.lizard.release():
                 self.b.input_send(rep)
         if want:
             self.snapshot = (list(self.b.settings),

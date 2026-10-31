@@ -148,38 +148,43 @@ void fwemu_send(const uint8_t *report, size_t len)
 
 /* ---- lizard mode, in report.c's order ------------------------------------------------------- */
 
+static void lizard_send(const struct opensc2_lizard_out *out)
+{
+	for (uint8_t i = 0; i < out->n; i++) {
+		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
+		(void)input_send(out->report[i], out->len[i]);
+	}
+}
+
 void osc2_lizard_set(bool on)
 {
-	uint8_t keyboard[9], mouse[6];
-	uint32_t made = on ? opensc2_lizard_enter(&lizard, keyboard, mouse) :
-			     opensc2_lizard_leave(&lizard, keyboard, mouse);
+	struct opensc2_lizard_out out;
+	uint32_t made = opensc2_lizard_setting(&lizard, on, &out);
 
 	osc2_stub_lizard_note(on ? 'E' : 'L');
 	if (made) {
 		osc2_test_note_lizard(on ? OSC2_TEST_LIZARD_ENTER : OSC2_TEST_LIZARD_LEAVE);
-		osc2_test_count_n(OSC2_TEST_CNT_LIZARD_MADE, 2);
 	}
-	if (made) {   /* the keyboard first, then the mouse, both ways */
-		(void)input_send(keyboard, sizeof(keyboard));
-		(void)input_send(mouse, sizeof(mouse));
-	}
+	lizard_send(&out);   /* the keyboard first, then the mouse, both ways */
 }
 
 void osc2_lizard_switches(bool up)
 {
+	struct opensc2_lizard_out out;
+
 	osc2_stub_lizard_note(up ? 'U' : 'D');
-	opensc2_lizard_switches(&lizard, up);
+	(void)opensc2_lizard_switches(&lizard, up, &out);
 	osc2_test_note_lizard(up ? OSC2_TEST_LIZARD_UP : OSC2_TEST_LIZARD_DOWN);
+	lizard_send(&out);
 }
 
 static bool lizard_release(void)
 {
-	uint8_t keyboard[9], mouse[6];
-	bool sent = opensc2_lizard_release(&lizard, keyboard, mouse) != 0;
+	struct opensc2_lizard_out out;
+	bool sent = opensc2_lizard_release(&lizard, &out) != 0;
 
-	if (sent) {
-		(void)input_send(keyboard, sizeof(keyboard));
-		(void)input_send(mouse, sizeof(mouse));
+	for (uint8_t i = 0; i < out.n; i++) {
+		(void)input_send(out.report[i], out.len[i]);
 	}
 	return sent;
 }
@@ -189,25 +194,19 @@ static void lizard_resync(void)
 	opensc2_lizard_resync(&lizard);
 }
 
+/* report.c's osc2_report_lizard(): every frame, also with lizard mode off. */
 static void lizard_frame(const struct opensc2_state *s)
 {
 	struct opensc2_haptic haptics[4];
-	uint8_t keyboard[9], mouse[6];
+	struct opensc2_lizard_out out;
 	uint8_t n;
 	uint32_t made;
 
-	if (osc2_test_skip_lizard() || osc2.settings[OPENSC2_SETTING_LIZARD_MODE] == 0) {
+	if (osc2_test_skip_lizard()) {
 		return;
 	}
-	made = opensc2_lizard_step(&lizard, s, osc2.settings, hk.rules, keyboard, mouse);
-	if (made & OPENSC2_LIZARD_KEYBOARD) {
-		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
-		(void)input_send(keyboard, sizeof(keyboard));
-	}
-	if (made & OPENSC2_LIZARD_MOUSE) {
-		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
-		(void)input_send(mouse, sizeof(mouse));
-	}
+	made = opensc2_lizard_step(&lizard, s, osc2.settings, hk.rules, &out);
+	lizard_send(&out);
 	/* report.c's lizard_feedback(): noted with the link lizard mode runs on */
 	n = opensc2_lizard_haptics(made, haptics);
 	for (uint8_t i = 0; i < n; i++) {

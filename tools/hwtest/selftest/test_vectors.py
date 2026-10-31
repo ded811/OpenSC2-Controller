@@ -118,14 +118,28 @@ class LizardVectors(unittest.TestCase):
     @staticmethod
     def _run(lz, action, settings=None):
         verb = action[0]
-        if verb == "ENTER":
-            return [r for _k, r in lz.enter()]
-        if verb == "LEAVE":
-            return [r for _k, r in lz.leave()]
+        settings = settings if settings is not None else {}
+        nine = settings.get(9, 1) != 0
+        if verb in ("ENTER", "LEAVE"):
+            # a write of setting 9: lizard mode hears of a change only
+            on = verb == "ENTER"
+            if nine == on:
+                return []
+            settings[9] = 1 if on else 0
+            return [r for _k, r in lz.setting(on)]
+        if verb == "CMD81":
+            if nine:
+                settings[9] = 0
+                return [r for _k, r in lz.setting(False)]
+            return [r for _k, r in lz.switches(False)]
+        if verb == "CMD85":
+            return [r for _k, r in lz.switches(True)]
         if verb == "SWITCHES":
             return [r for _k, r in lz.switches(action[1] == "up")]
         if verb == "RESYNC":
             return [r for _k, r in lz.resync()]
+        if verb == "RELEASE":
+            return [r for _k, r in lz.release()]
         if verb != "FRAME":
             raise AssertionError("unknown lizard action %r" % verb)
         kw = {"buttons": 0, "lpad": (0, 0), "rpad": (0, 0), "settings": dict(settings or {})}
