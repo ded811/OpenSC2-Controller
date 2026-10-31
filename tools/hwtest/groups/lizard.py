@@ -23,7 +23,8 @@ TESTS = [("lizard.on_at_start", "WRB", ["lizard"]), ("lizard.keyboard", "WRB", [
          ("lizard.pointer", "WRB", ["lizard"]), ("lizard.scroll", "WRB", ["lizard"]),
          ("lizard.buttons", "WRB", ["lizard"]), ("lizard.thumb_on_stick", "WRB", ["lizard"]),
          ("lizard.off", "WRB", ["lizard"]), ("lizard.on_by_setting", "WRB", ["lizard"]),
-         ("lizard.switches", "WRB", ["lizard"]), ("lizard.stabiliser", "WRB", ["lizard"]),
+         ("lizard.switches", "WRB", ["lizard"]), ("lizard.keyboard_runs_on", "WRB", ["lizard"]),
+         ("lizard.stabiliser", "WRB", ["lizard"]),
          ("lizard.smoothing", "WRB", ["lizard"]), ("lizard.glide", "WRB", ["lizard"]),
          ("lizard.glide_stops", "WRB", ["lizard"]), ("lizard.ticks", "WRB", ["lizard"]),
          ("lizard.default", "WRB", ["lizard"]), ("lizard.no_leak", "WRB", ["lizard"])]
@@ -313,6 +314,9 @@ def _run(ctx, rig, snap):
                                                 (S(), 1)], mapping)
             check_sequence(c, rig, "pad click", [(S(RPAD_TOUCH | RPAD_CLICK), 1), (S(), 1)],
                            mapping)
+            # the real pads click only while touched: a click bit alone is no button
+            check_sequence(c, rig, "pad click without a touch", [(S(RPAD_CLICK), 2), (S(), 1)],
+                           mapping)
             if rig.caps and rig.caps["build_flags"] & (1 << C.CAP_RULES):
                 # the click by pressure (setting 53), switched on for this sequence: pressed past
                 # 48 % the right pad is the left button, until it falls below 32 %
@@ -383,6 +387,16 @@ def _run(ctx, rig, snap):
                 c.eq("after 9 = 1: Enter in the frame A is injected", base.byte_lists(got[0][1]),
                      base.byte_lists([bytes([C.RPT_KEYBOARD, 0, 0, 0x28]) + bytes(5)]))
 
+    if ctx.want("lizard.keyboard_runs_on"):
+        with ctx.check(GROUP, "lizard.keyboard_runs_on") as c:
+            try:
+                _keyboard_runs_on(c, rig)
+            finally:
+                # never leave a keyboard running with setting 9 at 0: a switch-off stops it
+                # whatever setting 9 is, then lizard mode comes back on cleanly
+                rig.vendor_set(C.VC_LIZARD_OFF)
+                rig.write_settings([(9, 1)])
+
     _processing(ctx, rig, snap)
 
     if ctx.want("lizard.no_leak"):
@@ -402,6 +416,42 @@ def _run(ctx, rig, snap):
                    leak_watching(rig))
             c.true("the leak detector saw no event from the board's mouse or keyboard",
                    not rig.backend.leak_fired())
+
+
+def _keyboard_runs_on(c, rig):
+    """0x85 while the keyboard runs: its "on" waits for the next switch-off, which then sends the
+    empty keyboard report twice and leaves the keyboard running with setting 9 at 0 (the mouse
+    stopped), as on the real controller; the switch-off after that stops it. Everything stays in
+    the ring (the guard)."""
+    rig.write_settings([(9, 1)])
+    rig.vendor_set(C.VC_LIZARD_DEFAULTS_ON)
+    start = rig.ring_next()
+    rig.vendor_set(C.VC_LIZARD_OFF)
+    e = _ring_since(rig, start)
+    c.eq("0x81 after 0x85: leave, keyboard empty twice, mouse zero, SETTING 9 = 0",
+         [(x["kind"], x.get("what"), x.get("report"), x.get("number")) for x in e],
+         [(C.RING_LIZARD, C.LIZARD_LEAVE, None, None),
+          (C.RING_LIZARD_RPT, None, KEYS_EMPTY, None),
+          (C.RING_LIZARD_RPT, None, KEYS_EMPTY, None),
+          (C.RING_LIZARD_RPT, None, MOUSE_ZERO, None),
+          (C.RING_SETTING, None, None, 9)])
+    got = run_sequence(rig, [(S(), 1), (S(A), 1), (S(A | RPAD_TOUCH, rpad=(0, 0)), 1),
+                             (S(A | RPAD_TOUCH, rpad=(6400, 0)), 1), (S(), 1)])
+    if got is None:
+        c.fail("the sequence did not run")
+    else:
+        c.eq("setting 9 at 0: Enter, nothing from the pad, then the empty report",
+             [base.byte_lists(g) for g in got[0]],
+             [[], base.byte_lists([bytes([C.RPT_KEYBOARD, 0, 0, 0x28]) + bytes(5)]), [], [],
+              base.byte_lists([KEYS_EMPTY])])
+    start = rig.ring_next()
+    rig.vendor_set(C.VC_LIZARD_OFF)
+    e = _ring_since(rig, start)
+    c.eq("0x81 again: switches down, the keyboard's empty report",
+         [(x["kind"], x.get("what"), x.get("report")) for x in e],
+         [(C.RING_LIZARD, C.LIZARD_SWITCHES_DOWN, None), (C.RING_LIZARD_RPT, None, KEYS_EMPTY)])
+    got = run_sequence(rig, [(S(A), 2), (S(), 1)])
+    c.true("then nothing", got is not None and not any(got[0]) and not got[1])
 
 
 def _flick(x0=-28000, step=8000, hold=3, touch=RPAD_TOUCH, axis=0):
