@@ -446,6 +446,11 @@ void osc2_ble_margin_init(struct osc2_ble_margin *m, uint32_t initial_ticks)
 	m->frames = 0;
 }
 
+uint32_t osc2_ble_margin_initial_ticks(uint32_t ticks_per_s)
+{
+	return (uint32_t)((uint64_t)OSC2_BLE_MARGIN_INITIAL_32K * ticks_per_s / 32768u);
+}
+
 uint32_t osc2_ble_margin(const struct osc2_ble_margin *m)
 {
 	return m->peak > m->worst ? m->peak : m->worst;

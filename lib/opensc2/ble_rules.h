@@ -328,13 +328,15 @@ int64_t osc2_ble_slot_ticks(int64_t event_ticks, uint32_t interval_us, uint32_t 
  * 81 ticks of a 32,768 Hz clock (about 2.5 ms) until the first run is complete. Times in ticks of
  * the caller's clock. */
 #define OSC2_BLE_MARGIN_FRAMES       65
-#define OSC2_BLE_MARGIN_INITIAL_US   2472   /* 81 / 32768 s */
+#define OSC2_BLE_MARGIN_INITIAL_32K  81     /* ticks of 32,768 Hz (2472 us) */
 struct osc2_ble_margin {
 	uint32_t peak;      /* the longest of the current run */
 	uint32_t worst;     /* the longest of the last complete run (the initial value before one) */
 	uint8_t frames;     /* frames in the current run */
 };
 void osc2_ble_margin_init(struct osc2_ble_margin *m, uint32_t initial_ticks);
+/* The initial margin in ticks of a `ticks_per_s` clock, rounded down: exactly 81 at 32,768 Hz. */
+uint32_t osc2_ble_margin_initial_ticks(uint32_t ticks_per_s);
 /* How long before the slot to wake. */
 uint32_t osc2_ble_margin(const struct osc2_ble_margin *m);
 /* One frame took `ticks`. */

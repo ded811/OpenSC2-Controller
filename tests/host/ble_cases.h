@@ -495,5 +495,7 @@ OPENSC2_TEST(ble_sampling_margin)
 		osc2_ble_margin_add(&m, 25);
 	}
 	CHECK_EQ(osc2_ble_margin(&m), 25);    /* a run later, the old peak is forgotten */
-	CHECK_EQ(OSC2_BLE_MARGIN_INITIAL_US, 2472);
+	/* 81 ticks of 32,768 Hz, exactly (2472 us rounded up would be 82) */
+	CHECK_EQ(osc2_ble_margin_initial_ticks(32768), 81);
+	CHECK_EQ(osc2_ble_margin_initial_ticks(1000000), 2471);
 }

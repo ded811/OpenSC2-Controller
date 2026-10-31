@@ -1346,7 +1346,8 @@ static void rpt_thread_fn(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
-	osc2_ble_margin_init(&margin, (uint32_t)k_us_to_ticks_ceil32(OSC2_BLE_MARGIN_INITIAL_US));
+	osc2_ble_margin_init(&margin,
+			     osc2_ble_margin_initial_ticks(CONFIG_SYS_CLOCK_TICKS_PER_SEC));
 	for (;;) {
 		(void)k_sem_take(&rpt_wake, K_FOREVER);
 		if (atomic_cas(&rpt_event, 1, 0) && gate) {
@@ -1358,8 +1359,8 @@ static void rpt_thread_fn(void *p1, void *p2, void *p3)
 
 			irq_unlock(key);
 			if (atomic_cas(&margin_restart, 1, 0)) {
-				osc2_ble_margin_init(&margin, (uint32_t)k_us_to_ticks_ceil32(
-							      OSC2_BLE_MARGIN_INITIAL_US));
+				osc2_ble_margin_init(&margin, osc2_ble_margin_initial_ticks(
+							      CONFIG_SYS_CLOCK_TICKS_PER_SEC));
 			}
 			at -= osc2_ble_margin(&margin);
 			if (at > k_uptime_ticks()) {
