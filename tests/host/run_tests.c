@@ -99,6 +99,7 @@ static void register_test(const char *name, test_fn fn)
 #include "sensor_helpers_cases.h"
 #include "gauge_cases.h"
 #include "cal_store_cases.h"
+#include "pad_cases.h"
 #include "system_cases.h"
 #include "haptics_cases.h"
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)

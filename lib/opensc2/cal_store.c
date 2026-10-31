@@ -25,6 +25,7 @@
 #include <opensc2/sensor_helpers.h>
 #include "internal.h"
 #include "cal_store.h"
+#include "pad_rules.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -582,6 +583,19 @@ bool osc2_cal_trigger_decided(int side, uint16_t value, bool *bit)
 	return true;
 }
 
+uint32_t osc2_cal_pressure_key(int side, struct opensc2_cal_pressure *out)
+{
+	uint8_t v[OPENSC2_CAL_PRESSURE_LEN];
+	uint32_t loads;
+	k_spinlock_key_t lk = k_spin_lock(&lock);
+
+	memcpy(v, ram[K_PRS_L + (side & 1)], sizeof(v));
+	loads = pressure_loads[side & 1];
+	k_spin_unlock(&lock, lk);
+	opensc2_cal_pressure_unpack(v, out);
+	return loads;
+}
+
 int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
 				 const int16_t y_mv[4])
 {
@@ -691,6 +705,7 @@ void osc2_cal_frame(struct opensc2_state *s)
 	uint16_t stick_mv[2][2] = { { 0 } }, trigger_mv[2] = { 0 };
 	int16_t raw46, raw62, raw60;
 	uint32_t bits, nonce;
+	uint8_t frame_sides;
 	k_spinlock_key_t lk = k_spin_lock(&raw_lock);
 
 	in = raw;
@@ -703,6 +718,9 @@ void osc2_cal_frame(struct opensc2_state *s)
 	}
 	proc.raw_seen = in.present;
 	proc.trigger_decided = 0;
+	frame_sides = osc2_pad_frame_sides();
+	/* a side fed by trackpad frames records its pressure from those */
+	in.present &= (uint8_t)~(frame_sides * OPENSC2_RAW_PRESSURE_L);
 
 	apply_calibration();
 	pads_start_over_on_change();
@@ -738,6 +756,9 @@ void osc2_cal_frame(struct opensc2_state *s)
 			proc.trigger_decided |= (uint8_t)BIT(side);
 			proc.trigger_value[side] = v;
 			proc.trigger_bit[side] = on;
+		}
+		if (frame_sides & BIT(side)) {
+			continue;   /* its pad, stick touch and grip come from its frames */
 		}
 		if (in.present & (OPENSC2_RAW_PRESSURE_L << side)) {
 			struct opensc2_pressure_proc *p = &proc.pressure[side];
@@ -775,6 +796,9 @@ void osc2_cal_frame(struct opensc2_state *s)
 		}
 	}
 
+	/* The trackpads fed by frames, with this report's sticks for their deflection rule. */
+	osc2_pad_report(s, raw46 == 1 || raw46 == 2);
+
 	/* The factory recordings take this frame's samples. */
 	lk = k_spin_lock(&rec_lock);
 	bits = opensc2_cal_rec_frame(&rec, stick_mv, (uint8_t)((in.present / OPENSC2_RAW_STICK_L) & 3),
@@ -789,6 +813,14 @@ void osc2_cal_frame(struct opensc2_state *s)
 	}
 }
 
+void osc2_cal_rec_pressure_frame(int side, int16_t word)
+{
+	k_spinlock_key_t lk = k_spin_lock(&rec_lock);
+
+	opensc2_cal_rec_pressure_sample(&rec, (enum opensc2_side)(side & 1), word);
+	k_spin_unlock(&rec_lock, lk);
+}
+
 /* ---- the pad rules, after the injection -------------------------------------------------------- */
 
 void osc2_cal_rules(struct opensc2_state *s)
@@ -798,6 +830,7 @@ void osc2_cal_rules(struct opensc2_state *s)
 	int16_t angle = opensc2_setting_get(OPENSC2_SETTING_PAD_ROTATION_ANGLE);
 	int16_t rotate = opensc2_setting_get(OPENSC2_SETTING_PAD_ROTATION);
 	bool stabilise = opensc2_setting_get(OPENSC2_SETTING_PAD_STABILIZER) == 2;
+	uint8_t frame_sides = osc2_pad_frame_sides();
 
 	for (int side = 0; side < 2; side++) {
 		struct opensc2_trackpad *pad = &s->pad[side];
@@ -807,6 +840,9 @@ void osc2_cal_rules(struct opensc2_state *s)
 		bool touched = pad->touched || (s->buttons & pad_touch_bit[side]);
 		bool rotated;
 
+		if (frame_sides & BIT(side)) {
+			continue;   /* its frames were turned and stabilised already */
+		}
 		if (!touched || !stabilise) {
 			opensc2_stabiliser_reset(&proc.stab[side]);   /* a new touch starts it over */
 		}
@@ -1069,10 +1105,12 @@ void osc2_cal_status(uint8_t out[16])
 	}
 	k_spin_unlock(&rec_lock, lk);
 	for (int side = 0; side < 2; side++) {
-		int32_t p = proc.pressure[side].filtered;
+		int16_t p = proc.pressure[side].filtered;
+		bool click = proc.pressure[side].click;
 
-		opensc2_put_le16(&out[11 + 2 * side], (uint16_t)(int16_t)CLAMP(p, -32768, 32767));
-		out[15] |= proc.pressure[side].click ? BIT(side) : 0;
+		(void)osc2_pad_status(side, &p, &click);   /* a side fed by frames: its own */
+		opensc2_put_le16(&out[11 + 2 * side], (uint16_t)p);
+		out[15] |= click ? BIT(side) : 0;
 	}
 }
 
@@ -1109,6 +1147,7 @@ void osc2_cal_reset(void)
 	lk = k_spin_lock(&rec_lock);
 	opensc2_cal_rec_init(&rec);
 	k_spin_unlock(&rec_lock, lk);
+	osc2_pad_reset();
 }
 
 #else /* !CONFIG_OPENSC2_CAL */

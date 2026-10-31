@@ -55,6 +55,7 @@
 #include "haptics_glue.h"
 #include "input_rules.h"
 #include "lizard.h"
+#include "pad_rules.h"
 #include "proto_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
@@ -515,6 +516,7 @@ static void build_report(uint8_t report[OPENSC2_STATE_REPORT_LEN], struct opensc
 	osc2_test_input(s);
 	osc2_cal_rules(s);
 	trigger_decisions(s);
+	input_rules.pad_sides = osc2_pad_frame_sides();
 	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, s);
 	opensc2_encode_state(s, sequence++, report);
 	osc2_test_frame(report);

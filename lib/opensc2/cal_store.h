@@ -32,6 +32,10 @@ int osc2_cal_command(uint8_t opcode, const uint8_t *payload, uint8_t len, size_t
 void osc2_cal_frame(struct opensc2_state *s);
 /* Every state report, after the injection: the pad rules (rotation, the stabiliser). */
 void osc2_cal_rules(struct opensc2_state *s);
+/* A pad's pressure key as RAM has it, and the count of its loads (for the trackpad frames). */
+uint32_t osc2_cal_pressure_key(int side, struct opensc2_cal_pressure *out);
+/* A trackpad frame's raw pressure word for the factory pressure recording (0xC3). */
+void osc2_cal_rec_pressure_frame(int side, int16_t raw);
 /* How many times the sticks and triggers were set up so far (each set-up clears the triggers'
  * digital bits: a key load, setting 68, the dock). */
 uint32_t osc2_cal_setups(void);

@@ -24,6 +24,7 @@
 #include "haptics_glue.h"
 #include "input_rules.h"
 #include "lizard.h"
+#include "pad_rules.h"
 #include "proto_rules.h"
 #include "system.h"
 #include "test_hooks.h"
@@ -142,6 +143,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 	osc2_test_input(s);
 	osc2_cal_rules(s);   /* the pad rules: rotation, stabiliser */
 	trigger_decisions(s);
+	input_rules.pad_sides = osc2_pad_frame_sides();   /* trackpads fed by frames */
 	/* The rules after injection and the pad rules, so that an injected state goes through them
 	 * as the application's does; lizard mode gets the same state. */
 	osc2_input_rules_apply(&input_rules, osc2_rules(), osc2.settings, s);

@@ -39,6 +39,7 @@ void osc2_input_rules_reset(struct osc2_input_rules *r)
 	}
 	r->level68 = CLICK_UNSET;
 	r->decided = 0;
+	r->pad_sides = 0;
 }
 
 void osc2_input_rules_decide(struct osc2_input_rules *r, int side, bool bit)
@@ -152,6 +153,10 @@ void osc2_input_rules_apply(struct osc2_input_rules *r, uint32_t rules,
 {
 	for (int side = 0; side < 2; side++) {
 		struct opensc2_trackpad *pad = &s->pad[side];
+
+		if (r->pad_sides & (1u << side)) {
+			continue;   /* worked out frame by frame */
+		}
 
 		/* The stick-touch fallback reads positions: not raw stick output. */
 		if ((rules & OSC2_RULE_STICK_FALLBACK) &&

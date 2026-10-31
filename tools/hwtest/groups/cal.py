@@ -226,9 +226,11 @@ def run(ctx):
                 rep, _n = rig.inject_and_read(pads)
                 if c.true("a report", rep is not None):
                     f = _fields(rep)
+                    # sin 90 is 8191 in the real controller's table: 1000 at half scale
+                    # turns into 999
                     c.eq("90 degrees: the right pad counter-clockwise, the left clockwise",
                          (f["lpad_x"], f["lpad_y"], f["rpad_x"], f["rpad_y"]),
-                         (0, -2000, 0, 2000))
+                         (0, -1998, 0, 1998))
                 _settings(rig, [(2, 7)])
                 rep, _n = rig.inject_and_read(R.make_state52(buttons=RPAD_TOUCH, rpad_x=20000,
                                                              rpad_y=-10000))

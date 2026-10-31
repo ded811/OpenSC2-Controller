@@ -59,6 +59,9 @@ struct osc2_input_rules {
 	uint8_t decided;          /* this report's trigger bits the calibration decided (a side
 				   * per bit), osc2_input_rules_decide() */
 	bool decided_bit[2];
+	uint8_t pad_sides;        /* sides whose pad, stick touch and grip come from trackpad frames
+				   * (<opensc2/trackpad.h>), which applied the stick-touch fallback,
+				   * the click and setting 82 already: the rules leave them alone */
 };
 
 /* Back to boot: no trigger bit, no click. */

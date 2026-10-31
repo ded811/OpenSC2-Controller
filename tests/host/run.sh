@@ -29,6 +29,7 @@ compile() {
 		"$lib/crash_rules.c" "$lib/input_rules.c" "$lib/report_queue.c" \
 		"$lib/transport_rules.c" "$lib/ble_rules.c" \
 		"$lib/cal.c" "$lib/sensor_helpers.c" "$lib/gauge.c" "$lib/cal_store.c" \
+		"$lib/pad.c" "$lib/pad_rules.c" \
 		"$lib/sys_rules.c" "$lib/chord_rules.c" "$lib/idle_rules.c" "$lib/led_rules.c" \
 		"$lib/test_sys.c" "$lib/haptics_dsp.c" "$lib/haptics_tables.c" \
 		"$lib/haptics_core.c" "$lib/haptics_rules.c" "$lib/haptics_sounds.c" \
@@ -48,7 +49,7 @@ compile "$here/fwemu.c" "$here/fwemu_sys.c" -DOSC2_HOST_FWEMU -DCONFIG_OPENSC2_S
 	"$lib/test_notes.c" "$lib/test_sys_notes.c" "$lib/test_dock.c" "$here/hooks_stub.c" \
 	"$here/haptics_emu.c" -o "$out/opensc2_fwemu"
 # Without CONFIG_OPENSC2_CAL the calibration's calls are stand-ins: those files must still compile.
-for f in "$lib/commands.c" "$lib/cal_store.c" "$lib/test_core.c"; do
+for f in "$lib/commands.c" "$lib/cal_store.c" "$lib/test_core.c" "$lib/pad.c"; do
 	${CC:-gcc} -std=c11 -Wall -Wextra -Wshadow -Werror -I"$here/shim" -I"$root/include" -I"$lib" \
 		-fsyntax-only "$f"
 done

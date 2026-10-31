@@ -30,6 +30,9 @@ zephyr_library_sources(
 	lizard.c
 	mode.c
 	mode_rules.c
+	# the trackpads frame by frame (<opensc2/trackpad.h>)
+	pad.c
+	pad_rules.c
 	proto_rules.c
 	radio.c
 	report.c
