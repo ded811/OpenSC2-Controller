@@ -286,10 +286,10 @@ controller is listed in docs/protocol.md's gaps.
 - Bluetooth behaves as the real controller where it differed on purpose before (docs/protocol.md's
   gap 23 lists what is left): a host that encrypts the link on an identity that had no bond is the
   slot's new host whether it bonds or not; the pairing cue plays at every start of pairing-mode
-  advertising, the restart after a failed connection too; the last ATT MTU is kept across links;
-  feature report 1 reads 64 bytes, its GET runs at every read (a read blob too) and answers over
-  the start of the stored value, so left-overs follow the answer and a read blob gets the start
-  again; the stored request stays from one connection to the next; the state is sampled ahead of
+  advertising, the restart after a failed connection too; the last ATT MTU is kept across links
+  and a link past the gate stays active until it ends; feature report 1 reads 64 bytes, its GET
+  runs at every read (a read blob too) and answers over the start of the stored value, so
+  left-overs follow the answer and a read blob gets the start again; the stored request stays from one connection to the next; the state is sampled ahead of
   the report slot by the worst frame time of the last 65 frames (2.5 ms until the first run);
   a report's value is kept before it is sent and a report that cannot be sent is logged as an
   error; the vendor service's `0x45` flag is bit 0 of the puck link's last disconnect reason (the
