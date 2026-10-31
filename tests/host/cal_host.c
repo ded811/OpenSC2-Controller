@@ -88,6 +88,22 @@ int cal_host_flash_get(const char *name, uint8_t *value, uint8_t *len)
 	return 0;
 }
 
+void osc2_cal_flash_reload(void)
+{
+	cal_host.reloads++;
+	for (int i = 0; i < CAL_HOST_KEYS; i++) {
+		if (cal_host.flash[i].used) {
+			(void)osc2_cal_load(cal_host.flash[i].name + 4, cal_host.flash[i].value,
+					    cal_host.flash[i].len);
+		}
+	}
+}
+
+enum opensc2_power_source opensc2_power_source(void)
+{
+	return cal_host.power_source;
+}
+
 void cal_host_erase_all(void)
 {
 	memset(&cal_host, 0, sizeof(cal_host));

@@ -3,12 +3,16 @@
  * SPDX-License-Identifier: MIT
  *
  * sensor_helpers.c: the sensor helpers of <opensc2/sensor_helpers.h>, from the rules in the protocol
- * documentation (not public yet; docs/protocol.md lists the pages). Pure logic; only the position
- * filter, the IMU scaling and the bias estimate use floating point.
+ * documentation (not public yet; docs/protocol.md lists the pages). Pure logic. Where the real
+ * controller computes in single-precision floating point (the grip levels, the pad's touch damping,
+ * edge push, stretch and scale, the position filter, the IMU scaling) so does this file, in the
+ * same order, with fmaf() where its build fuses a multiply and an add, and float-to-integer
+ * conversions as its floating-point unit does them (float_rules.h). Built with -ffp-contract=off.
  */
 #include <math.h>
 #include <string.h>
 #include <opensc2/sensor_helpers.h>
+#include "float_rules.h"
 
 #define PAD_HALF     16383
 #define REPORT_FULL  32767
@@ -17,11 +21,6 @@
 static int32_t clamp32(int64_t v, int32_t lo, int32_t hi)
 {
 	return v < lo ? lo : v > hi ? hi : (int32_t)v;
-}
-
-static int32_t abs32(int32_t v)
-{
-	return v < 0 ? -v : v;
 }
 
 /* ---- distance -------------------------------------------------------------------------------- */
@@ -50,18 +49,20 @@ void opensc2_cap_reset(struct opensc2_cap_touch *t)
 bool opensc2_cap_sample(struct opensc2_cap_touch *t, int32_t word, int32_t on_level,
 			int32_t off_level)
 {
+	int16_t w = (int16_t)word;
 	int32_t mean;
 
 	if (!t->primed) {
-		t->last = word;   /* the first word fills both */
+		t->last = w;   /* the first word fills both */
 		t->primed = true;
 	}
-	mean = (t->last + word) / 2;
-	t->last = word;
-	if (mean > on_level) {
-		t->on = true;
-	} else if (mean < off_level) {
-		t->on = false;
+	mean = (int16_t)((t->last + w) / 2);
+	t->last = w;
+	if (t->on) {
+		/* held while the mean is at least the off level; below it, off for this word */
+		t->on = mean >= off_level;
+	} else {
+		t->on = mean > on_level;
 	}
 	return t->on;
 }
@@ -78,13 +79,17 @@ int32_t opensc2_stick_touch_off_level(int16_t setting31)
 
 int32_t opensc2_grip_on_level(int16_t setting34)
 {
-	/* (s / 2 + 12.5) % of 1800 = 9 s + 225: a whole number for every s */
-	return 9 * clamp32(setting34, 25, 400) + 225;
+	float s = (float)(uint16_t)clamp32(setting34, 25, 400);
+
+	/* (s / 2 + 12.5) / 100 x 1800, the multiply and the add fused, kept to 16 bits */
+	return (uint16_t)osc2_f32_to_u32(fmaf(s, 0.5f, 12.5f) / 100.0f * 1800.0f);
 }
 
 int32_t opensc2_grip_off_level(int16_t setting34, int16_t setting35)
 {
-	return opensc2_grip_on_level(setting34) * clamp32(setting35, 25, 100) / 100;
+	float s = (float)(uint16_t)clamp32(setting35, 25, 100);
+
+	return (uint16_t)osc2_f32_to_u32(s / 100.0f * (float)opensc2_grip_on_level(setting34));
 }
 
 /* ---- trackpads: touch and position before the pad scale -------------------------------------- */
@@ -93,16 +98,28 @@ void opensc2_pad_touch_reset(struct opensc2_pad_touch *t)
 {
 	t->touched = false;
 	t->average = 0;
-	t->x = t->y = OPENSC2_PAD_CENTRE;
+	t->x = t->y = 0.5f;
 }
 
-/* The way from `from` toward `to` while the level lies in the band (off, top): a fraction rising
- * from 0.2 at the off level to 1 at the top, (2 D + 8 (level - off)) / (10 D). */
-static int32_t damp(int32_t from, int32_t to, int32_t level, int32_t off, int32_t top)
+/* millionths of the pad (an absolute event's value, -1..1 x 10^6) as a fraction, and back */
+static float from_millionths(int32_t m)
 {
-	int64_t d = (int64_t)top - off;
+	return (float)clamp32(m, -MILLION, MILLION) / 1000000.0f;
+}
 
-	return from + (int32_t)(((int64_t)to - from) * (2 * d + 8 * ((int64_t)level - off)) / (10 * d));
+static int32_t to_millionths(float p)
+{
+	p = p < -1.0f ? -1.0f : p > 1.0f ? 1.0f : p;
+	return osc2_f32_to_s32(p * 1000000.0f);
+}
+
+/* x0..x1 onto y0..y1, the fraction limited to 0..1 (the last step fused). */
+static float lerp_limited(float x, float x0, float x1, float y0, float y1)
+{
+	float t = (x - x0) / (x1 - x0);
+
+	t = t > 1.0f ? 1.0f : t < 0.0f ? 0.0f : t;
+	return fmaf(t, y1 - y0, y0);
 }
 
 bool opensc2_pad_touch_step(struct opensc2_pad_touch *t, int32_t level, int16_t setting72,
@@ -110,67 +127,73 @@ bool opensc2_pad_touch_step(struct opensc2_pad_touch *t, int32_t level, int16_t 
 {
 	int32_t on = clamp32(setting72, 0, 16000);
 	int32_t off = clamp32(setting73, 0, 16000);
-	int32_t top;
+	float px = from_millionths(*x), py = from_millionths(*y);
+	int32_t limit;
 
 	if (!t->touched) {
-		if (level <= on) {
-			*x = *y = OPENSC2_PAD_CENTRE;
-			return false;
-		}
-		t->touched = true;
 		t->average = level;   /* the running average starts at the touch-down level */
-		t->x = *x;
-		t->y = *y;
-		return true;
+		limit = on;
+	} else {
+		int32_t avg = (t->average * 7 + level) / 8;
+		int32_t hi = avg - 200;
+		float f = 1.0f;
+
+		t->average = avg;
+		if (level > off && off < hi && level < hi) {
+			f = lerp_limited((float)level, (float)off, (float)hi, 0.2f, 1.0f);
+		}
+		px = fmaf(px - t->x, f, t->x);
+		py = fmaf(py - t->y, f, t->y);
+		limit = off;
 	}
-	if (level <= off) {
-		opensc2_pad_touch_reset(t);
-		*x = *y = OPENSC2_PAD_CENTRE;
-		return false;
+	t->touched = level > limit;
+	if (!t->touched) {
+		px = py = 0.5f;
 	}
-	top = t->average - 200;
-	if (level < top) {
-		*x = damp(t->x, *x, level, off, top);
-		*y = damp(t->y, *y, level, off, top);
-	}
-	t->x = *x;
-	t->y = *y;
-	t->average = (7 * t->average + level) / 8;
-	return true;
+	t->x = px;
+	t->y = py;
+	*x = to_millionths(px);
+	*y = to_millionths(py);
+	return t->touched;
 }
 
 int32_t opensc2_pad_edge(int32_t millionths)
 {
-	int32_t from_centre = millionths - OPENSC2_PAD_CENTRE;
-	int32_t beyond = abs32(from_centre) - 350000;
-	int32_t push;
+	float p = from_millionths(millionths);
+	float d = fabsf(p - 0.5f);
 
-	if (beyond <= 0) {
-		return millionths;
+	if (d > 0.35f) {
+		float e = (d - 0.35f) * 7.0f * (d - 0.35f);
+
+		p = p > 0.5f ? p + e : p - e;
 	}
-	/* 7 x (d - 0.35)^2, in millionths */
-	push = (int32_t)((int64_t)7 * beyond * beyond / MILLION);
-	return from_centre < 0 ? millionths - push : millionths + push;
+	return to_millionths(p);
+}
+
+int32_t opensc2_pad_stretch_by(int32_t millionths, float offset, float scale)
+{
+	return to_millionths((from_millionths(millionths) - offset) / scale);
 }
 
 int32_t opensc2_pad_stretch(enum opensc2_side side, int axis, int32_t millionths)
 {
-	/* [side][axis]: offset in millionths, scale in percent */
-	static const int32_t offset[2][2] = { { -10000, 50000 }, { 110000, 50000 } };
-	static const int32_t scale[2][2] = { { 90, 91 }, { 88, 91 } };
+	/* [side][axis]: offset, scale */
+	static const float offset[2][2] = { { -0.01f, 0.05f }, { 0.11f, 0.05f } };
+	static const float scale[2][2] = { { 0.90f, 0.91f }, { 0.88f, 0.91f } };
 	int s = side == OPENSC2_RIGHT ? 1 : 0;
 	int a = axis ? 1 : 0;
 
-	return (int32_t)(((int64_t)millionths - offset[s][a]) * 100 / scale[s][a]);
+	return opensc2_pad_stretch_by(millionths, offset[s][a], scale[s][a]);
 }
 
 /* ---- trackpads: the pad scale and after ------------------------------------------------------- */
 
 int16_t opensc2_pad_scale(int32_t millionths)
 {
-	int64_t v = ((int64_t)millionths - OPENSC2_PAD_CENTRE) * (2 * PAD_HALF) / MILLION;
+	float p = from_millionths(millionths);
 
-	return (int16_t)clamp32(v, -PAD_HALF, PAD_HALF);
+	return (int16_t)clamp32(osc2_f32_to_s32((p - 0.5f) * 2.0f * (float)PAD_HALF), -PAD_HALF,
+				PAD_HALF);
 }
 
 void opensc2_pad_filter_reset(struct opensc2_pad_filter *f)
@@ -178,75 +201,101 @@ void opensc2_pad_filter_reset(struct opensc2_pad_filter *f)
 	memset(f, 0, sizeof(*f));
 }
 
-/* A one-pole stage at `cutoff` Hz: the factor 1 / (1 + rate / (2 pi f)). */
+#define FILTER_MIN_CUTOFF  0.001f
+#define FILTER_BETA        0.1f
+#define FILTER_D_CUTOFF    1.2f
+
+/* A one-pole stage's factor at `cutoff` Hz: 1 / (1 + tau / te), tau = 1 / (2 pi f), te = 1 / rate. */
 static float smoothing(float cutoff, float rate)
 {
-	return 1.0f / (1.0f + rate / (6.28318531f * cutoff));
+	float tau = 1.0f / (cutoff * 6.28318530718f);
+	float te = 1.0f / rate;
+
+	return 1.0f / (1.0f + tau / te);
+}
+
+/* y = alpha x + (1 - alpha) y, the first sample taken as y first (the add fused). */
+static float one_pole(float *y, bool *started, float x, float alpha)
+{
+	if (!*started) {
+		*started = true;
+		*y = x;
+	}
+	*y = fmaf(x, alpha, (1.0f - alpha) * *y);
+	return *y;
+}
+
+static float filter_axis(struct opensc2_pad_filter_axis *a, float x, float rate)
+{
+	float speed = a->started ? (x - a->last) * rate : 0.0f;
+	float cutoff;
+
+	speed = one_pole(&a->speed, &a->speed_started, speed, smoothing(FILTER_D_CUTOFF, rate));
+	cutoff = fmaf(FILTER_BETA, fabsf(speed), FILTER_MIN_CUTOFF);
+	if (a->cutoff > cutoff && a->cutoff * 0.99f >= cutoff) {
+		cutoff = a->cutoff * 0.99f;   /* a falling cut-off: at most 1 % per sample */
+	}
+	a->cutoff = cutoff;
+	a->last = x;
+	return one_pole(&a->value, &a->started, x, smoothing(cutoff, rate));
 }
 
 void opensc2_pad_filter_step(struct opensc2_pad_filter *f, int16_t *x, int16_t *y, float rate_hz)
 {
-	int16_t *v[2] = { x, y };
 	float rate = rate_hz > 0.0f ? rate_hz : 250.0f;
 
-	if (!f->started) {
-		for (int i = 0; i < 2; i++) {
-			f->out[i] = (float)*v[i];   /* the first sample passes unchanged */
-			f->speed[i] = 0.0f;
-			f->cutoff[i] = 0.001f;
-		}
-		f->started = true;
-		return;
-	}
-	for (int i = 0; i < 2; i++) {
-		float in = (float)*v[i];
-		float speed = (in - f->out[i]) * rate;
-		float cutoff;
-
-		f->speed[i] += smoothing(1.2f, rate) * (speed - f->speed[i]);
-		cutoff = 0.001f + 0.1f * fabsf(f->speed[i]);
-		if (cutoff < 0.99f * f->cutoff[i]) {
-			cutoff = 0.99f * f->cutoff[i];   /* a falling cut-off: at most 1 % per sample */
-		}
-		f->cutoff[i] = cutoff;
-		f->out[i] += smoothing(cutoff, rate) * (in - f->out[i]);
-		*v[i] = (int16_t)clamp32((int64_t)f->out[i], -REPORT_FULL, REPORT_FULL);
-	}
+	*x = (int16_t)osc2_f32_to_s32(filter_axis(&f->axis[0], (float)*x, rate));
+	*y = (int16_t)osc2_f32_to_s32(filter_axis(&f->axis[1], (float)*y, rate));
 }
 
-/* sin(d) x 8192 for d = 0..90, truncated toward zero (30 and 90 degrees are exact). */
-static const int16_t sine8192[91] = {
-	0,    142,  285,  428,  571,  713,  856,  998,  1140, 1281, 1422, 1563, 1703, 1842,
-	1981, 2120, 2258, 2395, 2531, 2667, 2801, 2935, 3068, 3200, 3331, 3462, 3591, 3719,
-	3845, 3971, 4096, 4219, 4341, 4461, 4580, 4698, 4815, 4930, 5043, 5155, 5265, 5374,
-	5481, 5586, 5690, 5792, 5892, 5991, 6087, 6182, 6275, 6366, 6455, 6542, 6627, 6710,
-	6791, 6870, 6947, 7021, 7094, 7164, 7233, 7299, 7362, 7424, 7483, 7540, 7595, 7647,
-	7697, 7745, 7791, 7834, 7874, 7912, 7948, 7982, 8012, 8041, 8067, 8091, 8112, 8130,
-	8147, 8160, 8172, 8180, 8187, 8190, 8192,
-};
+/* The rotation's sine and cosine x 8192, truncated, worked out as the real controller's table was:
+ * with pi taken as 3.141592 (so 30 degrees give 4095 and 90 degrees 8191). */
+#define TABLE_PI 3.141592
+
+static int32_t sin_entry(int32_t degrees)
+{
+	return (int32_t)(8192.0 * sin((double)degrees * TABLE_PI / 180.0));
+}
+
+static int32_t cos_entry(int32_t degrees)
+{
+	return (int32_t)(8192.0 * cos((double)degrees * TABLE_PI / 180.0));
+}
 
 int32_t opensc2_sin8192(int32_t degrees)
 {
 	int32_t d = degrees % 360;
 
-	if (d < 0) {
-		d += 360;
-	}
-	if (d <= 90) {
-		return sine8192[d];
-	}
-	if (d <= 180) {
-		return sine8192[180 - d];
-	}
-	if (d <= 270) {
-		return -sine8192[d - 180];
-	}
-	return -sine8192[360 - d];
+	return sin_entry(d < 0 ? d + 360 : d);
 }
 
 int32_t opensc2_cos8192(int32_t degrees)
 {
-	return opensc2_sin8192(degrees + 90);
+	int32_t d = degrees % 360;
+
+	return cos_entry(d < 0 ? d + 360 : d);
+}
+
+/* The real controller's lookup for an angle of -360..359 degrees: its 1 degree entries for 0..4
+ * (and 356..359 mirrored, the sine negated), else its 5 degree entries (angle / 5). */
+static void rotation_sincos(int32_t angle, int32_t *s, int32_t *c)
+{
+	if (angle < 0) {
+		angle += 360;
+	}
+	if (angle < 5 || angle > 355) {
+		if (angle <= 4) {
+			*s = sin_entry(angle);
+			*c = cos_entry(angle);
+		} else {
+			*s = -sin_entry(360 - angle);
+			*c = cos_entry(360 - angle);
+		}
+		return;
+	}
+	angle = angle / 5 * 5;
+	*s = sin_entry(angle);
+	*c = cos_entry(angle);
 }
 
 int16_t opensc2_pad_rotation_angle(enum opensc2_side side, int16_t setting2)
@@ -274,9 +323,9 @@ bool opensc2_pad_rotate(enum opensc2_side side, int16_t setting2, int16_t settin
 	if (setting2 == 0 || setting24 == 0) {
 		return false;
 	}
-	angle = opensc2_pad_rotation_angle(side, setting2);
-	s = opensc2_sin8192(angle);
-	c = opensc2_cos8192(angle);
+	/* the right pad by the angle, the left by minus it */
+	angle = clamp32(setting2, -360, 360);
+	rotation_sincos(side == OPENSC2_LEFT ? -angle : angle, &s, &c);
 	*x = (int32_t)((c * x0 + s * y0) / 8192);
 	*y = (int32_t)((c * y0 - s * x0) / 8192);
 	return true;
@@ -338,25 +387,25 @@ void opensc2_stabiliser_step(struct opensc2_stabiliser *s, uint32_t hold_radius,
 
 /* ---- IMU ------------------------------------------------------------------------------------- */
 
-static int16_t saturate_trunc(float v)
+/* toward zero to 32 bits, then the low 16 bits, as the real controller stores its IMU values */
+static int16_t low16(float v)
 {
-	if (!(v > -32767.0f)) {
-		return v != v ? 0 : -REPORT_FULL;   /* NaN reads 0 */
-	}
-	if (v > 32767.0f) {
-		return REPORT_FULL;
-	}
-	return (int16_t)v;   /* toward zero */
+	return (int16_t)(uint16_t)(uint32_t)osc2_f32_to_s32(v);
 }
 
 int16_t opensc2_imu_accel_from_ms2(float ms2)
 {
-	return saturate_trunc(ms2 / 19.6133f * 32767.0f);
+	return low16(ms2 / 19.6133f * 32767.0f);
 }
 
 int16_t opensc2_imu_gyro_from_rads(float rads)
 {
-	return saturate_trunc(rads * 57.2957795f * (32767.0f / 2000.0f));
+	return low16(rads * 180.0f / 3.14159265f * 32767.0f / 2000.0f);
+}
+
+int16_t opensc2_imu_quat_from_unit(float q)
+{
+	return low16(q * 32767.0f);
 }
 
 void opensc2_imu_mount(const int8_t m[9], const int16_t in[3], int16_t out[3])
@@ -367,7 +416,7 @@ void opensc2_imu_mount(const int8_t m[9], const int16_t in[3], int16_t out[3])
 		v[r] = m[3 * r] * in[0] + m[3 * r + 1] * in[1] + m[3 * r + 2] * in[2];
 	}
 	for (int r = 0; r < 3; r++) {
-		out[r] = (int16_t)clamp32(v[r], -REPORT_FULL, REPORT_FULL);
+		out[r] = (int16_t)(uint16_t)(uint32_t)v[r];
 	}
 }
 
@@ -425,6 +474,6 @@ void opensc2_adc_average(const int16_t *samples, uint8_t channels, uint8_t scans
 		for (uint8_t s = 0; s < scans; s++) {
 			sum += samples[s * channels + ch];
 		}
-		out[ch] = (uint16_t)clamp32(scans ? sum / scans : 0, 0, 65535);
+		out[ch] = (uint16_t)(uint32_t)(scans ? sum / scans : 0);
 	}
 }

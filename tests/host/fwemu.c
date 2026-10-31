@@ -485,6 +485,26 @@ static void app_raw_sticks(struct opensc2_state *s)
 	}
 }
 
+/* report.c's trigger_decisions(): a set-up of the triggers clears their bits; a raw trigger's bit
+ * is its calibration's. */
+static void trigger_decisions(const struct opensc2_state *s)
+{
+	static uint32_t setups;
+	uint32_t now = osc2_cal_setups();
+
+	if (now != setups) {
+		setups = now;
+		osc2_input_rules_triggers_set_up(&input_rules);
+	}
+	for (int side = 0; side < 2; side++) {
+		bool bit;
+
+		if (osc2_cal_trigger_decided(side, s->trigger[side], &bit)) {
+			osc2_input_rules_decide(&input_rules, side, bit);
+		}
+	}
+}
+
 /* osc2_report_state(): one report built, its copy left with the dock while a session runs. */
 static void build_report(uint8_t report[OPENSC2_STATE_REPORT_LEN], struct opensc2_state *s)
 {
@@ -494,6 +514,7 @@ static void build_report(uint8_t report[OPENSC2_STATE_REPORT_LEN], struct opensc
 	osc2_quat_none_to_identity(s);   /* ... and no rotation goes out as the identity */
 	osc2_test_input(s);
 	osc2_cal_rules(s);
+	trigger_decisions(s);
 	osc2_input_rules_apply(&input_rules, hk.rules, osc2.settings, s);
 	opensc2_encode_state(s, sequence++, report);
 	osc2_test_frame(report);

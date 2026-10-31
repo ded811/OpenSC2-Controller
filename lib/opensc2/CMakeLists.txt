@@ -50,6 +50,11 @@ zephyr_library_sources(
 	idle_rules.c
 	led_rules.c
 )
+# The calibration's and the sensors' arithmetic is the real controller's single-precision floating
+# point, with a multiply and an add fused into one rounding only where its build fuses them (fmaf()
+# in the code): the compiler may fuse nothing else, or a result could differ by a count.
+set_source_files_properties(cal.c sensor_helpers.c input_rules.c report_rules.c
+	PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 	usb.c
 	usb_rules.c

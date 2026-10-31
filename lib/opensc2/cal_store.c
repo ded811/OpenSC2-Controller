@@ -103,9 +103,19 @@ static uint8_t ram[K_COUNT][KEY_MAX] = {
 	[K_RGBW_R] = { 90 }, [K_RGBW_G] = { 35 }, [K_RGBW_B] = { 120 }, [K_RGBW_W] = { 80 },
 };
 static uint32_t generation;          /* changes with every stick, trigger or pressure key */
+static uint32_t analog_loads;        /* changes with every load of a stick or trigger key */
 static uint32_t pressure_loads[2];   /* changes with every load of cal/prs_l, cal/prs_r */
 static uint32_t pending_save;        /* keys to write from the system work queue */
 static bool pending_erase;
+/* Finished recordings waiting for the system work queue: their records are written whatever
+ * their format word, then loaded into RAM (a stick or trigger recording loads every stored cal/
+ * key again, as the real controller's does). */
+static uint32_t pending_records;     /* keys */
+static uint8_t pending_values[K_COUNT][KEY_MAX];
+static bool pending_reload;
+/* The stick offsets while docked (opensc2_cal_set_dock_offsets()), mV: [side][axis][min, max,
+ * rest low, rest high]. */
+static int16_t dock_offsets[2][2][4];
 
 static int find(const uint8_t *payload, uint8_t len, uint8_t *name_len)
 {
@@ -155,6 +165,9 @@ static void set_ram(int k, const uint8_t *value)
 	if (analog(k)) {
 		generation++;
 	}
+	if (keys[k].kind == KIND_STICK || keys[k].kind == KIND_TRIGGER) {
+		analog_loads++;
+	}
 	if (k == K_PRS_L || k == K_PRS_R) {
 		pressure_loads[k - K_PRS_L]++;
 	}
@@ -181,14 +194,20 @@ static void defer_save(uint32_t mask)
 void osc2_cal_flush(void)
 {
 	uint8_t value[KEY_MAX];
-	uint32_t save;
-	bool erase;
+	uint8_t records[K_COUNT][KEY_MAX];
+	uint32_t save, recorded;
+	bool erase, reload;
 	k_spinlock_key_t lk = k_spin_lock(&lock);
 
 	save = pending_save;
 	erase = pending_erase;
+	recorded = pending_records;
+	reload = pending_reload;
+	memcpy(records, pending_values, sizeof(records));
 	pending_save = 0;
 	pending_erase = false;
+	pending_records = 0;
+	pending_reload = false;
 	k_spin_unlock(&lock, lk);
 
 	/* The erase first: a save still to do was asked for after it (0xFE drops the earlier ones). */
@@ -211,6 +230,23 @@ void osc2_cal_flush(void)
 		if (have && osc2_cal_flash_write(keys[k].name, value, keys[k].size) != 0) {
 			LOG_WRN("Could not save %s", keys[k].name);
 		}
+	}
+	/* The finished recordings: written as they are (a format 0 too), then in RAM as the load
+	 * after the write gives them; a record that could not be written leaves RAM as it was. */
+	for (int k = 0; k < K_COUNT; k++) {
+		if (!(recorded & BIT(k))) {
+			continue;
+		}
+		if (osc2_cal_flash_write(keys[k].name, records[k], keys[k].size) != 0) {
+			LOG_WRN("Could not save %s", keys[k].name);
+			continue;
+		}
+		set_ram(k, records[k]);
+	}
+	if (reload) {
+		/* A stick or trigger recording: every stored cal/ key is loaded again, so a RAM-only
+		 * change (0xEE) of a key that has a stored value goes back to the stored one. */
+		osc2_cal_flash_reload();
 	}
 }
 
@@ -312,9 +348,15 @@ static struct k_spinlock rec_lock;
 static struct opensc2_cal_rec rec;
 
 static struct {
-	uint32_t applied;      /* the generation the set-ups come from */
+	uint32_t applied;      /* the stick and trigger key loads the set-ups come from */
 	uint32_t pressure_applied[2];   /* the pressure key loads the pads' set-ups come from */
 	bool set_up;
+	int16_t level68;       /* setting 68 at the triggers' set-up */
+	bool docked;           /* the dock offsets were in the set-up */
+	uint32_t setups;       /* set-ups of the sticks and triggers so far */
+	uint8_t trigger_decided;        /* raw triggers of the last frame: bit per side */
+	uint16_t trigger_value[2];      /* their values */
+	bool trigger_bit[2];            /* and their digital bits */
 	struct opensc2_stick_proc stick[2];
 	struct opensc2_trigger_proc trigger[2];
 	struct opensc2_pressure_proc pressure[2];
@@ -430,17 +472,57 @@ static void pad_start_over(int side)
 	p->click_setting = INT16_MIN;
 }
 
-/* Set the processing up again from the RAM keys when they changed: both sticks and both triggers
- * after any of their keys, a pad (and its start-over) only after a load of its own pressure key. */
+/* The dock offsets in effect: docked (the power source is the dock) on a board of revision 0x48 or
+ * later, as on the real controller. */
+static bool dock_offsets_now(void)
+{
+	return opensc2_power_source() == OPENSC2_POWER_SOURCE_DOCK &&
+	       osc2.identity.board_revision >= 0x48;
+}
+
+/* A stored millivolt value with a dock offset added, limited to 0..65535. */
+static uint16_t dock_adjust(uint16_t mv, int16_t offset)
+{
+	int32_t v = (int32_t)mv + offset;
+
+	return v <= 0 ? 0 : v > 0xFFFE ? 0xFFFF : (uint16_t)v;
+}
+
+static void stick_with_offsets(int side, struct opensc2_cal_stick *c)
+{
+	struct opensc2_cal_axis *axes[2] = { &c->x, &c->y };
+	k_spinlock_key_t lk = k_spin_lock(&lock);
+
+	for (int a = 0; a < 2; a++) {
+		const int16_t *o = dock_offsets[side][a];
+
+		axes[a]->min = dock_adjust(axes[a]->min, o[0]);
+		axes[a]->max = dock_adjust(axes[a]->max, o[1]);
+		axes[a]->rest_low = dock_adjust(axes[a]->rest_low, o[2]);
+		axes[a]->rest_high = dock_adjust(axes[a]->rest_high, o[3]);
+	}
+	k_spin_unlock(&lock, lk);
+}
+
+/* Set the processing up again from the RAM keys when they changed, as the real controller does:
+ * both sticks and both triggers after a load of any of their keys, a change of setting 68 and
+ * when the dock offsets come or go (each set-up clears the triggers' digital bits); a pad (and its
+ * start-over) only after a load of its own pressure key. */
 static void apply_calibration(void)
 {
 	uint8_t joy[2][OPENSC2_CAL_STICK_LEN], trg[2][OPENSC2_CAL_TRIGGER_LEN];
 	uint8_t prs[2][OPENSC2_CAL_PRESSURE_LEN];
-	uint32_t gen, loads[2];
+	int16_t level68 = opensc2_setting_get(OPENSC2_SETTING_TRIGGER_THRESHOLD);
+	bool docked = dock_offsets_now();
+	bool analog_again;
+	uint32_t loads, prs_loads[2];
 	k_spinlock_key_t lk = k_spin_lock(&lock);
 
-	gen = generation;
-	if (proc.set_up && gen == proc.applied) {
+	loads = analog_loads;
+	analog_again = !proc.set_up || loads != proc.applied || level68 != proc.level68 ||
+		       docked != proc.docked;
+	if (!analog_again && pressure_loads[0] == proc.pressure_applied[0] &&
+	    pressure_loads[1] == proc.pressure_applied[1]) {
 		k_spin_unlock(&lock, lk);
 		return;
 	}
@@ -448,31 +530,72 @@ static void apply_calibration(void)
 		memcpy(joy[side], ram[K_JOY_L + side], sizeof(joy[side]));
 		memcpy(trg[side], ram[K_TRG_L + side], sizeof(trg[side]));
 		memcpy(prs[side], ram[K_PRS_L + side], sizeof(prs[side]));
-		loads[side] = pressure_loads[side];
+		prs_loads[side] = pressure_loads[side];
 	}
 	k_spin_unlock(&lock, lk);
 
 	for (int side = 0; side < 2; side++) {
-		struct opensc2_cal_stick s;
+		struct opensc2_cal_stick st;
 		struct opensc2_cal_trigger t;
 		struct opensc2_cal_pressure p;
 
-		opensc2_cal_stick_unpack(joy[side], &s);
-		opensc2_cal_trigger_unpack(trg[side], &t);
-		proc.stick[side].dead_zone = STICK_DEAD_ZONE;
-		proc.stick[side].grow_range = STICK_GROW_RANGE;
-		opensc2_stick_setup(&proc.stick[side], &s);
-		opensc2_trigger_setup(&proc.trigger[side], &t);
-		if (proc.set_up && loads[side] == proc.pressure_applied[side]) {
+		if (analog_again) {
+			opensc2_cal_trigger_unpack(trg[side], &t);
+			opensc2_trigger_setup_level(&proc.trigger[side], &t, level68);
+			opensc2_cal_stick_unpack(joy[side], &st);
+			if (docked) {
+				stick_with_offsets(side, &st);
+			}
+			proc.stick[side].dead_zone = STICK_DEAD_ZONE;
+			proc.stick[side].grow_range = STICK_GROW_RANGE;
+			opensc2_stick_setup(&proc.stick[side], &st);
+		}
+		if (proc.set_up && prs_loads[side] == proc.pressure_applied[side]) {
 			continue;   /* another key changed: this pad goes on as it was */
 		}
 		opensc2_cal_pressure_unpack(prs[side], &p);
 		opensc2_pressure_setup(&proc.pressure[side], &p);   /* the filter is kept */
 		pad_start_over(side);
-		proc.pressure_applied[side] = loads[side];
+		proc.pressure_applied[side] = prs_loads[side];
 	}
-	proc.applied = gen;
+	if (analog_again) {
+		proc.applied = loads;
+		proc.level68 = level68;
+		proc.docked = docked;
+		proc.setups++;
+	}
 	proc.set_up = true;
+}
+
+uint32_t osc2_cal_setups(void)
+{
+	return proc.setups;
+}
+
+bool osc2_cal_trigger_decided(int side, uint16_t value, bool *bit)
+{
+	if (side < 0 || side > 1 || !(proc.trigger_decided & BIT(side)) ||
+	    proc.trigger_value[side] != value) {
+		return false;
+	}
+	*bit = proc.trigger_bit[side];
+	return true;
+}
+
+int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
+				 const int16_t y_mv[4])
+{
+	k_spinlock_key_t lk;
+
+	if (side > OPENSC2_RIGHT || !x_mv || !y_mv) {
+		return -EINVAL;
+	}
+	lk = k_spin_lock(&lock);
+	memcpy(dock_offsets[side][0], x_mv, sizeof(dock_offsets[side][0]));
+	memcpy(dock_offsets[side][1], y_mv, sizeof(dock_offsets[side][1]));
+	analog_loads++;   /* set up again at the next frame */
+	k_spin_unlock(&lock, lk);
+	return 0;
 }
 
 /* The settings whose change makes both pads start over. */
@@ -500,43 +623,56 @@ static void set_bit(struct opensc2_state *s, uint32_t bit, bool on)
 	s->buttons = on ? (s->buttons | bit) : (s->buttons & ~bit);
 }
 
-/* A recording finished: its records (`r`, a copy) become the RAM keys (applied from the next
- * frame) and are saved from the system work queue. */
+/* A recording finished: its records (a copy) are saved from the system work queue whatever their
+ * format word, and loaded into RAM from there (osc2_cal_flush()); a stick or trigger recording then
+ * loads every stored cal/ key again, as the real controller's does. */
 static void take_records(uint32_t bits, const struct opensc2_cal_rec *r)
 {
-	uint8_t buf[KEY_MAX];
+	uint8_t buf[K_COUNT][KEY_MAX];
 	uint32_t save = 0;
+	bool reload = false;
+	k_spinlock_key_t lk;
 
+	memset(buf, 0, sizeof(buf));
 	for (int side = 0; side < 2; side++) {
 		if (bits & (OPENSC2_CAL_SAVE_STICK_L << side)) {
 			struct opensc2_cal_stick c;
 
 			opensc2_cal_rec_stick(r, (enum opensc2_side)side, &c);
-			opensc2_cal_stick_pack(&c, buf);
-			set_ram(K_JOY_L + side, buf);
+			opensc2_cal_stick_pack(&c, buf[K_JOY_L + side]);
 			save |= BIT(K_JOY_L + side);
+			reload = true;
 		}
 		if (bits & (OPENSC2_CAL_SAVE_TRIGGER_L << side)) {
 			struct opensc2_cal_trigger c;
 
 			opensc2_cal_rec_trigger(r, (enum opensc2_side)side, &c);
-			opensc2_cal_trigger_pack(&c, buf);
-			set_ram(K_TRG_L + side, buf);
+			opensc2_cal_trigger_pack(&c, buf[K_TRG_L + side]);
 			save |= BIT(K_TRG_L + side);
+			reload = true;
 		}
 		if (bits & (OPENSC2_CAL_SAVE_PRESSURE_L << side)) {
 			struct opensc2_cal_pressure c;
 
 			opensc2_cal_rec_pressure(r, (enum opensc2_side)side, &c);
-			opensc2_cal_pressure_pack(&c, buf);
-			set_ram(K_PRS_L + side, buf);
+			opensc2_cal_pressure_pack(&c, buf[K_PRS_L + side]);
 			save |= BIT(K_PRS_L + side);
 		}
 	}
-	if (save) {
-		LOG_INF("Calibration recorded (keys 0x%04x)", (unsigned int)save);
-		defer_save(save);
+	if (!save) {
+		return;
 	}
+	LOG_INF("Calibration recorded (keys 0x%04x)", (unsigned int)save);
+	lk = k_spin_lock(&lock);
+	for (int k = 0; k < K_COUNT; k++) {
+		if (save & BIT(k)) {
+			memcpy(pending_values[k], buf[k], KEY_MAX);
+		}
+	}
+	pending_records |= save;
+	pending_reload |= reload;
+	k_spin_unlock(&lock, lk);
+	osc2_cal_defer();
 }
 
 void osc2_cal_frame(struct opensc2_state *s)
@@ -545,6 +681,8 @@ void osc2_cal_frame(struct opensc2_state *s)
 						     OPENSC2_TOUCH_RIGHT_STICK };
 	static const uint32_t grip_bit[2] = { OPENSC2_TOUCH_LEFT_GRIP, OPENSC2_TOUCH_RIGHT_GRIP };
 	static const uint32_t pad_touch_bit[2] = { OPENSC2_TOUCH_LEFT_PAD, OPENSC2_TOUCH_RIGHT_PAD };
+	static const uint32_t trigger_bit[2] = { OPENSC2_CLICK_LEFT_TRIGGER,
+						 OPENSC2_CLICK_RIGHT_TRIGGER };
 #if defined(CONFIG_OPENSC2_CAL_PRESSURE_CLICK)
 	static const uint32_t pad_click_bit[2] = { OPENSC2_CLICK_LEFT_PAD, OPENSC2_CLICK_RIGHT_PAD };
 #endif
@@ -564,6 +702,7 @@ void osc2_cal_frame(struct opensc2_state *s)
 		s->imu.timestamp_us = nonce;
 	}
 	proc.raw_seen = in.present;
+	proc.trigger_decided = 0;
 
 	apply_calibration();
 	pads_start_over_on_change();
@@ -587,13 +726,18 @@ void osc2_cal_frame(struct opensc2_state *s)
 		}
 		if (in.present & (OPENSC2_RAW_TRIGGER_L << side)) {
 			uint16_t t = in.trigger[side], v;
+			bool on = false;
 
 			trigger_mv[side] = opensc2_cal_counts_to_mv(t, OPENSC2_CAL_TRIGGER_FULL_MV);
-			if (opensc2_cal_raw_mode(raw62, t, OPENSC2_CAL_TRIGGER_FULL_MV, &v)) {
-				s->trigger[side] = v;
-			} else {
-				s->trigger[side] = opensc2_trigger_value(&proc.trigger[side], t);
+			if (!opensc2_cal_raw_mode(raw62, t, OPENSC2_CAL_TRIGGER_FULL_MV, &v)) {
+				/* the digital bit is the calibrated stage's (none in raw mode) */
+				on = opensc2_trigger_step(&proc.trigger[side], t, &v);
 			}
+			s->trigger[side] = v;
+			set_bit(s, trigger_bit[side], on);
+			proc.trigger_decided |= (uint8_t)BIT(side);
+			proc.trigger_value[side] = v;
+			proc.trigger_bit[side] = on;
 		}
 		if (in.present & (OPENSC2_RAW_PRESSURE_L << side)) {
 			struct opensc2_pressure_proc *p = &proc.pressure[side];
@@ -753,10 +897,30 @@ int osc2_cal_command(uint8_t opcode, const uint8_t *payload, uint8_t len, size_t
 			LOG_WRN("0xFE refused: wrong key");
 			return -EINVAL;
 		}
+		uint8_t records[K_COUNT][KEY_MAX];
+		uint32_t recorded;
+		bool reload;
+
 		lk = k_spin_lock(&lock);
 		pending_erase = true;   /* the RAM copies stay in use until the next boot */
 		pending_save = 0;       /* saves asked for before it would come after it: the erase wins */
+		/* A finished recording still waiting was written and loaded before this command on the
+		 * real controller (inside its frame or command), then erased: it goes into RAM now and
+		 * never reaches flash. */
+		recorded = pending_records;
+		reload = pending_reload;
+		memcpy(records, pending_values, sizeof(records));
+		pending_records = 0;
+		pending_reload = false;
 		k_spin_unlock(&lock, lk);
+		if (reload) {
+			osc2_cal_flash_reload();
+		}
+		for (int key = 0; key < K_COUNT; key++) {
+			if (recorded & BIT(key)) {
+				set_ram(key, records[key]);
+			}
+		}
 		osc2_cal_defer();
 		return 0;
 	}
@@ -931,8 +1095,12 @@ void osc2_cal_reset(void)
 		ram[K_RGBW_R + c][0] = trim_default[c];
 	}
 	generation++;
+	analog_loads++;
 	pending_save = 0;
 	pending_erase = false;
+	pending_records = 0;
+	pending_reload = false;
+	memset(dock_offsets, 0, sizeof(dock_offsets));
 	k_spin_unlock(&lock, lk);
 	lk = k_spin_lock(&raw_lock);
 	memset(&raw, 0, sizeof(raw));
@@ -1032,6 +1200,15 @@ int opensc2_cal_gyro_bias(float bias[3])
 uint32_t opensc2_cal_generation(void)
 {
 	return 0;
+}
+
+int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
+				 const int16_t y_mv[4])
+{
+	ARG_UNUSED(side);
+	ARG_UNUSED(x_mv);
+	ARG_UNUSED(y_mv);
+	return -ENOTSUP;
 }
 
 #endif /* CONFIG_OPENSC2_CAL */

@@ -22,7 +22,9 @@ struct cal_host_record {
 	int deferred;        /* osc2_cal_defer() calls since the last boot */
 	int waits;           /* osc2_cal_flush_wait() calls */
 	int writes, deletes;
+	int reloads;         /* osc2_cal_flash_reload() calls */
 	bool fail_writes;
+	int power_source;    /* what opensc2_power_source() answers (enum opensc2_power_source) */
 };
 
 extern struct cal_host_record cal_host;

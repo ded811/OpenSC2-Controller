@@ -53,6 +53,16 @@ OPENSC2_TEST(sensors_capacitive)
 	/* a reset starts the mean over */
 	opensc2_cap_reset(&t);
 	CHECK(!opensc2_cap_sample(&t, 450, 500, 400));
+	/* the on level below the off level (30 = 300, 31 = 500): a mean between the two turns the
+	 * bit off and on again every other word, as on the real controller */
+	opensc2_cap_reset(&t);
+	for (int i = 0; i < 6; i++) {
+		CHECK_EQ(opensc2_cap_sample(&t, 400, 300, 500), (i & 1) == 0);
+	}
+	/* the words are signed 16-bit values */
+	opensc2_cap_reset(&t);
+	CHECK(opensc2_cap_sample(&t, 600 - 65536, 500, 400));   /* 600 */
+	CHECK(opensc2_cap_sample(&t, 0x10000 + 1200, 500, 400));   /* 1200 */
 
 	/* grip: (s34 / 2 + 12.5) % of 1800, off s35 % of that */
 	CHECK_EQ(opensc2_grip_on_level(100), 1125);
@@ -64,6 +74,11 @@ OPENSC2_TEST(sensors_capacitive)
 	CHECK_EQ(opensc2_grip_off_level(100, 25), 281);
 	CHECK_EQ(opensc2_grip_off_level(100, 100), 1125);
 	CHECK_EQ(opensc2_grip_off_level(100, 7), 281);    /* 35: 25..100 */
+	/* single precision: 15 values of setting 34 land one below 9 x s + 225 */
+	CHECK_EQ(opensc2_grip_on_level(27), 467);
+	CHECK_EQ(opensc2_grip_on_level(80), 944);
+	CHECK_EQ(opensc2_grip_on_level(399), 3815);
+	CHECK_EQ(opensc2_grip_on_level(26), 9 * 26 + 225);
 }
 
 OPENSC2_TEST(sensors_pad_touch)
@@ -77,9 +92,10 @@ OPENSC2_TEST(sensors_pad_touch)
 		{ 1200, 100000, 100000, false, 500000, 500000 },   /* not above 1300 */
 		{ 2000, 600000, 400000, true, 600000, 400000 },    /* touch-down: the average starts */
 		{ 2000, 610000, 390000, true, 610000, 390000 },
-		{ 1500, 700000, 300000, true, 673000, 327000 },    /* under the average - 200: damped */
-		{ 1100, 800000, 200000, true, 712185, 287815 },
-		{ 1050, 900000, 100000, true, 761635, 238365 },
+		/* under the new average - 200 (1937 - 200): damped, the average updated first */
+		{ 1500, 700000, 300000, true, 676846, 323153 },
+		{ 1100, 800000, 200000, true, 717066, 282933 },
+		{ 1050, 900000, 100000, true, 767356, 232644 },
 		{ 900, 0, 0, false, 500000, 500000 },              /* not above 1000: lifted */
 		{ 1400, 550000, 450000, true, 550000, 450000 },
 	};
@@ -100,17 +116,19 @@ OPENSC2_TEST(sensors_pad_position)
 	/* the edge push: 7 (d - 0.35)^2 beyond 0.35 from the centre */
 	CHECK_EQ(opensc2_pad_edge(500000), 500000);
 	CHECK_EQ(opensc2_pad_edge(850000), 850000);
-	CHECK_EQ(opensc2_pad_edge(900000), 917500);
-	CHECK_EQ(opensc2_pad_edge(1000000), 1157500);   /* 0.1575 at the very edge */
-	CHECK_EQ(opensc2_pad_edge(0), -157500);
-	CHECK_EQ(opensc2_pad_edge(100000), 82500);
+	CHECK_EQ(opensc2_pad_edge(900000), 917499);     /* single precision, truncated */
+	CHECK_EQ(opensc2_pad_edge(1000000), 1000000);   /* 1.1575, limited as an event's value */
+	CHECK_EQ(opensc2_pad_edge(0), -157500);         /* 0.1575 at the very edge */
+	CHECK_EQ(opensc2_pad_edge(100000), 82499);
 	CHECK_EQ(opensc2_pad_edge(150000), 150000);
 	/* the stretch's per-pad offsets and scales */
 	CHECK_EQ(opensc2_pad_stretch(OPENSC2_LEFT, 0, 500000), 566666);
 	CHECK_EQ(opensc2_pad_stretch(OPENSC2_RIGHT, 0, 500000), 443181);
 	CHECK_EQ(opensc2_pad_stretch(OPENSC2_RIGHT, 1, 500000), 494505);
 	CHECK_EQ(opensc2_pad_stretch(OPENSC2_LEFT, 1, 0), -54945);
-	CHECK_EQ(opensc2_pad_stretch(OPENSC2_RIGHT, 0, 1000000), 1011363);
+	CHECK_EQ(opensc2_pad_stretch(OPENSC2_RIGHT, 0, 1000000), 1000000);   /* limited */
+	CHECK_EQ(opensc2_pad_stretch_by(500000, 0.0f, 0.5f), 1000000);
+	CHECK_EQ(opensc2_pad_stretch_by(250000, 0.0f, 0.5f), 500000);
 	/* the pad scale: (p - 0.5) x 2 x 16383, truncated, limited */
 	CHECK_EQ(opensc2_pad_scale(0), -16383);
 	CHECK_EQ(opensc2_pad_scale(500000), 0);
@@ -138,18 +156,23 @@ OPENSC2_TEST(sensors_pad_rotation)
 	CHECK_EQ(opensc2_pad_rotation_angle(OPENSC2_RIGHT, 400), 0);   /* limited to 0..360 */
 	CHECK_EQ(opensc2_sin8192(0), 0);
 	CHECK_EQ(opensc2_sin8192(1), 142);
-	CHECK_EQ(opensc2_sin8192(30), 4096);
+	/* the real controller's table, worked out with pi as 3.141592: 4095 and 8191 */
+	CHECK_EQ(opensc2_sin8192(30), 4095);
 	CHECK_EQ(opensc2_sin8192(45), 5792);
 	CHECK_EQ(opensc2_sin8192(89), 8190);
-	CHECK_EQ(opensc2_sin8192(90), 8192);
+	CHECK_EQ(opensc2_sin8192(90), 8191);
 	CHECK_EQ(opensc2_sin8192(91), 8190);
 	CHECK_EQ(opensc2_sin8192(181), -142);
-	CHECK_EQ(opensc2_sin8192(270), -8192);
+	CHECK_EQ(opensc2_sin8192(210), -4095);
+	CHECK_EQ(opensc2_sin8192(270), -8191);
 	CHECK_EQ(opensc2_sin8192(300), -7094);
 	CHECK_EQ(opensc2_sin8192(-1), -142);
-	CHECK_EQ(opensc2_sin8192(450), 8192);
+	CHECK_EQ(opensc2_sin8192(450), 8191);
 	CHECK_EQ(opensc2_cos8192(0), 8192);
 	CHECK_EQ(opensc2_cos8192(60), 4096);
+	CHECK_EQ(opensc2_cos8192(120), -4095);
+	CHECK_EQ(opensc2_cos8192(180), -8191);
+	CHECK_EQ(opensc2_cos8192(300), 4095);
 
 	/* off unless 2 and 24 are both non-zero */
 	x = 1000, y = 0;
@@ -158,19 +181,19 @@ OPENSC2_TEST(sensors_pad_rotation)
 	CHECK_EQ(x, 1000);
 	CHECK(opensc2_pad_rotate(OPENSC2_RIGHT, 90, 20, &x, &y));
 	CHECK_EQ(x, 0);
-	CHECK_EQ(y, -1000);
+	CHECK_EQ(y, -999);   /* sin 90 is 8191 in the table */
 	x = 0, y = 1000;
 	CHECK(opensc2_pad_rotate(OPENSC2_RIGHT, 90, 1, &x, &y));
-	CHECK_EQ(x, 1000);
+	CHECK_EQ(x, 999);
 	CHECK_EQ(y, 0);
 	x = 1000, y = 0;
 	CHECK(opensc2_pad_rotate(OPENSC2_LEFT, 90, 1, &x, &y));
 	CHECK_EQ(x, 0);
-	CHECK_EQ(y, 1000);
+	CHECK_EQ(y, 999);
 	x = 16383, y = 0;
 	CHECK(opensc2_pad_rotate(OPENSC2_RIGHT, 30, 1, &x, &y));
 	CHECK_EQ(x, 14187);
-	CHECK_EQ(y, -8191);
+	CHECK_EQ(y, -8189);
 	x = 10000, y = -5000;
 	CHECK(opensc2_pad_rotate(OPENSC2_LEFT, 7, 1, &x, &y));
 	CHECK_EQ(x, 10715);
@@ -245,19 +268,21 @@ OPENSC2_TEST(sensors_pad_filter)
 	struct opensc2_pad_filter f;
 	int16_t x, y;
 
-	/* the first sample passes unchanged */
+	/* the first sample passes, as far as single-precision rounding lets it: the stage's
+	 * alpha x + (1 - alpha) x lands a hair inside -4321, which truncates to -4320, as on the
+	 * real controller */
 	opensc2_pad_filter_reset(&f);
 	x = 1234, y = -4321;
 	opensc2_pad_filter_step(&f, &x, &y, 0);
 	CHECK_EQ(x, 1234);
-	CHECK_EQ(y, -4321);
-	/* a resting thumb: unchanged */
+	CHECK_EQ(y, -4320);
+	/* a resting thumb: the same */
 	for (int i = 0; i < 20; i++) {
 		x = 1234, y = -4321;
 		opensc2_pad_filter_step(&f, &x, &y, 0);
 	}
 	CHECK_EQ(x, 1234);
-	CHECK_EQ(y, -4321);
+	CHECK_EQ(y, -4320);
 	/* jitter of one unit around a resting thumb is almost frozen */
 	for (int i = 1; i <= 50; i++) {
 		x = (int16_t)(1234 + ((i & 1) ? 1 : -1)), y = (int16_t)(-4321 + ((i & 2) ? 1 : -1));
@@ -280,17 +305,32 @@ OPENSC2_TEST(sensors_pad_filter)
 	CHECK(x > 11334 - 1000);
 	CHECK(x <= 11334);
 	/* the cut-off falls by at most 1 % per sample */
-	float before = f.cutoff[0];
+	float before = f.axis[0].cutoff;
 
 	x = 11334, y = -4321;
 	opensc2_pad_filter_step(&f, &x, &y, 0);
-	CHECK(f.cutoff[0] >= 0.99f * before - 1e-6f);
+	CHECK(f.axis[0].cutoff >= 0.99f * before - 1e-6f);
+	CHECK(f.axis[0].cutoff < before);
+	/* the speed is the change since the previous input, not the previous output: after a jump
+	 * the filter's output lags, but a thumb that then rests reads no speed */
+	opensc2_pad_filter_reset(&f);
+	x = 0, y = 0;
+	opensc2_pad_filter_step(&f, &x, &y, 0);
+	x = 8000, y = 0;
+	opensc2_pad_filter_step(&f, &x, &y, 0);
+	CHECK(x < 8000);
+	float speed = f.axis[0].speed;
+
+	x = 8000, y = 0;
+	opensc2_pad_filter_step(&f, &x, &y, 0);
+	CHECK(f.axis[0].speed < speed);   /* the input did not move: the speed decays */
+	CHECK(f.axis[0].last == 8000.0f);
 	/* a reset starts over */
 	opensc2_pad_filter_reset(&f);
 	x = -16383, y = 16383;
 	opensc2_pad_filter_step(&f, &x, &y, 0);
-	CHECK_EQ(x, -16383);
-	CHECK_EQ(y, 16383);
+	CHECK_EQ(x, -16382);
+	CHECK_EQ(y, 16382);
 }
 
 OPENSC2_TEST(sensors_imu)
@@ -304,12 +344,15 @@ OPENSC2_TEST(sensors_imu)
 
 	CHECK_EQ(opensc2_imu_accel_from_ms2(9.80665f), 16383);   /* 1 g */
 	CHECK_EQ(opensc2_imu_accel_from_ms2(-19.6133f), -32767);
-	CHECK_EQ(opensc2_imu_accel_from_ms2(100.0f), 32767);
-	CHECK_EQ(opensc2_imu_accel_from_ms2(-100.0f), -32767);
+	/* beyond full scale the low 16 bits, as the real controller stores them */
+	CHECK_EQ(opensc2_imu_accel_from_ms2(24.5f), -24606);
+	CHECK_EQ(opensc2_imu_accel_from_ms2(100.0f), -29543);
 	CHECK_EQ(opensc2_imu_accel_from_ms2(NAN), 0);
 	CHECK_EQ(opensc2_imu_gyro_from_rads(1.0f), 938);
 	CHECK_EQ(opensc2_imu_gyro_from_rads(-1.0f), -938);       /* toward zero */
-	CHECK_EQ(opensc2_imu_gyro_from_rads(-40.0f), -32767);
+	CHECK_EQ(opensc2_imu_gyro_from_rads(-40.0f), 27988);     /* past 2000 deg/s: wrapped */
+	CHECK_EQ(opensc2_imu_quat_from_unit(1.0f), 32767);
+	CHECK_EQ(opensc2_imu_quat_from_unit(-0.5f), -16383);
 
 	opensc2_imu_mount(board, v, out);
 	CHECK_EQ(out[0], 200);    /* x' = y */
@@ -321,7 +364,7 @@ OPENSC2_TEST(sensors_imu)
 	CHECK_EQ(out[2], -10);
 	CHECK_EQ(out[3], 30);
 	opensc2_imu_mount(sum, big, out);
-	CHECK_EQ(out[0], 32767);  /* limited */
+	CHECK_EQ(out[0], -5536);  /* 60000 kept to 16 bits */
 	CHECK_EQ(out[1], 30000);
 	CHECK_EQ(out[2], 32767);
 
@@ -371,9 +414,13 @@ OPENSC2_TEST(sensors_adc_average)
 	const int16_t over[4] = { 5000, 4096, 5000, 4096 };
 	uint16_t out[2];
 
+	const int16_t low[4] = { -3, -5, -2, -4 };
+
 	opensc2_adc_average(s, 2, 4, out);
 	CHECK_EQ(out[0], 101);   /* 407 / 4, toward zero */
-	CHECK_EQ(out[1], 0);     /* -3 / 4 is 0; below 0 would be limited */
+	CHECK_EQ(out[1], 0);     /* -3 / 4 is 0 */
+	opensc2_adc_average(low, 1, 4, out);
+	CHECK_EQ(out[0], 65533);   /* -14 / 4 = -3, kept to 16 bits as the real controller stores it */
 	opensc2_adc_average(over, 1, 4, out);
 	CHECK_EQ(out[0], 4548);   /* not limited to 12 bits */
 }

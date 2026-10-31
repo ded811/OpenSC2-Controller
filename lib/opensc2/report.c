@@ -103,6 +103,26 @@ void osc2_rules_set(uint32_t value)
 
 /* ---- state report ---------------------------------------------------------------------------- */
 
+/* The calibration's part in the trigger bits: a set-up of the triggers clears them, and a raw
+ * trigger's bit is its calibration's (unless the test hooks injected another value). */
+static void trigger_decisions(const struct opensc2_state *s)
+{
+	static uint32_t setups;
+	uint32_t now = osc2_cal_setups();
+
+	if (now != setups) {
+		setups = now;
+		osc2_input_rules_triggers_set_up(&input_rules);
+	}
+	for (int side = 0; side < 2; side++) {
+		bool bit;
+
+		if (osc2_cal_trigger_decided(side, s->trigger[side], &bit)) {
+			osc2_input_rules_decide(&input_rules, side, bit);
+		}
+	}
+}
+
 void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_state *s)
 {
 	if (osc2.cb && osc2.cb->sample) {
@@ -121,6 +141,7 @@ void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_s
 	 * the STEAM, plug-in and wakeup rules). */
 	osc2_test_input(s);
 	osc2_cal_rules(s);   /* the pad rules: rotation, stabiliser */
+	trigger_decisions(s);
 	/* The rules after injection and the pad rules, so that an injected state goes through them
 	 * as the application's does; lizard mode gets the same state. */
 	osc2_input_rules_apply(&input_rules, osc2_rules(), osc2.settings, s);
