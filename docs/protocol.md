@@ -541,6 +541,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | No connection-event trigger | no state reports (inferred) | a timer at the connection interval paces them |
     | The sampling margin | starts over when a link becomes active and when the stick or trigger calibration changes | starts over when a link passes the gate |
     | Buffers and threads | 5 L2CAP and 25 connection TX buffers; the report thread waits for a buffer; both threads cooperative (priority -1) | 8 ACL, 8 L2CAP and 10 ATT TX buffers; at most 8 notifications in flight, a state or battery report without room dropped (a battery report waits), the others queued; preemptible threads (`CONFIG_OPENSC2_BLE_THREAD_PRIORITY`, `_REPORT_THREAD_PRIORITY`). Seen only as latency or a drop under congestion |
+    | A device name over 29 characters (with the default prefix only a host's GAP write makes one, up to 31) | pairing-mode advertising cannot start: the name does not fit the scan response (inferred from the stack) | the name is sent shortened, so a board's longer `CONFIG_OPENSC2_BLE_NAME_PREFIX` still advertises |
     | The log | Valve's lines | the same moments in OpenSC2's own words |
     | The report map's bytes | Valve's 372 bytes | the USB report descriptor (gap 13: the same reports, 20 bytes in another item order) |
 

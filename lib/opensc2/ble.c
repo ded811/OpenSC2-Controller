@@ -1633,9 +1633,21 @@ static void wireless_off(enum osc2_ble_off_cause cause, uint8_t reason)
 
 /* Bluetooth on for `transport` (with a pairing request: the slot opens for a new host). A host
  * connected on the same slot stays, unless pairing was asked for. */
+/* A start of the library's own (opensc2_start(), a transport choice) while Bluetooth was still
+ * running: the system state machine's drop leaves a link that is not past its gate running, as on
+ * the real controller, so a start after a wireless off may find it on. The machine hears "wireless
+ * on again" as when the link leaves OFF (set_state()). */
+static void started_again(bool was_on)
+{
+	if (was_on && osc2_transport_is_ble(osc2_transport_running())) {
+		osc2_sys_bt_event(OSC2_SYS_BT_STARTED);
+	}
+}
+
 static void do_start(uint8_t transport, bool pair)
 {
 	uint8_t slot = (uint8_t)osc2_transport_ble_slot(transport);
+	bool was_on = ble.state != OPENSC2_LINK_OFF;
 
 	ble.want = true;
 	ble.wireless_off = false;
@@ -1650,12 +1662,14 @@ static void do_start(uint8_t transport, bool pair)
 	(void)k_work_cancel_delayable(&readvertise_work);
 	if (ble.conn) {
 		if (slot == ble.slot && !pair) {
+			started_again(was_on);
 			return;   /* already connected for this slot */
 		}
 		end_link(false);   /* another slot, or a new host: leave this one first */
 	}
 	ble.slot = slot;
 	(void)adv_start(ADV_START);
+	started_again(was_on);
 }
 
 static void do_stop(bool release, bool then_radio, bool quiet)
