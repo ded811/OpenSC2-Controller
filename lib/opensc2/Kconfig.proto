@@ -36,26 +36,28 @@ config OPENSC2_CRASH_RECORD
 	  Built; not yet tested on hardware.
 
 config OPENSC2_WATCHDOG
-	bool "The hardware watchdog, with a crash record first (not tried with the UF2 bootloader)"
+	bool "The hardware watchdog, with a crash record first, as on the real controller"
+	default y
 	depends on OPENSC2_CRASH_RECORD
 	depends on $(dt_alias_enabled,watchdog0)
 	select WATCHDOG
 	help
-	  As on the real controller: the hardware watchdog (the devicetree alias watchdog0) resets
-	  the chip 5 s after the last feed and pauses while a debugger halts the CPU. A work queue at
-	  the lowest application priority (opensc2_wdt) feeds it every 2.5 s, and each feed re-arms a
-	  4.5 s warning on the system work queue. When the feeds stop because a thread keeps the CPU
-	  busy at or above the feeder's priority, the warning comes first: it logs that the watchdog
-	  went unfed and raises a kernel oops, so the crash record (OPENSC2_CRASH_RECORD) names the
-	  hang. A hang that also stops the system work queue ends in a plain watchdog reset. With a
-	  debugger attached the warning only logs. Started by opensc2_init().
+	  As on the real controller, always on: the hardware watchdog (the devicetree alias
+	  watchdog0) resets the chip 5 s after the last feed and pauses while a debugger halts the
+	  CPU. A work queue at the lowest application priority (opensc2_wdt) feeds it every 2.5 s,
+	  and each feed re-arms a 4.5 s warning on the system work queue. When the feeds stop
+	  because a thread keeps the CPU busy at or above the feeder's priority, the warning comes
+	  first: it logs that the watchdog went unfed and raises a kernel oops, so the crash record
+	  (OPENSC2_CRASH_RECORD) names the hang. A hang that also stops the system work queue ends
+	  in a plain watchdog reset. With a debugger attached the warning only logs. Started by
+	  opensc2_init(). Turn it off only for a board without a watchdog of its own.
 
-	  Off by default until it has been tried on hardware: the nRF52's watchdog cannot be stopped
-	  once it runs, and may keep running through a soft reset (MCUboot feeds a watchdog an
-	  application left running), so it may also run in the UF2 bootloader after the shell's "uf2"
-	  or Steam's bootloader request. Whether the Adafruit UF2 bootloader feeds it has not been
-	  checked; if it does not, the bootloader resets 5 s later, which can cut a .uf2 copy short.
-	  Try it on a board you can recover (app/watchdog.conf); a power cycle stops the watchdog.
+	  The nRF52's watchdog cannot be stopped once it runs and keeps running through a soft
+	  reset, into a bootloader too: the bootloader must feed it (MCUboot does; the Adafruit UF2
+	  bootloader is expected to, which has not been tried with this firmware). If a .uf2 copy
+	  is ever cut short: a power cycle stops the watchdog; unplug
+	  the board, plug it back in and right away short RST to GND twice, so the bootloader opens
+	  its drive before the firmware starts the watchdog again.
 
 config OPENSC2_STORAGE_RECOVERY
 	bool "Erase the settings partition when every sector is occupied, as the real controller"

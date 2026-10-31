@@ -66,12 +66,12 @@ config OPENSC2_REPORT_DELAY_US
 
 config OPENSC2_LISTEN_TIMEOUT_S
 	int "Stop listening for the puck after this many seconds (0 = never)"
-	default 60 if OPENSC2_BATTERY
-	default 0
+	default 60
 	help
-	  The real controller gives up after 60 s and turns itself off on battery. 0 keeps
-	  listening, which suits boards on USB power (the default without CONFIG_OPENSC2_BATTERY).
-	  On expiry the link goes OFF with reason OPENSC2_REASON_LISTEN_TIMEOUT.
+	  The real controller gives up after 60 s: with the system state machine it then turns
+	  off on battery and switches wireless off on USB power (the amber LED; STEAM then reboots
+	  the board, which comes back wired). 0 keeps listening. On expiry the link goes OFF with
+	  reason OPENSC2_REASON_LISTEN_TIMEOUT.
 
 config OPENSC2_PAIRING_TIMEOUT_S
 	int "Default pairing window, seconds"
