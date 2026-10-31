@@ -887,6 +887,16 @@ uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
 	return osc2_command_get_rc(link, out, &rc);
 }
 
+uint8_t osc2_command_request(enum osc2_link link, uint8_t rec[63])
+{
+	const struct stored_request *r = &stored[link];
+
+	rec[0] = r->opcode;
+	rec[1] = r->len;
+	memcpy(&rec[2], r->payload, r->len);
+	return (uint8_t)(2 + r->len);
+}
+
 int osc2_command_get_strict(enum osc2_link link, uint8_t out[63])
 {
 	int rc;

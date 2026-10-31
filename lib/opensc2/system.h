@@ -21,7 +21,9 @@
 struct osc2_bt_transport {
 	int (*start)(uint8_t slot, bool pairing);   /* advertise for slot 0 or 1 (pairing: the
 						      * chord was held 4 s) */
-	void (*stop)(void);                         /* drop the link (zero report, 100 ms, off) */
+	void (*stop)(void);                         /* drop the link when past its gate (zero
+						      * report, 100 ms, off); else leave it */
+	void (*disable)(void);                      /* the dock: off in any state, no zero report */
 	bool (*connected)(void);
 	bool (*pairing)(void);                      /* advertising in pairing mode */
 };
@@ -30,7 +32,7 @@ struct osc2_bt_transport {
  * transport in use (started through osc2_bt_transport.start). */
 #define OSC2_SYS_BT_GAVE_UP  1   /* advertising ended without a host, or the host ended the link:
 				  * "wireless off" (on battery a shutdown) */
-#define OSC2_SYS_BT_PAIRING  2   /* pairing-mode advertising started: cue 6 */
+#define OSC2_SYS_BT_PAIRING  2   /* pairing-mode advertising started (each start): cue 6 */
 #define OSC2_SYS_BT_PAIRED   3   /* a new host has paired (the link is encrypted): cue 7 */
 #define OSC2_SYS_BT_STARTED  4   /* the link left OFF (advertising or a host): wireless on again */
 

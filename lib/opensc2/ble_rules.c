@@ -135,9 +135,9 @@ uint8_t osc2_ble_pick_id(uint8_t slot, bool first_bonded, bool second_bonded, bo
 	return pair_request ? osc2_ble_other_id(usual) : usual;
 }
 
-bool osc2_ble_new_host(bool bonded_at_start, bool bonded_now, uint8_t security_level)
+bool osc2_ble_new_host(bool bonded_at_start, uint8_t security_level)
 {
-	return !bonded_at_start && bonded_now && security_level >= 2;
+	return !bonded_at_start && security_level >= 2;
 }
 
 enum osc2_ble_after osc2_ble_after_disconnect(uint8_t reason, bool ended_here)
@@ -386,6 +386,40 @@ uint32_t osc2_ble_interval_us_from_units(uint16_t units)
 	return (uint32_t)units * 1250u;
 }
 
+bool osc2_ble_vendor_flag(int index, bool vendor_subscribed, uint8_t radio_reason)
+{
+	if (index == OSC2_BLE_STATE_ID - 0x40) {
+		return (radio_reason & 1u) != 0;
+	}
+	return vendor_subscribed;
+}
+
+uint8_t osc2_ble_vendor_state_ccc(uint8_t radio_reason, bool on)
+{
+	return on ? (uint8_t)(radio_reason | 1u) : (uint8_t)(radio_reason & ~1u);
+}
+
+size_t osc2_ble_feature_read(const uint8_t value[OSC2_BLE_FEATURE_LEN], uint16_t offset,
+			     uint16_t len, const uint8_t *request, uint8_t request_len,
+			     const uint8_t *answer, uint8_t out[OSC2_BLE_FEATURE_LEN])
+{
+	size_t n = offset < OSC2_BLE_FEATURE_LEN ? OSC2_BLE_FEATURE_LEN - offset : 0;
+	uint8_t data_len = answer[1];
+
+	memset(out, 0, OSC2_BLE_FEATURE_LEN);
+	memcpy(out, &value[offset < OSC2_BLE_FEATURE_LEN ? offset : 0], n);
+	if (request_len > OSC2_BLE_FEATURE_LEN) {
+		request_len = OSC2_BLE_FEATURE_LEN;
+	}
+	memcpy(out, request, request_len);
+	if (data_len > OSC2_BLE_FEATURE_LEN - 2) {
+		data_len = OSC2_BLE_FEATURE_LEN - 2;
+	}
+	out[1] = answer[1];
+	memcpy(&out[2], &answer[2], data_len);
+	return n < len ? n : len;
+}
+
 bool osc2_ble_interval_suboptimal(uint32_t interval_us)
 {
 	return interval_us > OSC2_BLE_INTERVAL_WANTED_US;
@@ -397,6 +431,30 @@ int64_t osc2_ble_slot_ticks(int64_t event_ticks, uint32_t interval_us, uint32_t 
 	uint32_t us = interval_us > lead_us ? interval_us - lead_us : 0;
 
 	return event_ticks + (int64_t)((uint64_t)us * ticks_per_s / 1000000u);
+}
+
+void osc2_ble_margin_init(struct osc2_ble_margin *m, uint32_t initial_ticks)
+{
+	m->peak = 0;
+	m->worst = initial_ticks;
+	m->frames = 0;
+}
+
+uint32_t osc2_ble_margin(const struct osc2_ble_margin *m)
+{
+	return m->peak > m->worst ? m->peak : m->worst;
+}
+
+void osc2_ble_margin_add(struct osc2_ble_margin *m, uint32_t ticks)
+{
+	if (m->peak < ticks) {
+		m->peak = ticks;
+	}
+	if (++m->frames == OSC2_BLE_MARGIN_FRAMES) {
+		m->worst = m->peak;
+		m->peak = 0;
+		m->frames = 0;
+	}
 }
 
 /* ---- device information ---------------------------------------------------------------------- */

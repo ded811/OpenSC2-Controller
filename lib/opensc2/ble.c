@@ -129,13 +129,13 @@ static struct {
 	int8_t tx_power;
 	struct bt_conn *conn;      /* the connected host (a reference) */
 	uint8_t security;
-	uint16_t mtu;
+	uint16_t mtu;              /* the last ATT MTU heard of, on any connection (never reset) */
 	bool trigger;              /* the connection-event trigger is set */
 	int64_t connected_at;
 	enum opensc2_link_state state;
 	enum opensc2_reason reason;
 	uint32_t reports, dropped;
-	char name[OSC2_BLE_NAME_MAX + 1];
+	char name[32];             /* the stack's device name (the board's, or a host's) */
 } ble;
 
 static atomic_t owns_radio;            /* the stack is (being) enabled: ESB must not start */
@@ -149,12 +149,22 @@ static struct k_spinlock conn_lock;     /* ble.conn for the other threads */
 /* The device information strings set at every start. */
 static char dis_serial[OPENSC2_SERIAL_LEN + 1];
 static char dis_revision[9];
+/* The serial the device name was last set from ("": not yet this boot). */
+static char named_serial[OPENSC2_SERIAL_LEN + 1];
+
+/* The device name as the stack has it now (the board's, or one a host wrote over GAP): what the
+ * scan response and the status show. */
+static void name_refresh(void)
+{
+	snprintf(ble.name, sizeof(ble.name), "%s", bt_get_name());
+}
 
 /* ---- the queue of the Bluetooth thread ------------------------------------------------------- */
 
 enum msg_type {
 	MSG_START,          /* a: the transport, b: a pairing request */
-	MSG_STOP,           /* a: release the radio, b: start the puck's radio after */
+	MSG_STOP,           /* a: release the radio, b: start the puck's radio after, d: no zero
+			     * report (the dock's turn-off) */
 	MSG_PAIR,
 	MSG_CONNECTED,      /* conn (a reference), a: the HCI error */
 	MSG_DISCONNECTED,   /* conn (no reference), a: the reason */
@@ -197,7 +207,6 @@ static struct k_spinlock value_lock;
 static uint8_t input_last[OSC2_BLE_INPUTS][53];   /* the last value sent on each input */
 static uint8_t output_value[OSC2_BLE_OUTPUTS][63];
 static uint8_t feature_value[OSC2_BLE_FEATURE_LEN];
-static uint8_t feature_answer[FEATURE_CMD_LEN];
 static uint8_t protocol_mode = 1;                  /* report protocol */
 static uint8_t bas_level = 100;
 
@@ -209,9 +218,10 @@ static void values_reset(void)
 	k_spin_unlock(&value_lock, key);
 	memset(output_value, 0, sizeof(output_value));
 	memset(feature_value, 0, sizeof(feature_value));
-	memset(feature_answer, 0, sizeof(feature_answer));
 	protocol_mode = 1;
-	osc2_commands_reset(OSC2_LINK_BLE);
+	/* The stored request stays from one connection to the next, as on the real controller: a
+	 * new connection's first read answers what the last SET of an earlier one selected (0x83
+	 * until the first SET after boot). */
 }
 
 /* Both services' report characteristics point at their entry of osc2_ble_reports, so the two
@@ -266,6 +276,19 @@ static void ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
 	ARG_UNUSED(attr);
 	LOG_DBG("Notifications %s", value & BT_GATT_CCC_NOTIFY ? "on" : "off");
 }
+
+#if defined(CONFIG_OPENSC2_BLE_VENDOR_SERVICE)
+/* The vendor service's state report (0x45): as on the real controller, its notification flag is
+ * bit 0 of the puck link's last disconnect reason (0xF2 selector 2), which this sets and clears
+ * (the stack clears it at a disconnect too). See osc2_ble_vendor_flag(). */
+static void vendor_state_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
+{
+	ARG_UNUSED(attr);
+	osc2.last_disconnect_reason =
+		osc2_ble_vendor_state_ccc(osc2.last_disconnect_reason, value == BT_GATT_CCC_NOTIFY);
+	LOG_DBG("Vendor state notifications %s", value == BT_GATT_CCC_NOTIFY ? "on" : "off");
+}
+#endif
 
 static ssize_t read_report_ref(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
 			       uint16_t len, uint16_t offset)
@@ -328,15 +351,29 @@ static ssize_t write_feature(struct bt_conn *conn, const struct bt_gatt_attr *at
 	return len;
 }
 
+/* Every read runs the stored request's GET again, a read blob too, and answers 64 bytes as the real
+ * controller does: the answer over the start of the stored value, whatever the offset (so the bytes
+ * after the answer are left-overs, and a read blob gets the start again). */
 static ssize_t read_feature(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
 			    uint16_t len, uint16_t offset)
 {
-	/* The GET runs for a read from the start; a read blob of the rest gets the same answer. */
-	if (offset == 0 && osc2_command_get_strict(OSC2_LINK_BLE, feature_answer) < 0) {
+	uint8_t request[FEATURE_CMD_LEN], answer[FEATURE_CMD_LEN], out[OSC2_BLE_FEATURE_LEN];
+	uint8_t request_len = osc2_command_request(OSC2_LINK_BLE, request);
+	size_t n;
+	int rc;
+
+	ARG_UNUSED(conn);
+	ARG_UNUSED(attr);
+	(void)osc2_command_get_rc(OSC2_LINK_BLE, answer, &rc);
+	if (rc) {
 		return BT_GATT_ERR(OSC2_ATT_ERR_INVALID_PDU);
 	}
-	return bt_gatt_attr_read(conn, attr, buf, len, offset, feature_answer,
-				 sizeof(feature_answer));
+	if (offset > OSC2_BLE_FEATURE_LEN) {
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_OFFSET);
+	}
+	n = osc2_ble_feature_read(feature_value, offset, len, request, request_len, answer, out);
+	memcpy(buf, out, n);
+	return (ssize_t)n;
 }
 
 static ssize_t read_map(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
@@ -428,11 +465,12 @@ BT_GATT_SERVICE_DEFINE(osc2_2_dis_svc,
 					       0x38567131E5F3ULL))
 
 /* Input i (report 0x40 + i): its value and configuration, no report reference. */
-#define VENDOR_INPUT(i)                                                                           \
+#define VENDOR_INPUT_CCC(i, ccc_cb)                                                               \
 	BT_GATT_CHARACTERISTIC(VENDOR_UUID(OSC2_BLE_VENDOR_OFFSET + 0x40 + (i)),                    \
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY, PERM_R, read_input, NULL,  \
 			       (void *)&osc2_ble_reports[i]),                                       \
-	BT_GATT_CCC(ccc_changed, PERM_RW)
+	BT_GATT_CCC(ccc_cb, PERM_RW)
+#define VENDOR_INPUT(i) VENDOR_INPUT_CCC(i, ccc_changed)
 
 /* Output j (report 0x80 + j): read back, written with or without response. */
 #define VENDOR_OUTPUT(j)                                                                          \
@@ -448,7 +486,7 @@ BT_GATT_SERVICE_DEFINE(osc2_1_vendor_svc,
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE, PERM_RW, read_feature,
 			       write_feature, (void *)&osc2_ble_reports[16]),
 	VENDOR_INPUT(0), VENDOR_INPUT(1), VENDOR_INPUT(2), VENDOR_INPUT(3), VENDOR_INPUT(4),
-	VENDOR_INPUT(5),
+	VENDOR_INPUT_CCC(5, vendor_state_ccc_changed),
 	VENDOR_OUTPUT(0), VENDOR_OUTPUT(1), VENDOR_OUTPUT(2), VENDOR_OUTPUT(3), VENDOR_OUTPUT(4),
 	VENDOR_OUTPUT(5), VENDOR_OUTPUT(6), VENDOR_OUTPUT(7), VENDOR_OUTPUT(8), VENDOR_OUTPUT(9),
 );
@@ -578,7 +616,9 @@ static void set_state(enum opensc2_link_state state, enum opensc2_reason reason)
 
 	enum opensc2_link_state was = ble.state;
 
-	if (state == ble.state && reason == OPENSC2_REASON_NONE) {
+	/* Every start of pairing-mode advertising counts, also one that stays in pairing mode (after
+	 * a failed connection): the real controller plays its pairing cue at each. */
+	if (state == ble.state && reason == OPENSC2_REASON_NONE && state != OPENSC2_LINK_PAIRING) {
 		return;
 	}
 	ble.state = state;
@@ -592,12 +632,12 @@ static void set_state(enum opensc2_link_state state, enum opensc2_reason reason)
 		osc2.cb->link_changed(&info, osc2.user_data);
 	}
 	/* The system state machine hears of Bluetooth while it is the transport in use: wireless
-	 * on again, pairing mode, a new host paired (wireless off: wireless_off()). */
+	 * on again, each start of pairing mode, a new host paired (wireless off: wireless_off()). */
 	if (osc2_transport_is_ble(osc2_transport_running())) {
 		if (was == OPENSC2_LINK_OFF && state != OPENSC2_LINK_OFF) {
 			osc2_sys_bt_event(OSC2_SYS_BT_STARTED);
 		}
-		if (state == OPENSC2_LINK_PAIRING && was != OPENSC2_LINK_PAIRING) {
+		if (state == OPENSC2_LINK_PAIRING) {
 			osc2_sys_bt_event(OSC2_SYS_BT_PAIRING);
 		}
 		if (state == OPENSC2_LINK_CONNECTED && reason == OPENSC2_REASON_PAIRED) {
@@ -680,6 +720,22 @@ static bool id_bond(uint8_t id, bt_addr_le_t *peer)
 	return f.found;
 }
 
+static void bond_log(const struct bt_bond_info *info, void *user_data)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(&info->addr, addr, sizeof(addr));
+	LOG_INF("Bluetooth identity %u: bonded to %s", (unsigned int)(uintptr_t)user_data, addr);
+}
+
+/* The bonds of each slot, in the log at every start. */
+static void bonds_log(void)
+{
+	for (uint8_t id = 1; id < OSC2_BLE_ID_COUNT; id++) {
+		bt_foreach_bond(id, bond_log, (void *)(uintptr_t)id);
+	}
+}
+
 /* The bonds of identities 1 to 4 as a bit mask, kept for the status. */
 static void bonds_refresh(void)
 {
@@ -742,27 +798,25 @@ static void bonds_deleted(void)
 	bonds_refresh();
 }
 
-/* The bond rule, once the link is encrypted: a host that bonded on an identity that had no bond
- * when its advertising started is the slot's new host. The bond on the slot's other identity goes
- * (the stack then reports it deleted, which resets that identity). */
+/* The bond rule, when the link reaches security level 2 (once per connection): a host on an
+ * identity that had no bond when its advertising started is the slot's new host, whether it bonds
+ * or not (the real controller does not look). The bonds on the slot's other identity go (the
+ * stack then reports them deleted, which resets that identity). */
 static void new_host_check(void)
 {
 	uint8_t other;
 
 	if (!ble.conn || ble.new_host_done ||
-	    !osc2_ble_new_host(ble.bonded_at_start, id_bond(ble.id, NULL), ble.security)) {
+	    !osc2_ble_new_host(ble.bonded_at_start, ble.security)) {
 		return;
 	}
 	ble.new_host_done = true;
-	ble.bonded_at_start = true;
 	other = osc2_ble_other_id(ble.id);
 	osc2_test_note_ble(OSC2_TEST_BLE_BOND, OSC2_TEST_BLE_BOND_NEW_HOST, 0,
 			   ble.id | ((uint32_t)other << 8));
-	LOG_INF("Bluetooth: a new host on slot %u (identity %u)", ble.slot + 1, ble.id);
-	if (id_bond(other, NULL)) {
-		LOG_INF("Bluetooth: the slot's other bond (identity %u) is deleted", other);
-		(void)bt_unpair(other, NULL);
-	}
+	LOG_INF("Bluetooth: a new host on slot %u (identity %u): the bonds of identity %u go",
+		ble.slot + 1, ble.id, other);
+	(void)bt_unpair(other, NULL);
 	bonds_refresh();
 	set_state(OPENSC2_LINK_CONNECTED, OPENSC2_REASON_PAIRED);   /* the "paired" moment */
 }
@@ -809,13 +863,24 @@ static int stack_up(void)
 	}
 	ble.identities = (uint8_t)count;
 	bonds_refresh();
-	/* The name and the device information from the identity in use, at every start. */
+	bonds_log();
+	/* The name: set at the first start of a boot (stored only when it changed), as the real
+	 * controller sets it once at boot, so a name an encrypted host writes over GAP stays until
+	 * the next boot (the settings just loaded bring it back at a later start); again only when
+	 * the identity's serial has changed since. The device information at every start. */
 	opensc2_identity_get(&id);
-	osc2_ble_name(CONFIG_OPENSC2_BLE_NAME_PREFIX, id.unit_serial, ble.name, sizeof(ble.name));
-	err = bt_set_name(ble.name);   /* stored only when it changed */
-	if (err) {
-		LOG_WRN("Bluetooth name not set (%d)", err);
+	if (strcmp(named_serial, id.unit_serial) != 0) {
+		char name[OSC2_BLE_NAME_MAX + 1];
+
+		osc2_ble_name(CONFIG_OPENSC2_BLE_NAME_PREFIX, id.unit_serial, name, sizeof(name));
+		err = bt_set_name(name);
+		if (err) {
+			LOG_WRN("Bluetooth name not set (%d)", err);
+		} else {
+			memcpy(named_serial, id.unit_serial, sizeof(named_serial));
+		}
 	}
+	name_refresh();
 	memcpy(dis_serial, id.unit_serial, OPENSC2_SERIAL_LEN);
 	osc2_ble_hex32(id.build_time, dis_revision);
 	ble.tx_power = read_tx_power();
@@ -932,6 +997,7 @@ static int adv_start(enum adv_how how)
 		return -ECANCELED;   /* a factory reset deleted bt/: the reboot follows */
 	}
 	adv_stop();
+	name_refresh();   /* a host may have written another over GAP */
 	readvertise_round++;
 	if (how == ADV_START) {
 		uint8_t first = osc2_ble_slot_first_id(ble.slot);
@@ -995,6 +1061,7 @@ static K_WORK_DELAYABLE_DEFINE(readvertise_work, readvertise_fn);
 static K_SEM_DEFINE(rpt_wake, 0, 1);
 static atomic_t rpt_event;
 static int64_t event_ticks;
+static atomic_t margin_restart;        /* the gate opened: the sampling margin starts over */
 
 static void egu_isr(const void *arg)
 {
@@ -1067,6 +1134,7 @@ static void gate_check(void)
 	if (now) {
 		LOG_INF("Bluetooth active: encrypted, ATT MTU %u, interval %u us", ble.mtu,
 			interval_us);
+		atomic_set(&margin_restart, 1);
 		trigger_set(true);
 		osc2_transport_link_up((uint8_t)(OSC2_TRANSPORT_BLE_1 + ble.slot));
 	} else {
@@ -1123,14 +1191,17 @@ static struct bt_conn *conn_get(void)
 	return conn;
 }
 
-/* Where input `index` goes for this host: the vendor service's characteristic if the host enabled
- * notifications there, else the HID service's, else nowhere. */
+/* Where input `index` goes for this host: the vendor service's characteristic if its flag there is
+ * set (the host's subscription; for 0x45 the real controller's quirk, osc2_ble_vendor_flag()),
+ * else the HID service's if the host enabled notifications there, else nowhere. */
 static const struct bt_gatt_attr *input_target(struct bt_conn *conn, int index)
 {
 	bool vendor = false;
 
 #if defined(CONFIG_OPENSC2_BLE_VENDOR_SERVICE)
-	vendor = bt_gatt_is_subscribed(conn, VENDOR_INPUT_ATTR(index), BT_GATT_CCC_NOTIFY);
+	vendor = osc2_ble_vendor_flag(index, bt_gatt_is_subscribed(conn, VENDOR_INPUT_ATTR(index),
+								   BT_GATT_CCC_NOTIFY),
+				      osc2.last_disconnect_reason);
 #endif
 	switch (osc2_ble_input_target(vendor, bt_gatt_is_subscribed(conn, HID_INPUT_ATTR(index),
 								   BT_GATT_CCC_NOTIFY))) {
@@ -1147,7 +1218,11 @@ static const struct bt_gatt_attr *input_target(struct bt_conn *conn, int index)
 
 /* One input report as a notification on its characteristic, where the host enabled them; -ENOMEM
  * when too many are in flight (a droppable one, state or battery, is then dropped; the others
- * never get here without room: they wait in the queue). Never waits. */
+ * never get here without room: they wait in the queue). Never waits. As on the real controller, a
+ * report for a characteristic the host did not subscribe to is refused before it is kept (-EACCES:
+ * only the vendor 0x45's quirk leads there), a report that goes out is kept as the
+ * characteristic's value before it is sent, and one that cannot be sent is logged as an error
+ * with its ID. */
 static int notify_report(const uint8_t *report, size_t len, bool droppable)
 {
 	uint8_t pad[64];
@@ -1180,6 +1255,18 @@ static int notify_report(const uint8_t *report, size_t len, bool droppable)
 		err = -ENOMEM;
 		goto out;
 	}
+	if (!bt_gatt_is_subscribed(conn, p.attr, BT_GATT_CCC_NOTIFY)) {
+		err = -EACCES;
+		LOG_ERR("Bluetooth: input report 0x%02x not sent (%d)",
+			osc2_ble_reports[index].id, err);
+		goto out;
+	}
+	{
+		k_spinlock_key_t key = k_spin_lock(&value_lock);
+
+		memcpy(input_last[index], value, value_len);
+		k_spin_unlock(&value_lock, key);
+	}
 	p.data = value;
 	p.len = value_len;
 	p.func = sent_cb;
@@ -1187,12 +1274,8 @@ static int notify_report(const uint8_t *report, size_t len, bool droppable)
 	err = bt_gatt_notify_cb(conn, &p);
 	if (err) {
 		atomic_dec(&inflight);
-		LOG_DBG("Unable to send report 0x%02x (%d)", report[0], err);
-	} else {
-		k_spinlock_key_t key = k_spin_lock(&value_lock);
-
-		memcpy(input_last[index], value, value_len);
-		k_spin_unlock(&value_lock, key);
+		LOG_ERR("Bluetooth: input report 0x%02x not sent (%d)", osc2_ble_reports[index].id,
+			err);
 	}
 out:
 	if (conn) {
@@ -1252,13 +1335,17 @@ static void send_state(void)
 	osc2_report_lizard(&s);
 }
 
+/* The state is sampled ahead of the slot by the sampling margin (osc2_ble_margin()), as the real
+ * controller's input loop does, so the report is ready when the slot comes. */
 static void rpt_thread_fn(void *p1, void *p2, void *p3)
 {
+	struct osc2_ble_margin margin;
 	struct tx_item item;
 
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
+	osc2_ble_margin_init(&margin, (uint32_t)k_us_to_ticks_ceil32(OSC2_BLE_MARGIN_INITIAL_US));
 	for (;;) {
 		(void)k_sem_take(&rpt_wake, K_FOREVER);
 		if (atomic_cas(&rpt_event, 1, 0) && gate) {
@@ -1266,13 +1353,21 @@ static void rpt_thread_fn(void *p1, void *p2, void *p3)
 			int64_t at = osc2_ble_slot_ticks(event_ticks, interval_us,
 							 CONFIG_OPENSC2_BLE_REPORT_LEAD_US,
 							 CONFIG_SYS_CLOCK_TICKS_PER_SEC);
+			int64_t start;
 
 			irq_unlock(key);
+			if (atomic_cas(&margin_restart, 1, 0)) {
+				osc2_ble_margin_init(&margin, (uint32_t)k_us_to_ticks_ceil32(
+							      OSC2_BLE_MARGIN_INITIAL_US));
+			}
+			at -= osc2_ble_margin(&margin);
 			if (at > k_uptime_ticks()) {
 				k_sleep(K_TIMEOUT_ABS_TICKS(at));
 			}
+			start = k_uptime_ticks();
 			if (gate && !ending) {
 				send_state();
+				osc2_ble_margin_add(&margin, (uint32_t)(k_uptime_ticks() - start));
 			}
 		}
 		/* The queue, in order: a report that must not be lost waits at its head until a
@@ -1323,17 +1418,17 @@ static void conn_drop(void)
 	osc2_output_link_down();
 }
 
-/* End the link ourselves: an all-zero 0x45 first when it is past the gate, so the host releases
- * every button, then a disconnect (0x13). Waits for the disconnect. Nothing follows it (the
- * caller decides). */
-static void end_link(void)
+/* End the link ourselves: an all-zero 0x45 first when it is past the gate (unless `quiet`: the
+ * dock's turn-off goes without it, as on the real controller), so the host releases every button,
+ * then a disconnect (0x13). Waits for the disconnect. Nothing follows it (the caller decides). */
+static void end_link(bool quiet)
 {
 	static const uint8_t zero[OPENSC2_STATE_REPORT_LEN] = { OPENSC2_RPT_STATE };
 
 	if (!ble.conn) {
 		return;
 	}
-	if (gate) {
+	if (gate && !quiet) {
 		/* The state reports stop first (as on USB before it leaves the bus), so the zero
 		 * report is the last state the host sees: a state report built meanwhile goes out
 		 * before it, none after. */
@@ -1381,8 +1476,36 @@ static bool on_param_req(struct bt_conn *conn, struct bt_le_conn_param *param)
 	ARG_UNUSED(conn);
 	LOG_INF("The host asks for %u..%u x 1.25 ms, latency %u, timeout %u x 10 ms",
 		param->interval_min, param->interval_max, param->latency, param->timeout);
+	if (osc2_ble_interval_suboptimal(osc2_ble_interval_us_from_units(param->interval_max))) {
+		LOG_WRN("Bluetooth: the host asks for an interval longer than 7.5 ms");
+	}
 	return true;   /* every request is accepted, as on the real controller */
 }
+
+#if defined(CONFIG_BT_USER_PHY_UPDATE)
+static const char *phy_name(uint8_t phy)
+{
+	switch (phy) {
+	case BT_GAP_LE_PHY_1M:
+		return "1M";
+	case BT_GAP_LE_PHY_2M:
+		return "2M";
+	case BT_GAP_LE_PHY_CODED:
+		return "coded";
+	case BT_GAP_LE_PHY_NONE:
+		return "none";
+	default:
+		return "?";
+	}
+}
+
+static void on_phy_updated(struct bt_conn *conn, struct bt_conn_le_phy_info *param)
+{
+	ARG_UNUSED(conn);
+	LOG_INF("Bluetooth PHY: transmit %s, receive %s", phy_name(param->tx_phy),
+		phy_name(param->rx_phy));
+}
+#endif
 
 static void on_param_updated(struct bt_conn *conn, uint16_t interval, uint16_t latency,
 			     uint16_t timeout)
@@ -1404,6 +1527,9 @@ BT_CONN_CB_DEFINE(osc2_ble_conn_cb) = {
 	.le_param_req = on_param_req,
 	.le_param_updated = on_param_updated,
 	.security_changed = on_security,
+#if defined(CONFIG_BT_USER_PHY_UPDATE)
+	.le_phy_updated = on_phy_updated,
+#endif
 };
 
 static void on_mtu(struct bt_conn *conn, uint16_t tx, uint16_t rx)
@@ -1434,12 +1560,23 @@ static struct bt_conn_auth_info_cb auth_info_cb = {
 	.bond_deleted = on_bond_deleted,
 };
 
-static void interval_update(void)
+static void interval_update(bool connected)
 {
 	struct bt_conn_info info;
 
 	if (ble.conn && bt_conn_get_info(ble.conn, &info) == 0) {
 		interval_us = info.le.interval_us;
+		if (connected) {
+			char addr[BT_ADDR_LE_STR_LEN];
+
+			bt_addr_le_to_str(info.le.dst, addr, sizeof(addr));
+			LOG_INF("Bluetooth: %s connected, latency %u, timeout %u x 10 ms", addr,
+				info.le.latency, info.le.timeout);
+#if defined(CONFIG_BT_USER_PHY_UPDATE)
+			LOG_INF("Bluetooth PHY: transmit %s, receive %s",
+				phy_name(info.le.phy->tx_phy), phy_name(info.le.phy->rx_phy));
+#endif
+		}
 		osc2_test_note_ble(OSC2_TEST_BLE_PARAMS, 0, info.le.latency, interval_us);
 		if (osc2_ble_interval_suboptimal(interval_us)) {
 			LOG_WRN("Bluetooth: the host set a %u us interval (7500 asked for)",
@@ -1514,13 +1651,13 @@ static void do_start(uint8_t transport, bool pair)
 		if (slot == ble.slot && !pair) {
 			return;   /* already connected for this slot */
 		}
-		end_link();   /* another slot, or a new host: leave this one first */
+		end_link(false);   /* another slot, or a new host: leave this one first */
 	}
 	ble.slot = slot;
 	(void)adv_start(ADV_START);
 }
 
-static void do_stop(bool release, bool then_radio)
+static void do_stop(bool release, bool then_radio, bool quiet)
 {
 	/* Bluetooth already went off by itself ("wireless off": the window, or the host ended the
 	 * link). A stop that keeps the stack (the system state machine's drop, which follows that
@@ -1541,7 +1678,7 @@ static void do_stop(bool release, bool then_radio)
 	ble.wireless_off = false;
 	if (ble.enabled) {
 		adv_stop();
-		end_link();
+		end_link(quiet);
 	}
 	set_state(OPENSC2_LINK_OFF, OPENSC2_REASON_DISABLED);
 	if (release) {
@@ -1615,12 +1752,14 @@ static void on_connected_msg(const struct ble_msg *m)
 	ble.connected_at = k_uptime_get();
 	ble.reports = ble.dropped = 0;
 	ble.security = (uint8_t)bt_conn_get_security(m->conn);
-	ble.mtu = bt_gatt_get_mtu(m->conn);
+	ble.new_host_done = false;   /* the bond rule runs once per connection */
+	/* ble.mtu stays: the real controller keeps the last ATT MTU it heard of across links, so a
+	 * later host needs only encryption to pass the gate (and one that keeps the default MTU then
+	 * gets every state report refused by the stack, as there). */
 	link_reset();
-	interval_update();
+	interval_update(true);
 	set_state(OPENSC2_LINK_CONNECTED, OPENSC2_REASON_NONE);
 	gate_check();
-	new_host_check();
 }
 
 static void on_msg(const struct ble_msg *m)
@@ -1630,7 +1769,7 @@ static void on_msg(const struct ble_msg *m)
 		do_start(m->a, m->b);
 		break;
 	case MSG_STOP:
-		do_stop(m->a, m->b);
+		do_stop(m->a, m->b, m->d != 0);
 		break;
 	case MSG_PAIR: {
 		/* A pairing request on the running slot: a new start with the flag. The running
@@ -1689,14 +1828,13 @@ static void on_msg(const struct ble_msg *m)
 		break;
 	case MSG_PARAMS:
 		if (m->conn == ble.conn) {
-			interval_update();
+			interval_update(false);
 		}
 		break;
 	case MSG_PAIRED:
 		if (m->conn == ble.conn) {
 			LOG_INF("Bluetooth host paired%s", m->a ? " and bonded" : " (no bond)");
 			bonds_refresh();
-			new_host_check();
 		}
 		break;
 	case MSG_TEST_DROP:
@@ -1841,16 +1979,29 @@ static int sys_bt_start(uint8_t transport, bool pairing)
 			 opensc2_select_transport((enum opensc2_transport)transport);
 }
 
+/* The machine's drop (wireless off on USB power, a shutdown, a reboot) reaches Bluetooth only
+ * while it is the active transport, past the gate: the zero report, 100 ms, off. Advertising, or a
+ * host connected but not yet past the gate, is left running, as on the real controller, whose drop
+ * only reaches the current transport (advertising then ends with its window). */
 static void sys_bt_stop(void)
 {
-	if (osc2_transport_is_ble(osc2_transport_running())) {
-		(void)osc2_ble_stop(false, false);   /* the zero report, 100 ms, off */
+	if (osc2_transport_is_ble(osc2_transport_running()) && osc2_ble_active()) {
+		(void)osc2_ble_stop(false, false);
 	}
 }
 
+/* On the dock the machine turns the link off in any state, without the zero report. */
+static void sys_bt_disable(void)
+{
+	if (osc2_transport_is_ble(osc2_transport_running())) {
+		post(MSG_STOP, NULL, false, false, 1);
+	}
+}
+
+/* "Connected" for the LED and the plug-in rule: a host is connected, before the gate too. */
 static bool sys_bt_connected(void)
 {
-	return osc2_ble_active();
+	return ble.conn != NULL;
 }
 
 static bool sys_bt_pairing(void)
@@ -1861,6 +2012,7 @@ static bool sys_bt_pairing(void)
 static const struct osc2_bt_transport sys_bt = {
 	.start = sys_bt_start,
 	.stop = sys_bt_stop,
+	.disable = sys_bt_disable,
 	.connected = sys_bt_connected,
 	.pairing = sys_bt_pairing,
 };

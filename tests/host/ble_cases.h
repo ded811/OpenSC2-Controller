@@ -152,13 +152,14 @@ OPENSC2_TEST(ble_identities_and_bonds)
 		CHECK_EQ(reset, pick[i].reset);
 	}
 
-	/* A new host: bonded on an identity without a bond at the start of its advertising, once
-	 * encrypted. A host that was bonded already, or did not bond, is none. */
-	CHECK(osc2_ble_new_host(false, true, 2));
-	CHECK(osc2_ble_new_host(false, true, 4));
-	CHECK(!osc2_ble_new_host(false, true, 1));
-	CHECK(!osc2_ble_new_host(true, true, 2));
-	CHECK(!osc2_ble_new_host(false, false, 2));
+	/* A new host: an encrypted link on an identity without a bond at the start of its
+	 * advertising, bonded or not (the real controller does not look). A host on an identity that
+	 * had a bond is none. */
+	CHECK(osc2_ble_new_host(false, 2));
+	CHECK(osc2_ble_new_host(false, 4));
+	CHECK(!osc2_ble_new_host(false, 1));
+	CHECK(!osc2_ble_new_host(true, 2));
+	CHECK(!osc2_ble_new_host(true, 4));
 }
 
 /* What follows a disconnect, and the timings of advertising. */
@@ -391,4 +392,86 @@ OPENSC2_TEST(ble_timing_and_strings)
 	CHECK(strcmp(hex, "6ac686b3") == 0);
 	osc2_ble_hex32(0x0000000Au, hex);
 	CHECK(strcmp(hex, "0000000a") == 0);
+}
+
+/* Feature report 1 read as the real controller answers it: the GET's answer over the request, over
+ * the stored value; the same start at any offset. */
+OPENSC2_TEST(ble_feature_read)
+{
+	uint8_t value[OSC2_BLE_FEATURE_LEN];
+	uint8_t request[63] = { 0xAE, 0x03, 0x01, 0x77, 0x88 };   /* opcode, n = 3, payload */
+	uint8_t answer[63] = { 0xAE, 0x02, 0x11, 0x22 };           /* n = 2: 11 22 */
+	uint8_t out[OSC2_BLE_FEATURE_LEN];
+
+	for (int i = 0; i < OSC2_BLE_FEATURE_LEN; i++) {
+		value[i] = (uint8_t)(0xA0 + i);   /* what the host wrote last */
+	}
+	/* A read of the whole value: answer, then the request's left-over byte, then the write's. */
+	CHECK_EQ(osc2_ble_feature_read(value, 0, 512, request, 5, answer, out), 64);
+	CHECK_EQ(out[0], 0xAE);
+	CHECK_EQ(out[1], 0x02);
+	CHECK_EQ(out[2], 0x11);
+	CHECK_EQ(out[3], 0x22);
+	CHECK_EQ(out[4], 0x88);           /* the request's payload past the answer */
+	CHECK_EQ(out[5], 0xA5);           /* then the stored value */
+	CHECK_EQ(out[63], 0xA0 + 63);     /* 64 bytes: one more than the report map declares */
+	/* At an MTU of 23 a read gives 22 bytes. */
+	CHECK_EQ(osc2_ble_feature_read(value, 0, 22, request, 5, answer, out), 22);
+	/* A read blob at 22 gets the answer again at its start, and the value from 27 on. */
+	CHECK_EQ(osc2_ble_feature_read(value, 22, 22, request, 5, answer, out), 22);
+	CHECK_EQ(out[0], 0xAE);
+	CHECK_EQ(out[2], 0x11);
+	CHECK_EQ(out[4], 0x88);
+	CHECK_EQ(out[5], 0xA0 + 22 + 5);
+	/* Near the end: what is left; at the end: nothing. */
+	CHECK_EQ(osc2_ble_feature_read(value, 60, 22, request, 5, answer, out), 4);
+	CHECK_EQ(osc2_ble_feature_read(value, 64, 22, request, 5, answer, out), 0);
+	/* A longer answer covers the whole request. */
+	answer[1] = 61;
+	CHECK_EQ(osc2_ble_feature_read(value, 0, 64, request, 5, answer, out), 64);
+	CHECK_EQ(out[1], 61);
+	CHECK_EQ(out[4], 0);
+	CHECK_EQ(out[63], 0xA0 + 63);
+}
+
+/* The vendor service's flags: the host's subscription, except for 0x45, whose flag is bit 0 of the
+ * puck link's last disconnect reason (the real controller's quirk). */
+OPENSC2_TEST(ble_vendor_flag_quirk)
+{
+	CHECK(osc2_ble_vendor_flag(0, true, 0));
+	CHECK(!osc2_ble_vendor_flag(0, false, 1));
+	CHECK(osc2_ble_vendor_flag(3, true, 2));
+	/* 0x45 (index 5): the reason's bit 0, whatever the host subscribed to. */
+	CHECK(!osc2_ble_vendor_flag(5, true, 0));
+	CHECK(!osc2_ble_vendor_flag(5, true, 2));
+	CHECK(osc2_ble_vendor_flag(5, false, 1));   /* the puck lost: link lost (1) */
+	CHECK(osc2_ble_vendor_flag(5, false, 3));   /* the puck turned it off (3) */
+	/* A subscription to the vendor 0x45 sets bit 0, its end clears it. */
+	CHECK_EQ(osc2_ble_vendor_state_ccc(0, true), 1);
+	CHECK_EQ(osc2_ble_vendor_state_ccc(2, true), 3);
+	CHECK_EQ(osc2_ble_vendor_state_ccc(3, false), 2);
+	CHECK_EQ(osc2_ble_vendor_state_ccc(1, false), 0);
+}
+
+/* The sampling margin: the longest frame of this run and the last complete one of 65 frames. */
+OPENSC2_TEST(ble_sampling_margin)
+{
+	struct osc2_ble_margin m;
+
+	osc2_ble_margin_init(&m, 81);
+	CHECK_EQ(osc2_ble_margin(&m), 81);
+	osc2_ble_margin_add(&m, 30);
+	CHECK_EQ(osc2_ble_margin(&m), 81);    /* the initial value until a run is complete */
+	osc2_ble_margin_add(&m, 100);
+	CHECK_EQ(osc2_ble_margin(&m), 100);   /* a longer frame counts at once */
+	for (int i = 2; i < OSC2_BLE_MARGIN_FRAMES; i++) {
+		osc2_ble_margin_add(&m, 20);
+	}
+	CHECK_EQ(m.frames, 0);
+	CHECK_EQ(osc2_ble_margin(&m), 100);   /* the run's longest is now the worst */
+	for (int i = 0; i < OSC2_BLE_MARGIN_FRAMES; i++) {
+		osc2_ble_margin_add(&m, 25);
+	}
+	CHECK_EQ(osc2_ble_margin(&m), 25);    /* a run later, the old peak is forgotten */
+	CHECK_EQ(OSC2_BLE_MARGIN_INITIAL_US, 2472);
 }
