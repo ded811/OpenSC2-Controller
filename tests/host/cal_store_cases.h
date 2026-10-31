@@ -523,6 +523,39 @@ OPENSC2_TEST(cal_store_finished_values)
 	}
 }
 
+OPENSC2_TEST(cal_store_key_api)
+{
+	struct opensc2_state s;
+	uint8_t out[OPENSC2_CAL_STICK_LEN + 2], len;
+
+	stub_reset();
+	CHECK_EQ(opensc2_cal_key_set("cal/joy_x", cal_joy_bytes, 18, false), -ENOENT);
+	CHECK_EQ(opensc2_cal_key_set("cal/joy_l", cal_joy_bytes, 17, false), -EINVAL);
+	CHECK_EQ(opensc2_cal_key_set(NULL, cal_joy_bytes, 18, false), -ENOENT);
+	/* RAM only: in use from the next report, nothing written */
+	CHECK_EQ(opensc2_cal_key_set("cal/joy_l", cal_joy_bytes, 18, false), 0);
+	CHECK(opensc2_cal_stick_ok(OPENSC2_LEFT));
+	CHECK_EQ(cal_host.writes, 0);
+	opensc2_set_stick_raw(OPENSC2_LEFT, 3723, 2047);
+	cal_frame_state(&s);
+	CHECK_EQ(s.stick[OPENSC2_LEFT].x, 32767);
+	/* read back, whatever the format word */
+	CHECK_EQ(opensc2_cal_key_get("cal/joy_l", out, sizeof(out)), 18);
+	CHECK(memcmp(out, cal_joy_bytes, 18) == 0);
+	CHECK_EQ(opensc2_cal_key_get("cal/joy_l", out, 17), -EINVAL);
+	CHECK_EQ(opensc2_cal_key_get("cal/prs_r", out, sizeof(out)), 8);   /* zeros */
+	CHECK_EQ(opensc2_cal_key_get("cal/rgbw_r", out, sizeof(out)), 1);
+	CHECK_EQ(out[0], 90);
+	/* saved: in the board's storage, kept over a boot */
+	CHECK_EQ(opensc2_cal_key_set("cal/trg_r", (const uint8_t[7]){ 2, 0, 0xDC, 5, 0xC8, 0, 0 }, 7,
+				     true), 0);
+	CHECK_EQ(cal_host_flash_get("cal/trg_r", out, &len), 0);
+	CHECK_EQ(len, 7);
+	cal_host_boot();
+	CHECK(opensc2_cal_trigger_ok(OPENSC2_RIGHT));
+	CHECK(!opensc2_cal_stick_ok(OPENSC2_LEFT));   /* the RAM-only one is gone */
+}
+
 OPENSC2_TEST(cal_store_recordings)
 {
 	struct opensc2_state s;

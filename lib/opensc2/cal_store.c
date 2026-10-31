@@ -338,6 +338,53 @@ int osc2_cal_by_name(uint8_t opcode, const uint8_t *payload, uint8_t len)
 	return -ENOTSUP;
 }
 
+/* ---- for the application ---------------------------------------------------------------------- */
+
+static int key_index(const char *name)
+{
+	for (int k = 0; name && k < K_COUNT; k++) {
+		if (strcmp(name, keys[k].name) == 0) {
+			return k;
+		}
+	}
+	return -1;
+}
+
+int opensc2_cal_key_set(const char *name, const void *value, size_t len, bool save)
+{
+	int k = key_index(name);
+
+	if (k < 0) {
+		return -ENOENT;
+	}
+	if (!value || len != keys[k].size) {
+		return -EINVAL;
+	}
+	set_ram(k, value);
+	if (!save) {
+		return 0;
+	}
+	osc2_cal_flush_wait();   /* after the writes asked for before it, as 0xEF */
+	return osc2_cal_flash_write(keys[k].name, value, keys[k].size);
+}
+
+int opensc2_cal_key_get(const char *name, void *out, size_t max)
+{
+	int k = key_index(name);
+	k_spinlock_key_t lk;
+
+	if (k < 0) {
+		return -ENOENT;
+	}
+	if (!out || max < keys[k].size) {
+		return -EINVAL;
+	}
+	lk = k_spin_lock(&lock);
+	memcpy(out, ram[k], keys[k].size);
+	k_spin_unlock(&lock, lk);
+	return keys[k].size;
+}
+
 /* ---- the raw inputs and their processing ------------------------------------------------------ */
 
 static struct k_spinlock raw_lock;
@@ -1247,6 +1294,23 @@ int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
 	ARG_UNUSED(side);
 	ARG_UNUSED(x_mv);
 	ARG_UNUSED(y_mv);
+	return -ENOTSUP;
+}
+
+int opensc2_cal_key_set(const char *name, const void *value, size_t len, bool save)
+{
+	ARG_UNUSED(name);
+	ARG_UNUSED(value);
+	ARG_UNUSED(len);
+	ARG_UNUSED(save);
+	return -ENOTSUP;
+}
+
+int opensc2_cal_key_get(const char *name, void *out, size_t max)
+{
+	ARG_UNUSED(name);
+	ARG_UNUSED(out);
+	ARG_UNUSED(max);
 	return -ENOTSUP;
 }
 

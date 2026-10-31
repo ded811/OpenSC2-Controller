@@ -24,12 +24,9 @@
 
 #if defined(CONFIG_OPENSC2_CAL)
 
-static const uint32_t stick_bit[2] = { OPENSC2_TOUCH_LEFT_STICK, OPENSC2_TOUCH_RIGHT_STICK };
-static const uint32_t grip_bit[2] = { OPENSC2_TOUCH_LEFT_GRIP, OPENSC2_TOUCH_RIGHT_GRIP };
-static const uint32_t click_bit[2] = { OPENSC2_CLICK_LEFT_PAD, OPENSC2_CLICK_RIGHT_PAD };
-
 static struct k_spinlock pad_lock;
-static struct osc2_pad_proc pads[2];
+#define PAD_AT_BOOT { .stretch = { 0.0f, 1.0f, 0.0f, 1.0f }, .touch = { .x = 0.5f, .y = 0.5f } }
+static struct osc2_pad_proc pads[2] = { PAD_AT_BOOT, PAD_AT_BOOT };   /* no stretch, no touch */
 static struct osc2_pad_watch watch;
 static int16_t stick_cache[2][2];   /* the sticks the last state report had (0 in raw mode) */
 
@@ -54,9 +51,8 @@ int opensc2_pad_frame(enum opensc2_side side, const struct opensc2_pad_frame *fr
 	struct osc2_pad_settings set;
 	struct opensc2_cal_pressure cal[2];
 	uint32_t loads[2];
-	uint32_t app;
 	k_spinlock_key_t lk;
-	int16_t raw_pressure = 0;
+	int16_t raw_pressure;
 	bool record;
 
 	if (side > OPENSC2_RIGHT || !frame) {
@@ -66,14 +62,12 @@ int opensc2_pad_frame(enum opensc2_side side, const struct opensc2_pad_frame *fr
 	for (int i = 0; i < 2; i++) {
 		loads[i] = osc2_cal_pressure_key(i, &cal[i]);
 	}
-	app = app_buttons();
 
 	lk = k_spin_lock(&pad_lock);
 	osc2_pad_watch_step(&watch, pads, &set, loads, cal);
 	pads[side].frames = true;
-	record = osc2_pad_step(&pads[side], side, frame, &set, stick_cache[side],
-			       (app & stick_bit[side]) != 0, (app & grip_bit[side]) != 0,
-			       (app & click_bit[side]) != 0, &raw_pressure);
+	record = osc2_pad_step(&pads[side], side, frame, &set, stick_cache[side]);
+	raw_pressure = pads[side].worked.raw;
 	k_spin_unlock(&pad_lock, lk);
 
 	if (record) {
@@ -91,21 +85,44 @@ int opensc2_pad_frame_release(enum opensc2_side side)
 	}
 	lk = k_spin_lock(&pad_lock);
 	pads[side].frames = false;
-	memset(&pads[side].out, 0, sizeof(pads[side].out));
+	memset(&pads[side].worked, 0, sizeof(pads[side].worked));
+	k_spin_unlock(&pad_lock, lk);
+	return 0;
+}
+
+int opensc2_pad_set_stretch(enum opensc2_side side, const float offset_scale[4])
+{
+	static const float none[4] = { 0.0f, 1.0f, 0.0f, 1.0f };
+	k_spinlock_key_t lk;
+
+	if (side > OPENSC2_RIGHT) {
+		return -EINVAL;
+	}
+	if (offset_scale && (offset_scale[1] == 0.0f || offset_scale[3] == 0.0f)) {
+		return -EINVAL;   /* a scale of 0 */
+	}
+	lk = k_spin_lock(&pad_lock);
+	memcpy(pads[side].stretch, offset_scale ? offset_scale : none, sizeof(pads[side].stretch));
 	k_spin_unlock(&pad_lock, lk);
 	return 0;
 }
 
 int opensc2_pad_result(enum opensc2_side side, struct opensc2_pad_result *result)
 {
+	struct osc2_pad_settings set;
+	uint32_t app;
 	k_spinlock_key_t lk;
 
 	if (side > OPENSC2_RIGHT || !result) {
 		return -EINVAL;
 	}
+	settings_now(&set);
+	app = app_buttons();
 	lk = k_spin_lock(&pad_lock);
-	*result = pads[side].out;
-	result->frames = pads[side].frames;
+	memset(result, 0, sizeof(*result));
+	if (pads[side].frames) {
+		osc2_pad_finish(&pads[side].worked, side, set.v, app, result);
+	}
 	k_spin_unlock(&pad_lock, lk);
 	return 0;
 }
@@ -121,14 +138,17 @@ uint8_t osc2_pad_frame_sides(void)
 
 void osc2_pad_report(struct opensc2_state *s, bool raw_sticks)
 {
-	k_spinlock_key_t lk = k_spin_lock(&pad_lock);
+	struct osc2_pad_settings set;
+	k_spinlock_key_t lk;
 
+	settings_now(&set);
+	lk = k_spin_lock(&pad_lock);
 	for (int side = 0; side < 2; side++) {
 		/* the deflection rule's sticks: the calibrated ones, none in raw mode (setting 46) */
 		stick_cache[side][0] = raw_sticks ? 0 : s->stick[side].x;
 		stick_cache[side][1] = raw_sticks ? 0 : s->stick[side].y;
 		if (pads[side].frames) {
-			osc2_pad_merge(&pads[side].out, side, s);
+			osc2_pad_merge(&pads[side].worked, side, set.v, s);
 		}
 	}
 	k_spin_unlock(&pad_lock, lk);
@@ -152,6 +172,10 @@ void osc2_pad_reset(void)
 	memset(pads, 0, sizeof(pads));
 	memset(&watch, 0, sizeof(watch));
 	memset(stick_cache, 0, sizeof(stick_cache));
+	for (int side = 0; side < 2; side++) {
+		pads[side].stretch[1] = pads[side].stretch[3] = 1.0f;   /* no stretch */
+		opensc2_pad_touch_reset(&pads[side].touch);
+	}
 	k_spin_unlock(&pad_lock, lk);
 }
 
@@ -176,6 +200,13 @@ int opensc2_pad_result(enum opensc2_side side, struct opensc2_pad_result *result
 	if (result) {
 		memset(result, 0, sizeof(*result));
 	}
+	return -ENOTSUP;
+}
+
+int opensc2_pad_set_stretch(enum opensc2_side side, const float offset_scale[4])
+{
+	ARG_UNUSED(side);
+	ARG_UNUSED(offset_scale);
 	return -ENOTSUP;
 }
 

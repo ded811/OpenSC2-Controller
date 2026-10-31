@@ -287,6 +287,99 @@ OPENSC2_TEST(pad_frames_pressure_and_click)
 	osc2.state.buttons = 0;
 }
 
+OPENSC2_TEST(pad_frames_raw_sensor)
+{
+	static const float valve_right[4] = { 0.11f, 0.88f, 0.05f, 0.91f };
+	struct opensc2_pad_frame f = { .has = OPENSC2_PAD_HAS_LEVEL | OPENSC2_PAD_HAS_CENTROID };
+	struct opensc2_pad_result r;
+	struct opensc2_pad_touch ref;
+	int32_t x, y;
+
+	stub_reset();
+	osc2.settings[OPENSC2_SETTING_PAD_FILTER] = 0;
+	/* the level decides the touch (72 on 1300, 73 held 1000), not `touched` */
+	f.touched = true;
+	f.level = 1200;
+	f.x = 900000;
+	f.y = 500000;
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+	CHECK_EQ(opensc2_pad_result(OPENSC2_RIGHT, &r), 0);
+	CHECK(!r.touched);
+	f.level = 2000;
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+	CHECK_EQ(opensc2_pad_result(OPENSC2_RIGHT, &r), 0);
+	CHECK(r.touched);
+	/* no stretch by default: the edge push only (0.9 pushed to 0.9175) */
+	x = 900000;
+	y = 500000;
+	opensc2_pad_centroid(&x, &y, false, NULL);
+	CHECK_EQ(x, 917499);
+	CHECK_EQ(r.x, 2 * opensc2_pad_scale(x));
+	CHECK_EQ(r.y, 0);
+	/* a stretch of the board's own, while setting 66 is on (the default) */
+	CHECK_EQ(opensc2_pad_set_stretch(OPENSC2_RIGHT, valve_right), 0);
+	CHECK_EQ(opensc2_pad_set_stretch(OPENSC2_RIGHT, (const float[4]){ 0, 0, 0, 1 }), -EINVAL);
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+	CHECK_EQ(opensc2_pad_result(OPENSC2_RIGHT, &r), 0);
+	x = 900000;
+	y = 500000;
+	opensc2_pad_centroid(&x, &y, true, valve_right);
+	CHECK_EQ(r.x, 2 * opensc2_pad_scale(x));
+	CHECK(r.x > 2 * opensc2_pad_scale(917499));
+	/* setting 66 = 0: the edge push only */
+	osc2.settings[OPENSC2_SETTING_PAD_CLIP] = 0;
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+	CHECK_EQ(opensc2_pad_result(OPENSC2_RIGHT, &r), 0);
+	CHECK_EQ(r.x, 2 * opensc2_pad_scale(917499));
+	/* near lift-off the damping holds the position back, as the helper does it */
+	osc2.settings[OPENSC2_SETTING_PAD_CLIP] = 1;
+	CHECK_EQ(opensc2_pad_set_stretch(OPENSC2_RIGHT, NULL), 0);
+	f.level = 600;   /* lifted */
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+	opensc2_pad_touch_reset(&ref);
+	static const int32_t levels[] = { 2000, 2000, 1500, 1100 };
+	static const int32_t xs[] = { 600000, 610000, 700000, 800000 };
+
+	for (size_t i = 0; i < ARRAY_SIZE(levels); i++) {
+		f.level = levels[i];
+		f.x = xs[i];
+		f.y = 500000;
+		f.has = OPENSC2_PAD_HAS_LEVEL;   /* positions as they are */
+		CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+		x = xs[i];
+		y = 500000;
+		CHECK(opensc2_pad_touch_step(&ref, levels[i], 1300, 1000, &x, &y));
+		CHECK_EQ(opensc2_pad_result(OPENSC2_RIGHT, &r), 0);
+		CHECK_EQ(r.x, 2 * opensc2_pad_scale(x));
+	}
+	CHECK(x < 800000);   /* damped */
+}
+
+OPENSC2_TEST(pad_frames_live_bits)
+{
+	struct opensc2_state s;
+	struct opensc2_pad_frame f = pad_at(true, 500000, 500000);
+
+	stub_reset();
+	/* a pad that reports only movements: the click switch and a capacitive key change between
+	 * two of its frames, and the next report has them */
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_LEFT, &f), 0);
+	memset(&s, 0, sizeof(s));
+	s.buttons = OPENSC2_CLICK_LEFT_PAD;
+	osc2_cal_frame(&s);
+	CHECK(s.pad[OPENSC2_LEFT].clicked);
+	CHECK(s.buttons & OPENSC2_CLICK_LEFT_PAD);
+	memset(&s, 0, sizeof(s));
+	s.buttons = OPENSC2_TOUCH_LEFT_STICK;   /* the key: 82 blanks the pad at once */
+	osc2_cal_frame(&s);
+	CHECK(!s.pad[OPENSC2_LEFT].touched);
+	CHECK(s.buttons & OPENSC2_TOUCH_LEFT_STICK);
+	memset(&s, 0, sizeof(s));
+	osc2_cal_frame(&s);
+	CHECK(s.pad[OPENSC2_LEFT].touched);
+	CHECK(!s.pad[OPENSC2_LEFT].clicked);
+}
+
 OPENSC2_TEST(pad_frames_report_rules)
 {
 	struct osc2_input_rules rules;

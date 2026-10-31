@@ -49,6 +49,13 @@ extern "C" {
 #define OPENSC2_PAD_HAS_PRESSURE     OPENSC2_BIT(0)
 #define OPENSC2_PAD_HAS_STICK_TOUCH  OPENSC2_BIT(1)
 #define OPENSC2_PAD_HAS_GRIP         OPENSC2_BIT(2)
+/* For a raw capacitive sensor, the steps the real controller's trackpad driver takes before the
+ * frame: `level` (the sensor's signal level) decides the touch instead of `touched`, with the
+ * hysteresis of settings 72 (on) and 73 (held) and the damping near lift-off; x and y are the
+ * sensor's raw centroid, which gets the edge push and, while setting 66 is on, the stretch of
+ * opensc2_pad_set_stretch() first. */
+#define OPENSC2_PAD_HAS_LEVEL        OPENSC2_BIT(3)
+#define OPENSC2_PAD_HAS_CENTROID     OPENSC2_BIT(4)
 
 /* One frame of a pad's sensor. The position is an absolute input event's value, millionths of the
  * pad: 0 at the left (X) and the top (Y), 1000000 at the right and the bottom, the centre 500000
@@ -62,6 +69,7 @@ struct opensc2_pad_frame {
 	int16_t pressure;       /* the raw pressure word */
 	int16_t stick_touch;    /* this side's stick-touch word (the stick touches above setting 30) */
 	int16_t grip;           /* this side's grip word */
+	int32_t level;          /* the signal level (with OPENSC2_PAD_HAS_LEVEL) */
 };
 
 /* One frame of `side`'s pad, processed at once as the real controller does (see above); its results
@@ -71,6 +79,12 @@ int opensc2_pad_frame(enum opensc2_side side, const struct opensc2_pad_frame *fr
 
 /* Give `side`'s pad back to the finished values of opensc2_set_trackpad() and the button bits. */
 int opensc2_pad_frame_release(enum opensc2_side side);
+
+/* The stretch of setting 66 for frames with OPENSC2_PAD_HAS_CENTROID: { X offset, X scale,
+ * Y offset, Y scale }, fractions of the pad, (p - offset) / scale. NULL, and the default: 0, 1 (no
+ * stretch). The real controller's own pads take left { -0.01, 0.90, 0.05, 0.91 } and right
+ * { 0.11, 0.88, 0.05, 0.91 }; a pad of another shape needs its own. */
+int opensc2_pad_set_stretch(enum opensc2_side side, const float offset_scale[4]);
 
 /* What the last frame of `side` gave (all zero before the first frame, and after a release). */
 struct opensc2_pad_result {

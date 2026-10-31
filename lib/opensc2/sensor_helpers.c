@@ -157,9 +157,13 @@ bool opensc2_pad_touch_step(struct opensc2_pad_touch *t, int32_t level, int16_t 
 	return t->touched;
 }
 
-int32_t opensc2_pad_edge(int32_t millionths)
+int32_t opensc2_pad_stretch_by(int32_t millionths, float offset, float scale)
 {
-	float p = from_millionths(millionths);
+	return to_millionths((from_millionths(millionths) - offset) / scale);
+}
+
+static float edge_push(float p)
+{
 	float d = fabsf(p - 0.5f);
 
 	if (d > 0.35f) {
@@ -167,12 +171,25 @@ int32_t opensc2_pad_edge(int32_t millionths)
 
 		p = p > 0.5f ? p + e : p - e;
 	}
-	return to_millionths(p);
+	return p;
 }
 
-int32_t opensc2_pad_stretch_by(int32_t millionths, float offset, float scale)
+int32_t opensc2_pad_edge(int32_t millionths)
 {
-	return to_millionths((from_millionths(millionths) - offset) / scale);
+	return to_millionths(edge_push(from_millionths(millionths)));
+}
+
+void opensc2_pad_centroid(int32_t *x, int32_t *y, bool stretch, const float offset_scale[4])
+{
+	float px = edge_push(from_millionths(*x));
+	float py = edge_push(from_millionths(*y));
+
+	if (stretch && offset_scale) {
+		px = (px - offset_scale[0]) / offset_scale[1];
+		py = (py - offset_scale[2]) / offset_scale[3];
+	}
+	*x = to_millionths(px);
+	*y = to_millionths(py);
 }
 
 int32_t opensc2_pad_stretch(enum opensc2_side side, int axis, int32_t millionths)

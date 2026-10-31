@@ -110,29 +110,38 @@ static void stab_step(struct osc2_pad_stab *st, int32_t p[2])
 }
 
 bool osc2_pad_step(struct osc2_pad_proc *p, int side, const struct opensc2_pad_frame *f,
-		   const struct osc2_pad_settings *set, const int16_t stick[2], bool app_stick,
-		   bool app_grip, bool app_click, int16_t *raw)
+		   const struct osc2_pad_settings *set, const int16_t stick[2])
 {
 	const int16_t *v = set->v;
+	struct osc2_pad_worked *w = &p->worked;
 	bool touch = f->touched;
-	bool level, stick_touched, grip, click, record = false;
-	int32_t x = 0, y = 0;
-	uint16_t pressure = 0;
+	int32_t x = 0, y = 0, fx = f->x, fy = f->y;
 
 	side &= 1;
+	/* a raw sensor's frame: what the real controller's trackpad driver does first */
+	if (f->has & OPENSC2_PAD_HAS_CENTROID) {
+		opensc2_pad_centroid(&fx, &fy, v[OPENSC2_SETTING_PAD_CLIP] > 0, p->stretch);
+	}
+	if (f->has & OPENSC2_PAD_HAS_LEVEL) {
+		touch = opensc2_pad_touch_step(&p->touch, f->level, v[OPENSC2_SETTING_PAD_TOUCH_ON],
+					       v[OPENSC2_SETTING_PAD_TOUCH_OFF], &fx, &fy);
+	}
+	memset(w, 0, sizeof(*w));
+	w->has = f->has;
+	w->touched = touch;
 	/* the position */
 	if (!touch) {
 		opensc2_pad_filter_reset(&p->filter);
 		memset(&p->stab, 0, sizeof(p->stab));
 	} else {
-		int32_t pos[2] = { opensc2_pad_scale(f->x), opensc2_pad_scale(f->y) };
+		int32_t pos[2] = { opensc2_pad_scale(fx), opensc2_pad_scale(fy) };
 
 		if (v[OPENSC2_SETTING_PAD_FILTER] != 0) {
-			int16_t fx = (int16_t)pos[0], fy = (int16_t)pos[1];
+			int16_t px = (int16_t)pos[0], py = (int16_t)pos[1];
 
-			opensc2_pad_filter_step(&p->filter, &fx, &fy, PAD_RATE_HZ);
-			pos[0] = fx;
-			pos[1] = fy;
+			opensc2_pad_filter_step(&p->filter, &px, &py, PAD_RATE_HZ);
+			pos[0] = px;
+			pos[1] = py;
 		}
 		(void)opensc2_pad_rotate((enum opensc2_side)side, v[OPENSC2_SETTING_PAD_ROTATION_ANGLE],
 					 v[OPENSC2_SETTING_PAD_ROTATION], &pos[0], &pos[1]);
@@ -144,44 +153,63 @@ bool osc2_pad_step(struct osc2_pad_proc *p, int side, const struct opensc2_pad_f
 		x = pos[0];
 		y = -pos[1];
 	}
-	x = clamp32(x, INT16_MIN, INT16_MAX);
-	y = clamp32(y, INT16_MIN, INT16_MAX);
+	w->x = (int16_t)clamp32(x, INT16_MIN, INT16_MAX);
+	w->y = (int16_t)clamp32(y, INT16_MIN, INT16_MAX);
 
-	/* the stick touch: its sensor (or the application's bit), or the stick deflected */
+	/* the stick touch: its words, and the stick deflected */
 	if (f->has & OPENSC2_PAD_HAS_STICK_TOUCH) {
-		level = opensc2_cap_sample(&p->stick, f->stick_touch,
-					   opensc2_stick_touch_on_level(v[OPENSC2_SETTING_STICK_TOUCH_ON]),
-					   opensc2_stick_touch_off_level(v[OPENSC2_SETTING_STICK_TOUCH_OFF]));
-	} else {
-		level = app_stick;
+		w->stick_level = opensc2_cap_sample(
+			&p->stick, f->stick_touch,
+			opensc2_stick_touch_on_level(v[OPENSC2_SETTING_STICK_TOUCH_ON]),
+			opensc2_stick_touch_off_level(v[OPENSC2_SETTING_STICK_TOUCH_OFF]));
 	}
-	stick_touched = level || opensc2_approx_distance(stick[0], stick[1]) > STICK_TOUCH_RADIUS;
+	w->deflected = opensc2_approx_distance(stick[0], stick[1]) > STICK_TOUCH_RADIUS;
 
 	/* the grip */
 	if (f->has & OPENSC2_PAD_HAS_GRIP) {
 		int16_t s34 = v[OPENSC2_SETTING_GRIP_SENSITIVITY];
 
-		grip = opensc2_cap_sample(&p->grip, f->grip, opensc2_grip_on_level(s34),
-					  opensc2_grip_off_level(s34, v[OPENSC2_SETTING_GRIP_RELEASE]));
-	} else {
-		grip = app_grip;
+		w->grip_level = opensc2_cap_sample(
+			&p->grip, f->grip, opensc2_grip_on_level(s34),
+			opensc2_grip_off_level(s34, v[OPENSC2_SETTING_GRIP_RELEASE]));
 	}
 
-	/* the pressure and the click (a board without a pressure word keeps its click button) */
+	/* the pressure and the click */
 	if (f->has & OPENSC2_PAD_HAS_PRESSURE) {
 		opensc2_pressure_sample(&p->pressure, f->pressure,
 					v[side ? OPENSC2_SETTING_RIGHT_CLICK_PRESSURE :
 						 OPENSC2_SETTING_LEFT_CLICK_PRESSURE]);
-		pressure = p->pressure.last;
-		click = p->pressure.click;
-		*raw = f->pressure;
-		record = true;
-	} else {
-		click = app_click;
+		w->pressure = p->pressure.last;
+		w->click = p->pressure.click;
+		w->raw = f->pressure;
+		return true;
 	}
+	return false;
+}
+
+static const uint32_t stick_bit[2] = { OPENSC2_TOUCH_LEFT_STICK, OPENSC2_TOUCH_RIGHT_STICK };
+static const uint32_t grip_bit[2] = { OPENSC2_TOUCH_LEFT_GRIP, OPENSC2_TOUCH_RIGHT_GRIP };
+static const uint32_t touch_bit[2] = { OPENSC2_TOUCH_LEFT_PAD, OPENSC2_TOUCH_RIGHT_PAD };
+static const uint32_t click_bit[2] = { OPENSC2_CLICK_LEFT_PAD, OPENSC2_CLICK_RIGHT_PAD };
+
+void osc2_pad_finish(const struct osc2_pad_worked *w, int side, const int16_t *settings,
+		     uint32_t buttons, struct opensc2_pad_result *out)
+{
+	bool touch = w->touched;
+	int16_t x = w->x, y = w->y;
+	uint16_t pressure = w->pressure;
+	bool click, stick_touched, grip;
+
+	side &= 1;
+	/* a word the frame does not have: the application's bit (a capacitive key, a click switch) */
+	stick_touched = ((w->has & OPENSC2_PAD_HAS_STICK_TOUCH) ? w->stick_level :
+								  (buttons & stick_bit[side]) != 0) ||
+			w->deflected;
+	grip = (w->has & OPENSC2_PAD_HAS_GRIP) ? w->grip_level : (buttons & grip_bit[side]) != 0;
+	click = (w->has & OPENSC2_PAD_HAS_PRESSURE) ? w->click : (buttons & click_bit[side]) != 0;
 
 	/* setting 82: a touched stick blanks its pad */
-	if (stick_touched && (v[OPENSC2_SETTING_PAD_IGNORE_ON_STICK] & (side ? 2 : 1))) {
+	if (stick_touched && (settings[OPENSC2_SETTING_PAD_IGNORE_ON_STICK] & (side ? 2 : 1))) {
 		x = 0;
 		y = 0;
 		touch = false;
@@ -190,40 +218,38 @@ bool osc2_pad_step(struct osc2_pad_proc *p, int side, const struct opensc2_pad_f
 		pressure = 0;
 		click = false;
 	}
-	if (v[OPENSC2_SETTING_RAW_PRESSURE] != 0) {
+	if (settings[OPENSC2_SETTING_RAW_PRESSURE] != 0) {
 		/* the raw word, also while not touched */
-		pressure = (f->has & OPENSC2_PAD_HAS_PRESSURE) ?
-				   opensc2_pressure_raw_value(f->pressure) : 0;
+		pressure = (w->has & OPENSC2_PAD_HAS_PRESSURE) ? opensc2_pressure_raw_value(w->raw) :
+								  0;
 	}
-
-	p->out.touched = touch;
-	p->out.clicked = click;
-	p->out.stick_touched = stick_touched;
-	p->out.grip = grip;
-	p->out.x = (int16_t)x;
-	p->out.y = (int16_t)y;
-	p->out.pressure = pressure;
-	return record;
+	out->frames = true;
+	out->touched = touch;
+	out->clicked = click;
+	out->stick_touched = stick_touched;
+	out->grip = grip;
+	out->x = x;
+	out->y = y;
+	out->pressure = pressure;
 }
 
-void osc2_pad_merge(const struct opensc2_pad_result *out, int side, struct opensc2_state *s)
+void osc2_pad_merge(const struct osc2_pad_worked *w, int side, const int16_t *settings,
+		    struct opensc2_state *s)
 {
-	static const uint32_t stick_bit[2] = { OPENSC2_TOUCH_LEFT_STICK, OPENSC2_TOUCH_RIGHT_STICK };
-	static const uint32_t grip_bit[2] = { OPENSC2_TOUCH_LEFT_GRIP, OPENSC2_TOUCH_RIGHT_GRIP };
-	static const uint32_t touch_bit[2] = { OPENSC2_TOUCH_LEFT_PAD, OPENSC2_TOUCH_RIGHT_PAD };
-	static const uint32_t click_bit[2] = { OPENSC2_CLICK_LEFT_PAD, OPENSC2_CLICK_RIGHT_PAD };
-	uint32_t bits = stick_bit[side & 1] | grip_bit[side & 1] | touch_bit[side & 1] |
-			click_bit[side & 1];
-	uint32_t on = (out->stick_touched ? stick_bit[side & 1] : 0) |
-		      (out->grip ? grip_bit[side & 1] : 0) | (out->touched ? touch_bit[side & 1] : 0) |
-		      (out->clicked ? click_bit[side & 1] : 0);
+	struct opensc2_pad_result out;
+	uint32_t bits, on;
 
-	s->pad[side & 1] = (struct opensc2_trackpad){
-		.x = out->x,
-		.y = out->y,
-		.pressure = out->pressure,
-		.touched = out->touched,
-		.clicked = out->clicked,
+	side &= 1;
+	osc2_pad_finish(w, side, settings, s->buttons, &out);
+	bits = stick_bit[side] | grip_bit[side] | touch_bit[side] | click_bit[side];
+	on = (out.stick_touched ? stick_bit[side] : 0) | (out.grip ? grip_bit[side] : 0) |
+	     (out.touched ? touch_bit[side] : 0) | (out.clicked ? click_bit[side] : 0);
+	s->pad[side] = (struct opensc2_trackpad){
+		.x = out.x,
+		.y = out.y,
+		.pressure = out.pressure,
+		.touched = out.touched,
+		.clicked = out.clicked,
 	};
 	s->buttons = (s->buttons & ~bits) | on;
 }

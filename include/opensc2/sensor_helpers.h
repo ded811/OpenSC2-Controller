@@ -104,6 +104,11 @@ int32_t opensc2_pad_edge(int32_t millionths);
 int32_t opensc2_pad_stretch(enum opensc2_side side, int axis, int32_t millionths);
 /* The same with an offset and a scale of the application's (fractions of the pad). */
 int32_t opensc2_pad_stretch_by(int32_t millionths, float offset, float scale);
+/* A sensor's raw centroid (millionths of the pad) through the real controller's driver in one go,
+ * in floating point all the way: the edge push on each axis, then, with `stretch` (setting 66 on),
+ * (p - offset) / scale with offset_scale = { X offset, X scale, Y offset, Y scale } (NULL: 0, 1);
+ * the result in millionths, limited to -1..1 x 10^6 as an absolute event. */
+void opensc2_pad_centroid(int32_t *x, int32_t *y, bool stretch, const float offset_scale[4]);
 
 /* ---- Trackpads: the pad scale and what follows -------------------------------------------------
  * The pad scale runs from -16383 to 16383 ((position - 0.5) x 2 x 16383, truncated); the report's

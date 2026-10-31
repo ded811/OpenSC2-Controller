@@ -32,6 +32,7 @@
 #define OPENSC2_CAL_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <opensc2/types.h>
 
@@ -381,6 +382,17 @@ bool opensc2_cal_recording(enum opensc2_cal_rec_kind kind);
 uint8_t opensc2_cal_led_trim(uint8_t channel);
 int16_t opensc2_cal_volt_offset(void);
 int opensc2_cal_gyro_bias(float bias[3]);
+
+/* A calibration key by its name ("cal/joy_l", ... as a host names it), for a board that brings its
+ * own factory calibration (a production tool, values measured another way). _set: the value
+ * (exactly the key's size) into RAM, where the processing takes it from the next state report, as
+ * vendor command 0xEE does; with `save` also written to the board's storage (after any write still
+ * waiting), as 0xEF would. _get: the RAM value as the processing uses it (whatever its format
+ * word), its length returned. -ENOENT for a name that is no key, -EINVAL for another size or a
+ * buffer too small, -ENOTSUP without CONFIG_OPENSC2_CAL. Any thread but an interrupt (a save
+ * writes flash). */
+int opensc2_cal_key_set(const char *name, const void *value, size_t len, bool save);
+int opensc2_cal_key_get(const char *name, void *out, size_t max);
 
 /* The stick offsets while docked: millivolts added to a side's stored stick calibration (X and
  * Y, each { min, max, rest low, rest high }; the sum limited to 0..65535) while the controller
