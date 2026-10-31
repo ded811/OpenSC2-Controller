@@ -227,3 +227,43 @@ OPENSC2_TEST(dock_probe_record_once_per_boot)
 	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build + 1);
 	osc2.identity.build_time = build;
 }
+
+/* The board's change callback: sessions, the pilot's result, the supply rule's view, the offsets. */
+static int dk_changes;
+
+static void dk_changed(void *user)
+{
+	CHECK(user == &dk_changes);
+	dk_changes++;
+}
+
+OPENSC2_TEST(dock_board_changed)
+{
+	struct opensc2_dock_board b = { .changed = dk_changed, .user = &dk_changes };
+
+	stub_reset();
+	dk_changes = 0;
+	CHECK_EQ(opensc2_dock_set_board(&b), 0);
+	CHECK_EQ(opensc2_dock_session_start(), 0);
+	CHECK_EQ(dk_changes, 1);
+	CHECK_EQ(opensc2_dock_session_start(), -EALREADY);
+	CHECK_EQ(dk_changes, 1);
+	CHECK_EQ(opensc2_dock_session_end(), 0);
+	CHECK_EQ(dk_changes, 2);
+	osc2_dock_pilot_seen(true);
+	osc2_dock_pilot_seen(true);    /* no change, no call */
+	CHECK_EQ(dk_changes, 3);
+	(void)osc2_dock_supply_step(true, false, NULL);
+	(void)osc2_dock_supply_step(true, false, NULL);
+	CHECK_EQ(dk_changes, 4);
+	osc2_dock_offsets_docked(true);
+	osc2_dock_offsets_docked(true);
+	CHECK_EQ(dk_changes, 5);
+	osc2_dock_offsets_docked(false);
+	CHECK_EQ(dk_changes, 6);
+	/* cleared: no more calls */
+	CHECK_EQ(opensc2_dock_set_board(NULL), 0);
+	CHECK_EQ(opensc2_dock_session_start(), 0);
+	CHECK_EQ(dk_changes, 6);
+	CHECK_EQ(opensc2_dock_session_end(), 0);
+}

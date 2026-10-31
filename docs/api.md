@@ -2071,10 +2071,11 @@ from an interrupt).
 | the dock's `+` | `plus-gpios`, or else VBUS (the real controller's wiring) | `opensc2_dock_set_board()` with `plus` |
 | the docked stick offsets | | `opensc2_dock_set_stick_offsets()` (none by default) |
 | the docked states | the system state machine | without it, `opensc2_dock_set_resting()` |
+| hearing of changes | | `opensc2_dock_set_board()` with `changed` |
 
 | Function | Does |
 | --- | --- |
-| `opensc2_dock_set_board(&board)` | takes over the pilot (`int32_t pilot_mv(void *user)`: one reading in mV, a negative errno when it failed; a comparator board returns 2500 inside the window and 0 outside) and/or the `+` (`int plus(void *user)`: 1, 0, or negative when VBUS says it) from the devicetree; `NULL` members keep the devicetree's; a `NULL` board clears both. The pilot reader is called three times per check, 3 ms apart, from the dock thread or the system work queue, and may sleep briefly; the `+` reader every 50 ms from the system work queue, and must not sleep |
+| `opensc2_dock_set_board(&board)` | takes over the pilot (`int32_t pilot_mv(void *user)`: one reading in mV, a negative errno when it failed; a comparator board returns 2500 inside the window and 0 outside) and/or the `+` (`int plus(void *user)`: 1, 0, or negative when VBUS says it) from the devicetree; `NULL` members keep the devicetree's; a `NULL` board clears all. The pilot reader is called three times per check, 3 ms apart, from the dock thread or the system work queue, and may sleep briefly; the `+` reader every 50 ms from the system work queue, and must not sleep. `void changed(void *user)` hears of every change (a session started or ended, the last pilot check's result, the supply rule's view, the docked stick offsets on or off), from the thread that made it: read `opensc2_dock_status()` there and return quickly |
 | `opensc2_dock_pilot_check()` | one check now: 1 present, 0 not, `-ENODEV` with no pilot to read; about 9 ms |
 | `opensc2_dock_status(&st)` | `session`, `alone` (the dock is the only link), `pilot` (the last check passed), `supply` (`OPENSC2_DOCK_SUPPLY_NONE`, `_USB`, `_DOCK`: the supply rule's view), `stick_offsets` (in effect), and the counters `sessions`, `frames`, `errors`, `slowest_us` |
 | `opensc2_dock_session_start()`, `opensc2_dock_session_end()` | 0, or `-EALREADY` when one runs / none runs |

@@ -56,10 +56,16 @@ struct opensc2_dock_board {
 	 * says it). NULL: the node's plus-gpios, or VBUS. Called from the system work queue every
 	 * CONFIG_OPENSC2_POWER_POLL_MS (50 ms); it must not sleep. */
 	int (*plus)(void *user);
+	/* Called when a session starts or ends, the last pilot check's result or the supply rule's
+	 * view changes, or the docked stick offsets go on or off: read opensc2_dock_status() there.
+	 * From the thread that made the change (the dock's, the system work queue, the
+	 * application's); return quickly. NULL: none. */
+	void (*changed)(void *user);
 	void *user;
 };
 
-/* Take over the pilot and/or the + from the devicetree (a copy is kept; NULL clears both). */
+/* Take over the pilot and/or the + from the devicetree, and/or hear of changes (a copy is kept;
+ * NULL clears all). Works in every build; the readers need CONFIG_OPENSC2_DOCK_LINK. */
 int opensc2_dock_set_board(const struct opensc2_dock_board *board);
 
 /* One pilot check now, as between sessions: 1 present (two of three readings inside the window),

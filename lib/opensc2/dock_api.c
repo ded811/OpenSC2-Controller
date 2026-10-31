@@ -22,6 +22,42 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 static struct k_spinlock lock;
 static struct opensc2_dock_stick_offsets offsets[2];   /* none by default */
 static bool docked;                                    /* the docked states say "on" */
+static struct opensc2_dock_board board;                /* the application's readers */
+
+/* ---- what the board supplies ------------------------------------------------------------------ */
+
+int opensc2_dock_set_board(const struct opensc2_dock_board *b)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+
+	if (b) {
+		board = *b;
+	} else {
+		memset(&board, 0, sizeof(board));
+	}
+	k_spin_unlock(&lock, key);
+	return 0;
+}
+
+void osc2_dock_board(struct opensc2_dock_board *out)
+{
+	k_spinlock_key_t key = k_spin_lock(&lock);
+
+	*out = board;
+	k_spin_unlock(&lock, key);
+}
+
+void osc2_dock_notify(void)
+{
+	struct opensc2_dock_board b;
+
+	osc2_dock_board(&b);
+	if (b.changed) {
+		b.changed(b.user);
+	}
+}
+
+/* ---- the docked stick offsets ----------------------------------------------------------------- */
 
 static uint16_t moved(uint16_t mv, int16_t offset)
 {
@@ -108,6 +144,7 @@ void osc2_dock_offsets_docked(bool on)
 		/* As the real controller: the sticks are set up again only on a change. */
 		LOG_DBG("Docked stick offsets %s", on ? "on" : "off");
 		osc2_cal_reapply();
+		osc2_dock_notify();
 	}
 }
 
@@ -136,17 +173,12 @@ void osc2_dock_offsets_reset(void)
 	k_spinlock_key_t key = k_spin_lock(&lock);
 
 	memset(offsets, 0, sizeof(offsets));
+	memset(&board, 0, sizeof(board));
 	docked = false;
 	k_spin_unlock(&lock, key);
 }
 
 #if !defined(CONFIG_OPENSC2_DOCK_LINK)
-
-int opensc2_dock_set_board(const struct opensc2_dock_board *board)
-{
-	ARG_UNUSED(board);
-	return -ENOTSUP;
-}
 
 int opensc2_dock_pilot_check(void)
 {

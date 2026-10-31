@@ -66,6 +66,10 @@ struct osc2_dock_info {
  * battery from dock-on. A change sets the sticks up again (osc2_cal_reapply()). The reset is a
  * boot's (the host tests). */
 void osc2_dock_offsets_follow(uint8_t from, uint8_t to);
+/* The application's readers and callback (opensc2_dock_set_board()), and the callback called. */
+struct opensc2_dock_board;
+void osc2_dock_board(struct opensc2_dock_board *out);
+void osc2_dock_notify(void);
 void osc2_dock_offsets_docked(bool on);
 void osc2_dock_offsets_reset(void);
 

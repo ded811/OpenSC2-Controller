@@ -58,8 +58,6 @@ uint32_t osc2_dock_now_us(void)
 
 /* ---- the board's inputs: the application's readers, or the devicetree's ---------------------- */
 
-static struct k_spinlock board_lock;
-static struct opensc2_dock_board app_board;
 /* One pilot check at a time (the dock thread's and the supply rule's). */
 static K_MUTEX_DEFINE(check_lock);
 
@@ -67,25 +65,11 @@ static int32_t dt_pilot_mv(void);
 static bool dt_pilot_ready(void);
 static int dt_plus(void);
 
-int opensc2_dock_set_board(const struct opensc2_dock_board *board)
-{
-	k_spinlock_key_t key = k_spin_lock(&board_lock);
-
-	if (board) {
-		app_board = *board;
-	} else {
-		memset(&app_board, 0, sizeof(app_board));
-	}
-	k_spin_unlock(&board_lock, key);
-	return 0;
-}
-
 static struct opensc2_dock_board board_now(void)
 {
-	k_spinlock_key_t key = k_spin_lock(&board_lock);
-	struct opensc2_dock_board b = app_board;
+	struct opensc2_dock_board b;
 
-	k_spin_unlock(&board_lock, key);
+	osc2_dock_board(&b);
 	return b;
 }
 

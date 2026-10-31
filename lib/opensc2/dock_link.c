@@ -85,6 +85,7 @@ void osc2_dock_session_start(uint8_t starter)
 			starter == OSC2_DOCK_BY_TEST ? "test hooks" :
 			starter == OSC2_DOCK_BY_APP ? "application" : "pilot");
 		osc2_test_note_dock_session(OSC2_TEST_DOCK_START, starter, 0);
+		osc2_dock_notify();
 	}
 }
 
@@ -102,6 +103,7 @@ void osc2_dock_session_end(uint8_t reason)
 	if (was) {
 		LOG_INF("Dock session ended (reason %u, %u frames)", reason, (unsigned int)frames);
 		osc2_test_note_dock_session(OSC2_TEST_DOCK_END, reason, frames);
+		osc2_dock_notify();
 	}
 }
 
@@ -188,6 +190,7 @@ enum osc2_dock_supply osc2_dock_supply_step(bool usb, bool plus, bool (*pilot_ch
 	if (ev >= 0) {
 		LOG_INF("Supply: %s", kind == OSC2_DOCK_SUPPLY_DOCK ? "the dock's power" :
 				      kind == OSC2_DOCK_SUPPLY_USB ? "USB power" : "none");
+		osc2_dock_notify();
 	}
 	return kind;
 }
@@ -362,9 +365,13 @@ void opensc2_dock_answer_sent(void)
 void osc2_dock_pilot_seen(bool present)
 {
 	k_spinlock_key_t key = k_spin_lock(&dock.lock);
+	bool changed = dock.pilot != present;
 
 	dock.pilot = present;
 	k_spin_unlock(&dock.lock, key);
+	if (changed) {
+		osc2_dock_notify();
+	}
 }
 
 int opensc2_dock_status(struct opensc2_dock_status *st)
