@@ -11,6 +11,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/spinlock.h>
 #include <zephyr/logging/log.h>
+#include <opensc2/docking.h>
 #include "internal.h"
 #include "dock_link.h"
 #include "test_dock.h"
@@ -28,8 +29,14 @@ static struct {
 	uint32_t session_frames;
 	bool cache_valid;
 	uint8_t cache[REPORT_BODY];
+	bool sample_due;                      /* GET input with the dock alone: a report to build */
+	bool pilot;                           /* the last pilot check passed */
 	struct osc2_dock_power_rule supply;   /* the supply rule on the board's readings */
 } dock;
+
+/* The answer, kept from frame to frame and session to session as the real controller keeps it:
+ * each request rewrites only what it defines (dock_rules.h). Under frame_lock. */
+static uint8_t last_answer[OPENSC2_DOCK_FRAME_LEN];
 
 /* One frame at a time, from the UART or from the test hooks: the stored request and the answer
  * of one must not mix with the other's. Taken before the command lock (commands.c). */
@@ -47,8 +54,11 @@ void osc2_dock_reset(void)
 	dock.sessions = dock.frames = dock.errors = dock.slowest_us = dock.session_frames = 0;
 	dock.cache_valid = false;
 	memset(dock.cache, 0, sizeof(dock.cache));
+	dock.sample_due = false;
+	dock.pilot = false;
 	memset(&dock.supply, 0, sizeof(dock.supply));
 	k_spin_unlock(&dock.lock, key);
+	memset(last_answer, 0, sizeof(last_answer));
 }
 
 void osc2_dock_session_start(uint8_t starter)
@@ -65,7 +75,8 @@ void osc2_dock_session_start(uint8_t starter)
 	k_spin_unlock(&dock.lock, key);
 	if (!was) {
 		LOG_INF("Docked: dock session started (%s)",
-			starter == OSC2_DOCK_BY_TEST ? "test hooks" : "pilot");
+			starter == OSC2_DOCK_BY_TEST ? "test hooks" :
+			starter == OSC2_DOCK_BY_APP ? "application" : "pilot");
 		osc2_test_note_dock_session(OSC2_TEST_DOCK_START, starter, 0);
 	}
 }
@@ -123,6 +134,7 @@ void osc2_dock_info(struct osc2_dock_info *info)
 	info->errors = dock.errors;
 	info->slowest_us = dock.slowest_us;
 	info->cache_valid = dock.cache_valid;
+	info->supply = (uint8_t)dock.supply.kind;
 	k_spin_unlock(&dock.lock, key);
 }
 
@@ -148,13 +160,23 @@ uint32_t osc2_dock_interval_us(uint32_t other)
 
 /* ---- the supply ------------------------------------------------------------------------------ */
 
-enum osc2_dock_supply osc2_dock_supply_step(bool usb, bool plus, bool pilot)
+enum osc2_dock_supply osc2_dock_supply_step(bool usb, bool plus, bool (*pilot_check)(void))
 {
-	const struct osc2_dock_power_in in = { .usb = usb, .plus = plus, .pilot = pilot };
+	struct osc2_dock_power_in in = { .usb = usb, .plus = plus };
 	k_spinlock_key_t key = k_spin_lock(&dock.lock);
-	int ev = osc2_dock_power_step(&dock.supply, &in);
-	enum osc2_dock_supply kind = dock.supply.kind;
+	bool posts = osc2_dock_power_posts(&dock.supply, usb, plus);
+	enum osc2_dock_supply kind;
+	int ev;
 
+	k_spin_unlock(&dock.lock, key);
+	/* A fresh pilot check at each change, as the real controller makes it the moment its supply
+	 * input changes (the check sleeps: outside the lock). */
+	if (posts && (usb || plus)) {
+		in.pilot = pilot_check != NULL && pilot_check();
+	}
+	key = k_spin_lock(&dock.lock);
+	ev = osc2_dock_power_step(&dock.supply, &in);
+	kind = dock.supply.kind;
 	k_spin_unlock(&dock.lock, key);
 	if (ev >= 0) {
 		LOG_INF("Supply: %s", kind == OSC2_DOCK_SUPPLY_DOCK ? "the dock's power" :
@@ -185,10 +207,9 @@ static int32_t op_set(void *ctx, const uint8_t rec[OPENSC2_DOCK_PAYLOAD_LEN])
 
 static int32_t op_get(void *ctx, uint8_t out[OPENSC2_DOCK_PAYLOAD_LEN])
 {
-	int rc;
+	int rc = osc2_command_get_in_place(OSC2_LINK_DOCK, out);
 
 	ARG_UNUSED(ctx);
-	(void)osc2_command_get_rc(OSC2_LINK_DOCK, out, &rc);
 	if (rc == 0) {
 		return OSC2_DOCK_RESULT_GET_OK;
 	}
@@ -201,21 +222,33 @@ static void op_input(void *ctx, uint8_t out[REPORT_BODY])
 	k_spinlock_key_t key;
 
 	ARG_UNUSED(ctx);
-	if (osc2_dock_alone()) {
-		/* The dock is the only link: each request takes one sample. The real controller
-		 * answers with the report its previous request built (one poll old, inferred from
-		 * its thread priorities); OpenSC2 answers with the one just built. */
-		uint8_t report[OPENSC2_STATE_REPORT_LEN];
-
-		osc2_dock_sample(report);
-		memcpy(out, &report[1], REPORT_BODY);
-		return;
-	}
-	/* Another link carries the reports: the copy of the latest one, at most one interval old,
-	 * so the dock adds nothing to that link's stream and takes none of its sequence numbers. */
+	/* The copy of the latest state report built while the session runs. With another link up
+	 * that link builds them, so the dock takes none of its sequence numbers. With the dock alone
+	 * each request builds one report, after its answer: as on the real controller, whose input
+	 * thread builds it while the answer goes out, the answer carries the report the previous
+	 * request built (the first of a session whatever the copy held). */
 	key = k_spin_lock(&dock.lock);
 	memcpy(out, dock.cache, REPORT_BODY);
 	k_spin_unlock(&dock.lock, key);
+	if (osc2_dock_alone()) {
+		key = k_spin_lock(&dock.lock);
+		dock.sample_due = true;
+		k_spin_unlock(&dock.lock, key);
+	}
+}
+
+void osc2_dock_after_answer(void)
+{
+	k_spinlock_key_t key = k_spin_lock(&dock.lock);
+	bool due = dock.sample_due;
+
+	dock.sample_due = false;
+	k_spin_unlock(&dock.lock, key);
+	if (due) {
+		uint8_t report[OPENSC2_STATE_REPORT_LEN];
+
+		osc2_dock_sample(report);   /* leaves its copy here for the next GET input */
+	}
 }
 
 static const struct osc2_dock_ops ops = {
@@ -233,12 +266,16 @@ enum osc2_dock_outcome osc2_dock_receive(const uint8_t *frame, size_t len,
 	uint32_t t0, us;
 	int32_t result = 0;
 
+	/* A GET input's report that nobody built after its answer: built now, before this frame. */
+	osc2_dock_after_answer();
 	(void)k_mutex_lock(&frame_lock, K_FOREVER);
 	t0 = osc2_dock_now_us();
-	outcome = osc2_dock_answer(frame, len, ans, &ops, NULL);
+	outcome = osc2_dock_answer(frame, len, last_answer, &ops, NULL);
 	us = osc2_dock_now_us() - t0;
 	if (outcome == OSC2_DOCK_ANSWERED) {
+		memcpy(ans, last_answer, OPENSC2_DOCK_FRAME_LEN);
 		result = (int32_t)opensc2_get_le32(&ans[OPENSC2_DOCK_RESULT_OFF]);
+		osc2_test_note_dock_answer(frame, last_answer);
 	}
 	key = k_spin_lock(&dock.lock);
 	if (outcome == OSC2_DOCK_ANSWERED) {
@@ -269,4 +306,73 @@ enum osc2_dock_outcome osc2_dock_receive(const uint8_t *frame, size_t len,
 		*handling_us = us;
 	}
 	return outcome;
+}
+
+/* ---- the application's own wire (<opensc2/docking.h>) ---------------------------------------- */
+
+int opensc2_dock_session_start(void)
+{
+	if (osc2_dock_active()) {
+		return -EALREADY;
+	}
+	osc2_dock_session_start(OSC2_DOCK_BY_APP);
+	return 0;
+}
+
+int opensc2_dock_session_end(void)
+{
+	if (!osc2_dock_active()) {
+		return -EALREADY;
+	}
+	osc2_dock_session_end(OSC2_DOCK_END_STOPPED);
+	return 0;
+}
+
+int opensc2_dock_frame(const uint8_t *frame, size_t len, uint8_t answer[OPENSC2_DOCK_FRAME_LEN])
+{
+	if (!osc2_dock_active()) {
+		return -ENOTCONN;
+	}
+	switch (osc2_dock_receive(frame, len, answer, NULL)) {
+	case OSC2_DOCK_ANSWERED:
+		return 0;
+	case OSC2_DOCK_BAD_SIZE:
+		return -EMSGSIZE;
+	default:
+		return -EBADMSG;
+	}
+}
+
+void opensc2_dock_answer_sent(void)
+{
+	osc2_dock_after_answer();
+}
+
+void osc2_dock_pilot_seen(bool present)
+{
+	k_spinlock_key_t key = k_spin_lock(&dock.lock);
+
+	dock.pilot = present;
+	k_spin_unlock(&dock.lock, key);
+}
+
+int opensc2_dock_status(struct opensc2_dock_status *st)
+{
+	struct osc2_dock_info info;
+	k_spinlock_key_t key;
+
+	osc2_dock_info(&info);
+	memset(st, 0, sizeof(*st));
+	st->session = info.active;
+	st->alone = info.alone;
+	key = k_spin_lock(&dock.lock);
+	st->pilot = dock.pilot;
+	k_spin_unlock(&dock.lock, key);
+	st->supply = info.supply;
+	st->stick_offsets = opensc2_dock_stick_offsets_active();
+	st->sessions = info.sessions;
+	st->frames = info.frames;
+	st->errors = info.errors;
+	st->slowest_us = info.slowest_us;
+	return 0;
 }

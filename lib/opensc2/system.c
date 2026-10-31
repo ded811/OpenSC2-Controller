@@ -192,9 +192,15 @@ static uint8_t detect_source(void)
 	default:
 		break;
 	}
-	/* The dock's supply rule (dock.c): its + sensed, with the pilot when the supply appeared. */
-	if (osc2_dock_supply() == OSC2_DOCK_SUPPLY_DOCK) {
+	/* The dock's supply rule (dock.c): a supply that appeared with the pilot is the dock's, any
+	 * other is USB power (the dock's + without the pilot included, as on the real controller). */
+	switch (osc2_dock_supply()) {
+	case OSC2_DOCK_SUPPLY_DOCK:
 		return OSC2_SRC_DOCK;
+	case OSC2_DOCK_SUPPLY_USB:
+		return OSC2_SRC_USB;
+	default:
+		break;
 	}
 	if (osc2_usb_power()) {
 		return OSC2_SRC_USB;
@@ -461,6 +467,7 @@ static void end(const struct osc2_sys_out *o)
 static void apply(const struct osc2_sys_out *o)
 {
 	if (o->actions & OSC2_SYS_DO_STATE) {
+		osc2_dock_offsets_follow(o->from, o->to);   /* the docked stick offsets */
 		LOG_INF("System: %s -> %s (%s)", osc2_sys_state_name(o->from),
 			osc2_sys_state_name(o->to), osc2_sys_event_name(o->cause));
 		osc2_usblog("system: %s -> %s (%s)", osc2_sys_state_name(o->from),
@@ -606,9 +613,10 @@ static void look_source(uint32_t now)
 		gone = false;
 		return;
 	}
-	/* Power that goes away must stay away 0.2 s, as the wired device's unplug rule wants; power
-	 * that comes counts at once. */
-	if (s == OSC2_SRC_BATTERY) {
+	/* USB power that goes away must stay away 0.2 s, as the wired device's unplug rule wants;
+	 * the dock's power that goes counts at the next poll, as on the real controller (the puck
+	 * cuts its + for a moment when it idles); power that comes counts at once. */
+	if (s == OSC2_SRC_BATTERY && source != OSC2_SRC_DOCK) {
 		if (!gone) {
 			gone = true;
 			gone_at = now;

@@ -100,9 +100,10 @@ zephyr_library_sources_ifdef(CONFIG_OPENSC2_TEST_HOOKS
 if(CONFIG_OPENSC2_TEST_HOOKS AND CONFIG_OPENSC2_SHELL)
   zephyr_library_sources(test_shell.c)
 endif()
-# The dock: the frames (<opensc2/dock.h>, for any application), the dock link and its rules, its
-# test ops with the hooks, and the UART and pilot glue (dock.c, CONFIG_OPENSC2_DOCK inside).
-zephyr_library_sources(dock_codec.c)
+# The dock: the frames (<opensc2/dock.h>, for any application), the docked stick offsets and the
+# public calls (dock_api.c, <opensc2/docking.h>), the dock link and its rules, its test ops with
+# the hooks, and the board's inputs with the UART glue (dock.c, CONFIG_OPENSC2_DOCK inside).
+zephyr_library_sources(dock_codec.c dock_api.c)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_DOCK_LINK
 	dock.c
 	dock_link.c

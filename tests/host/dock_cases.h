@@ -31,8 +31,8 @@ static const char *const builtin_dock[] = {
 	"MV 2276 = 2000",
 	"PILOT 1999 3301 2500 = 0 04",
 	"POWER 1 1 2 IN 1 0 0 = - 1 2",
-	"ENTER POWER_ON 1 = LINK_UP 1 KEYLOCK_CLEAR START_LINK LED_TRANSPORT",
-	"SM LINK_UP 1 TURN_OFF 0 = RADIO_OFF 1 1 CHIME_OFF LED_CHARGING STOP_LINK",
+	"ENTER POWER_ON 1 = LINK_UP 1 KEYLOCK_CLEAR START_LINK LED_TRANSPORT OFFSETS_ON",
+	"SM LINK_UP 1 TURN_OFF 0 = RADIO_OFF 1 1 CHIME_OFF LED_CHARGING STOP_LINK OFFSETS_ON",
 	"SM RADIO_OFF 0 REBOOT 0 = RADIO_OFF 0 0 NONE",
 };
 
@@ -56,7 +56,8 @@ static const char *const dk_actions[] = { "STOP_LINK", "START_LINK", "PAIRING", 
 					  "CHIME_OFF", "TIMER_4S", "TIMER_5S", "TIMER_STOP",
 					  "PAUSE", "REBOOT", "SHUTDOWN", "UPDATE_WINDOW",
 					  "TO_BATTERY", "TO_CHORD", "LED_CHARGING", "LED_TRANSPORT",
-					  "LED_COLOUR", "LED_OFF", "KEYLOCK_CLEAR" };
+					  "LED_COLOUR", "LED_OFF", "KEYLOCK_CLEAR", "OFFSETS_ON",
+					  "OFFSETS_OFF" };
 #define DK_COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
 
 /* Action names from tok[i] to the end: their bits, or -1 for an unknown name. */
@@ -202,8 +203,12 @@ static enum osc2_dock_outcome dk_request(uint8_t type, const void *payload, size
 {
 	uint8_t req[OPENSC2_DOCK_FRAME_LEN];
 
+	enum osc2_dock_outcome o;
+
 	(void)opensc2_dock_build_request(type, payload, len, req);
-	return osc2_dock_receive(req, sizeof(req), dk_ans, NULL);
+	o = osc2_dock_receive(req, sizeof(req), dk_ans, NULL);
+	osc2_dock_after_answer();   /* the answer is on its way */
+	return o;
 }
 
 static int32_t dk_result(void)
@@ -290,8 +295,11 @@ OPENSC2_TEST(dock_link_commands)
 	CHECK_EQ(dk_set(0x87, set45, sizeof(set45)), 0);
 	CHECK_EQ(osc2.settings[45], 75);
 	CHECK_EQ(dk_get(), -95);
-	CHECK_EQ(dk_ans[8], 0x87);
-	CHECK_EQ(dk_ans[9], 0);
+	CHECK_EQ(dk_ans[1], OPENSC2_DOCK_GET);
+	/* nothing to read: the payload is the previous answer's, the SET's, which carried the
+	 * GET 0x83 before it (the real controller copies nothing here) */
+	CHECK_EQ(dk_ans[8], 0x83);
+	CHECK_EQ(dk_ans[9], 30);
 	/* 0x89 selects, the GET reads */
 	CHECK_EQ(dk_set(0x89, &sel45, 1), 0);
 	CHECK_EQ(dk_get(), 63);
@@ -356,17 +364,119 @@ OPENSC2_TEST(dock_link_input)
 	CHECK_EQ(dk_ans[8], 7);
 	CHECK_EQ(dk_ans[9], 0x11);
 	CHECK_EQ(dock_stub.samples, 0);
-	/* the dock alone: each request takes a sample, answered at once */
+	/* the dock alone: each request builds one report after its answer, which carries the copy
+	 * from before: the first the other link's latest, then the one the previous request built */
 	stub.link_active[OSC2_LINK_USB] = false;
 	CHECK_EQ(dk_request(OPENSC2_DOCK_INPUT, NULL, 0), OSC2_DOCK_ANSWERED);
 	CHECK_EQ(dock_stub.samples, 1);
+	CHECK_EQ(dk_ans[8], 7);
+	CHECK_EQ(dk_ans[9], 0x11);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_INPUT, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dock_stub.samples, 2);
 	CHECK_EQ(dk_ans[8], 0);      /* the stand-in's first sequence number */
 	CHECK_EQ(dk_ans[9], 0xD0);
 	CHECK_EQ(dk_request(OPENSC2_DOCK_INPUT, NULL, 0), OSC2_DOCK_ANSWERED);
-	CHECK_EQ(dock_stub.samples, 2);
+	CHECK_EQ(dock_stub.samples, 3);
 	CHECK_EQ(dk_ans[8], 1);      /* one sequence number per request */
-	/* 53 bytes after the ID, nothing more */
+	/* 53 bytes after the ID; the 10 after them are the previous answers' (zeros here) */
 	for (int i = 8 + 53; i < 71; i++) {
+		CHECK_EQ(dk_ans[i], 0);
+	}
+	/* an answer nobody reported sent: its report is built before the next frame at the latest */
+	{
+		uint8_t req[OPENSC2_DOCK_FRAME_LEN];
+
+		(void)opensc2_dock_build_request(OPENSC2_DOCK_INPUT, NULL, 0, req);
+		CHECK_EQ(osc2_dock_receive(req, sizeof(req), dk_ans, NULL), OSC2_DOCK_ANSWERED);
+		CHECK_EQ(dock_stub.samples, 3);
+		CHECK_EQ(dk_ans[8], 2);
+		CHECK_EQ(osc2_dock_receive(req, sizeof(req), dk_ans, NULL), OSC2_DOCK_ANSWERED);
+		CHECK_EQ(dock_stub.samples, 4);
+		CHECK_EQ(dk_ans[8], 3);
+		osc2_dock_after_answer();
+		CHECK_EQ(dock_stub.samples, 5);
+	}
+	/* another link up again: no report is built for the dock */
+	stub.link_active[OSC2_LINK_USB] = true;
+	CHECK_EQ(dk_request(OPENSC2_DOCK_INPUT, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dock_stub.samples, 5);
+	CHECK_EQ(dk_ans[8], 4);
+}
+
+/* Every answer is built over the previous one, as the real controller builds it: a request
+ * writes only what it defines, and the rest goes out as it was. */
+OPENSC2_TEST(dock_link_answer_carries)
+{
+	uint8_t rec[OPENSC2_IDENTITY_RECORD_LEN];
+	uint8_t before[OPENSC2_DOCK_FRAME_LEN];
+	uint8_t req[OPENSC2_DOCK_FRAME_LEN];
+	static const char name[] = "user/no_such_key";
+	uint8_t report[OPENSC2_STATE_REPORT_LEN];
+
+	stub_reset();
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	(void)opensc2_encode_identity(&osc2.identity, rec);
+	/* a GET input first: type 3, result 0, 53 report bytes */
+	memset(report, 0, sizeof(report));
+	report[0] = OPENSC2_RPT_STATE;
+	memset(&report[1], 0x5C, sizeof(report) - 1);
+	osc2_dock_cache_report(report);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_INPUT, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dk_ans[8 + 52], 0x5C);
+	/* a probe: the record over the first 57 payload bytes; its type and result are the GET
+	 * input's (3, 0), the 6 bytes after the record still zeros */
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dk_ans[0], 0xAC);
+	CHECK_EQ(dk_ans[1], OPENSC2_DOCK_INPUT);
+	CHECK_EQ(dk_result(), 0);
+	CHECK(memcmp(&dk_ans[8], rec, sizeof(rec)) == 0);
+	CHECK_EQ(opensc2_dock_frame_check(dk_ans, sizeof(dk_ans)), OPENSC2_DOCK_FRAME_OK);
+	/* a SET: its type and result; the payload is the probe's record */
+	CHECK_EQ(dk_set(0x83, NULL, 0), 0);
+	CHECK_EQ(dk_ans[1], OPENSC2_DOCK_SET);
+	CHECK(memcmp(&dk_ans[8], rec, sizeof(rec)) == 0);
+	/* a failed SET: its result, the payload as it was */
+	CHECK_EQ(dk_set(0xC1, NULL, 0), -22);
+	CHECK(memcmp(&dk_ans[8], rec, sizeof(rec)) == 0);
+	/* a GET of 0x83: {0x83, 30, attributes}; the record's bytes after them stay */
+	CHECK_EQ(dk_get(), 63);
+	CHECK_EQ(dk_ans[8], 0x83);
+	CHECK_EQ(dk_ans[9], 30);
+	CHECK(memcmp(&dk_ans[8 + 32], &rec[32], sizeof(rec) - 32) == 0);
+	/* the probe again: the GET's type and result (1, 63) */
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(dk_ans[1], OPENSC2_DOCK_GET);
+	CHECK_EQ(dk_result(), 63);
+	/* a type the puck never sends: the previous answer again, byte for byte */
+	memcpy(before, dk_ans, sizeof(before));
+	CHECK_EQ(dk_request(4, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK(memcmp(before, dk_ans, sizeof(before)) == 0);
+	CHECK_EQ(dk_request(0xFF, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK(memcmp(before, dk_ans, sizeof(before)) == 0);
+	/* a GET whose stored request is longer than its answer: the request's bytes after the
+	 * answer (0xED of a key nobody has: length 0, the name after it) */
+	CHECK_EQ(dk_set(0xED, name, sizeof(name)), 0);
+	CHECK_EQ(dk_get(), 63);
+	CHECK_EQ(dk_ans[8], 0xED);
+	CHECK_EQ(dk_ans[9], 0);
+	CHECK(memcmp(&dk_ans[10], name, sizeof(name)) == 0);
+	/* bytes 2 and 3 are never written; a frame that fails changes nothing */
+	CHECK_EQ(dk_ans[2], 0);
+	CHECK_EQ(dk_ans[3], 0);
+	memcpy(before, dk_ans, sizeof(before));
+	(void)opensc2_dock_build_request(OPENSC2_DOCK_PROBE, NULL, 0, req);
+	req[30] ^= 1;
+	CHECK_EQ(osc2_dock_receive(req, sizeof(req), dk_ans, NULL), OSC2_DOCK_BAD_CRC);
+	CHECK(memcmp(before, dk_ans, sizeof(before)) == 0);
+	/* ... and the next session goes on from the same answer */
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(dk_request(4, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK(memcmp(before, dk_ans, sizeof(before)) == 0);
+	/* a boot starts from zeros */
+	osc2_dock_reset();
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(dk_request(4, NULL, 0), OSC2_DOCK_ANSWERED);
+	for (int i = 1; i < 71; i++) {
 		CHECK_EQ(dk_ans[i], 0);
 	}
 }
@@ -407,22 +517,52 @@ OPENSC2_TEST(dock_link_session_errors)
 }
 
 /* The supply rule on the board's readings (dock_link.c), which the system state machine takes as
- * its power source: the dock's power only when the + appears with the pilot, decided when the
- * supply appears. */
+ * its power source: a fresh pilot check each time "a supply is present" changes decides between
+ * the dock's power and USB, until the supply goes. */
+static bool dk_pilot_now;
+static int dk_pilot_checks;
+
+static bool dk_pilot_check(void)
+{
+	dk_pilot_checks++;
+	return dk_pilot_now;
+}
+
+static enum osc2_dock_supply dk_supply(bool usb, bool plus, bool pilot)
+{
+	dk_pilot_now = pilot;
+	return osc2_dock_supply_step(usb, plus, dk_pilot_check);
+}
+
 OPENSC2_TEST(dock_link_supply)
 {
 	stub_reset();
-	CHECK_EQ(osc2_dock_supply_step(false, false, false), OSC2_DOCK_SUPPLY_NONE);
-	CHECK_EQ(osc2_dock_supply_step(false, true, true), OSC2_DOCK_SUPPLY_DOCK);
-	CHECK_EQ(osc2_dock_supply_step(false, true, false), OSC2_DOCK_SUPPLY_DOCK);   /* decided */
-	CHECK_EQ(osc2_dock_supply_step(true, true, false), OSC2_DOCK_SUPPLY_DOCK);    /* and USB */
-	CHECK_EQ(osc2_dock_supply_step(false, false, false), OSC2_DOCK_SUPPLY_NONE);  /* lifted off */
-	CHECK_EQ(osc2_dock_supply_step(false, true, false), OSC2_DOCK_SUPPLY_USB);    /* no pilot */
-	CHECK_EQ(osc2_dock_supply_step(false, true, true), OSC2_DOCK_SUPPLY_USB);     /* all along */
-	CHECK_EQ(osc2_dock_supply_step(false, false, true), OSC2_DOCK_SUPPLY_NONE);
-	CHECK_EQ(osc2_dock_supply_step(true, false, true), OSC2_DOCK_SUPPLY_USB);     /* USB only */
+	dk_pilot_checks = 0;
+	/* the first reading posts; with no supply nothing is checked */
+	CHECK_EQ(dk_supply(false, false, false), OSC2_DOCK_SUPPLY_NONE);
+	CHECK_EQ(dk_pilot_checks, 0);
+	/* the + appears with the pilot: the dock, checked once */
+	CHECK_EQ(dk_supply(false, true, true), OSC2_DOCK_SUPPLY_DOCK);
+	CHECK_EQ(dk_pilot_checks, 1);
+	/* decided: no check while power stays, whatever comes and goes on top */
+	CHECK_EQ(dk_supply(false, true, false), OSC2_DOCK_SUPPLY_DOCK);
+	CHECK_EQ(dk_supply(true, true, false), OSC2_DOCK_SUPPLY_DOCK);
+	CHECK_EQ(dk_supply(true, false, false), OSC2_DOCK_SUPPLY_DOCK);
+	CHECK_EQ(dk_pilot_checks, 1);
+	CHECK_EQ(dk_supply(false, false, false), OSC2_DOCK_SUPPLY_NONE);   /* lifted off */
+	CHECK_EQ(dk_supply(false, true, false), OSC2_DOCK_SUPPLY_USB);     /* + without the pilot */
+	CHECK_EQ(dk_supply(false, true, true), OSC2_DOCK_SUPPLY_USB);      /* all along */
+	CHECK_EQ(dk_supply(false, false, true), OSC2_DOCK_SUPPLY_NONE);
+	CHECK_EQ(dk_supply(true, false, false), OSC2_DOCK_SUPPLY_USB);     /* USB */
+	CHECK_EQ(dk_supply(false, false, false), OSC2_DOCK_SUPPLY_NONE);
+	/* VBUS with the pilot: the dock, as on the real controller, whose + reaches VBUS */
+	CHECK_EQ(dk_supply(true, false, true), OSC2_DOCK_SUPPLY_DOCK);
+	CHECK_EQ(dk_pilot_checks, 4);
 	osc2_dock_reset();
-	CHECK_EQ(osc2_dock_supply_step(true, true, true), OSC2_DOCK_SUPPLY_DOCK);     /* both: dock */
+	CHECK_EQ(dk_supply(true, true, true), OSC2_DOCK_SUPPLY_DOCK);      /* both: the dock */
+	/* without a check to make the board is never on the dock's power */
+	osc2_dock_reset();
+	CHECK_EQ(osc2_dock_supply_step(true, true, NULL), OSC2_DOCK_SUPPLY_USB);
 	osc2_dock_reset();
 }
 
@@ -573,6 +713,32 @@ OPENSC2_TEST(dock_ops_probe)
 	for (i = 0; i < OPENSC2_DOCK_FRAME_LEN; i++) {
 		CHECK_EQ(back[i], i >= 24 && i < 52 ? 0 : real[i]);
 	}
+	/* a SET carries the probe's record: its serials stay hidden */
+	{
+		uint8_t rec83[OPENSC2_DOCK_PAYLOAD_LEN] = { 0x83 };
+
+		(void)opensc2_dock_build_request(OPENSC2_DOCK_SET, rec83, sizeof(rec83), req);
+		dk_load(req);
+		CHECK_EQ(dk_run(73, 0), OSC2_TEST_OK);
+		CHECK_EQ(RES[3], OPENSC2_DOCK_SET);
+		CHECK_EQ(RES[8], 0x03);
+		CHECK_EQ(opensc2_get_le32(&RES[13]), osc2_crc32(0, serials, sizeof(serials)));
+		dk_read(back);
+		for (i = 24; i < 52; i++) {
+			CHECK_EQ(back[i], 0);
+		}
+		CHECK_EQ(back[8], real[8]);   /* the product ID is shown */
+		/* an answer from elsewhere (the UART) is tracked too: a probe there, then a SET
+		 * here still hides its serials */
+		(void)opensc2_dock_build_request(OPENSC2_DOCK_PROBE, NULL, 0, req);
+		CHECK_EQ(osc2_dock_receive(req, sizeof(req), back, NULL), OSC2_DOCK_ANSWERED);
+		(void)opensc2_dock_build_request(OPENSC2_DOCK_SET, rec83, sizeof(rec83), req);
+		dk_load(req);
+		CHECK_EQ(dk_run(73, 0), OSC2_TEST_OK);
+		CHECK_EQ(opensc2_get_le32(&RES[13]), osc2_crc32(0, serials, sizeof(serials)));
+		(void)opensc2_dock_build_request(OPENSC2_DOCK_PROBE, NULL, 0, req);
+		dk_load(req);
+	}
 	/* the ring: the session's start (by the test hooks), the frame */
 	read_ring(0);
 	i = find_kind(OSC2_TEST_KIND_DOCK_SESSION, 0);
@@ -649,7 +815,7 @@ OPENSC2_TEST(dock_ops_commands)
 	CHECK_EQ(RES[0], 0);
 	CHECK_EQ(RES[3], 2);
 	CHECK_EQ(opensc2_get_le32(&RES[4]), 0);
-	CHECK_EQ(RES[8], 0x01);   /* nothing to mask in a SET's answer */
+	CHECK_EQ(RES[8], 0x01);   /* nothing to hide: the payload is the zeros a boot leaves */
 	(void)opensc2_dock_build_request(OPENSC2_DOCK_GET, NULL, 0, req);
 	dk_load(req);
 	CHECK_EQ(dk_run(73, 0), OSC2_TEST_OK);
@@ -664,10 +830,19 @@ OPENSC2_TEST(dock_ops_commands)
 		CHECK_EQ(back[i], 0);
 	}
 	{
-		uint8_t answer[20] = { 1 };
+		uint8_t answer[20] = { 1 };   /* as HOST_GET's */
 
 		memcpy(&answer[1], "OSC0123456789", 13);
-		CHECK_EQ(got_crc, osc2_crc32(0, answer, sizeof(answer)));   /* as HOST_GET's */
+		CHECK_EQ(got_crc, osc2_crc32(0, answer, sizeof(answer)));
+	}
+	/* a SET now carries that GET's answer: its serial stays hidden */
+	(void)opensc2_dock_build_request(OPENSC2_DOCK_SET, rec, sizeof(rec), req);
+	dk_load(req);
+	CHECK_EQ(dk_run(73, 0), OSC2_TEST_OK);
+	CHECK_EQ(RES[8], 0x03);
+	dk_read(back);
+	for (i = 10; i < 30; i++) {
+		CHECK_EQ(back[i], 0);
 	}
 	/* the VENDOR entries carry the dock's link */
 	read_ring(0);
@@ -831,7 +1006,8 @@ OPENSC2_TEST(dock_ops_ctrl)
 	CHECK_EQ(RES[0], OSC2_DOCK_SUPPLY_DOCK);
 	CHECK_EQ(RES[1], OSC2_DOCK_AWAY);
 	CHECK_EQ(RES[2], OSC2_DOCK_RADIO_OFF);
-	CHECK_EQ(opensc2_get_le32(&RES[4]), OSC2_DOCK_DO_KEYLOCK_CLEAR | OSC2_DOCK_DO_LED_CHARGING);
+	CHECK_EQ(opensc2_get_le32(&RES[4]), OSC2_DOCK_DO_KEYLOCK_CLEAR | OSC2_DOCK_DO_LED_CHARGING |
+					    OSC2_DOCK_DO_OFFSETS_ON);
 	CHECK_EQ(stub.radio_events, 0);   /* nothing was done */
 	/* a chord, held 4 s */
 	args[0] = 4;
@@ -851,7 +1027,7 @@ OPENSC2_TEST(dock_ops_ctrl)
 	CHECK_EQ(con_op(OSC2_TEST_OP_DOCK_CTRL, args, 6), OSC2_TEST_OK);
 	CHECK_EQ(RES[0], OSC2_DOCK_SUPPLY_NONE);
 	CHECK_EQ(RES[2], OSC2_DOCK_AWAY);
-	CHECK_EQ(opensc2_get_le32(&RES[4]), OSC2_DOCK_DO_TO_BATTERY);
+	CHECK_EQ(opensc2_get_le32(&RES[4]), OSC2_DOCK_DO_TO_BATTERY | OSC2_DOCK_DO_OFFSETS_OFF);
 	/* the ring: one DOCK_STATE per step, one DOCK_PILOT per check */
 	read_ring(0);
 	CHECK_EQ(count_kind(OSC2_TEST_KIND_DOCK_STATE), 4);

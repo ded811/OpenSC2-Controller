@@ -49,7 +49,7 @@ $libSources += @("$lib\haptics_dsp.c", "$lib\haptics_tables.c", "$lib\haptics_co
     "$lib\haptics_rules.c", "$lib\haptics_sounds.c", "$lib\haptics_run.c",
     "$lib\haptics_help.c")
 # the dock link
-$libSources += @("$lib\dock_codec.c", "$lib\dock_rules.c", "$lib\dock_link.c",
+$libSources += @("$lib\dock_codec.c", "$lib\dock_rules.c", "$lib\dock_link.c", "$lib\dock_api.c",
     (Join-Path $PSScriptRoot 'dock_stub.c'))
 $sources = @((Join-Path $PSScriptRoot 'run_tests.c')) + $libSources
 $hooks = @('-DCONFIG_OPENSC2_TEST_HOOKS=1', '-DCONFIG_OPENSC2_TEST_RING_SIZE=512',

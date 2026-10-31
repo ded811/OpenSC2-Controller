@@ -33,18 +33,27 @@ properties:
       side holds the line.
 
   io-channels:
-    required: true
     description: |
-      The pilot sense: one ADC channel on the pin that sees the pilot, with no divider, set up
-      as gain 1/6 of the internal 0.6 V reference, 12 bits (3600 mV full scale). The pilot is
-      present while a reading lies inside 2000 to 3300 mV.
+      The pilot sense on an ADC channel (CONFIG_ADC): one channel on the pin that sees the
+      pilot, with no divider, set up as gain 1/6 of the internal 0.6 V reference, 12 bits
+      (3600 mV full scale). The pilot is present while a reading lies inside 2000 to 3300 mV.
+      This or pilot-gpios.
+
+  pilot-gpios:
+    type: phandle-array
+    description: |
+      The pilot sense on a window comparator of the board's own instead of an ADC channel: an
+      input that reads active while the pilot lies inside 2000 to 3300 mV (the real controller
+      reads its pilot as such a line, made from its ADC). This or io-channels.
 
   plus-gpios:
     type: phandle-array
     description: |
       Optional: a digital input that reads active while the dock's + pad carries power (through
-      a divider or a comparator of the board's own: the + pad must never reach the chip's USB
-      supply pin). With it the library runs the dock's supply rule (the dock's power when the +
-      appears with the pilot present) and the system state machine takes the dock as its power
-      source; without it the board never counts as powered by the dock. app/dock.overlay has
-      none.
+      a divider or a comparator of the board's own), for a board whose + does not reach the
+      chip's VBUS pin. Without it the library takes VBUS as the dock's + too, as on the real
+      controller, whose + and USB-C port share one supply input. Either way the supply rule
+      runs on "a supply is present" (VBUS or this input): a supply that appears with the pilot
+      present is the dock's power, any other USB power, and the system state machine takes that
+      as its power source. A board whose + may meet a USB host's VBUS needs its own protection
+      (the SuperMini has none: app/dock.overlay leaves + unconnected).

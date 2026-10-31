@@ -37,6 +37,11 @@ void osc2_test_note_dock_pilot(const int32_t mv[OSC2_DOCK_PILOT_READS], uint8_t 
 			       bool present);
 void osc2_test_note_dock_state(uint8_t what, uint8_t event, uint8_t chord,
 			       const struct osc2_dock_step *step);
+/* Every answer the dock link builds, from the UART, the application or these ops (`req`, the
+ * request; `ans`, the answer frame, built over the previous one): which of its bytes must never go
+ * back to the PC, kept byte by byte as the answer is (a byte stays hidden until a request writes
+ * it). Called under the dock link's frame lock. */
+void osc2_test_note_dock_answer(const uint8_t *req, const uint8_t *ans);
 /* Is the arming that started the test hooks' dock session still on? Such a session lasts only
  * that long. */
 bool osc2_test_dock_armed(void);
@@ -81,6 +86,12 @@ static inline void osc2_test_note_dock_state(uint8_t what, uint8_t event, uint8_
 	(void)event;
 	(void)chord;
 	(void)step;
+}
+
+static inline void osc2_test_note_dock_answer(const uint8_t *req, const uint8_t *ans)
+{
+	(void)req;
+	(void)ans;
 }
 
 static inline bool osc2_test_dock_armed(void)

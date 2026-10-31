@@ -169,6 +169,11 @@ uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63]);
 /* The same, with the command's own result in `*rc` (0, or a negative errno; -ENOTSUP when the
  * stored command has nothing to read), for the dock, which answers it. */
 uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc);
+/* The dock: a GET answered in place over `out`, the link's previous answer, as the real controller
+ * builds it: the stored request {opcode, length, data} over its start, then the command's answer
+ * {opcode, n, data} over that; nothing else changes. 0, or the command's negative errno (-ENOTSUP:
+ * nothing to read, and `out` is left as it was). */
+int osc2_command_get_in_place(enum osc2_link link, uint8_t out[63]);
 /* A link whose transport can refuse a read (Bluetooth): the stored request's GET as 63 bytes
  * {opcode, length, data, zeros}; returns 63, or a negative errno for a command without an answer
  * or a failed GET (an ATT error there, the counterpart of a STALL on USB). */

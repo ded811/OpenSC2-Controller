@@ -22,6 +22,7 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <opensc2/docking.h>
 #include <opensc2/sensor_helpers.h>
 #include "internal.h"
 #include "cal_store.h"
@@ -458,6 +459,8 @@ static void apply_calibration(void)
 		struct opensc2_cal_pressure p;
 
 		opensc2_cal_stick_unpack(joy[side], &s);
+		/* While docked, the board's docked stick offsets (<opensc2/docking.h>). */
+		opensc2_dock_stick_adjust((enum opensc2_side)side, &s);
 		opensc2_cal_trigger_unpack(trg[side], &t);
 		proc.stick[side].dead_zone = STICK_DEAD_ZONE;
 		proc.stick[side].grow_range = STICK_GROW_RANGE;
@@ -920,6 +923,14 @@ uint32_t opensc2_cal_generation(void)
 	g = generation;
 	k_spin_unlock(&lock, lk);
 	return g;
+}
+
+void osc2_cal_reapply(void)
+{
+	k_spinlock_key_t lk = k_spin_lock(&lock);
+
+	generation++;
+	k_spin_unlock(&lock, lk);
 }
 
 void osc2_cal_reset(void)

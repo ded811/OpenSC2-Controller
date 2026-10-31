@@ -5,8 +5,10 @@
 # Nothing is wired and nothing touches Valve's puck's pads: the test hooks' dock ops hand the
 # board 73-byte frames as if the puck had sent them over its charging pads, and read the answers
 # back (proto/dock.py). Checked: the frame rules (the CRC, a short frame, nothing arriving, the
-# start byte ignored), the probe's identity record against the identity the board reports
-# elsewhere (its serials only by CRC-32: the board masks them), vendor commands on the dock's own
+# start byte ignored), each answer built over the previous one (a probe keeps its type and result,
+# an unknown type repeats the previous answer), the probe's identity record against the identity
+# the board reports elsewhere (its serials only by CRC-32: the board masks them), vendor commands
+# on the dock's own
 # stored request, 0x81 and 0x85 doing nothing there, GET input from the copy of the latest state
 # report without taking a sequence number, the dock alone with the radio stopped (attribute 11 =
 # 64000, one new report per request, no 0x43, 0xBE answered), the pilot's 2-of-3 rule, and the
@@ -137,20 +139,30 @@ def _run(ctx, rig):
             r = _frame(rig, PROBE, start=False)
             c.eq("no session, none asked for: DOCK_RUN", C.STATUS_NAMES.get(r["status"]),
                  "NO_LINK")
+            # answers are built over the previous one: a GET input sets type 3 and result 0,
+            # which the probe after it keeps (it writes only its record)
+            a = _answered(c, "a GET input", _frame(rig, INPUT))
+            if a:
+                c.eq("GET input: (type, result)", (a["type"], a["result"]), (D.INPUT, 0))
             a = _answered(c, "a probe", _frame(rig, PROBE))
             if a:
-                c.eq("the probe's type", a["type"], D.PROBE)
+                c.eq("the probe: the previous answer's (type, result)", (a["type"], a["result"]),
+                     (D.INPUT, 0))
             # the start byte and bytes 2..7 are not read; resealed, the frame is still a probe
             odd = bytearray(PROBE)
             odd[2:8] = b"\x11\x22\x33\x44\x55\x66"
-            a = _answered(c, "a probe with start byte 0x00", _frame(rig, D.seal(odd, 0x00)))
+            r_prev = _frame(rig, D.seal(odd, 0x00))
+            a = _answered(c, "a probe with start byte 0x00", r_prev)
             if a:
-                c.eq("its type", a["type"], D.PROBE)
-            # a type the puck never sends: its number back with -22 (OpenSC2's choice; the real
-            # controller repeats its previous answer)
-            a = _answered(c, "type 4", _frame(rig, D.build_request(4)))
+                c.eq("its type and result, still", (a["type"], a["result"]), (D.INPUT, 0))
+            # a type the puck never sends: the previous answer again, byte for byte (as the
+            # real controller)
+            r = _frame(rig, D.build_request(4))
+            a = _answered(c, "type 4", r)
             if a:
-                c.eq("type 4: (type, result)", (a["type"], a["result"]), (4, D.RESULT_INVALID))
+                c.eq("type 4: the whole answer's CRC-32 is the previous answer's", r["crc32"],
+                     r_prev.get("crc32"))
+                c.eq("type 4: the answer as read back", r["answer"], r_prev.get("answer"))
             r = _frame(rig, INPUT, length=0)
             c.eq("nothing arrives: outcome", D.RUN_OUTCOMES.get(r.get("outcome")), "nothing")
             c.true("... and the session goes on", r.get("session") is True)
@@ -167,7 +179,7 @@ def _run(ctx, rig):
             frames = base.of_kind(ring, C.RING_DOCK_FRAME)
             c.eq("DOCK_SESSION entries (start, end, start, end)",
                  [(e["what"], e["reason"]) for e in sessions], [(0, 1), (1, 1), (0, 1), (1, 2)])
-            c.eq("DOCK_FRAME outcomes", [e["outcome"] for e in frames], [0, 0, 0, 1, 2])
+            c.eq("DOCK_FRAME outcomes", [e["outcome"] for e in frames], [0, 0, 0, 0, 1, 2])
             c.true("every dock entry carries link 5",
                    all(e["link"] == C.RING_LINK_DOCK for e in sessions + frames))
             st = rig.dock_status()
@@ -176,11 +188,14 @@ def _run(ctx, rig):
     if ctx.want("dock.probe"):
         with ctx.check(GROUP, "dock.probe") as c:
             ident = _identity(rig)
+            # a GET input first: the probe writes only its record over that answer
+            r_in = _frame(rig, INPUT)
+            a_in = _answered(c, "a GET input before it", r_in)
             r = _frame(rig, PROBE)
             a = _answered(c, "the probe", r)
-            if a:
+            if a and a_in:
                 p = a["payload"]
-                c.eq("type and result", (a["type"], a["result"]), (D.PROBE, 0))
+                c.eq("type and result: the GET input's", (a["type"], a["result"]), (D.INPUT, 0))
                 pid, build, blbuild, rev = struct.unpack_from("<IIII", p, 0)
                 if ident:
                     c.eq("product ID", pid, ident["pid"])
@@ -194,14 +209,16 @@ def _run(ctx, rig):
                 # never print the bytes themselves: on a regression they would be the serials
                 c.true("the serials as the PC reads them: masked to zeros (%d of 28 bytes "
                        "are not)" % sum(1 for b in p[16:44] if b), not any(p[16:44]))
-                c.eq("the 6 bytes after the record", list(p[57:]), [0] * 6)
+                c.eq("the 6 bytes after the record: the GET input's", list(p[57:]),
+                     list(a_in["payload"][57:]))
                 c.true("the answer says it masked the serials", r["masked"])
                 if ident and ident.get("unit") and ident.get("board"):
                     want = D.identity_record(ident)
                     c.eq("the serials' CRC-32 (unit and board serial)", r["masked_crc32"],
                          T.crc32(want[16:44]))
-                    c.eq("the whole answer's CRC-32 against the model", r["crc32"],
-                         T.crc32(D.answer(D.PROBE, 0, want)))
+                    c.eq("the whole answer's CRC-32 against the model (the record over the GET "
+                         "input's answer)", r["crc32"],
+                         T.crc32(D.AnswerModel(r_in["answer"]).probe(want)))
                     c.note("the identity record as the board reports itself elsewhere (serials "
                            "compared by CRC-32)")
                 else:
@@ -273,7 +290,7 @@ def _run(ctx, rig):
             rig.lizard_off()
             # a session first: the dock keeps its copy of the stream's reports only while one
             # runs (the first GET input of a new session answers whatever the copy held)
-            _answered(c, "a probe (a session)", _frame(rig, PROBE))
+            a_probe = _answered(c, "a probe (a session)", _frame(rig, PROBE))
             state = R.make_state52(buttons=1 << R.BIT["A"], lstick_x=1234, right_trigger=2000)
             rep, n = rig.inject_and_read(state)
             if rep is None:
@@ -286,7 +303,9 @@ def _run(ctx, rig):
                     body = a["payload"][:53]
                     c.eq("the 52 state bytes are the stream's", base.byte_lists([body[1:]]),
                          base.byte_lists([R.state52_of_report(rep)]))
-                    c.eq("nothing after the 53 bytes", list(a["payload"][53:]), [0] * 10)
+                    if a_probe:
+                        c.eq("the 10 bytes after the 53: the previous answer's (the probe's)",
+                             list(a["payload"][53:]), list(a_probe["payload"][53:]))
                 # the dock takes no report of the link's stream
                 rig.cnt_reset()
                 for _ in range(6):
@@ -355,8 +374,11 @@ def _alone(c, rig):
                     seqs.append(a["payload"][0])
             cnt = rig.cnt_read()
             c.eq("one report built per GET input", cnt.get("frames"), 5)
-            c.true("their sequence numbers one apart (%s)" % seqs,
-                   len(seqs) == 5 and all((b - a) & 0xFF == 1 for a, b in zip(seqs, seqs[1:])))
+            # each answer carries the report the request before it built (the first, whatever
+            # the copy held), as on the real controller
+            c.true("their sequence numbers one apart from the second on (%s)" % seqs,
+                   len(seqs) == 5 and all((b - a) & 0xFF == 1 for a, b in zip(seqs[1:],
+                                                                               seqs[2:])))
             # the battery: 0x43 has no way out, 0xBE answers over the dock
             fields = {"charge_state": 2, "level": 42, "battery_mv": 3800, "system_mv": 3300,
                       "input_mv": 5000, "current_ma": 300, "input_current_ma": 400,

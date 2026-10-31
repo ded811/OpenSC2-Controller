@@ -74,6 +74,11 @@ static struct {
 	uint8_t run_hidden[OPENSC2_DOCK_FRAME_LEN];
 } t;
 
+/* The hidden bytes of the dock link's own answer as it stands, whoever's request built it
+ * (osc2_test_note_dock_answer()); zeros at a boot, as the answer is. */
+static struct k_spinlock hide_lock;
+static uint8_t hidden_now[OPENSC2_DOCK_FRAME_LEN];
+
 /* ---- the ring -------------------------------------------------------------------------------- */
 
 static void note(uint8_t kind, const uint8_t *d, uint8_t len)
@@ -146,6 +151,7 @@ bool osc2_test_dock_armed(void)
 void osc2_test_dock_reset(void)
 {
 	memset(&t, 0, sizeof(t));
+	memset(hidden_now, 0, sizeof(hidden_now));
 	osc2_dock_sm_init(&t.sm);
 }
 
@@ -166,23 +172,69 @@ static uint8_t op_load(const uint8_t *args, uint8_t alen)
 	return OSC2_TEST_OK;
 }
 
-/* Which bytes of the answer just made must never go back to the PC. */
-static void mask_answer(int32_t result)
+/* Which bytes a request's answer wrote: the dock link builds each answer over the previous one
+ * (dock_rules.h), so the others are that answer's. The start byte and the CRC always. */
+static void written_bytes(const uint8_t *req, const uint8_t *ans, uint8_t w[OPENSC2_DOCK_FRAME_LEN])
 {
-	memset(t.masked, 0, sizeof(t.masked));
-	if (t.answer[OPENSC2_DOCK_TYPE_OFF] == OPENSC2_DOCK_PROBE) {
-		memset(&t.masked[SERIALS_OFF], 1, SERIALS_LEN);
-	} else if (t.answer[OPENSC2_DOCK_TYPE_OFF] == OPENSC2_DOCK_GET &&
+	uint8_t type = req[OPENSC2_DOCK_TYPE_OFF];
+	int32_t result = (int32_t)opensc2_get_le32(&ans[OPENSC2_DOCK_RESULT_OFF]);
+
+	memset(w, 0, OPENSC2_DOCK_FRAME_LEN);
+	w[0] = 1;
+	w[OPENSC2_DOCK_CRC_OFF] = w[OPENSC2_DOCK_CRC_OFF + 1] = 1;
+	if (type == OPENSC2_DOCK_PROBE) {
+		memset(&w[OPENSC2_DOCK_PAYLOAD_OFF], 1, OPENSC2_IDENTITY_RECORD_LEN);
+		return;
+	}
+	if (type > OPENSC2_DOCK_INPUT) {
+		return;   /* the previous answer again */
+	}
+	w[OPENSC2_DOCK_TYPE_OFF] = 1;
+	memset(&w[OPENSC2_DOCK_RESULT_OFF], 1, 4);
+	if (type == OPENSC2_DOCK_INPUT) {
+		memset(&w[OPENSC2_DOCK_PAYLOAD_OFF], 1, OPENSC2_STATE_REPORT_LEN - 1);
+	} else if (type == OPENSC2_DOCK_GET && result != OSC2_DOCK_RESULT_NOTHING_TO_READ) {
+		/* the stored request, then the answer over it */
+		uint8_t stored[2 + OPENSC2_ANSWER_MAX];
+		uint8_t n = osc2_command_stored(OSC2_LINK_DOCK, stored);
+		uint8_t a = (uint8_t)(2 + MIN(ans[OPENSC2_DOCK_PAYLOAD_OFF + 1],
+					      (uint8_t)OPENSC2_ANSWER_MAX));
+
+		n = MIN(MAX(n, a), (uint8_t)OPENSC2_DOCK_PAYLOAD_LEN);
+		memset(&w[OPENSC2_DOCK_PAYLOAD_OFF], 1, n);
+	}
+}
+
+void osc2_test_note_dock_answer(const uint8_t *req, const uint8_t *ans)
+{
+	uint8_t w[OPENSC2_DOCK_FRAME_LEN];
+	uint8_t fresh[OPENSC2_DOCK_FRAME_LEN];
+	int32_t result = (int32_t)opensc2_get_le32(&ans[OPENSC2_DOCK_RESULT_OFF]);
+	k_spinlock_key_t key;
+
+	written_bytes(req, ans, w);
+	/* what this answer wrote that must not be shown: a probe's serials, the data of a GET of a
+	 * bond, a serial or the chip ID (as HOST_GET masks them) */
+	memset(fresh, 0, sizeof(fresh));
+	if (req[OPENSC2_DOCK_TYPE_OFF] == OPENSC2_DOCK_PROBE) {
+		memset(&fresh[SERIALS_OFF], 1, SERIALS_LEN);
+	} else if (req[OPENSC2_DOCK_TYPE_OFF] == OPENSC2_DOCK_GET &&
 		   result == OSC2_DOCK_RESULT_GET_OK) {
-		/* As HOST_GET masks them: the bonds, the serials, the chip ID. */
 		uint8_t stored[2 + OPENSC2_ANSWER_MAX];
 		uint8_t stored_len = osc2_command_stored(OSC2_LINK_DOCK, stored);
-		uint8_t n = MIN(t.answer[OPENSC2_DOCK_PAYLOAD_OFF + 1], (uint8_t)OPENSC2_ANSWER_MAX);
+		uint8_t n = MIN(ans[OPENSC2_DOCK_PAYLOAD_OFF + 1], (uint8_t)OPENSC2_ANSWER_MAX);
 
 		if (osc2_test_host_get_masked(stored, stored_len, n)) {
-			memset(&t.masked[GET_DATA_OFF], 1, n);
+			memset(&fresh[GET_DATA_OFF], 1, n);
 		}
 	}
+	key = k_spin_lock(&hide_lock);
+	for (int i = 0; i < OPENSC2_DOCK_FRAME_LEN; i++) {
+		if (w[i]) {
+			hidden_now[i] = fresh[i];
+		}
+	}
+	k_spin_unlock(&hide_lock, key);
 }
 
 static uint8_t op_run(const uint8_t *args, uint8_t *result, uint8_t *rlen)
@@ -217,10 +269,15 @@ static uint8_t op_run(const uint8_t *args, uint8_t *result, uint8_t *rlen)
 			int32_t rc = (int32_t)opensc2_get_le32(&ans[OPENSC2_DOCK_RESULT_OFF]);
 			uint8_t *hidden = t.run_hidden;
 			uint8_t nh = 0;
+			k_spinlock_key_t key;
 
+			/* "Sent": a GET input with the dock alone builds its report now. */
+			osc2_dock_after_answer();
 			memcpy(t.answer, ans, OPENSC2_DOCK_FRAME_LEN);
 			t.have_answer = true;
-			mask_answer(rc);
+			key = k_spin_lock(&hide_lock);
+			memcpy(t.masked, hidden_now, sizeof(t.masked));
+			k_spin_unlock(&hide_lock, key);
 			for (int i = 0; i < OPENSC2_DOCK_FRAME_LEN; i++) {
 				if (t.masked[i]) {
 					hidden[nh++] = ans[i];

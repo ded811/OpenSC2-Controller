@@ -27,31 +27,34 @@ enum osc2_dock_outcome osc2_dock_answer(const uint8_t *req, size_t len,
 		break;
 	}
 	/* Only the type is read, and for a SET its payload: the start byte and bytes 2 to 7 are
-	 * ignored, as on the real controller. */
+	 * ignored, as on the real controller. The answer is the previous one, rewritten only where
+	 * this request defines it. */
 	type = req[OPENSC2_DOCK_TYPE_OFF];
-	memset(ans, 0, OPENSC2_DOCK_FRAME_LEN);
-	ans[OPENSC2_DOCK_TYPE_OFF] = type;
 	switch (type) {
 	case OPENSC2_DOCK_PROBE:
-		/* The identity record; the type and result are 0 here (the real controller leaves its
-		 * previous answer's, which the puck does not read). */
+		/* The identity record; the type and the result stay the previous answer's. */
 		ops->identity(ctx, payload);
 		break;
 	case OPENSC2_DOCK_GET:
 		result = ops->get(ctx, payload);
+		ans[OPENSC2_DOCK_TYPE_OFF] = type;
+		opensc2_put_le32(&ans[OPENSC2_DOCK_RESULT_OFF], (uint32_t)result);
 		break;
 	case OPENSC2_DOCK_SET:
 		result = ops->set(ctx, &req[OPENSC2_DOCK_PAYLOAD_OFF]);
+		ans[OPENSC2_DOCK_TYPE_OFF] = type;
+		opensc2_put_le32(&ans[OPENSC2_DOCK_RESULT_OFF], (uint32_t)result);
 		break;
 	case OPENSC2_DOCK_INPUT:
 		ops->input(ctx, payload);
+		ans[OPENSC2_DOCK_TYPE_OFF] = type;
+		opensc2_put_le32(&ans[OPENSC2_DOCK_RESULT_OFF], 0);
 		break;
 	default:
-		/* The puck never sends another type (its types 4 and 5 stay inside it). */
-		result = OSC2_DOCK_RESULT_INVALID;
+		/* The puck never sends another type (its types 4 and 5 stay inside it): the previous
+		 * answer goes out again. */
 		break;
 	}
-	opensc2_put_le32(&ans[OPENSC2_DOCK_RESULT_OFF], (uint32_t)result);
 	opensc2_dock_frame_seal(ans, OPENSC2_DOCK_START_CONTROLLER);
 	return OSC2_DOCK_ANSWERED;
 }
@@ -91,22 +94,27 @@ bool osc2_dock_pilot_present(const int32_t mv[OSC2_DOCK_PILOT_READS], uint8_t *i
 
 enum osc2_dock_supply osc2_dock_supply_kind(const struct osc2_dock_power_in *in)
 {
-	if (in->plus && in->pilot) {
-		return OSC2_DOCK_SUPPLY_DOCK;
+	if (!in->usb && !in->plus) {
+		return OSC2_DOCK_SUPPLY_NONE;
 	}
-	return (in->usb || in->plus) ? OSC2_DOCK_SUPPLY_USB : OSC2_DOCK_SUPPLY_NONE;
+	return in->pilot ? OSC2_DOCK_SUPPLY_DOCK : OSC2_DOCK_SUPPLY_USB;
+}
+
+bool osc2_dock_power_posts(const struct osc2_dock_power_rule *rule, bool usb, bool plus)
+{
+	return !rule->reported || (usb || plus) != rule->present;
 }
 
 int osc2_dock_power_step(struct osc2_dock_power_rule *rule, const struct osc2_dock_power_in *in)
 {
 	bool present = in->usb || in->plus;
 
-	if (rule->reported && present == rule->present) {
+	if (!osc2_dock_power_posts(rule, in->usb, in->plus)) {
 		return -1;   /* the kind was decided when the supply appeared */
 	}
 	rule->reported = true;
 	rule->present = present;
-	rule->kind = present ? osc2_dock_supply_kind(in) : OSC2_DOCK_SUPPLY_NONE;
+	rule->kind = osc2_dock_supply_kind(in);
 	return (int)rule->kind;
 }
 
@@ -135,20 +143,20 @@ static void go(struct osc2_dock_sm *sm, enum osc2_dock_state to, uint32_t action
 	}
 	switch (to) {
 	case OSC2_DOCK_RADIO_OFF:
-		actions |= OSC2_DOCK_DO_LED_CHARGING;
+		actions |= OSC2_DOCK_DO_LED_CHARGING | OSC2_DOCK_DO_OFFSETS_ON;
 		if (sm->link_selected) {
 			actions |= OSC2_DOCK_DO_STOP_LINK;
 		}
 		break;
 	case OSC2_DOCK_LIFTED:
-		actions |= OSC2_DOCK_DO_LED_OFF | OSC2_DOCK_DO_TIMER_5S;
+		actions |= OSC2_DOCK_DO_LED_OFF | OSC2_DOCK_DO_OFFSETS_OFF | OSC2_DOCK_DO_TIMER_5S;
 		break;
 	case OSC2_DOCK_CHORD:
 		actions |= OSC2_DOCK_DO_SELECT | OSC2_DOCK_DO_CUE | OSC2_DOCK_DO_LED_COLOUR |
 			   OSC2_DOCK_DO_TIMER_4S | OSC2_DOCK_DO_PAUSE;
 		break;
 	case OSC2_DOCK_LINK_UP:
-		actions |= OSC2_DOCK_DO_LED_TRANSPORT;
+		actions |= OSC2_DOCK_DO_LED_TRANSPORT | OSC2_DOCK_DO_OFFSETS_ON;
 		break;
 	default:
 		break;
@@ -259,7 +267,7 @@ void osc2_dock_sm_step(struct osc2_dock_sm *sm, enum osc2_dock_event ev, uint8_t
 			go(sm, OSC2_DOCK_RADIO_OFF, OSC2_DOCK_DO_CHIME_OFF, out);
 			break;
 		case OSC2_DOCK_EV_POWER_GONE:
-			go(sm, OSC2_DOCK_AWAY, OSC2_DOCK_DO_TO_BATTERY, out);
+			go(sm, OSC2_DOCK_AWAY, OSC2_DOCK_DO_TO_BATTERY | OSC2_DOCK_DO_OFFSETS_OFF, out);
 			break;
 		default:
 			break;

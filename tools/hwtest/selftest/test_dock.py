@@ -94,6 +94,26 @@ class DockCodec(unittest.TestCase):
         with self.assertRaises(ValueError):
             D.build_request(D.SET, bytes(64))
 
+    def test_answers_over_each_other(self):
+        # the board's answers as the real controller builds them: over the previous one
+        m = D.AnswerModel()
+        record = bytes(range(0x10, 0x10 + 57))
+        inp = m.input(bytes([0x5C]) * 53)
+        self.assertEqual(D.parse_answer(inp)["type"], D.INPUT)
+        probe = m.probe(record)
+        a = D.parse_answer(probe)
+        self.assertEqual((a["type"], a["result"], a["crc_ok"]), (D.INPUT, 0, True))
+        self.assertEqual(a["payload"][:57], record)
+        self.assertEqual(a["payload"][57:], bytes(6))
+        a = D.parse_answer(m.set(-22))
+        self.assertEqual((a["type"], a["result"], a["payload"][:57]), (D.SET, -22, record))
+        a = D.parse_answer(m.get(63, bytes([0xED, 5]) + b"abcde", bytes([0xED, 0])))
+        self.assertEqual(a["payload"][:8], bytes([0xED, 0]) + b"abcde" + record[7:8])
+        before = m.get(D.RESULT_NOTHING_TO_READ)
+        self.assertEqual(D.parse_answer(before)["payload"][:2], bytes([0xED, 0]))
+        self.assertEqual(m.request(D.build_request(4)), before)
+        self.assertEqual(m.request(D.build_request(D.PROBE), record=record)[8:65], record)
+
     def test_ops(self):
         parts = D.load_args(bytes(range(73)))
         self.assertEqual([len(p) for p in parts], [54, 21])
@@ -121,6 +141,9 @@ class DockCodec(unittest.TestCase):
         get = D.answer(D.GET, 63, bytes([0xAE, 20, 1]) + b"OSC0123456789")
         self.assertEqual(sorted(D.masked_bytes(get, True)), list(range(10, 30)))
         self.assertEqual(D.masked_bytes(get, False), set())
+        # a probe's answer keeps the previous answer's type: the request's type says it
+        carried = D.AnswerModel(get).probe(D.identity_record(ident))
+        self.assertEqual(sorted(D.masked_bytes(carried, False, D.PROBE)), list(range(24, 52)))
 
 
 class DockSafety(unittest.TestCase):
