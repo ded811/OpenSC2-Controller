@@ -265,11 +265,27 @@ def _check_cal(opcode, name, value):
     raise SafetyError("0x%02X on the calibration key %r is never sent" % (opcode, name))
 
 
+def _check_imu(opcode, name, value):
+    """0xEE/0xEF/0xF0 on one of the IMU's keys (settings/sensors/imu/...): RAM only, but with its
+    size a key would change the IMU until the next boot (the stream off, another mounting matrix),
+    so only the forms the firmware refuses go out: 0xEE with another size, and 0xEF (no read
+    function, nothing to save)."""
+    size = C.IMU_KEYS[name]
+    if opcode == C.VC_BY_NAME_SET and len(value) != size:
+        return
+    if opcode == C.VC_BY_NAME_SAVE:
+        return
+    raise SafetyError("0x%02X on the IMU key %r is never sent" % (opcode, name))
+
+
 def _check_named(opcode, payload, ctx, consume=True):
     """0xEE/0xEF/0xF0: the allowed forms of S5. Raises SafetyError when refused."""
     name, value = _split_named(payload)
     if name is not None and name.startswith("cal/"):
         _check_cal(opcode, name, value)
+        return
+    if name in C.IMU_KEYS:
+        _check_imu(opcode, name, value)
         return
     known = name in set(C.KEY_NAMES.values())
     is_bond = name in ("esb/bond", "esb/bond_2")

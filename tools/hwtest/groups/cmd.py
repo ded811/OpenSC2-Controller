@@ -211,6 +211,9 @@ def run(ctx):
                     c.true("%s: n 0 or %d" % (name, size), a.n in (0, size))
                 if name == "cal/joy_l":
                     c.observe(cal_joy_l="empty" if a.n == 0 else "stored")
+            # the IMU's keys are set only (as on the real controller): nothing to read back
+            a = rig.vendor(C.VC_BY_NAME_READ, b"settings/sensors/imu/use_bias\0")
+            c.eq("settings/sensors/imu/use_bias: n 0 (set only)", a.n, 0)
             a = rig.vendor(C.VC_BY_NAME_READ, C.NO_KEY.encode() + b"\0")
             c.eq("a name that is no key: n", a.n, 0)
             a = rig.vendor(C.VC_BY_NAME_READ, TRANSPORT[:-1])
@@ -227,6 +230,14 @@ def run(ctx):
                    rig.refused(C.VC_BY_NAME_SET, BOND2 + bytes(23)))
             c.true("0xEE cal/joy_l 00 is refused", rig.refused(C.VC_BY_NAME_SET,
                                                                b"cal/joy_l\0\x00"))
+            # the IMU's keys take exactly their size (RAM only); nothing here changes the IMU
+            c.true("0xEE settings/sensors/imu/mode with one byte is refused",
+                   rig.refused(C.VC_BY_NAME_SET, b"settings/sensors/imu/mode\0\x01"))
+            c.true("0xEE settings/sensors/imu/mounting_matrix with 8 bytes is refused",
+                   rig.refused(C.VC_BY_NAME_SET,
+                               b"settings/sensors/imu/mounting_matrix\0" + bytes(8)))
+            c.true("0xEF settings/sensors/imu/use_bias (no read function) is refused",
+                   rig.refused(C.VC_BY_NAME_SAVE, b"settings/sensors/imu/use_bias\0"))
             if rig.ctx.caps_identity_write:
                 c.note("opensc2/unit_serial skipped: this build has an identity write path "
                        "(caps bit 7), covered by the host tests")

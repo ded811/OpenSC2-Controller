@@ -320,6 +320,14 @@ CAL_SHOWN = {
     "cal/rgbw_r": "trim", "cal/rgbw_g": "trim", "cal/rgbw_b": "trim", "cal/rgbw_w": "trim",
     "cal/volt_offset": "always", "cal/sensors/gyroscope/bias": "never",
 }
+# The IMU's keys by name and their sizes (<opensc2/imu.h>): RAM only, set only. S5 lets out only
+# the forms the firmware refuses before it touches anything (0xEE with another size, 0xEF, which
+# has no read function to save): with their size they would change the IMU until the next boot.
+IMU_KEYS = {
+    "settings/sensors/imu/mode": 2, "settings/sensors/imu/mounting_matrix": 9,
+    "settings/sensors/imu/gyro_dz_threshold": 4, "settings/sensors/imu/use_bias": 1,
+    "settings/sensors/imu/gyro_threshold": 1,
+}
 # A name that is no key at all (0xF0 of it is refused before any flash access).
 NO_KEY = "test/no_such_key"
 
