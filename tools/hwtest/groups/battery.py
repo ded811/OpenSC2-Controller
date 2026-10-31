@@ -98,8 +98,8 @@ def run(ctx):
                        got is not None)
                 if got:
                     last = got[0]
-                    c.true("%s: no gauge flags in 0x43" % name, len(got[1]) < 16 or
-                           got[1][15:].count(0) == len(got[1][15:]))
+                    # The 0x43 is 15 bytes (the descriptor's size); what Windows shows past them
+                    # is its own buffer's old content, so a 16th byte cannot be checked here.
                 be = rig.vendor(C.VC_BATTERY_DATA)
                 results.append((name, b, be))
             c.true("the level is clamped to 100",

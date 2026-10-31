@@ -18,9 +18,11 @@ TESTS = [("reports.app_send", "WRB", []), ("reports.app_send_raw", "WRB", []),
 
 
 def _arrives(rig, want, timeout):
-    # raw: over Bluetooth the reports as they came (a 0x45 is not read as a state report here)
-    return rig.wait_report(lambda r: r[:len(want)] == want and
-                           not any(r[len(want):]), timeout, raw=True)
+    # raw: over Bluetooth the reports as they came (a 0x45 is not read as a state report here).
+    # Only the report's own bytes count: Windows returns every read at the collection's longest
+    # input report, and past a shorter report's end it leaves what its buffer held before (on a
+    # board that sends the identity quaternion, the last 0x42's W).
+    return rig.wait_report(lambda r: r[:len(want)] == want, timeout, raw=True)
 
 
 def run(ctx):
