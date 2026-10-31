@@ -94,6 +94,7 @@ build each variant and what it costs in flash and RAM:
 | The rules on every state report: a stick deflected beyond 12000 counts as touched, a pad is blank while its stick is touched (setting 82), no trigger bit with raw triggers (setting 62), optionally the pads' clicks from their pressure (settings 52, 53). The blank canvas's raw stick output (setting 46). | Built; not yet tested on hardware |
 | Lizard mode's processing as the real controller's: the touch stabilisers, the 8-frame average, the glide after a flick, the haptic ticks and pad clicks (haptic events for the application; the blank canvas buzzes its motor for them, if one is wired); its reports waiting for room through the puck instead of being dropped. | Built; not yet tested on hardware |
 | Calibration as the real controller keeps it: the `cal/` keys (read, written and erased by the vendor commands, kept through a factory reset), the stick, trigger and pressure recordings (`0xD8`, `0xC0`, `0xC3`, also `opensc2 cal` on the console), and raw inputs processed with the real controller's rules and settings (sticks, triggers, pad pressure and click, stick touch and grip, pad rotation and stabiliser) ([how to record one](app/README.md#calibration)). | Built; not yet tested on hardware (the recordings need real parts) |
+| The real controller's input processing in its own single-precision arithmetic, quirks included: sticks, triggers and their digital bits, pad pressure, the trackpads frame by frame from a sensor's frames (`<opensc2/trackpad.h>`: the position filter, rotation, stabiliser, stick touch, grip, pressure and click), the IMU with its stream rules, scaling, mounting matrix and keys by name (`<opensc2/imu.h>`), the button debounce. The blank canvas reads its sticks and triggers this way by default (calibrate them once). | Built; host-tested against the documented arithmetic; not yet tested on hardware |
 | Sensor and battery helpers for your own parts (`<opensc2/sensor_helpers.h>`, `<opensc2/gauge.h>`), and the blank canvas's options that use them (`app/sensors.conf`: sampling right before each report, an LSM6DSV16X IMU with its mounting matrix and a rest-based gyro bias, the trackpad's processing, stick touch and grips from a capacitive sensor, the battery level, I2C bus recovery; `app/imu-stream.conf`; `app/expander.conf`: L4, L5, R4 and R5 through an I2C port expander). | Built; not yet tested on hardware (needs real parts) |
 | The real controller's power and status rules, on by default ([docs/api.md](docs/api.md#power-and-the-system-state-machine)): the power-on decision, STEAM held 7 s, the transport chords and their pairing hold, the keylock, the idle timeout, low battery, shutdown and power-off, the status LED's modes and patterns, and the cue events. | Built; not yet tested on hardware |
 | A [battery build](app/README.md#a-battery-build) (`app/battery.conf`) that turns itself off and wakes on STEAM or USB power; an RGBW status LED and an IR LED; a charger status pin. | Built; not yet tested on hardware (needs real parts) |
@@ -363,8 +364,9 @@ hardware report, a new board). [CHANGELOG.md](CHANGELOG.md) lists the changes, a
 zephyr/module.yml, CMakeLists.txt, Kconfig   the Zephyr module
 include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (wire formats and USB
                         descriptors), settings.h, led.h (the status LED), cal.h (calibration and
-                        raw inputs), sensor_helpers.h and gauge.h (sensor and battery helpers),
-                        fusion.h, haptics.h (the haptics synthesiser), dock.h (the dock's frames)
+                        raw inputs), trackpad.h (trackpads frame by frame), imu.h (the IMU),
+                        sensor_helpers.h and gauge.h (sensor and battery helpers), fusion.h,
+                        haptics.h (the haptics synthesiser), dock.h (the dock's frames)
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
 dts/bindings/           the devicetree bindings of the dock's UART and pilot (opensc2,dock) and of
                         the synthesiser's I2S and PWM DAC outputs (haptics/)
@@ -372,7 +374,8 @@ lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc
                         ble.c (Bluetooth LE, opt-in), wireless.c (the puck or Bluetooth),
                         commands.c (vendor commands), report.c (reports on every link),
                         input_rules.c (the rules on every report), lizard.c (lizard mode), cal*.c
-                        (calibration and raw inputs), mode.c (wired or wireless), usblog.c (the
+                        (calibration and raw inputs), pad*.c (the trackpads frame by frame), imu*.c
+                        (the IMU), mode.c (wired or wireless), usblog.c (the
                         session log), system.c with sys_rules.c, chord_rules.c, idle_rules.c and
                         led_rules.c (power, chords, the status LED, cues), crash.c and hwdt.c
                         (crash records, the watchdog), dock_*.c and dock.c (the dock), storage.c

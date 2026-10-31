@@ -404,9 +404,10 @@ open, the library does what should work with Steam and the puck, and says so her
 7. **The quaternion** (offsets 45 to 52): the real controller never sends W = 0. July sent the
    identity (W 32767, X = Y = Z = 0); October sends its fused rotation and keeps the last sample
    while the stream is off. The library sends the application's quaternion, and its "none" (all
-   four 0, the state of a board without an IMU) as the identity; the fusion helper fills all four.
-   The blank canvas's polled IMU option sends "none", so the identity, while setting 48 is 0, where
-   the real controller keeps its last sample. (0.2.0 sent all four 0 without an IMU.)
+   four 0, the state of a board without an IMU or without an orientation) as the identity; the
+   library's IMU (`<opensc2/imu.h>`) keeps the last sample while the stream is off, as October
+   does, and the blank canvas feeds its IMU through it. (0.2.0 sent all four 0 without an IMU; the
+   parity work's blank canvas sent "none" while setting 48 was 0.)
 8. **Payload limit**: the controller's payloads are "within 127 bytes", the puck accepts 128; the
    library stays at 127.
 9. **The October firmware's change to the ESB driver** (the processor, not the radio, starts each
@@ -587,23 +588,22 @@ open, the library does what should work with Steam and the puck, and says so her
     not been checked ([api.md](api.md#the-hardware-watchdog)).
 29. **The rules on every state report** are the documented ones
     ([pad processing](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#pad-processing),
-    [raw output](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#raw-output-settings-46-and-62)),
-    applied to the values the application reports, which the real controller would have worked
-    out itself from its sensors:
+    [raw output](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#raw-output-settings-46-and-62)).
+    Inputs the library processes itself (raw sticks and triggers, raw pressure and capacitive
+    words, trackpad frames) get them as the real controller works them out. For the values an
+    application gives finished, the library applies them to those values:
 
-    | Rule | The library |
+    | Rule | The library, on finished values |
     | --- | --- |
     | Stick-touch fallback | on the application's stick values, with the documented approximation and radius; not with raw sticks (46). The real controller reads its calibrated values, which are 0 in raw mode: the same result |
-    | Setting 82 | the documented blanking; raw pressure (60 = 1) passes, though the library has no raw pressure of its own |
-    | Raw triggers (62) | both bits 0. The raw values themselves are the application's to give; the blank canvas has no analog triggers |
-    | Click by pressure (52, 53) | opt-in (`CONFIG_OPENSC2_PAD_CLICK_AUTO`), so boards with a click switch keep it. The application's pressure 0..32767 is taken as the documented normalised press (calibrated, gain 1): at -1 (100 %) a press would have to pass 108 %, which a value capped at 32767 never does, where the real controller's uncapped value can on a very firm press; below 9 the click can only end with a new threshold, as with the documented formula |
-    | Raw sticks (46) | the blank canvas gives counts and millivolts the documented way (the library cannot: it has no ADC) |
+    | Setting 82 | the documented blanking; raw pressure (60 = 1) passes |
+    | Raw triggers (62) | both bits 0 |
+    | Trigger bits (68) | the real controller's trigger stage in single precision on value / 32767: on above 68 % + 5 %, off below 68 % − 5 %, never on from 95 up; a change of 68 or a set-up of the triggers clears them. The real stage works on the fraction before it is scaled to 32767, a hair above value / 32767, so a finished value within one count of a level can differ; a raw trigger's bit is the stage's own, its direction-1 quirk at 95 included |
+    | Click by pressure (52, 53) | opt-in for finished values (`CONFIG_OPENSC2_PAD_CLICK_AUTO`), so boards with a click switch keep it; the pressure / 32767 taken as the normalised press (gain 1), in single precision: at −1 (100 %) a press would have to pass 108 %, which a value capped at 32767 never does, where the real controller's uncapped value can on a very firm press. Raw pressure and trackpad frames click from their calibrated pressure as on the real controller |
+    | Raw sticks (46) | raw sticks give counts and millivolts the documented way; the blank canvas also gives them for an input it centres itself |
 
-    The pressure of an untouched pad is sent as the application reports it, where the real
-    controller sends 0; the trigger bits' on point is setting 68 plus 5 points, and a fully pulled
-    trigger always counts, where the real one never sets the bit from 68 = 96 on, and at exactly 95
-    sets it only for a trigger calibrated the other way round (direction 1) once its output reaches
-    32767, clearing it below 90 %.
+    The pressure of an untouched pad given finished is sent as the application reports it, where
+    the real controller sends 0; raw pressure and trackpad frames send 0.
 30. **Reports waiting through the puck.** The real controller's input records wait for a free
     buffer. The library queues up to 6 extra reports behind each state report as before, and lets
     lizard mode's and the application's reports wait in up to 8 more
@@ -614,21 +614,20 @@ open, the library does what should work with Steam and the puck, and says so her
 31. **Calibration** (`CONFIG_OPENSC2_CAL`, on by default). The keys, their sizes and formats, the
     commands `0xD8`, `0xC0`, `0xC3`, `0xE2` and `0xFE`, the recordings' steps and the arithmetic of
     sticks, triggers and pad pressure follow the protocol documentation
-    ([input and sensors](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#calibration-keys)).
-    Where it leaves something open, or a part is Valve's hardware, OpenSC2 chose:
-    - the factors 0.9, 0.98 and 0.05 are exact fractions in integer arithmetic, so a value that
-      lands exactly on a whole number is not off by one the way a floating-point one can be;
-    - a recording saves only the sides that got raw samples since its step 1: a board that gives
-      no raw input for a side keeps that side's stored key. The real controller's pad pressure
-      recording (`0xC3`) differs here: its step 3 saves whatever the two records hold, with or
-      without a step 1, so a step 3 sent alone after boot stores both pads as uncalibrated
-      (format 0) and leaves them without pressure and click. OpenSC2 deliberately saves nothing
-      for a step 3 without a step 1, as the documentation has the sticks and triggers do (`0xD8`,
-      `0xC0`);
-    - the raw inputs are processed once per state report: the pressure filter and the two-word
-      means of the capacitive words step per report, where the real controller steps them per
-      trackpad frame (about 250 a second, close to the report rate on the cable);
-    - a pressure calibration whose range is empty (B equal to A) counts as uncalibrated;
+    ([input and sensors](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#calibration-keys)),
+    in the real controller's single-precision floating point, its order of operations and its
+    fused multiply-adds, so the values are the real ones to the last count, quirks included (a
+    turned-over stick half reads 0, a range end of 0 counts as "not set", a pressure range of 0
+    reads 0, the recordings' quirks: a step 0 and 3 before the next frame still save, a lone `0xC3`
+    step 3 saves format 0, a stick or trigger recording loads every stored key again). Where it
+    leaves something open, or a part is Valve's hardware, OpenSC2 chose:
+    - a recording saves the sides the board gives samples for (or that got samples since its
+      step 1): the real controller always has both; a side the board does not have keeps its
+      stored key;
+    - raw inputs given with the setters are processed once per state report: the pressure filter
+      and the two-word means of the capacitive words step per report, where the real controller
+      steps them per trackpad frame; a board that gives [trackpad frames](api.md#trackpads-frame-by-frame)
+      gets them per frame, as on the real controller;
     - `0xED` answers `cal/volt_offset` always, the LED trims while they lie within 1..199, a
       stick, trigger, pressure or touch key (`cal/touch_l`, `cal/touch_r`: 10 bytes, used by
       nothing) while its format word is not 0, and never the gyro bias, as the documentation
@@ -638,11 +637,13 @@ open, the library does what should work with Steam and the puck, and says so her
       channel dark, as the real controller does;
     - the flash writes that a finished recording, `0xE2` and `0xFE` cause run from the system work
       queue, in the order they were asked for (`0xFE` drops the saves still waiting from before
-      it); `0xEF` and `0xF0` of a `cal/` key first wait for those, then write before they answer,
-      as for the bonds. The real controller's `0xEF` does not wait: there an erase still running
-      on its work queue can delete a key that a later `0xEF` saved, so a host's "erase, then store
-      the new calibration" can lose the new keys at the next boot. OpenSC2 keeps them (a
-      deliberate difference, in timing only when nothing is waiting);
+      it; a recording still waiting goes into RAM at once, as the real controller had loaded it
+      before the erase); `0xEF` and `0xF0` of a `cal/` key first wait for those, then write before
+      they answer, as for the bonds. The real controller's `0xEF` does not wait: there an erase
+      still running on its work queue can delete a key that a later `0xEF` saved, so a host's
+      "erase, then store the new calibration" can lose the new keys at the next boot. OpenSC2
+      keeps them (a deliberate difference, in timing only when nothing is waiting); a recording's
+      keys reach RAM a moment after its frame, from the work queue, not inside the frame;
     - a settings partition with every sector occupied at boot: the real controller erases all of
       it, calibration included, and starts over; so does OpenSC2 with
       `CONFIG_OPENSC2_STORAGE_RECOVERY`, on by default with NVS settings
@@ -651,29 +652,48 @@ open, the library does what should work with Steam and the puck, and says so her
     - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
       does, so an empty request reads the report's zero padding;
     - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
-    - not reproduced, being Valve's hardware: the stick offsets while docked, the scaling of the
-      capacitive words without external power, the trackpad chip's electrode processing (an
-      application gives positions), and the IMU's runtime settings keys.
+    - the stick offsets while docked are Valve's numbers for Valve's magnets: the library adds the
+      board's own (`opensc2_cal_set_dock_offsets()`, 0 by default) on the same rule (docked, a
+      board revision of `0x48` or later), and sets the sticks and triggers up again when the
+      controller docks or leaves the dock, as the real controller does;
+    - not reproduced, being Valve's hardware: the scaling of the capacitive words without
+      external power and the trackpad chip's electrode processing (an application gives positions,
+      a signal level or the words).
     The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
     calibration commands (its safety rule S5): calibration is tested by the host tests only.
-32. **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default, inactive with the default
-    settings). The rotation (settings 2 and 24) and the touch stabiliser (setting 80 = 2) run on
-    the application's finished positions, after the hardware test hooks' injection: the library
-    halves them back to the pad scale, turns Y back, applies the documented integer arithmetic and
-    doubles them again, so an odd position loses its lowest bit while a rule is on. The rotation's
-    sine and cosine are the exact values × 8192, truncated (30° gives 4096). The position filter
-    (setting 65, on by default on the real controller) is a helper for applications
-    (`<opensc2/sensor_helpers.h>`), not a library rule: as a rule it would change every board's
-    pads. Its speed is the change since the previous output, as in the usual "one euro" filter
-    (the documentation leaves open whether the previous input is meant).
-33. **Setting 85.** The real controller hands it to its IMU's fusion block, where its role is not
-    known. OpenSC2's rest-based gyro-bias estimate (`<opensc2/sensor_helpers.h>`, for IMUs
-    without one of their own) takes it as its rest threshold in report units. The blank canvas's
-    LSM6DSV16X stream option (`app/imu-stream.conf`) takes the stored gyro bias as the real
-    controller does: a NaN goes in as 0, and a value of 2^31 or more in magnitude (an infinity
-    included) is refused, so the stream does not start at boot and waits for a host to write
-    setting 48. A bias the IMU's driver cannot program is left out and the stream starts
-    without it.
+32. **The pad rules.** A pad fed by trackpad frames (`<opensc2/trackpad.h>`) is processed as the real
+    controller processes its pads, frame by frame: the position filter of setting 65 (on by default;
+    the speed from the previous input, in the real controller's single-precision rounding), the
+    rotation of settings 2 and 24 with the real controller's sine table (worked out with π as
+    3.141592: 30° gives 4095, 90° 8191), the stabiliser of setting 80 = 2, the stick touch, grip,
+    pressure, click, setting 82 and the start-overs. A board without a pressure, stick-touch or
+    grip word for it has its own click, stick-touch and grip bits stand in for them. For pads given
+    finished (`opensc2_set_trackpad()`), the pad rules (`CONFIG_OPENSC2_PAD_RULES`, on by default,
+    inactive with the default settings) run the rotation and the stabiliser on the application's
+    finished positions, after the hardware test hooks' injection: the library halves them back to
+    the pad scale, turns Y back, applies the documented arithmetic and doubles them again, so an
+    odd position loses its lowest bit while a rule is on; the position filter is then the
+    application's (as a library rule it would change every board's pads).
+33. **The IMU** (`<opensc2/imu.h>`). The stream from boot and its switching by setting 48 and the key
+    `mode`, the scaling (kept to 16 bits, so past full scale it wraps as on the real controller),
+    the bias of setting 84 and the key `use_bias`, the mounting matrix (the board's from
+    `opensc2_imu_set_mounting()`, the key `mounting_matrix` until the next boot), the dead zone of
+    the key `gyro_dz_threshold` and the free fall's arming (counting again 5 s after a fall, never
+    again until the next boot when the stream goes off within them) are the real controller's.
+    Setting 85 and the key `gyro_threshold` go to the application's sensor (its handler): the real
+    controller hands it to its IMU's fusion block, where its role is not known; the blank canvas's
+    LSM6DSV16X stream option takes it and does not apply it (the stock driver has no such
+    attribute). A drop sound already waiting its 250 ms still plays when the stream goes off (the
+    real controller cancels that one too). OpenSC2's rest-based gyro-bias estimate
+    (`<opensc2/sensor_helpers.h>`, for IMUs without one of their own) takes setting 85 as its rest
+    threshold in report units. The blank canvas's LSM6DSV16X stream option (`app/imu-stream.conf`)
+    runs the chip at the real controller's 250 Hz high-accuracy rate and takes the stored gyro bias
+    as the real controller does: a NaN goes in as 0, and a value of 2^31 or more in magnitude (an
+    infinity included) is refused, so the stream does not start at boot and waits for a host to
+    write setting 48. A bias the IMU's driver cannot program is left out and the stream starts
+    without it. Not done there: the fusion block's alpha-blend that the real controller writes on
+    its early boards, and the chip's own free-fall detector in the stream (the stock driver has
+    none; the library's software detector stands in).
 34. **The system state machine** (power, chords, the status LED and cues; built, not yet tested on
     hardware). OpenSC2 follows the documented machine ([in brief](#overview-power-chords-and-the-status-led);
     [api.md](api.md#power-and-the-system-state-machine)), with these differences and choices:
