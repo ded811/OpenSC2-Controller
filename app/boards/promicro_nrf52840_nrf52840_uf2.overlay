@@ -118,11 +118,12 @@
 		 * controller's colours ("red", "green", "blue", and "white" for an RGBW LED; wiring:
 		 * samples/rgb_led) and an IR LED ("ir", controller setting 36) are PWM channels in a
 		 * single pwms list, found by pwm-names. All channels of one nRF PWM instance share
-		 * one period, so the motor (200 us) and the LED (1000 us) take two instances:
+		 * one period, so the motor (200 us) and the LEDs (50 us, 20 kHz, the real
+		 * controller's period for both its status LED and its IR LED) take two instances:
 		 *   pwms = <&pwm1 0 PWM_USEC(200) PWM_POLARITY_NORMAL>,
-		 *          <&pwm2 0 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-		 *          <&pwm2 1 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-		 *          <&pwm2 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
+		 *          <&pwm2 0 PWM_USEC(50) PWM_POLARITY_INVERTED>,
+		 *          <&pwm2 1 PWM_USEC(50) PWM_POLARITY_INVERTED>,
+		 *          <&pwm2 2 PWM_USEC(50) PWM_POLARITY_INVERTED>;
 		 *   pwm-names = "rumble", "red", "green", "blue";
 		 * and enable &pwm1 and &pwm2 with a pinctrl group each (samples/rumble, rgb_led).
 		 * The LED channels' trims, percent R G B W, for the board instead of the unit's

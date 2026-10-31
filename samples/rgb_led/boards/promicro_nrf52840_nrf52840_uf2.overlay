@@ -25,11 +25,12 @@
 	};
 
 	zephyr,user {
-		/* Three channels of one PWM instance share one period: 1 kHz, flicker-free. The
-		 * firmware finds them by their names. */
-		pwms = <&pwm1 0 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-		       <&pwm1 1 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-		       <&pwm1 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
+		/* Three channels of one PWM instance share one period: 50 us (20 kHz), the real
+		 * controller's LED period, flicker-free on camera too. The firmware finds them by
+		 * their names. */
+		pwms = <&pwm1 0 PWM_USEC(50) PWM_POLARITY_INVERTED>,
+		       <&pwm1 1 PWM_USEC(50) PWM_POLARITY_INVERTED>,
+		       <&pwm1 2 PWM_USEC(50) PWM_POLARITY_INVERTED>;
 		pwm-names = "red", "green", "blue";
 		/* nice!nano-style boards switch VCC with P0.13 (low = on); check yours. */
 		vcc-enable-gpios = <&gpio0 13 GPIO_ACTIVE_LOW>;
