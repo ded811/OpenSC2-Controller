@@ -4,13 +4,17 @@
  *
  * haptics_out_pwm.c: the pads' blocks played by an nRF PWM instance as a two-channel "DAC"
  * (CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC), on nrfx's sequence playback, set up from the
- * "opensc2,haptics-pwm-dac" devicetree node. The 16 MHz clock counts to 250 (a 15.625 us period);
- * each 8-bit sample becomes a duty cycle of 0..250 steps, held for 16 periods: 250 us, exactly
- * 4 kHz. The PWM loads two values per step, the left pad's for channels 0 and 1 (its pin on 0) and
- * the right pad's for 2 and 3 (its pin on 2). Two sequences of one block each play in turn,
- * looped: while one plays, the other is filled with the next block, which a write waits for. Idle,
- * both outputs hold half duty (silence), as on the real controller. Written for stock nrfx; not
- * Valve's driver. Built; not yet tested on hardware.
+ * "opensc2,haptics-pwm-dac" devicetree node. As on the real controller, the 16 MHz clock counts to
+ * 256 (a 16 us period) and each 8-bit sample is the duty cycle itself, 0..255 steps of 256, held
+ * for 16 periods: 256 us a sample, so the pads play about 3906 samples a second rather than 4000
+ * (their tones about 2.3 % flat, their sounds that much longer). With
+ * CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K the clock counts to 250 instead (a 15.625 us period,
+ * the sample scaled to 0..250 steps): exactly 4 kHz. The PWM loads two values per step, the left
+ * pad's for channels 0 and 1 (its pin on 0) and the right pad's for 2 and 3 (its pin on 2). Two
+ * sequences of one block each play in turn, looped: while one plays, the other is filled with the
+ * next block, which a write (or ready()) waits for. Idle, both outputs hold half duty (silence), as
+ * on the real controller. Written for stock nrfx; not Valve's driver. Built; not yet tested on
+ * hardware.
  */
 #include <errno.h>
 #include <string.h>
@@ -28,8 +32,12 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 #define NODE DT_INST(0, opensc2_haptics_pwm_dac)
 #define PWM_NODE DT_PHANDLE(NODE, pwm)
-#define TOP 250u                /* 16 MHz / 250 = 64 kHz PWM */
-#define REPEATS 15u             /* each value 16 periods: 250 us */
+#if defined(CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K)
+#define TOP 250u                /* 16 MHz / 250 = 64 kHz PWM: 250 us a sample, exactly 4 kHz */
+#else
+#define TOP 256u                /* 16 MHz / 256 = 62.5 kHz PWM: 256 us a sample, as the real one */
+#endif
+#define REPEATS 15u             /* each value 16 periods */
 /* Bit 15 of a value is the pin's polarity: set, the pin is high for the value's counts of each
  * period (Zephyr's PWM driver sets it so for normal polarity); clear, the pin would be low for
  * them, and both pads would come out inverted. */
@@ -48,6 +56,7 @@ static K_SEM_DEFINE(free_seqs, 2, 2);
 static uint8_t silence[OPENSC2_HAPTICS_PAD_FRAMES * 2];
 static uint8_t next_fill;
 static bool playing;
+static bool reserved;           /* ready() took a free sequence for the next write() */
 #if DT_NODE_HAS_PROP(NODE, enable_gpios)
 static const struct gpio_dt_spec drv_en = GPIO_DT_SPEC_GET(NODE, enable_gpios);
 #endif
@@ -72,14 +81,18 @@ static void pwm_event(nrfx_pwm_event_type_t event, void *ctx)
 	}
 }
 
+/* A sample as steps of high time: the value itself of 256 steps (128 is half duty), or with the
+ * exact 4 kHz option 0..255 scaled to 0..250, rounded. */
+static uint16_t duty(uint8_t v)
+{
+	return (uint16_t)(HIGH_FOR_VALUE | (TOP == 256u ? v : (v * TOP + 127u) / 255u));
+}
+
 static void fill(uint8_t which, const uint8_t *block)
 {
 	for (int f = 0; f < OPENSC2_HAPTICS_PAD_FRAMES; f++) {
-		/* 0..255 to 0..250 steps of high time, rounded; 128 is (about) half duty */
-		seq_values[which][f].group_0 =
-			(uint16_t)(HIGH_FOR_VALUE | ((block[f * 2] * TOP + 127u) / 255u));
-		seq_values[which][f].group_1 =
-			(uint16_t)(HIGH_FOR_VALUE | ((block[f * 2 + 1] * TOP + 127u) / 255u));
+		seq_values[which][f].group_0 = duty(block[f * 2]);
+		seq_values[which][f].group_1 = duty(block[f * 2 + 1]);
 	}
 }
 
@@ -100,18 +113,33 @@ static int pwm_out_start(const struct opensc2_haptics_output *out)
 	return 0;
 }
 
+static int pwm_out_ready(const struct opensc2_haptics_output *out)
+{
+	ARG_UNUSED(out);
+	/* Both sequences hold blocks that have not played: wait for the older one to finish. (A late
+	 * block cannot be told from the hardware: the loop then replays the old one once.) */
+	if (!reserved) {
+		if (k_sem_take(&free_seqs, K_MSEC(WAIT_MS)) != 0) {
+			return -EPIPE;
+		}
+		reserved = true;
+	}
+	return 0;
+}
+
 static int pwm_out_write(const struct opensc2_haptics_output *out, const void *block,
 			 size_t frames)
 {
-	ARG_UNUSED(out);
+	int err;
+
 	if (frames != OPENSC2_HAPTICS_PAD_FRAMES) {
 		return -EINVAL;
 	}
-	/* Both sequences hold blocks that have not played: wait for the older one to finish. (A late
-	 * block cannot be told from the hardware: the loop then replays the old one once.) */
-	if (k_sem_take(&free_seqs, K_MSEC(WAIT_MS)) != 0) {
-		return -EPIPE;
+	err = pwm_out_ready(out);
+	if (err) {
+		return err;
 	}
+	reserved = false;
 	fill(next_fill, block);
 	next_fill ^= 1u;
 	return 0;
@@ -126,6 +154,7 @@ static int pwm_out_stop(const struct opensc2_haptics_output *out, bool drop)
 	}
 	(void)nrfx_pwm_stop(&pwm, true);
 	playing = false;
+	reserved = false;
 	k_sem_reset(&free_seqs);
 	k_sem_give(&free_seqs);
 	k_sem_give(&free_seqs);
@@ -146,6 +175,7 @@ static void pwm_out_enable(const struct opensc2_haptics_output *out, bool on)
 
 static const struct opensc2_haptics_output_api pwm_out_api = {
 	.start = pwm_out_start,
+	.ready = pwm_out_ready,
 	.write = pwm_out_write,
 	.stop = pwm_out_stop,
 	.enable = pwm_out_enable,

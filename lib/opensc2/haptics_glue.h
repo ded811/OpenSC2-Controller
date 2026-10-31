@@ -26,7 +26,28 @@ void osc2_haptics_library(const struct opensc2_haptic *h, uint8_t n);
 uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
 			     uint8_t *rlen);
 
+/* Controller setting `number` changed (OPENSC2_SETTINGS_ALL: any of them, the defaults restored,
+ * and once at start-up): settings 75 and 76 go to the four channels as configure commands, as the
+ * real controller's settings handler hands them on. */
+void osc2_haptics_setting(uint8_t number);
+
+/* settings/haptics/haptic_master_gain_db (key 0) or .../amplifier_mode (key 1) set by name
+ * (0xEE): to the four channels at once, bypassing the numbered settings. 0 or -ENOMEM. */
+int osc2_haptics_key(uint8_t key, int16_t value);
+
 #else
+
+static inline void osc2_haptics_setting(uint8_t number)
+{
+	(void)number;
+}
+
+static inline int osc2_haptics_key(uint8_t key, int16_t value)
+{
+	(void)key;
+	(void)value;
+	return 0;
+}
 
 static inline void osc2_haptics_library(const struct opensc2_haptic *h, uint8_t n)
 {

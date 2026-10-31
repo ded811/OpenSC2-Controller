@@ -331,10 +331,11 @@ static void rumble_timeout_fn(struct k_work *work)
 static K_WORK_DELAYABLE_DEFINE(rumble_work, rumble_timeout_fn);
 
 /* CONFIG_OPENSC2_HAPTIC_STOP_STATUS: the 0x44 {channel, 0x02} replies the real controller sends
- * for a stop (proto_rules.h), after the application heard about the output. */
+ * for a stop (proto_rules.h), after the application heard about the output. With the haptics
+ * synthesiser its sequencers send them, as the real ones do, when they take the stop. */
 static void stop_status(enum osc2_link link, const struct opensc2_output *out)
 {
-#if defined(CONFIG_OPENSC2_HAPTIC_STOP_STATUS)
+#if defined(CONFIG_OPENSC2_HAPTIC_STOP_STATUS) && !defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
 	uint8_t ids[4];
 	uint8_t n = osc2_stop_status(out, ids);
 

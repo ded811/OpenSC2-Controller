@@ -42,12 +42,15 @@ enum osc2_hap_script_ev {
 	OSC2_HAP_SCRIPT_EV_FALL = 6,     /* a free fall: extra 1 taken, 0 ignored (not armed) */
 	OSC2_HAP_SCRIPT_EV_DROP = 7,     /* the drop sound due: id = script (0 none), extra = byte */
 	OSC2_HAP_SCRIPT_EV_REARM = 8,    /* free falls count again */
+	OSC2_HAP_SCRIPT_EV_IMU_OFF = 9,  /* the IMU stopped: extra 1 the drop sounds now off */
 };
 
 /* What has to go out after a call: a 0x44 report or a ring entry. */
-#define OSC2_HAP_OUT_STATUS 1            /* data: channel id, flags u32 */
+#define OSC2_HAP_OUT_STATUS 1            /* data: channel id, flags u32, then the link of the
+					  * stop it answers (OSC2_TEST_LINK_*), or 0xFF */
 #define OSC2_HAP_OUT_NOTE   2            /* data: a ring entry's data of kind `kind` */
 #define OSC2_HAP_OUTBOX 40
+#define OSC2_HAP_LINK_NONE 3             /* OSC2_TEST_LINK_NONE: a stop of the library's own */
 
 struct osc2_hap_out_item {
 	uint8_t what;
@@ -65,6 +68,13 @@ struct osc2_hap_rt {
 	uint32_t index[OSC2_HAP_PATHS];  /* blocks since the sequencer started from idle */
 	int16_t forced_random;           /* the next drop's random byte (the test hooks), or -1 */
 	uint32_t underruns[OSC2_HAP_PATHS];
+	/* per channel: the link (OSC2_TEST_LINK_*) of the last stop queued, for its 0x44's note */
+	uint8_t stop_link[OSC2_HAP_CHANNELS];
+	/* the amplifier mode a sequencer applied and its thread has not acted on yet (-1: none) */
+	int8_t amp[OSC2_HAP_PATHS];
+	/* settings 75 and 76 as last handed to the channels (the start-up handover sends both) */
+	bool handed;
+	int16_t sent75, sent76;
 	struct osc2_hap_out_item outbox[OSC2_HAP_OUTBOX];
 	uint8_t out_count;
 	uint32_t out_lost;
@@ -73,12 +83,12 @@ struct osc2_hap_rt {
 /* Everything idle: the engine (osc2_hap_init()), the players, the drop sounds armed. */
 void osc2_hap_rt_init(struct osc2_hap_rt *rt);
 
-/* Decoded output reports from the host, `n` of them (two for 0x88: the right grip's go in first,
- * as on the real controller). Queues the commands, writes the stream bytes (their 0x44 flags go
- * into the outbox at once), starts the scripts. `setting27`: the rumble gain offset. Returns the
- * paths that got commands (bit 0 pads, bit 1 grips). */
-uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, const struct opensc2_output *out, int n,
-			 int16_t setting27, uint32_t now_ms);
+/* Decoded output reports from the host on `link` (OSC2_TEST_LINK_*), `n` of them (two for 0x88:
+ * the right grip's go in first, as on the real controller). Queues the commands, writes the
+ * stream bytes (their 0x44 flags go into the outbox at once), starts the scripts. `setting27`:
+ * the rumble gain offset. Returns the paths that got commands (bit 0 pads, bit 1 grips). */
+uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, uint8_t link, const struct opensc2_output *out,
+			 int n, int16_t setting27, uint32_t now_ms);
 
 /* Clicks the library makes itself (lizard mode's ticks and pad presses,
  * osc2_hap_library_clicks()): returns the paths that got commands. */
@@ -103,12 +113,43 @@ int osc2_hap_rt_cue(struct osc2_hap_rt *rt, uint8_t cue, uint8_t level, uint32_t
 /* A free fall (from the IMU): true when it was taken (the drop sounds were armed). */
 bool osc2_hap_rt_fall(struct osc2_hap_rt *rt, uint32_t now_ms);
 
+/* The IMU stopped streaming: true when that cancelled a drop sound or a re-arm. */
+bool osc2_hap_rt_imu_stopped(struct osc2_hap_rt *rt);
+
 /* Queue a command (the public API's clicks, stops and clips). */
 bool osc2_hap_rt_queue(struct osc2_hap_rt *rt, const struct osc2_hap_cmd *cmd);
 
-/* One block of `path`: the queued commands applied, the block rendered into `out` (its CRC and
- * peak reported while a capture runs), the events into the outbox. `first`: the first block of a
- * playback. Returns the block's bytes; `*busy` whether anything plays after it. */
+/* The haptics settings handed to the four channels as configure commands, as the real controller's
+ * settings change handler does: the amplifier mode (setting 75, 0 or not 0) and the master gain
+ * (setting 76, kept in 8 bits), each to the left pad, the right pad, the left grip and the right
+ * grip, stopping at the first that finds its queue full. `number` is the setting that changed, or
+ * OPENSC2_SETTINGS_ALL: every one that differs from what was handed last (both the first time, at
+ * the end of start-up). Returns the paths that got commands. */
+uint8_t osc2_hap_rt_settings(struct osc2_hap_rt *rt, uint8_t number, int16_t s75, int16_t s76);
+
+/* The settings/haptics/... keys set by name (vendor command 0xEE), which reach the channels at
+ * once, bypassing settings 75 and 76: OSC2_HAP_KEY_GAIN or _AMP with the key's 16-bit value.
+ * 0, or -ENOMEM when a queue was full (the rest of the channels were not reached). `*wake` gets
+ * the paths that got commands. */
+#define OSC2_HAP_KEY_GAIN 0
+#define OSC2_HAP_KEY_AMP  1
+int osc2_hap_rt_key(struct osc2_hap_rt *rt, uint8_t key, int16_t value, uint8_t *wake);
+
+/* The amplifier mode `path` applied since the last call (0 follow playback, 1 held on), or -1:
+ * its thread raises or drops the enable at once. */
+int8_t osc2_hap_rt_amp(struct osc2_hap_rt *rt, uint8_t path);
+
+/* The queued commands of `path` applied (between blocks, before the thread waits for the output
+ * to take the next one). */
+void osc2_hap_rt_apply(struct osc2_hap_rt *rt, uint8_t path);
+
+/* One block of `path` rendered into `out` (its CRC and peak reported while a capture runs), the
+ * events into the outbox. `first`: the first block of a playback. Returns the block's bytes;
+ * `*busy` whether anything is still in the mix after it. */
+size_t osc2_hap_rt_render(struct osc2_hap_rt *rt, uint8_t path, bool first, void *out,
+			  bool *busy);
+
+/* osc2_hap_rt_apply() and osc2_hap_rt_render() at once. */
 size_t osc2_hap_rt_block(struct osc2_hap_rt *rt, uint8_t path, bool first, void *out, bool *busy);
 
 /* Apply the queued commands of an idle `path` (formats and stops are answered then too); returns
@@ -131,6 +172,7 @@ uint8_t osc2_hap_rt_take(struct osc2_hap_rt *rt, struct osc2_hap_out_item *out, 
 #define OSC2_HAP_PLAY_SCRIPT 2     /* channels u8, id u8, gain s8 */
 #define OSC2_HAP_PLAY_FALL   3     /* the random byte the drop sound will use, u8 */
 #define OSC2_HAP_PLAY_STOP   4     /* channels u8 */
+#define OSC2_HAP_PLAY_IMU_OFF 5    /* (none): the IMU stopped; result 1 when it cancelled */
 
 #define OSC2_HAP_STATUS_LEN 38
 
@@ -139,6 +181,7 @@ uint8_t osc2_hap_rt_take(struct osc2_hap_rt *rt, struct osc2_hap_out_item *out, 
 struct osc2_hap_rt_glue {
 	uint8_t outputs;                 /* bit per path: an application output is set */
 	uint8_t amp_mode;                /* controller setting 75 */
+	int16_t master_db;               /* controller setting 76 */
 	uint8_t features;                /* bit 0: drop sounds built */
 	uint8_t running;                 /* bit per path: its thread plays or drains */
 };

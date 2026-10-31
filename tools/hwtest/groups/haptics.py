@@ -206,11 +206,14 @@ def _run(ctx, rig):
                 # the blocks rendered at once
                 c.true("ended %.0f ms after it started (60..140)" % dt, 60 <= dt <= 140)
                 c.eq("its parameters (Hz, ms, LFO, depth)", gens[0]["p"], (200, 100, 0, 0))
+            es = _wait(rig, start, H.RING_HAP_BLOCK, 14, 1.0, path=H.GRIPS)
             blocks = H.entries(es, H.RING_HAP_BLOCK, path=H.GRIPS)
-            # 32 frames of lead-in and 800 of tone: blocks 0..12, 64 frames each
-            c.eq("blocks 0..12, the first with the lead-in, the last before the drain",
+            # 32 frames of lead-in and 800 of tone: blocks 0..12, 64 frames each; the tone ends
+            # with block 12 but stays in the mix for 4 more samples, as on the real controller,
+            # so block 13 (silent) is the last before the drain
+            c.eq("blocks 0..13, the first with the lead-in, the last before the drain",
                  [(b["index"], b["flags"]) for b in blocks],
-                 [(0, H.BLOCK_FIRST)] + [(i, 0) for i in range(1, 12)] + [(12, H.BLOCK_LAST)])
+                 [(0, H.BLOCK_FIRST)] + [(i, 0) for i in range(1, 13)] + [(13, H.BLOCK_LAST)])
             st = _quiet(rig)
             c.eq("quiet again", (st["busy"], st["running"]), (0, 0))
 

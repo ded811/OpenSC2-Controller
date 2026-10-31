@@ -6,7 +6,8 @@
  * cues and the drop sounds). The real controller's scripts and recordings are Valve's data; these
  * are short sounds of OpenSC2's own, made of the synthesiser's tones, sweeps and pulses, one for
  * each id so that every id the host may ask for plays something. Where an id has a job on the
- * real controller (a cue, a drop sound) the sound here suits the job; it is not the real one.
+ * real controller (a cue, a drop sound) the sound here suits the job; it is not the real one. An
+ * application can give steps of its own for any id (opensc2_haptics_set_script()).
  *
  *   id  used for                                       here
  *    1  cues 0, 1, 3: start-up, the first link          a rising sweep, then a high blip
@@ -23,66 +24,72 @@
  *   16, 17  the drop sounds                             a wobbling "boing" and a rising and falling
  *                                                       "whoop"
  */
+#include <errno.h>
 #include "haptics_rules.h"
 
 /* delay ms (after the step before), gain offset dB, then the step's own values */
-#define TONE(delay, gain, hz, ms, lfo_dhz, depth) \
-	{ (delay), OSC2_HAP_STEP_TONE, (gain), (hz), (ms), (lfo_dhz), (depth) }
-#define SWEEP(delay, gain, f0, f1, ms) { (delay), OSC2_HAP_STEP_SWEEP, (gain), (f0), (f1), (ms), 0 }
-#define PULSE(delay, on_us, off_us, n) { (delay), OSC2_HAP_STEP_PULSE, 0, (on_us), (off_us), (n), 0 }
-#define END(delay) { (delay), OSC2_HAP_STEP_END, 0, 0, 0, 0, 0 }
+#define TONE(delay, gain, hz, ms, lfo_dhz, depth)                                                 \
+	{ .delay_ms = (delay), .kind = OPENSC2_HAPTICS_STEP_TONE, .gain_db = (gain), .a = (hz),   \
+	  .b = (ms), .c = (lfo_dhz), .d = (depth) }
+#define SWEEP(delay, gain, f0, f1, ms)                                                            \
+	{ .delay_ms = (delay), .kind = OPENSC2_HAPTICS_STEP_SWEEP, .gain_db = (gain), .a = (f0),  \
+	  .b = (f1), .c = (ms) }
+#define PULSE(delay, on_us, off_us, n)                                                            \
+	{ .delay_ms = (delay), .kind = OPENSC2_HAPTICS_STEP_PULSE, .a = (on_us), .b = (off_us),   \
+	  .c = (n) }
+#define END(delay) { .delay_ms = (delay), .kind = OPENSC2_HAPTICS_STEP_END }
 
-static const struct osc2_hap_step s1[] = {
+static const struct opensc2_haptics_step s1[] = {
 	SWEEP(1, 0, 260, 520, 100), TONE(120, 0, 700, 70, 0, 0), END(90),
 };
-static const struct osc2_hap_step s2[] = {
+static const struct opensc2_haptics_step s2[] = {
 	SWEEP(1, 0, 260, 520, 100), TONE(120, 0, 700, 50, 0, 0), TONE(80, 0, 700, 50, 0, 0),
 	END(70),
 };
-static const struct osc2_hap_step s3[] = {
+static const struct opensc2_haptics_step s3[] = {
 	TONE(1, 0, 520, 45, 0, 0), TONE(90, 0, 520, 45, 0, 0), TONE(90, 0, 520, 45, 0, 0), END(65),
 };
-static const struct osc2_hap_step s4[] = {
+static const struct opensc2_haptics_step s4[] = {
 	TONE(1, -2, 380, 520, 40, 80), END(540),
 };
-static const struct osc2_hap_step s5[] = {
+static const struct opensc2_haptics_step s5[] = {
 	SWEEP(1, 0, 600, 240, 170), TONE(190, -3, 200, 60, 0, 0), END(80),
 };
-static const struct osc2_hap_step s6[] = {
+static const struct opensc2_haptics_step s6[] = {
 	SWEEP(1, 0, 300, 900, 130), END(150),
 };
-static const struct osc2_hap_step s7[] = {
+static const struct opensc2_haptics_step s7[] = {
 	SWEEP(1, 0, 900, 300, 130), END(150),
 };
-static const struct osc2_hap_step s8[] = {
+static const struct opensc2_haptics_step s8[] = {
 	TONE(1, 0, 640, 40, 0, 0), TONE(120, 0, 640, 40, 0, 0), TONE(120, 0, 640, 40, 0, 0), END(60),
 };
-static const struct osc2_hap_step s9[] = {
+static const struct opensc2_haptics_step s9[] = {
 	TONE(1, 0, 640, 50, 0, 0), SWEEP(80, 0, 640, 1000, 110), END(130),
 };
-static const struct osc2_hap_step s10[] = {
+static const struct opensc2_haptics_step s10[] = {
 	SWEEP(1, 0, 400, 800, 200), SWEEP(220, 0, 800, 400, 200), END(220),
 };
-static const struct osc2_hap_step s11[] = {
+static const struct opensc2_haptics_step s11[] = {
 	TONE(1, 2, 60, 60, 0, 0), END(80),
 };
-static const struct osc2_hap_step s12[] = {
+static const struct opensc2_haptics_step s12[] = {
 	TONE(1, 0, 180, 250, 250, 100), END(270),
 };
-static const struct osc2_hap_step s13[] = {
+static const struct opensc2_haptics_step s13[] = {
 	PULSE(1, 2000, 2000, 2), PULSE(150, 2000, 2000, 2), END(30),
 };
-static const struct osc2_hap_step s14[] = {
+static const struct opensc2_haptics_step s14[] = {
 	TONE(1, 0, 300, 600, 30, 100), END(620),
 };
-static const struct osc2_hap_step s15[] = {
+static const struct opensc2_haptics_step s15[] = {
 	TONE(1, 0, 400, 50, 0, 0), TONE(70, 0, 500, 50, 0, 0), TONE(70, 0, 600, 50, 0, 0),
 	TONE(70, 0, 760, 50, 0, 0), END(70),
 };
-static const struct osc2_hap_step s16[] = {
+static const struct opensc2_haptics_step s16[] = {
 	TONE(1, 0, 140, 700, 70, 60), SWEEP(700, 0, 140, 60, 380), END(400),
 };
-static const struct osc2_hap_step s17[] = {
+static const struct opensc2_haptics_step s17[] = {
 	SWEEP(1, 0, 200, 700, 400), SWEEP(420, 0, 700, 150, 600), TONE(620, 0, 90, 150, 0, 0),
 	END(170),
 };
@@ -90,7 +97,7 @@ static const struct osc2_hap_step s17[] = {
 #define SCRIPT(s) { (s), (uint8_t)(sizeof(s) / sizeof((s)[0])) }
 
 static const struct {
-	const struct osc2_hap_step *steps;
+	const struct opensc2_haptics_step *steps;
 	uint8_t count;
 } scripts[OSC2_HAP_SCRIPT_LAST] = {
 	SCRIPT(s1), SCRIPT(s2), SCRIPT(s3), SCRIPT(s4), SCRIPT(s5), SCRIPT(s6), SCRIPT(s7),
@@ -98,12 +105,52 @@ static const struct {
 	SCRIPT(s15), SCRIPT(s16), SCRIPT(s17),
 };
 
-const struct osc2_hap_step *osc2_hap_script(uint8_t id, uint8_t *count)
+/* The application's scripts, where it gave some. */
+static struct {
+	const struct opensc2_haptics_step *steps;
+	uint8_t count;
+} app_scripts[OSC2_HAP_SCRIPT_LAST];
+
+const struct opensc2_haptics_step *osc2_hap_script(uint8_t id, uint8_t *count)
 {
 	if (id < OSC2_HAP_SCRIPT_FIRST || id > OSC2_HAP_SCRIPT_LAST) {
 		*count = 0;
 		return NULL;
 	}
+	if (app_scripts[id - 1].steps) {
+		*count = app_scripts[id - 1].count;
+		return app_scripts[id - 1].steps;
+	}
 	*count = scripts[id - 1].count;
 	return scripts[id - 1].steps;
+}
+
+static bool step_plays(const struct opensc2_haptics_step *s)
+{
+	if (s->kind > OPENSC2_HAPTICS_STEP_CLIP) {
+		return false;
+	}
+	if ((s->flags & OPENSC2_HAPTICS_STEP_ON_CHANNEL) && s->channel > 3u) {
+		return false;
+	}
+	if (s->kind == OPENSC2_HAPTICS_STEP_CLIP &&
+	    (!s->clip || !s->clip->data || s->clip->format >= 12u)) {
+		return false;
+	}
+	return true;
+}
+
+int osc2_hap_script_set(uint8_t id, const struct opensc2_haptics_step *steps, uint8_t count)
+{
+	if (id < OSC2_HAP_SCRIPT_FIRST || id > OSC2_HAP_SCRIPT_LAST || (steps && count == 0)) {
+		return -EINVAL;
+	}
+	for (uint8_t i = 0; steps && i < count; i++) {
+		if (!step_plays(&steps[i])) {
+			return -EINVAL;
+		}
+	}
+	app_scripts[id - 1].steps = steps;
+	app_scripts[id - 1].count = steps ? count : 0u;
+	return 0;
 }

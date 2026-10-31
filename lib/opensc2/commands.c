@@ -26,6 +26,7 @@
 #include "key_store.h"
 #include "proto_rules.h"
 #include "system.h"
+#include "haptics_glue.h"
 #include "test_hooks.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -129,7 +130,15 @@ static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8
 	enum named_key key = (enum named_key)info->id;
 
 	if (info->kind == OSC2_KEYK_BLOB) {
-		return osc2_keys_set(info->id, value, len);
+		int err = osc2_keys_set(info->id, value, len);
+
+		/* The haptics keys reach the channels at once, as the real controller's handlers
+		 * do, past settings 75 and 76 (0x89 still reads the old numbers). */
+		if (err == 0 && (info->id == OSC2_KEY_HAPTIC_GAIN || info->id == OSC2_KEY_HAPTIC_AMP)) {
+			err = osc2_haptics_key(info->id == OSC2_KEY_HAPTIC_GAIN ? 0 : 1,
+					       (int16_t)opensc2_get_le16(value));
+		}
+		return err;
 	}
 	switch (key) {
 	case KEY_BOND_1:
@@ -393,6 +402,7 @@ static void write_setting(uint8_t number, int16_t value, bool *led)
 	}
 	if (old != v) {
 		osc2_sys_setting(number);   /* setting 50, 77, the LED's */
+		osc2_haptics_setting(number);   /* 75, 76: to the haptic channels */
 		/* After any lizard mode reports the write caused. */
 		osc2_test_note_setting(number, v);
 		if (osc2.cb && osc2.cb->setting_changed) {

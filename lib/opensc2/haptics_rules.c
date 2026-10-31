@@ -44,7 +44,8 @@ int8_t osc2_hap_rumble_left_db(uint16_t left_speed, int16_t setting27, uint16_t 
 	int32_t db = (int32_t)left_speed * 3 / 12500 + 2 + setting27 +
 		     osc2_hap_rumble_level_db(intensity) - (left_speed < 1000 ? 18 : 12);
 
-	return (int8_t)(db > 127 ? 127 : db < -128 ? -128 : db);
+	/* kept in 8 bits as the real controller keeps it: a sum beyond them wraps round */
+	return osc2_hap_db_add(db, 0);
 }
 
 uint32_t osc2_hap_rumble_lfo_mhz(uint16_t left_speed)
@@ -62,8 +63,10 @@ uint32_t osc2_hap_rumble_burst_mhz(uint16_t left_speed)
 {
 	/* Written as 12 + 35 * speed / (2^32 - 1) Hz: the 32-bit maximum where the 16-bit one would
 	 * make the rate follow the speed, so the bursts come at 12 Hz whatever the speed. Kept as the
-	 * real controller plays it. */
-	return 12000u + (uint32_t)((35000ull * left_speed) / 4294967295ull);
+	 * real controller plays it, capped at 120 Hz as it caps it (never reached). */
+	uint32_t mhz = 12000u + (uint32_t)((35000ull * left_speed) / 4294967295ull);
+
+	return mhz > 120000u ? 120000u : mhz;
 }
 
 /* ---- output reports --------------------------------------------------------------------------- */
@@ -171,7 +174,8 @@ static void command(const struct opensc2_haptic *h, struct osc2_hap_actions *a)
 			(void)add_cmd(a, OSC2_HAP_OP_STOP, ch[i], OSC2_HAP_GEN_ALL, 0);
 			break;
 		case OPENSC2_HAPTIC_CMD_CLICK_A:
-			/* click A plays 6 dB above the gain (added without wrapping round) */
+			/* click A plays 6 dB above the gain, added in 8 bits: from +122 dB up it
+			 * wraps round to the bottom of the table */
 			(void)add_cmd(a, OSC2_HAP_OP_START, ch[i], OSC2_HAP_GEN_CLICK_A,
 				      osc2_hap_db_add(h->command.gain_db, 6));
 			break;
@@ -332,39 +336,50 @@ void osc2_hap_library_clicks(const struct opensc2_haptic *h, uint8_t n,
 
 /* ---- scripts ---------------------------------------------------------------------------------- */
 
-void osc2_hap_step_cmd(const struct osc2_hap_step *step, uint8_t channel, int8_t gain_db,
+void osc2_hap_step_cmd(const struct opensc2_haptics_step *step, uint8_t channel, int8_t gain_db,
 		       struct osc2_hap_cmd *cmd)
 {
 	memset(cmd, 0, sizeof(*cmd));
 	cmd->op = OSC2_HAP_OP_START;
-	cmd->channel = channel;
-	cmd->gain_db = osc2_hap_db_add(gain_db, step->gain_db);
+	/* a step of the real controller's can name its own channel and gain */
+	cmd->channel = (step->flags & OPENSC2_HAPTICS_STEP_ON_CHANNEL) ? (step->channel & 3u) :
+		       channel;
+	cmd->gain_db = (step->flags & OPENSC2_HAPTICS_STEP_FIXED_GAIN) ? step->gain_db :
+		       osc2_hap_db_add(gain_db, step->gain_db);
 	switch (step->kind) {
-	case OSC2_HAP_STEP_TONE:
+	case OPENSC2_HAPTICS_STEP_TONE:
 		cmd->type = OSC2_HAP_GEN_TONE;
 		cmd->tone.freq_mhz = (uint32_t)step->a * 1000u;
 		cmd->duration_ms = step->b;
 		cmd->tone.lfo_mhz = (uint32_t)step->c * 100u;
 		cmd->tone.depth = step->d;
 		break;
-	case OSC2_HAP_STEP_SWEEP:
+	case OPENSC2_HAPTICS_STEP_SWEEP:
 		cmd->type = OSC2_HAP_GEN_SWEEP;
 		cmd->sweep.f0_hz = step->a;
 		cmd->sweep.f1_hz = step->b;
 		cmd->duration_ms = step->c;
 		break;
-	case OSC2_HAP_STEP_PULSE:
+	case OPENSC2_HAPTICS_STEP_PULSE:
 		cmd->type = OSC2_HAP_GEN_PULSE;
 		cmd->gain_db = 0;          /* pulse steps play at full scale whatever the gain */
 		cmd->pulse.on_us = step->a;
 		cmd->pulse.off_us = step->b;
 		cmd->pulse.count = step->c;
 		break;
-	case OSC2_HAP_STEP_CLICK_A:
+	case OPENSC2_HAPTICS_STEP_CLICK_A:
 		cmd->type = OSC2_HAP_GEN_CLICK_A;
 		break;
-	case OSC2_HAP_STEP_CLICK_B:
+	case OPENSC2_HAPTICS_STEP_CLICK_B:
 		cmd->type = OSC2_HAP_GEN_CLICK_B;
+		break;
+	case OPENSC2_HAPTICS_STEP_CLIP:
+		cmd->type = OSC2_HAP_GEN_CLIP;
+		if (step->clip) {
+			cmd->format = step->clip->format;
+			cmd->clip.data = step->clip->data;
+			cmd->clip.samples = step->clip->samples;
+		}
 		break;
 	default:
 		cmd->op = OSC2_HAP_OP_STOP;    /* not reached: the player never plays an END */
@@ -379,14 +394,14 @@ void osc2_hap_player_init(struct osc2_hap_player *p, uint8_t channel)
 	p->channel = channel;
 }
 
-static uint32_t step_delay(const struct osc2_hap_step *s)
+static uint32_t step_delay(const struct opensc2_haptics_step *s)
 {
 	return s->delay_ms ? s->delay_ms : 1u;   /* at least 1 ms */
 }
 
 bool osc2_hap_player_start(struct osc2_hap_player *p, uint8_t id, int8_t gain_db, uint32_t now_ms)
 {
-	const struct osc2_hap_step *steps;
+	const struct opensc2_haptics_step *steps;
 	uint8_t count;
 
 	if (p->busy || id < OSC2_HAP_SCRIPT_FIRST || id > OSC2_HAP_SCRIPT_LAST) {
@@ -409,13 +424,13 @@ bool osc2_hap_player_start(struct osc2_hap_player *p, uint8_t id, int8_t gain_db
 enum osc2_hap_poll osc2_hap_player_poll(struct osc2_hap_player *p, uint32_t now_ms,
 					struct osc2_hap_cmd *cmd)
 {
-	const struct osc2_hap_step *step;
+	const struct opensc2_haptics_step *step;
 
 	if (!p->busy || !after_or_at(now_ms, p->due_ms)) {
 		return OSC2_HAP_POLL_NONE;
 	}
 	step = p->next < p->count ? &p->steps[p->next] : NULL;
-	if (!step || step->kind == OSC2_HAP_STEP_END) {
+	if (!step || step->kind == OPENSC2_HAPTICS_STEP_END) {
 		/* The end marker's delay has passed: the channel is free. */
 		p->busy = false;
 		return OSC2_HAP_POLL_DONE;
@@ -491,6 +506,15 @@ enum osc2_hap_drop_poll osc2_hap_drop_poll(struct osc2_hap_drop *d, uint32_t now
 		return OSC2_HAP_DROP_REARMED;
 	}
 	return OSC2_HAP_DROP_NOTHING;
+}
+
+bool osc2_hap_drop_imu_stopped(struct osc2_hap_drop *d)
+{
+	if (d->state != OSC2_HAP_DROP_PENDING && d->state != OSC2_HAP_DROP_WAITING) {
+		return false;
+	}
+	d->state = OSC2_HAP_DROP_OFF;
+	return true;
 }
 
 int32_t osc2_hap_drop_wait(const struct osc2_hap_drop *d, uint32_t now_ms)

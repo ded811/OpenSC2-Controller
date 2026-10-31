@@ -13,6 +13,7 @@
 #include "cal_host.h"
 #include "dock_link.h"
 #include "dock_stub.h"
+#include "haptics_glue.h"
 #include "stubs.h"
 #include "test_hooks.h"
 
@@ -228,6 +229,7 @@ void osc2_settings_restore_defaults(bool keep_imu)
 	osc2.led.override = false;   /* as core.c does */
 	osc2.led.brightness = (uint8_t)osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS];
 	stub.defaults_restored++;
+	osc2_haptics_setting(OPENSC2_SETTINGS_ALL);   /* as core.c does */
 }
 
 void osc2_watchdog_arm(void)

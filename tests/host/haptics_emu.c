@@ -8,9 +8,11 @@
  * firmware's threads would have done by then:
  *   - the work item: the script steps, drop sounds and re-arms that fell due;
  *   - each path's thread: an idle path applies what was queued, and once something plays renders
- *     its blocks at the times the firmware does without an output (the first three at once, then
- *     one every 8 ms, staying one block ahead), then drains for as long as the written blocks
- *     play, during which new commands wait.
+ *     its blocks at the times the firmware does without an output (the first two at once, then
+ *     one every 8 ms, staying one block ahead), applying what was queued right after each block
+ *     (what arrives later waits for the block after the next), then drains for as long as the
+ *     written blocks play, during which new commands wait.
+ * Whatever queues commands runs that at once too, as the firmware's idle threads wake for them.
  * The 0x44 reports go out as the application's would (fwemu_send()); the ring entries go to the
  * test hooks as in the firmware.
  */
@@ -40,11 +42,10 @@ static uint32_t now_ms(void)
 	return (uint32_t)(emu_now_us / 1000u);
 }
 
-/* What haptics.c's lock() refreshes: whether the hooks are armed, the master gain. */
+/* What haptics.c's lock() refreshes: whether the hooks are armed. */
 static void sync(void)
 {
 	rt.notes = osc2_test_core_armed(&osc2_test_core_obj);
-	rt.engine.master_db = osc2.settings[OPENSC2_SETTING_HAPTIC_GAIN_DB];
 }
 
 static void flush(void)
@@ -61,6 +62,10 @@ static void flush(void)
 				opensc2_encode_haptic_status(it[i].data[0],
 							     opensc2_get_le32(&it[i].data[1]), report);
 				fwemu_send(report, sizeof(report));
+				if (it[i].data[5] != 0xFFu) {
+					osc2_test_note_status(it[i].data[5], it[i].data[0],
+							      opensc2_get_le32(&it[i].data[1]));
+				}
 			} else {
 				osc2_test_core_note(&osc2_test_core_obj, &osc2_test_env_obj, it[i].kind,
 						    OSC2_TEST_LINK_NONE, it[i].data, it[i].len);
@@ -81,6 +86,11 @@ void haptics_emu_boot(uint64_t now_us)
 	memset(seqs, 0, sizeof(seqs));
 	random_state = 1;
 	emu_now_us = now_us;
+	/* the end of start-up: settings 75 and 76 handed to the channels (core.c does it as it
+	 * restores the defaults; the emulator's engine starts here) */
+	(void)osc2_hap_rt_settings(&rt, OPENSC2_SETTINGS_ALL,
+				   osc2.settings[OPENSC2_SETTING_AMPLIFIER_MODE],
+				   osc2.settings[OPENSC2_SETTING_HAPTIC_GAIN_DB]);
 }
 
 void haptics_emu_tick(uint64_t now_us)
@@ -108,19 +118,24 @@ void haptics_emu_tick(uint64_t now_us)
 			seqs[p].k = 0;
 		}
 		while (seqs[p].playing) {
-			/* blocks 0..2 at once, then block k at t0 + (k - 2) * 8 ms */
+			/* blocks 0 and 1 at once, then block k at t0 + (k - 1) * 8 ms: once the
+			 * output has room for it */
 			uint64_t due = seqs[p].t0_us +
-				       (seqs[p].k <= 2 ? 0u : (uint64_t)(seqs[p].k - 2) * BLOCK_US);
+				       (seqs[p].k <= 1 ? 0u : (uint64_t)(seqs[p].k - 1) * BLOCK_US);
 
 			if (now_us < due) {
 				break;
 			}
-			(void)osc2_hap_rt_block(&rt, p, seqs[p].k == 0, seqs[p].block, &busy);
+			(void)osc2_hap_rt_render(&rt, p, seqs[p].k == 0, seqs[p].block, &busy);
 			seqs[p].k++;
 			if (!busy) {
 				seqs[p].playing = false;
 				seqs[p].draining = true;
 				seqs[p].drain_until_us = seqs[p].t0_us + (uint64_t)seqs[p].k * BLOCK_US;
+			} else {
+				/* what was queued meanwhile, for the next block, before the wait */
+				osc2_hap_rt_apply(&rt, p);
+				(void)osc2_hap_rt_amp(&rt, p);
 			}
 		}
 	}
@@ -129,20 +144,39 @@ void haptics_emu_tick(uint64_t now_us)
 
 void osc2_haptics_outputs(uint8_t link, const struct opensc2_output *out, int n)
 {
-	(void)link;
 	if (n <= 0) {
 		return;
 	}
 	sync();
-	(void)osc2_hap_rt_feed(&rt, out, n, osc2.settings[OPENSC2_SETTING_RUMBLE_GAIN_DB], now_ms());
-	flush();
+	(void)osc2_hap_rt_feed(&rt, link, out, n, osc2.settings[OPENSC2_SETTING_RUMBLE_GAIN_DB],
+			       now_ms());
+	haptics_emu_tick(emu_now_us);   /* an idle thread wakes at once */
+}
+
+void osc2_haptics_setting(uint8_t number)
+{
+	sync();
+	(void)osc2_hap_rt_settings(&rt, number, osc2.settings[OPENSC2_SETTING_AMPLIFIER_MODE],
+				   osc2.settings[OPENSC2_SETTING_HAPTIC_GAIN_DB]);
+	haptics_emu_tick(emu_now_us);   /* an idle thread wakes at once */
+}
+
+int osc2_haptics_key(uint8_t key, int16_t value)
+{
+	uint8_t paths;
+	int err;
+
+	sync();
+	err = osc2_hap_rt_key(&rt, key, value, &paths);
+	haptics_emu_tick(emu_now_us);   /* an idle thread wakes at once */
+	return err;
 }
 
 void osc2_haptics_library(const struct opensc2_haptic *h, uint8_t n)
 {
 	sync();
 	(void)osc2_hap_rt_clicks(&rt, h, n);
-	flush();
+	haptics_emu_tick(emu_now_us);   /* an idle thread wakes at once */
 }
 
 uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint8_t *result,
@@ -150,6 +184,7 @@ uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint
 {
 	struct osc2_hap_rt_glue glue = {
 		.amp_mode = (uint8_t)osc2.settings[OPENSC2_SETTING_AMPLIFIER_MODE],
+		.master_db = osc2.settings[OPENSC2_SETTING_HAPTIC_GAIN_DB],
 		.features = 1,                   /* the drop sounds, as in app/haptics.conf */
 	};
 

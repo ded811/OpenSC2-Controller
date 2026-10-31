@@ -6,9 +6,9 @@
 # synthesiser (CONFIG_OPENSC2_HAPTICS_SYNTH). The synthesiser renders in integers only, so a block
 # comes out bit for bit the same on the board and on a PC (the host tests and the hardware test
 # suite compare CRCs of rendered blocks); the few values that need a real function are computed
-# here once, with Python's double precision, and rounded:
+# here once, with Python's double precision, and rounded (the sine is a polynomial in
+# haptics_dsp.c, as on the real controller, and needs no table):
 #
-#   osc2_hap_sine_q15    a quarter of a sine, 257 points, 32767 = 1.0 (linear interpolation in between)
 #   osc2_hap_gain_q16    10^(dB/20) for -30..+30 dB in 1 dB steps, 65536 = 1.0
 #   osc2_hap_exp2_q16    2^(i/64) for i = 0..64, 65536 = 1.0 (the exponential sweep)
 #   osc2_hap_log2_q16    log2(1 + i/64) for i = 0..64, 65536 = 1.0
@@ -34,10 +34,6 @@ OUT = os.path.join(ROOT, "lib", "opensc2", "haptics_tables.c")
 def rnd(x):
     """Round half away from zero (Python's round() rounds half to even)."""
     return int(math.floor(x + 0.5)) if x >= 0 else -int(math.floor(-x + 0.5))
-
-
-def sine_quarter():
-    return [rnd(32767 * math.sin(i * math.pi / 512)) for i in range(257)]
 
 
 def gains():
@@ -82,8 +78,6 @@ def render():
         " * by tools/gen_haptics_tables.py: change that script and run it, not this file.\n"
         " */\n"
         "#include \"haptics_dsp.h\"\n",
-        "/* sin(i * pi / 512) for i = 0..256, 32767 = 1.0. */\n" +
-        c_array("int16_t", "osc2_hap_sine_q15", sine_quarter(), 12),
         "/* 10^(dB / 20) for dB = -30..+30, 65536 = 1.0. */\n" +
         c_array("uint32_t", "osc2_hap_gain_q16", gains(), 8),
         "/* 2^(i / 64) for i = 0..64, 65536 = 1.0. */\n" +

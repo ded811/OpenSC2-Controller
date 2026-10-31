@@ -6,6 +6,7 @@
  */
 #include <string.h>
 #include "haptics_run.h"
+#include <opensc2/settings.h>
 #include "retained.h"   /* osc2_crc32() */
 
 static void put16(uint8_t *p, uint16_t v)
@@ -64,11 +65,12 @@ static void note_script(struct osc2_hap_rt *rt, uint8_t what, uint8_t channel, u
 	note(rt, OSC2_HAP_RING_SCRIPT, d, sizeof(d));
 }
 
-static void status_out(struct osc2_hap_rt *rt, uint8_t channel, uint32_t flags)
+static void status_out(struct osc2_hap_rt *rt, uint8_t channel, uint32_t flags, uint8_t stop_link)
 {
-	uint8_t d[5] = { osc2_hap_status_id(channel) };
+	uint8_t d[6] = { osc2_hap_status_id(channel) };
 
 	put32(&d[1], flags);
+	d[5] = stop_link;
 	out_push(rt, OSC2_HAP_OUT_STATUS, 0, d, sizeof(d));
 	note_stream(rt, channel, OSC2_HAP_STREAM_EV_STATUS, osc2_hap_stream_fill(&rt->engine, channel),
 		    flags);
@@ -86,7 +88,8 @@ static void drain(struct osc2_hap_rt *rt, uint8_t path)
 			const struct osc2_hap_event *e = &ev[i];
 
 			if (e->kind == OSC2_HAP_EV_STATUS) {
-				status_out(rt, e->channel, e->flags);
+				status_out(rt, e->channel, e->flags,
+					   e->what == 1 ? rt->stop_link[e->channel & 3u] : 0xFFu);
 			} else if (e->kind == OSC2_HAP_EV_GEN) {
 				uint8_t d[12] = { e->channel, e->type, e->what, (uint8_t)e->gain_db };
 
@@ -97,6 +100,8 @@ static void drain(struct osc2_hap_rt *rt, uint8_t path)
 				note(rt, OSC2_HAP_RING_GEN, d, sizeof(d));
 			} else if (e->kind == OSC2_HAP_EV_STREAM) {
 				note_stream(rt, e->channel, e->what, e->a, e->flags);
+			} else if (e->kind == OSC2_HAP_EV_AMP) {
+				rt->amp[osc2_hap_path_of(e->channel)] = (int8_t)e->what;
 			}
 		}
 	}
@@ -135,6 +140,8 @@ void osc2_hap_rt_init(struct osc2_hap_rt *rt)
 	players_init(rt);
 	osc2_hap_drop_init(&rt->drop);
 	rt->forced_random = -1;
+	rt->amp[0] = rt->amp[1] = -1;
+	memset(rt->stop_link, OSC2_HAP_LINK_NONE, sizeof(rt->stop_link));
 }
 
 /* ---- feeding ---------------------------------------------------------------------------------- */
@@ -160,13 +167,16 @@ bool osc2_hap_rt_queue(struct osc2_hap_rt *rt, const struct osc2_hap_cmd *cmd)
 	bool ok;
 
 	sync(rt);
+	if (cmd->op == OSC2_HAP_OP_STOP) {
+		rt->stop_link[cmd->channel & 3u] = OSC2_HAP_LINK_NONE;
+	}
 	ok = osc2_hap_queue(&rt->engine, cmd);
 	drain(rt, osc2_hap_path_of(cmd->channel & 3u));
 	return ok;
 }
 
-uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, const struct opensc2_output *out, int n,
-			 int16_t setting27, uint32_t now_ms)
+uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, uint8_t link, const struct opensc2_output *out,
+			 int n, int16_t setting27, uint32_t now_ms)
 {
 	/* 0x88 carries both grips: the real controller writes the right grip's bytes first. */
 	bool reverse = n == 2 && out[0].type == OPENSC2_OUTPUT_HAPTIC &&
@@ -180,6 +190,9 @@ uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, const struct opensc2_output *ou
 
 		osc2_hap_actions(o, setting27, &a);
 		for (uint8_t i = 0; i < a.n_cmd; i++) {
+			if (a.cmd[i].op == OSC2_HAP_OP_STOP) {
+				rt->stop_link[a.cmd[i].channel & 3u] = link;
+			}
 			if (osc2_hap_queue(&rt->engine, &a.cmd[i])) {
 				wake |= path_bit(a.cmd[i].channel);
 			}
@@ -194,7 +207,7 @@ uint8_t osc2_hap_rt_feed(struct osc2_hap_rt *rt, const struct opensc2_output *ou
 				    flags);
 			if (flags) {
 				/* flags of a write go out at once, from the path that received it */
-				status_out(rt, ch, flags);
+				status_out(rt, ch, flags, 0xFFu);
 			}
 			if (!pending && osc2_hap_pending(&rt->engine, osc2_hap_path_of(ch))) {
 				wake |= path_bit(ch);   /* the write queued the stream's start */
@@ -267,6 +280,15 @@ bool osc2_hap_rt_fall(struct osc2_hap_rt *rt, uint32_t now_ms)
 	return taken;
 }
 
+bool osc2_hap_rt_imu_stopped(struct osc2_hap_rt *rt)
+{
+	bool off = osc2_hap_drop_imu_stopped(&rt->drop);
+
+	sync(rt);
+	note_script(rt, OSC2_HAP_SCRIPT_EV_IMU_OFF, OSC2_HAP_CH_LEFT_GRIP, 0, 0, off ? 1u : 0u);
+	return off;
+}
+
 /* ---- the clock -------------------------------------------------------------------------------- */
 
 uint8_t osc2_hap_rt_poll(struct osc2_hap_rt *rt, uint32_t now_ms, uint8_t random8)
@@ -285,7 +307,7 @@ uint8_t osc2_hap_rt_poll(struct osc2_hap_rt *rt, uint32_t now_ms, uint8_t random
 			if (r == OSC2_HAP_POLL_STEP) {
 				note_script(rt, OSC2_HAP_SCRIPT_EV_STEP, c, p->id, p->gain_db, step);
 				if (osc2_hap_queue(&rt->engine, &cmd)) {
-					wake |= path_bit(c);
+					wake |= path_bit(cmd.channel);   /* a step may name its channel */
 				}
 				continue;
 			}
@@ -333,15 +355,96 @@ int32_t osc2_hap_rt_next(const struct osc2_hap_rt *rt, uint32_t now_ms)
 	return next;
 }
 
+/* ---- the haptics settings ----------------------------------------------------------------------- */
+
+/* One configure command to the four channels in the real controller's order; false at the first
+ * that finds its queue full (the others are not reached). */
+static bool config_all(struct osc2_hap_rt *rt, uint8_t op, int16_t value, uint8_t *wake)
+{
+	for (uint8_t c = 0; c < OSC2_HAP_CHANNELS; c++) {
+		struct osc2_hap_cmd cmd;
+
+		memset(&cmd, 0, sizeof(cmd));
+		cmd.op = op;
+		cmd.channel = c;
+		if (op == OSC2_HAP_OP_GAIN) {
+			cmd.gain_db = (int8_t)(uint8_t)(uint16_t)value;   /* the low 8 bits */
+		} else {
+			cmd.format = value != 0 ? 1u : 0u;
+		}
+		if (!osc2_hap_queue(&rt->engine, &cmd)) {
+			return false;
+		}
+		*wake |= path_bit(c);
+	}
+	return true;
+}
+
+uint8_t osc2_hap_rt_settings(struct osc2_hap_rt *rt, uint8_t number, int16_t s75, int16_t s76)
+{
+	bool all = number == OPENSC2_SETTINGS_ALL;
+	uint8_t wake = 0;
+
+	sync(rt);
+	/* The real handler runs once per setting that changes, in the settings' order. */
+	if ((all && (!rt->handed || s75 != rt->sent75)) ||
+	    number == OPENSC2_SETTING_AMPLIFIER_MODE) {
+		(void)config_all(rt, OSC2_HAP_OP_AMP, s75, &wake);
+	}
+	if ((all && (!rt->handed || s76 != rt->sent76)) ||
+	    number == OPENSC2_SETTING_HAPTIC_GAIN_DB) {
+		(void)config_all(rt, OSC2_HAP_OP_GAIN, s76, &wake);
+	}
+	rt->handed = true;
+	rt->sent75 = s75;
+	rt->sent76 = s76;
+	drain(rt, OSC2_HAP_PADS);
+	drain(rt, OSC2_HAP_GRIPS);
+	return wake;
+}
+
+int osc2_hap_rt_key(struct osc2_hap_rt *rt, uint8_t key, int16_t value, uint8_t *wake)
+{
+	bool ok;
+
+	sync(rt);
+	*wake = 0;
+	ok = config_all(rt, key == OSC2_HAP_KEY_GAIN ? OSC2_HAP_OP_GAIN : OSC2_HAP_OP_AMP, value,
+			wake);
+	drain(rt, OSC2_HAP_PADS);
+	drain(rt, OSC2_HAP_GRIPS);
+	return ok ? 0 : -12;   /* -ENOMEM: a queue was full */
+}
+
+int8_t osc2_hap_rt_amp(struct osc2_hap_rt *rt, uint8_t path)
+{
+	int8_t mode = rt->amp[path];
+
+	rt->amp[path] = -1;
+	return mode;
+}
+
 /* ---- blocks ----------------------------------------------------------------------------------- */
 
+void osc2_hap_rt_apply(struct osc2_hap_rt *rt, uint8_t path)
+{
+	sync(rt);
+	osc2_hap_apply(&rt->engine, path);
+	drain(rt, path);
+}
+
 size_t osc2_hap_rt_block(struct osc2_hap_rt *rt, uint8_t path, bool first, void *out, bool *busy)
+{
+	osc2_hap_rt_apply(rt, path);
+	return osc2_hap_rt_render(rt, path, first, out, busy);
+}
+
+size_t osc2_hap_rt_render(struct osc2_hap_rt *rt, uint8_t path, bool first, void *out,
+			  bool *busy)
 {
 	size_t bytes;
 
 	sync(rt);
-	osc2_hap_apply(&rt->engine, path);
-	drain(rt, path);
 	if (first) {
 		rt->index[path] = 0;
 	}
@@ -428,6 +531,13 @@ static uint8_t play(struct osc2_hap_rt *rt, const uint8_t *args, uint8_t alen, u
 		}
 		*schedule = true;
 		return 0;
+	case OSC2_HAP_PLAY_IMU_OFF:
+		if (alen != 1) {
+			return 2;
+		}
+		*rc = osc2_hap_rt_imu_stopped(rt) ? 1 : 0;
+		*schedule = true;
+		return 0;
 	case OSC2_HAP_PLAY_STOP:
 		if (alen != 2) {
 			return 2;
@@ -443,6 +553,7 @@ static uint8_t play(struct osc2_hap_rt *rt, const uint8_t *args, uint8_t alen, u
 			cmd.op = OSC2_HAP_OP_STOP;
 			cmd.channel = c;
 			cmd.type = OSC2_HAP_GEN_ALL;
+			rt->stop_link[c] = OSC2_HAP_LINK_NONE;
 			if (osc2_hap_queue(&rt->engine, &cmd)) {
 				(*rc)++;
 				*wake |= path_bit(c);
@@ -468,7 +579,8 @@ static void status(const struct osc2_hap_rt *rt, const struct osc2_hap_rt_glue *
 			   (osc2_hap_busy(h, OSC2_HAP_GRIPS) ? 2u : 0u));
 	out[2] = glue->outputs;
 	out[3] = glue->amp_mode;
-	out[4] = (uint8_t)(int8_t)(h->master_db < -128 ? -128 : h->master_db > 127 ? 127 : h->master_db);
+	out[4] = (uint8_t)(int8_t)(glue->master_db < -128 ? -128 :
+				   glue->master_db > 127 ? 127 : glue->master_db);
 	for (uint8_t c = 0; c < OSC2_HAP_CHANNELS; c++) {
 		players |= rt->player[c].busy ? (uint8_t)(1u << c) : 0u;
 	}
@@ -497,7 +609,6 @@ uint8_t osc2_hap_rt_test_op(struct osc2_hap_rt *rt, uint8_t op, const uint8_t *a
 	sync(rt);
 	switch (op) {
 	case OSC2_HAP_OP_RESET: {
-		int16_t master = rt->engine.master_db;
 		bool notes = rt->notes;
 
 		if (alen != 4) {
@@ -508,7 +619,9 @@ uint8_t osc2_hap_rt_test_op(struct osc2_hap_rt *rt, uint8_t op, const uint8_t *a
 		osc2_hap_reset(&rt->engine);
 		osc2_hap_seed(&rt->engine, (uint32_t)args[0] | ((uint32_t)args[1] << 8) |
 				  ((uint32_t)args[2] << 16) | ((uint32_t)args[3] << 24));
-		rt->engine.master_db = master;
+		/* The channel gains as setting 76 has them now (a gain command the reset emptied
+		 * from a queue is not lost). */
+		osc2_hap_set_gains(&rt->engine, (int8_t)(uint8_t)(uint16_t)glue->master_db);
 		players_init(rt);
 		osc2_hap_drop_init(&rt->drop);
 		rt->capture[0] = rt->capture[1] = 0;

@@ -21,6 +21,7 @@
 #include "hwdt.h"
 #include "key_store.h"
 #include "system.h"
+#include "haptics_glue.h"
 #include "test_hooks.h"
 
 LOG_MODULE_REGISTER(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
@@ -190,6 +191,7 @@ void osc2_settings_restore_defaults(bool keep_imu)
 	osc2.led.brightness = (uint8_t)osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS];
 	k_spin_unlock(&osc2.lock, key);
 	osc2_sys_setting(OPENSC2_SETTINGS_ALL);
+	osc2_haptics_setting(OPENSC2_SETTINGS_ALL);   /* 75 and 76 to the haptic channels */
 }
 
 int16_t opensc2_setting_get(uint8_t number)

@@ -344,9 +344,15 @@ def run(ctx):
             if not replies:
                 c.note("a build without CONFIG_OPENSC2_HAPTIC_STOP_STATUS: no replies expected")
             # with the haptics synthesiser its own 0x44 reports come too (the flow control of a
-            # format or a stream: the haptics group's); only the stops' {channel, 0x02} count here
+            # format or a stream: the haptics group's); only the stops' {channel, 0x02} count here.
+            # Its sequencers send the replies as they take the stops, as the real ones do: from a
+            # quiet synthesiser at once, while something plays a block later, and a stop that
+            # finds a sequencer's queue full (the reports of the tests before, sent faster than
+            # it plays) is lost with its reply: the synthesiser is let fall quiet first
             synth = T.cap_flag(rig.caps, H.CAP_HAPTICS_SYNTH) if rig.caps else False
             window = 0.15 if rig.path == "W" else 0.5
+            if synth:
+                H.wait_quiet(rig)
             for what, report, want in STOP_CASES:
                 want = want if replies else []
                 if stream:

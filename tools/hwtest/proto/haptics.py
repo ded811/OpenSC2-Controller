@@ -114,6 +114,22 @@ def decode_status(result):
     }
 
 
+def wait_quiet(rig, timeout=2.0):
+    """Until the synthesiser plays nothing, runs no script and both paths' threads are idle (a
+    command sent then is applied at once, as on the real controller): the status, or None when
+    the board does not answer HAP_STATUS."""
+    deadline = rig.clock.monotonic() + rig.t(timeout)
+    while True:
+        a = rig.test(OP_HAP_STATUS)
+        if a is None or a["status"] != 0:
+            return None
+        st = decode_status(a["result"])
+        quiet = not st["busy"] and not st["running"] and not st["players"]
+        if quiet or rig.clock.monotonic() >= deadline:
+            return st
+        rig.sleep(0.02)
+
+
 def status_report(channel, flags):
     """Input report 0x44 as the board sends it for `channel` (0..3)."""
     return bytes([0x44, STATUS_ID[channel]]) + struct.pack("<I", flags)

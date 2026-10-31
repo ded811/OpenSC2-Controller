@@ -525,9 +525,13 @@ static void dock_sample(uint8_t report[OPENSC2_STATE_REPORT_LEN])
 /* ---- output reports: report.c's osc2_output_dispatch() without the callbacks ------------------ */
 
 /* report.c's stop_status() (CONFIG_OPENSC2_HAPTIC_STOP_STATUS, on in the app): the 0x44 replies
- * to a stop, on the mode's link. */
+ * to a stop, on the mode's link; with the haptics synthesiser its sequencers send them. */
 static void stop_status(enum osc2_link link, const struct opensc2_output *out)
 {
+#if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
+	(void)link;
+	(void)out;
+#else
 	uint8_t ids[4];
 	uint8_t n = osc2_stop_status(out, ids);
 
@@ -538,6 +542,7 @@ static void stop_status(enum osc2_link link, const struct opensc2_output *out)
 		osc2_test_note_status(link, ids[i], OSC2_STATUS_STOPPED);
 		(void)input_send(report, sizeof(report));
 	}
+#endif
 }
 
 static int output(enum osc2_link link, const uint8_t *report, size_t len)
