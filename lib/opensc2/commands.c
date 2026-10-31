@@ -23,6 +23,7 @@
 #include "cal_store.h"
 #include "crash.h"
 #include "dock_link.h"
+#include "imu_rules.h"
 #include "key_store.h"
 #include "proto_rules.h"
 #include "system.h"
@@ -411,11 +412,20 @@ static int set_settings(const uint8_t *payload, uint8_t len)
 	for (uint8_t i = 0; i < len; i += 3) {
 		uint8_t number = payload[i];
 
+		int16_t value = (int16_t)opensc2_get_le16(&payload[i + 1]);
+		int rc;
+
 		if (number >= OPENSC2_SETTINGS_COUNT) {
 			LOG_DBG("Setting %u does not exist", number);
 			continue;
 		}
-		write_setting(number, (int16_t)opensc2_get_le16(&payload[i + 1]), &led);
+		/* 48, 84 and 85 go to the IMU at every write (imu.c); the sensor's error for 85 ends
+		 * the command, as on the real controller */
+		rc = osc2_imu_setting(number, value);
+		if (rc) {
+			return rc;
+		}
+		write_setting(number, value, &led);
 	}
 	if (led) {
 		osc2_notify_led();
@@ -569,6 +579,10 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		int rc;
 
 		if (!key) {
+			rc = osc2_imu_by_name(opcode, payload, len, &answer_len);   /* the IMU's? */
+			if (rc != -ENOENT) {
+				return rc;
+			}
 			rc = osc2_cal_by_name(opcode, payload, len);   /* a cal/ key? */
 			if (rc != -ENOENT) {
 				return rc;
@@ -820,6 +834,9 @@ static int run_get(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 
 		if (key && key_read(key, out, out_len) == 0) {
 			return 0;
+		}
+		if (osc2_imu_by_name(opcode, payload, len, out_len) == 0) {
+			return 0;   /* the IMU's keys are set only: length 0 */
 		}
 		if (osc2_cal_read_by_name(payload, len, out, out_len) == 0) {
 			return 0;

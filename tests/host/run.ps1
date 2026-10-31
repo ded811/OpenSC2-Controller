@@ -40,7 +40,8 @@ $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
 $libSources += @("$lib\transport_rules.c", "$lib\ble_rules.c")
 # calibration and the sensor helpers
 $libSources += @("$lib\cal.c", "$lib\sensor_helpers.c", "$lib\gauge.c", "$lib\cal_store.c",
-    "$lib\pad.c", "$lib\pad_rules.c", (Join-Path $PSScriptRoot 'cal_host.c'))
+    "$lib\pad.c", "$lib\pad_rules.c", "$lib\imu.c", "$lib\imu_rules.c",
+    (Join-Path $PSScriptRoot 'cal_host.c'))
 # the system state machine: power, chords, the status LED, cues
 $libSources += @("$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c",
     "$lib\led_rules.c", "$lib\test_sys.c")

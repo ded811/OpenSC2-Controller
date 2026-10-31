@@ -12,6 +12,7 @@
 #include "cal_store.h"
 #include "cal_host.h"
 #include "dock_link.h"
+#include "imu_rules.h"
 #include "dock_stub.h"
 #include "stubs.h"
 #include "test_hooks.h"
@@ -309,6 +310,7 @@ void stub_reset(void)
 	}
 	cal_host_erase_all();   /* a new board: no calibration stored */
 	osc2_cal_reset();
+	osc2_imu_reset();
 	osc2_dock_reset();
 	memset(&dock_stub, 0, sizeof(dock_stub));
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)

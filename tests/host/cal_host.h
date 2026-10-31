@@ -23,6 +23,8 @@ struct cal_host_record {
 	int waits;           /* osc2_cal_flush_wait() calls */
 	int writes, deletes;
 	int reloads;         /* osc2_cal_flash_reload() calls */
+	int imu_sets;        /* opensc2_set_imu() calls */
+	int free_falls;      /* opensc2_haptics_free_fall() calls */
 	bool fail_writes;
 	int power_source;    /* what opensc2_power_source() answers (enum opensc2_power_source) */
 };

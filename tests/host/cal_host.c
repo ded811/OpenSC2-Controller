@@ -99,6 +99,18 @@ void osc2_cal_flash_reload(void)
 	}
 }
 
+int opensc2_set_imu(const struct opensc2_imu *imu)
+{
+	osc2.state.imu = *imu;
+	cal_host.imu_sets++;
+	return 0;
+}
+
+void opensc2_haptics_free_fall(void)
+{
+	cal_host.free_falls++;
+}
+
 enum opensc2_power_source opensc2_power_source(void)
 {
 	return cal_host.power_source;
