@@ -54,6 +54,7 @@ BUILD_ASSERT(AREA_SIZE >= sizeof(struct osc2_retained), "The retained RAM region
 static struct k_spinlock ring_lock;
 static bool kept;                      /* the area was intact at this boot */
 static int mark_at_boot = OSC2_MARK_NONE;
+static uint8_t level_at_boot = OSC2_RET_NO_LEVEL;
 static uint32_t sys_at_boot[OSC2_RET_SYS_WORDS];   /* the system machine's test words, at boot */
 static int64_t time_base;              /* ticks: boot, then the attach */
 
@@ -70,6 +71,8 @@ static int retained_init(void)
 #else
 	mark_at_boot = osc2_mark_from_words(r->mark, r->mark_inv);
 #endif
+	/* The battery level likewise (it checks itself; a cold start's RAM never passes). */
+	level_at_boot = osc2_ret_level_from(r->level, r->level_inv);
 	kept = osc2_ret_valid(r, AREA_SIZE);
 	/* The system words carry their own magic words: taken before a set-up would wipe them. A
 	 * boot-time injection counts for this boot only. */
@@ -77,16 +80,13 @@ static int retained_init(void)
 		memcpy(sys_at_boot, r->sys, sizeof(sys_at_boot));
 	}
 	if (!kept) {
-		/* The kept battery level checks itself too: a new layout keeps it. */
-		uint32_t level_magic = r->level_magic, level = r->level;
-
 		osc2_ret_format(r, AREA_SIZE);
-		r->level_magic = level_magic;
-		r->level = level;
 	}
 	memset(r->sys, 0, sizeof(uint32_t) * OSC2_RET_SYS_BOOT_WORDS);
 	r->mark = 0;
 	r->mark_inv = ~0u;
+	r->level = osc2_ret_level_word(level_at_boot);
+	r->level_inv = ~r->level;
 	r->boots++;
 	osc2_ret_seal(r);
 	return 0;
@@ -96,6 +96,21 @@ SYS_INIT(retained_init, PRE_KERNEL_1, 0);
 int osc2_retained_mark_taken(void)
 {
 	return mark_at_boot;
+}
+
+uint8_t osc2_retained_level_at_boot(void)
+{
+	return level_at_boot;
+}
+
+void osc2_retained_level_set(uint8_t level)
+{
+	uint32_t w = osc2_ret_level_word(level);
+
+	if (w != 0) {
+		RET->level = w;
+		RET->level_inv = ~w;
+	}
 }
 
 void osc2_retained_mark_set(int mark)
@@ -128,21 +143,6 @@ void osc2_retained_sys_set(unsigned int first, const uint32_t *words, unsigned i
 	} else {
 		memset(&RET->sys[first], 0, n * sizeof(uint32_t));
 	}
-}
-
-bool osc2_retained_level_get(uint8_t *level)
-{
-	if (RET->level_magic != OSC2_RET_LEVEL_MAGIC || RET->level > 0xFF) {
-		return false;
-	}
-	*level = (uint8_t)RET->level;
-	return true;
-}
-
-void osc2_retained_level_set(uint8_t level)
-{
-	RET->level = level;
-	RET->level_magic = OSC2_RET_LEVEL_MAGIC;
 }
 
 /* ---- writing lines ------------------------------------------------------------------------------ */

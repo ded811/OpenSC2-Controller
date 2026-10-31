@@ -4,7 +4,7 @@
  *
  * retained.h: the layout of the RAM area that start-up does not clear. It survives a soft reset (a
  * reboot command, the reset pin, the watchdog) but not a power loss. Layout version 3 (OpenSC2
- * 0.2.0 had version 1: no crash slot, no system words; 2 had no kept battery level), in the
+ * 0.2.0 had version 1: no crash slot, no system words; version 2 no battery level), in the
  * devicetree region chosen as
  * opensc2,retained-ram:
  *   - with CONFIG_OPENSC2_CRASH_RECORD, first the crash record's slot, OSC2_CRASH_SLOT_SIZE (44)
@@ -14,8 +14,9 @@
  *     power-on RAM; the summary of the last wired session (counters and why it ended); the
  *     warm-restart mark (outside the CRC: it carries its own complement); the system machine's six
  *     test words (outside the CRC, each group with a magic word of its own: a boot-time injection
- *     and the last shutdown's end, test_sys.h); the battery level the fuel gauge keeps over a
- *     warm reboot (version 3; outside the CRC, behind a magic word of its own);
+ *     and the last shutdown's end, test_sys.h); the battery level kept over a warm reset (outside
+ *     the CRC, with a magic word and its complement), as the real controller's fuel gauge keeps
+ *     it, so the first battery report after a reboot carries it;
  *   - then a ring of text lines, the USB session log.
  * A boot that finds another version, or a header that does not fit the area, sets the area up
  * empty; the crash slot checks itself. Pure logic on a caller's buffer; the host tests build it.
@@ -29,7 +30,7 @@
 
 #define OSC2_RET_MAGIC    0x3243534Fu   /* "OSC2" */
 #define OSC2_RET_VERSION  3           /* the crash slot before the header, the system words,
-				       * the kept battery level */
+					* the battery level */
 #define OSC2_RET_SYS_WORDS 6
 #define OSC2_RET_SYS_BOOT_WORDS 3   /* the first of them: the boot-time injection */
 #define OSC2_RET_END_LEN  32           /* "host: reboot into wireless" and the like */
@@ -59,12 +60,18 @@ struct osc2_retained {
 	/* The test hooks' words for the system machine (test_sys.h): a boot-time injection for the
 	 * next boot (read and cleared at boot, like the mark), then the last shutdown's end. */
 	uint32_t sys[OSC2_RET_SYS_WORDS];
-	/* The fuel gauge's level kept over a warm reboot: OSC2_RET_LEVEL_MAGIC, then the level. */
-	uint32_t level_magic;
+	/* The battery level kept over a warm reset (osc2_ret_level_word()). */
 	uint32_t level;
+	uint32_t level_inv;
 };
 
-#define OSC2_RET_LEVEL_MAGIC 0x4C564C42u   /* "BLVL" */
+/* No battery level kept. */
+#define OSC2_RET_NO_LEVEL 255
+
+/* The battery level's word (0..100; anything else keeps none), and the level a word and its
+ * complement hold (OSC2_RET_NO_LEVEL: none, or not a valid pair). */
+uint32_t osc2_ret_level_word(uint8_t level);
+uint8_t osc2_ret_level_from(uint32_t word, uint32_t inverse);
 
 /* The ring follows the header in the same area. */
 static inline uint8_t *osc2_ret_ring(struct osc2_retained *r)

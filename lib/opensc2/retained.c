@@ -38,6 +38,22 @@ bool osc2_ret_valid(const struct osc2_retained *r, size_t area_size)
 	       r->crc == header_crc(r);
 }
 
+#define LEVEL_MAGIC 0x4C564C00u   /* "LVL" and the level in the low byte */
+
+uint32_t osc2_ret_level_word(uint8_t level)
+{
+	return level <= 100 ? LEVEL_MAGIC | level : 0;
+}
+
+uint8_t osc2_ret_level_from(uint32_t word, uint32_t inverse)
+{
+	if (word != (uint32_t)~inverse || (word & 0xFFFFFF00u) != LEVEL_MAGIC ||
+	    (word & 0xFFu) > 100) {
+		return OSC2_RET_NO_LEVEL;
+	}
+	return (uint8_t)(word & 0xFFu);
+}
+
 void osc2_ret_seal(struct osc2_retained *r)
 {
 	r->crc = header_crc(r);

@@ -22,7 +22,6 @@
 #include "fuel_rules.h"
 #include "key_rules.h"
 #include "key_store.h"
-#include "retained.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
@@ -117,32 +116,34 @@ static uint32_t window_seen;
 static uint16_t ring[HISTORY];
 static uint32_t count;                         /* readings since the history started over */
 
-/* The level kept over a warm reboot: in the retained area, or (without one) in no-init RAM. */
-#if !defined(CONFIG_OPENSC2_USB)
-static uint32_t kept_words[2] __noinit;
+/* The level kept over a warm reboot (the retained area, usblog.c; without one, this boot's only):
+ * as found at boot, then every level the gauge works out. OPENSC2_GAUGE_NO_LEVEL: none yet. */
+uint8_t osc2_retained_level_at_boot(void);
+void osc2_retained_level_set(uint8_t level);
+static uint8_t kept = OPENSC2_GAUGE_NO_LEVEL;
 
-bool osc2_retained_level_get(uint8_t *level)
+static uint8_t level_at_boot(void)
 {
-	if (kept_words[0] != OSC2_RET_LEVEL_MAGIC || kept_words[1] > 0xFF) {
-		return false;
-	}
-	*level = (uint8_t)kept_words[1];
-	return true;
-}
-
-void osc2_retained_level_set(uint8_t level)
-{
-	kept_words[1] = level;
-	kept_words[0] = OSC2_RET_LEVEL_MAGIC;
-}
+#if defined(CONFIG_OPENSC2_USB)
+	return osc2_retained_level_at_boot();
+#else
+	return OPENSC2_GAUGE_NO_LEVEL;
 #endif
+}
+
+static void keep(uint8_t level)
+{
+	kept = level;
+#if defined(CONFIG_OPENSC2_USB)
+	osc2_retained_level_set(level);
+#endif
+}
 
 static void publish(void)
 {
 	struct opensc2_battery b = { 0 };
 	struct opensc2_charger_values v;
 	k_spinlock_key_t key = k_spin_lock(&lock);
-	uint8_t level;
 
 	v = charger_values;
 	b.charge_state = osc2_fuel_charge_state(&fuel);
@@ -150,7 +151,7 @@ static void publish(void)
 	b.gauge_flags = fuel.state == OSC2_FUEL_CHARGING;
 	k_spin_unlock(&lock, key);
 	values_into(&b, &v);
-	b.level = osc2_retained_level_get(&level) ? level : OPENSC2_GAUGE_NO_LEVEL;
+	b.level = kept;
 	(void)opensc2_set_battery(&b);
 }
 
@@ -285,8 +286,7 @@ static void pass(void)
 		}
 		if (fuel.state != OSC2_FUEL_DONE) {   /* done: the voltage and level stay */
 			uint16_t avg = fuel.voltage_mv;
-			uint8_t level, kept;
-			bool have = osc2_retained_level_get(&kept);
+			uint8_t level;
 
 			if (average_mv(&avg) != 0) {
 				LOG_DBG("Battery: reading failed, the last average stays");
@@ -295,7 +295,7 @@ static void pass(void)
 			fuel.voltage_mv = avg;
 			k_spin_unlock(&lock, key);
 			level = level_of(avg, charging);
-			osc2_retained_level_set(osc2_fuel_keep(have, kept, level, charging));
+			keep(osc2_fuel_keep(kept != OPENSC2_GAUGE_NO_LEVEL, kept, level, charging));
 		}
 	}
 
@@ -303,7 +303,7 @@ static void pass(void)
 	was_done = fuel.state == OSC2_FUEL_DONE;
 	osc2_fuel_run(&fuel, k_uptime_get(), input, start_state, &out);
 	if (fuel.state == OSC2_FUEL_DONE && !was_done) {
-		osc2_retained_level_set(100);   /* done reads 100 */
+		keep(100);   /* done reads 100 */
 	}
 	k_spin_unlock(&lock, key);
 	write_charger(&out);
@@ -355,6 +355,7 @@ int opensc2_battery_start(const struct opensc2_battery_board *b)
 	}
 	board = b;
 	osc2_fuel_init(&fuel, &cfg, &out);
+	kept = level_at_boot();
 	k_spin_unlock(&lock, key);
 	/* The stretch: the curves' readings at the targets as configured now. */
 	scale_charging = opensc2_gauge_scale(b->charging ? b->charging : opensc2_gauge_lipo_charging,
