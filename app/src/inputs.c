@@ -5,7 +5,11 @@
  * inputs.c: buttons, sticks and triggers, all described in the board overlay.
  *
  *  - Buttons are a gpio-keys node labelled opensc2_buttons; each key's zephyr,code is a bit of
- *    the controller's button word (dt-bindings/opensc2/inputs.h). The keys already held at
+ *    the controller's button word (dt-bindings/opensc2/inputs.h). They are debounced as the real
+ *    controller debounces its own (<opensc2/sensor_helpers.h>, opensc2_button_hold_*()): a change
+ *    counts at once and the button is then held 16 ms, so a short press lasts at least that long
+ *    (gpio-keys only waits 1 ms for the pin to settle, debounce-interval-ms in the overlay). The
+ *    keys already held at
  *    power-up are read once before the library starts, so a chord held while the board wakes
  *    counts for its power-on decision (gpio-keys reports only changes), and STEAM is the pin that
  *    wakes a battery board that powered off. A second one labelled opensc2_buttons_polled may
@@ -16,23 +20,22 @@
  *  - Sticks and analog triggers are ADC channels named in zephyr,user's io-channel-names. An axis
  *    that is not named reads neutral.
  *
- * Calibration needs no setup: at boot each stick's resting value is its centre, the usable range
- * starts at 40 % of full scale either side and grows when the stick goes further (that growth is
- * not saved), and a small centre dead zone hides potentiometer noise. Analog inputs are biased by
- * the SAADC's own resistors, sticks to mid-scale and triggers to their released end, so a pin that
- * is listed but not wired reads neutral instead of drifting.
- *
- * Controller setting 46 asks for the sticks raw, as the real controller gives them: 2 the ADC
- * counts on 12 bits, 1 millivolts; both skip the calibration (which keeps following the stick).
- *
- * Two options (app/Kconfig, both off by default) follow the real controller more closely:
+ * By default (app/Kconfig) the sticks and triggers are read as the real controller reads its own:
  *  - CONFIG_APP_ANALOG_SAMPLE: no thread of its own; the axes are read in the library's `sample`
  *    callback, right before each state report, four conversions each averaged, with an optional
  *    sensor supply (zephyr,user sensor-supply-gpios) on only while they are read;
- *  - CONFIG_APP_ANALOG_RAW (with it): a stick or trigger that has a stored calibration goes to the
- *    library as raw counts (the real controller's processing, settings 46 and 62, the recordings
- *    of vendor commands 0xD8 and 0xC0, `opensc2 cal`); one without keeps the processing above, so a
- *    new board works before it is calibrated (and gives setting 46's raw output itself).
+ *  - CONFIG_APP_ANALOG_RAW: every stick and trigger goes to the library as raw counts: the real
+ *    controller's processing with the stored calibration, settings 46 and 62, the recordings of
+ *    vendor commands 0xD8 and 0xC0 and `opensc2 cal`. As on the real controller an input without a
+ *    usable calibration reads 0 (setting 46 and 62 still give its raw value): calibrate the board
+ *    once.
+ * CONFIG_APP_ANALOG_SELF_CENTRE gives an input without a calibration this firmware's own centring
+ * instead (all inputs, with CONFIG_APP_ANALOG_RAW off): at boot each stick's resting value is its
+ * centre, the usable range starts at 40 % of full scale either side and grows when the stick goes
+ * further (that growth is not saved), and a small centre dead zone hides potentiometer noise;
+ * setting 46 gives its raw value, 2 the ADC counts on 12 bits, 1 millivolts. Analog inputs are
+ * biased by the SAADC's own resistors, sticks to mid-scale and triggers to their released end, so a
+ * pin that is listed but not wired reads neutral instead of drifting.
  */
 #include <stdlib.h>
 #include <zephyr/kernel.h>
@@ -116,6 +119,52 @@ static bool trigger_key(uint16_t code, bool pressed)
 	}
 	return false;
 }
+
+/* The real controller's debounce over the pins' levels (bit = zephyr,code below 32): a change
+ * counts at once, then the button is held 16 ms; when a hold ends the pin counts again. */
+static K_MUTEX_DEFINE(hold_lock);
+static struct opensc2_button_hold hold;
+static uint32_t pin_levels;
+
+/* The word's changes into the library: a digital trigger's value, every other bit as it is. */
+static void hold_apply(uint32_t before, uint32_t after)
+{
+	uint32_t changed = before ^ after, mask = 0;
+
+	for (uint16_t code = 0; code < 32; code++) {
+		if ((changed & BIT(code)) && !trigger_key(code, (after & BIT(code)) != 0)) {
+			mask |= BIT(code);
+		}
+	}
+	if (mask) {
+		opensc2_set_buttons(mask, after);
+	}
+}
+
+static void hold_work_fn(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(hold_work, hold_work_fn);
+
+/* With hold_lock held: the levels as they are now through the debounce. */
+static void hold_run_locked(void)
+{
+	uint32_t now = k_uptime_get_32();
+	uint32_t before = hold.word;
+	uint32_t after = opensc2_button_hold_step(&hold, pin_levels, now);
+	uint32_t next = opensc2_button_hold_next(&hold, now);
+
+	hold_apply(before, after);
+	if (next) {
+		(void)k_work_reschedule(&hold_work, K_MSEC(next));   /* when the first hold ends */
+	}
+}
+
+static void hold_work_fn(struct k_work *work)
+{
+	ARG_UNUSED(work);
+	k_mutex_lock(&hold_lock, K_FOREVER);
+	hold_run_locked();
+	k_mutex_unlock(&hold_lock);
+}
 #endif
 
 #if DT_NODE_EXISTS(DT_NODELABEL(opensc2_buttons))
@@ -128,22 +177,24 @@ static const struct {
 
 /* The buttons held now (gpio-keys has set the pins up) into the library, as on_button() takes
  * them (without its wake-up rule): a digital trigger's value, every other key below 32 a bit of
- * the button word, all bits at once; not the pairing button, the application's own. */
+ * the button word, all bits at once, and nothing held by the debounce (the real controller's first
+ * look at its pins); not the pairing button, the application's own. */
 static void initial_buttons(void)
 {
 	uint32_t word = 0;
 
 	for (size_t i = 0; i < ARRAY_SIZE(keys); i++) {
-		if (keys[i].code == OPENSC2_KEY_PAIR || !gpio_is_ready_dt(&keys[i].pin) ||
-		    gpio_pin_get_dt(&keys[i].pin) != 1 || trigger_key(keys[i].code, true)) {
-			continue;
-		}
-		if (keys[i].code < 32) {
+		if (keys[i].code < 32 && gpio_is_ready_dt(&keys[i].pin) &&
+		    gpio_pin_get_dt(&keys[i].pin) == 1) {
 			word |= BIT(keys[i].code);
 		}
 	}
+	k_mutex_lock(&hold_lock, K_FOREVER);
+	pin_levels = word;
+	opensc2_button_hold_init(&hold, word);
+	hold_apply(0, word);
+	k_mutex_unlock(&hold_lock);
 	if (word) {
-		opensc2_set_buttons(word, word);
 		LOG_INF("Buttons held at power-up: 0x%08x", word);
 	}
 }
@@ -191,12 +242,12 @@ static void on_button(struct input_event *evt, void *user_data)
 		app_pair_button(evt->value != 0);
 		return;
 	}
-	if (trigger_key(evt->code, evt->value != 0)) {
-		return;
-	}
 	if (evt->code < 32) {
 		bit = BIT(evt->code);
-		opensc2_set_buttons(bit, evt->value ? bit : 0);
+		k_mutex_lock(&hold_lock, K_FOREVER);
+		pin_levels = evt->value ? (pin_levels | bit) : (pin_levels & ~bit);
+		hold_run_locked();
+		k_mutex_unlock(&hold_lock);
 	}
 }
 #endif
@@ -465,19 +516,25 @@ static void burst_read(int32_t raw[AXES], bool ok[AXES])
 	}
 }
 
-/* A reading as 12-bit counts, what the library's calibration takes. */
+/* A reading as 12-bit counts, what the library's calibration takes. A 12-bit channel's average is
+ * taken as it is, as the real controller takes it (a negative one wrapped round to 16 bits). */
 static uint16_t counts12(int i, int32_t raw)
 {
+	if (cal[i].full == OPENSC2_CAL_ADC_MAX) {
+		return (uint16_t)raw;
+	}
 	return (uint16_t)MIN(raw * OPENSC2_CAL_ADC_MAX / MAX(cal[i].full, 1), OPENSC2_CAL_ADC_MAX);
 }
 
-/* With CONFIG_APP_ANALOG_RAW, a calibrated stick or trigger goes to the library as raw counts
- * (true), and so does one whose recording runs (0xD8, 0xC0, "opensc2 cal"), which takes its
- * samples from raw inputs only; otherwise it is given back to the finished values (false). */
+/* With CONFIG_APP_ANALOG_RAW a stick or trigger goes to the library as raw counts (true), unless
+ * CONFIG_APP_ANALOG_SELF_CENTRE keeps one without a calibration on this firmware's own centring
+ * (while no recording runs: 0xD8, 0xC0 and "opensc2 cal" take their samples from raw inputs only);
+ * such an input is given back to the finished values (false). */
 static bool raw_stick(enum opensc2_side side, uint16_t x, uint16_t y)
 {
 #if defined(CONFIG_APP_ANALOG_RAW)
-	if (opensc2_cal_stick_ok(side) || opensc2_cal_recording(OPENSC2_CAL_REC_STICKS)) {
+	if (!IS_ENABLED(CONFIG_APP_ANALOG_SELF_CENTRE) || opensc2_cal_stick_ok(side) ||
+	    opensc2_cal_recording(OPENSC2_CAL_REC_STICKS)) {
 		return opensc2_set_stick_raw(side, x, y) == 0;
 	}
 	(void)opensc2_cal_raw_release((uint8_t)(OPENSC2_RAW_STICK_L << side));
@@ -492,7 +549,8 @@ static bool raw_stick(enum opensc2_side side, uint16_t x, uint16_t y)
 static bool raw_trigger(enum opensc2_side side, uint16_t counts)
 {
 #if defined(CONFIG_APP_ANALOG_RAW)
-	if (opensc2_cal_trigger_ok(side) || opensc2_cal_recording(OPENSC2_CAL_REC_TRIGGERS)) {
+	if (!IS_ENABLED(CONFIG_APP_ANALOG_SELF_CENTRE) || opensc2_cal_trigger_ok(side) ||
+	    opensc2_cal_recording(OPENSC2_CAL_REC_TRIGGERS)) {
 		return opensc2_set_trigger_raw(side, counts) == 0;
 	}
 	(void)opensc2_cal_raw_release((uint8_t)(OPENSC2_RAW_TRIGGER_L << side));

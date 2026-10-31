@@ -119,7 +119,9 @@ The only pin table of the project; the overlay's header comment has the same lis
 The on-board LED (P0.15) shows the link and USB status ([LED](#led)). The silkscreen names pins by
 three digits: "006" is P0.06, "111" is P1.11.
 
-- **Buttons**: between the pin and GND; the internal pull-up keeps them released.
+- **Buttons**: between the pin and GND; the internal pull-up keeps them released. They are
+  debounced as the real controller debounces its own: a press or release counts at once, then the
+  button is held 16 ms whatever its contact does, so even a very short press lasts 16 ms.
 - **The stick**: each potentiometer between VCC and GND, wiper to the pin. The ADC measures against
   VDD, so the reading does not depend on the exact supply voltage.
 - **VCC**: nice!nano-style boards switch their VCC pin with P0.13; the firmware drives it to "on"
@@ -151,30 +153,34 @@ drift.
 
 ### Calibration
 
-None to do. At power-on each stick's resting position is its centre (keep your thumbs off the
-sticks while it starts). The usable range starts at 40 % of full scale either side of the centre
-and grows the first time a stick goes further, so after one full circle each stick reaches its full
-output at its own extremes. A 6 % centre dead zone (`stick-deadzone-percent` in the overlay) hides
-potentiometer noise. Flip an axis with `invert-left-stick-y;` and friends.
+The sticks and triggers work as the real controller's: they are read right before each state
+report, four conversions averaged, and go through the library's processing with the stored
+calibration (the real controller's two halves and bands, settings 46 and 62). **As on the real
+controller, a stick or trigger without a stored calibration reads 0.** Calibrate a new board once,
+on the console with the parts connected and a link up (the recordings take one sample per state
+report): `opensc2 cal sticks 1` with the sticks released, `opensc2 cal sticks 2` while circling them
+fully, `opensc2 cal sticks 3` to save; the same with `triggers` (released, pulled). `opensc2 cal`
+shows what is stored. The vendor commands `0xD8` and `0xC0` do the same from a host tool (Steam does
+not send them in its sessions). The calibration is kept in the board's storage, through a `.uf2`
+reflash and a factory reset ([docs/api.md](../docs/api.md#calibration-and-raw-inputs)). Flip an axis
+with `invert-left-stick-y;` and friends.
+
+For a board without a stored calibration (potentiometer sticks, a board being built), the option
+`CONFIG_APP_ANALOG_SELF_CENTRE=y` gives such an input this firmware's own centring instead: at
+power-on each stick's resting position is its centre (keep your thumbs off the sticks while it
+starts), the usable range starts at 40 % of full scale either side of the centre and grows the
+first time a stick goes further, and a 6 % centre dead zone (`stick-deadzone-percent` in the
+overlay) hides potentiometer noise. A calibration stored later takes over at once.
 
 A host can ask for the sticks raw, as from the real controller (controller setting 46): 2 gives
 each axis's ADC counts on 12 bits (0..4095), 1 gives millivolts converted the real controller's way
 (counts × 3300 / 4096, as if VCC were 3.3 V). Both skip the calibration and the axis inversion; an
 axis that is not wired reads 0. On a bare board the left stick's two pins sit at about half of full
-scale (about 2048 counts, 1650 mV), held there by the bias. Built; not yet tested on hardware.
+scale (about 2048 counts, 1650 mV), held there by the bias. Setting 62 does the same for analog
+triggers. Built; not yet tested on hardware.
 
 The build [sensors.conf](sensors.conf) (with [sensors.overlay](sensors.overlay); untested on
-hardware) works like the real controller instead: the sticks and triggers are read right before each
-state report, four conversions averaged, and once a stick or trigger has a stored calibration the
-library's processing takes over (the real controller's two halves and bands, settings 46 and 62).
-Record one on the console with the parts connected and a link up (the recordings take one sample per
-state report): `opensc2 cal sticks 1` with the sticks released, `opensc2 cal sticks 2` while
-circling them fully, `opensc2 cal sticks 3` to save; the same with `triggers` (released, pulled).
-While a recording runs its axes go to the library raw, so an axis without a calibration reads 0
-until step 3 saves one. `opensc2 cal` shows what is stored. The vendor commands `0xD8` and `0xC0`
-do the same from a host tool (Steam does not send them in its sessions). The calibration is kept
-in the board's storage, through a `.uf2` reflash and a factory reset
-([docs/api.md](../docs/api.md#calibration-and-raw-inputs)).
+hardware) adds the real controller's other sensors: an IMU, a trackpad and a capacitive sensor.
 
 ## Wired and wireless modes
 
@@ -403,14 +409,20 @@ pwm-names = "rumble", "red", "green", "blue";
 Enable `&pwm1` and `&pwm2` with a pinctrl group each, as samples/rumble and samples/rgb_led do. A
 part alone keeps only its own entries.
 
-Touch devices count Y from the top and the controller's pads count up as positive, so the firmware
-flips Y; `right-trackpad-keep-y;` (or `left-trackpad-keep-y;`) in `zephyr,user` keeps a device's
-own Y. Each pad's coordinate range is `right-trackpad-size` / `left-trackpad-size` (1024 x 1024 when
-not set). A pad click is a button with `OPENSC2_KEY_RIGHT_PAD_CLICK` (or `_LEFT_PAD_CLICK`).
+Each report of a touch device is a trackpad frame for the library
+([`<opensc2/trackpad.h>`](../docs/api.md#trackpads-frame-by-frame)), which processes it as the real
+controller processes its pads, at the device's own rate: the position filter of setting 65 (on by
+default), the rotation, the stabiliser, setting 82. Touch devices count Y from the top, as the real
+controller's pads do (the report turns it up); `right-trackpad-keep-y;` (or `left-trackpad-keep-y;`)
+in `zephyr,user` is for a device that counts from the bottom. Each pad's coordinate range is
+`right-trackpad-size` / `left-trackpad-size` (1024 x 1024 when not set). A pad click is a button with
+`OPENSC2_KEY_RIGHT_PAD_CLICK` (or `_LEFT_PAD_CLICK`). The pad's pressure is 0 without a pressure
+calibration, as on the real controller.
 
 The drivers these parts need (PWM, I2C, sensors, the fusion helper, the FPU) are switched on by the
-overlay itself (see [Kconfig](Kconfig)). The IMU streams only while Steam has it on (controller
-setting 48), as on the real controller.
+overlay itself (see [Kconfig](Kconfig)). The IMU streams from boot, as on the real controller, until
+a host writes controller setting 48 = 0 (any other value starts it again); the reports keep the
+last sample while it is off ([`<opensc2/imu.h>`](../docs/api.md#the-imu)).
 
 One thing to know for a touch module or an IMU powered from VCC: this firmware switches VCC on in
 `main()`, after Zephyr has started the drivers, and those drivers talk to their part as they start.
@@ -432,12 +444,12 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_USB_REMOTE_WAKEUP=y` | STEAM wakes a sleeping PC over USB (July 2026 behaviour) |
 | `CONFIG_OPENSC2_GIT_REVISION="..."` | the revision string Steam reads, 1 to 12 characters (`osc2-0.2.0`) |
 | `CONFIG_APP_OBEY_BOOTLOADER_REQUEST=y` | open the UF2 drive when Steam asks for a bootloader ([above](#steams-firmware-update)) |
-| `CONFIG_APP_IMU_ALWAYS=y` | stream the IMU even while Steam has it off |
-| `CONFIG_APP_ANALOG_SAMPLE=y` | read sticks and triggers right before each state report, four conversions averaged; `sensor-supply-gpios` (and `sensor-supply-settle-us`, 200 by default) in `zephyr,user` powers the sensors only while they are read (untested) |
-| `CONFIG_APP_ANALOG_RAW=y` | with it: a calibrated stick or trigger through the library's stored calibration ([Calibration](#calibration); untested) |
-| `CONFIG_APP_IMU_STREAM=y` | an LSM6DSV16X's FIFO streamed with its own fusion (game rotation vector, gyro bias) as the real controller reads it, from boot, stopped by setting 48 = 0 (unless `CONFIG_APP_IMU_ALWAYS`); the build [imu-stream.conf](imu-stream.conf) with [imu-stream.overlay](imu-stream.overlay) (an interrupt pin and the FIFO settings; untested) |
-| `CONFIG_APP_IMU_BIAS=y` | a rest-based gyro bias for an IMU without one, subtracted while setting 84 is on, setting 85 its threshold ([sensor helpers](../docs/api.md#sensor-helpers); untested; not with `CONFIG_APP_IMU_STREAM`, which has the LSM6DSV16X's own). The IMU's mounting matrix is `imu-mounting-matrix` in `zephyr,user` (9 values, row major) |
-| `CONFIG_APP_PAD_PROCESSING=y` | the real controller's trackpad processing for a device with a touch strength: touch with settings 72 and 73 and the damping near lift-off (`trackpad-strength-scale` in `zephyr,user`, 40 by default: tune it), the position filter while setting 65 is on, and with a stored pressure calibration the library's pressure and click by pressure (untested) |
+| `CONFIG_APP_ANALOG_SAMPLE=n` | read sticks and triggers in a thread of their own every 4 ms instead of right before each state report (the default, four conversions averaged; `sensor-supply-gpios`, and `sensor-supply-settle-us`, 200 by default, in `zephyr,user` powers the sensors only while they are read; untested) |
+| `CONFIG_APP_ANALOG_RAW=n` | sticks and triggers on this firmware's own centring, not through the library's stored calibration (the default: [Calibration](#calibration); untested) |
+| `CONFIG_APP_ANALOG_SELF_CENTRE=y` | a stick or trigger without a stored calibration on this firmware's own centring instead of reading 0 ([Calibration](#calibration)) |
+| `CONFIG_APP_IMU_STREAM=y` | an LSM6DSV16X's FIFO streamed with its own fusion (game rotation vector, gyro bias) as the real controller reads it, at 250 Hz, from boot, switched by setting 48; the build [imu-stream.conf](imu-stream.conf) with [imu-stream.overlay](imu-stream.overlay) (an interrupt pin and the FIFO settings; untested) |
+| `CONFIG_APP_IMU_BIAS=y` | a rest-based gyro bias for an IMU without one, handed to the library's IMU as the sensor's bias (subtracted while setting 84 is on), setting 85 its threshold ([sensor helpers](../docs/api.md#sensor-helpers); untested; not with `CONFIG_APP_IMU_STREAM`, which has the LSM6DSV16X's own). The IMU's mounting matrix is `imu-mounting-matrix` in `zephyr,user` (9 values, row major) |
+| `CONFIG_APP_PAD_PROCESSING=y` | for a touch device with a strength: the real controller's touch from a signal level, with settings 72 and 73 and the damping near lift-off (`trackpad-strength-scale` in `zephyr,user`, 40 by default: tune it), and the level as the pad's raw pressure word, so a pressure calibration gives the pad its pressure and its click by pressure (untested) |
 | `CONFIG_APP_I2C_RECOVER=y` | free each I2C bus at boot, in case a reset caught a part in the middle of a transfer (untested) |
 | `CONFIG_APP_BATTERY=y` | the battery level of report `0x43` from VDDH / 5, or from a `battery` io-channel in `zephyr,user` with `battery-divider-ohms = <total bottom>` and an optional `battery-enable-gpios` (untested) |
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |

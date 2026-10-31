@@ -338,7 +338,7 @@ int osc2_cal_by_name(uint8_t opcode, const uint8_t *payload, uint8_t len)
 	return -ENOTSUP;
 }
 
-/* ---- for the application ---------------------------------------------------------------------- */
+/* ---- for the application -------------------------------------------------------------------- */
 
 static int key_index(const char *name)
 {

@@ -47,10 +47,10 @@
 	 */
 	opensc2_buttons: opensc2_buttons {
 		compatible = "gpio-keys";
-		/* The real controller counts a change at once and then holds the pin for 16 ms;
-		 * gpio-keys waits until a contact has been steady this long instead. 16 gives the
-		 * real controller's interval, with presses reported up to 16 ms later. */
-		debounce-interval-ms = <5>;
+		/* The real controller counts a change at once and then holds the pin for 16 ms, which
+		 * the firmware does itself (app/src/inputs.c): gpio-keys only lets the pin settle for
+		 * 1 ms before it reports a change. */
+		debounce-interval-ms = <1>;
 
 		dpad_up    { gpios = BUTTON(0, 6);  zephyr,code = <OPENSC2_KEY_DPAD_UP>; };
 		dpad_down  { gpios = BUTTON(0, 8);  zephyr,code = <OPENSC2_KEY_DPAD_DOWN>; };

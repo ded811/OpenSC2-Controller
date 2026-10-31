@@ -21,6 +21,7 @@
 #include <zephyr/logging/log.h>
 #include <opensc2/opensc2.h>
 #include <opensc2/fusion.h>
+#include <opensc2/imu.h>
 
 LOG_MODULE_REGISTER(imu_sample, LOG_LEVEL_INF);
 
@@ -112,14 +113,15 @@ int main(void)
 	last = k_uptime_ticks();
 	for (;;) {
 		struct sensor_value a[3], g[3];
-		struct opensc2_imu out = { 0 };
+		struct opensc2_imu_sample s = { 0 };
 		float accel[3], gyro[3];
 		int64_t now;
 
 		k_msleep(4);
 		now = k_uptime_ticks();
-		if (opensc2_setting_get(OPENSC2_SETTING_IMU_MODE) == OPENSC2_IMU_MODE_OFF) {
-			opensc2_set_imu(&out);   /* Steam has the IMU off: zeros, as the real one */
+		if (!opensc2_imu_streaming()) {
+			/* A host switched the stream off (setting 48 = 0): the reports keep the last
+			 * sample, as the real controller's. */
 			last = now;
 			continue;
 		}
@@ -129,21 +131,24 @@ int main(void)
 			continue;
 		}
 		for (int i = 0; i < 3; i++) {
-			accel[i] = sensor_value_to_float(&a[i]) / 9.80665f;   /* m/s^2 to g */
-			gyro[i] = sensor_value_to_float(&g[i]) * 57.29578f;   /* rad/s to deg/s */
+			s.accel[i] = sensor_value_to_float(&a[i]);    /* m/s^2 */
+			s.gyro[i] = sensor_value_to_float(&g[i]);     /* rad/s */
+			accel[i] = s.accel[i] / 9.80665f;             /* g, for the fusion helper */
+			gyro[i] = s.gyro[i] * 57.29578f;              /* deg/s */
 		}
 
 		opensc2_fusion_update(&fusion, accel, gyro,
 				      (float)k_ticks_to_us_floor32((uint32_t)(now - last)) / 1e6f);
 		last = now;
 
-		out.timestamp_us = (uint32_t)k_ticks_to_us_floor64(now);
-		for (int i = 0; i < 3; i++) {
-			out.accel[i] = opensc2_accel_from_g(accel[i]);
-			out.gyro[i] = opensc2_gyro_from_dps(gyro[i]);
+		/* The library's IMU scales it as the real controller does (32767 = 2 g and
+		 * 2000 deg/s), the orientation from the fusion helper. */
+		for (int i = 0; i < 4; i++) {
+			s.quat[i] = fusion.q[i];
 		}
-		opensc2_fusion_quat(&fusion, out.quat);
-		opensc2_set_imu(&out);
+		s.has_quat = true;
+		s.timestamp_ns = k_ticks_to_ns_floor64(now);
+		(void)opensc2_imu_sample(&s);
 	}
 	return 0;
 }

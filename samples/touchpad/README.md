@@ -11,9 +11,14 @@ subsystem knows.
 
 - An `INPUT_CALLBACK_DEFINE` on the touch device that collects `INPUT_ABS_X`, `INPUT_ABS_Y` and
   either `INPUT_ABS_Z` (touch strength) or `INPUT_BTN_TOUCH` until the report's `sync` flag, then
-  calls `opensc2_set_trackpad(OPENSC2_RIGHT, &pad)`.
-- The position scaled to -32767..32767 with Y flipped (touch devices count Y from the top; the
-  controller counts up as positive), and the touch strength as the pad's pressure.
+  hands the library one trackpad frame, `opensc2_pad_frame(OPENSC2_RIGHT, &frame)`
+  ([`<opensc2/trackpad.h>`](../../docs/api.md#trackpads-frame-by-frame)): the touch and the
+  position in millionths of the pad, counted from the top left as touch devices and the real
+  controller's pads count. The library processes each frame as the real controller processes its
+  pads: the position filter (controller setting 65), the rotation and stabiliser when Steam asks
+  for them, Y turned up for the report.
+- No pressure word: the pad's pressure is 0, as on the real controller without a pressure
+  calibration, and its click is the button.
 - The pad's click as a button bit (`OPENSC2_KEY_RIGHT_PAD_CLICK`, bit 22) from `gpio-keys`.
 - A part powered from the board's switched VCC before its driver starts: VCC goes on in a
   `SYS_INIT` hook, since Zephyr starts the touch driver before `main()`.
@@ -124,10 +129,13 @@ The sample is built to do the following; none of it has run on hardware yet.
 - **Another touch device**: Zephyr's touch-panel drivers report the same events, for example the
   FT5336 (`focaltech,ft5336`), the GT911 (`goodix,gt911`) and the CST816S (`hynitron,cst8xx`).
   Replace the `touch` node in the overlay, keep its label, and set `trackpad-size` in
-  `zephyr,user` to the coordinate range the device reports. A device that reports a touch key
-  instead of a strength gets half pressure while touched.
-- **The pad's direction**: the Y flip is the minus sign in `on_touch()`; turn a mounted pad by
-  swapping or negating `pad.x` and `pad.y` there.
+  `zephyr,user` to the coordinate range the device reports.
+- **The pad's direction**: turn a mounted pad by swapping `f.x` and `f.y` in `on_touch()`, or
+  mirroring one (1000000 minus it); a device that counts Y from the bottom needs `f.y` mirrored.
+- **Pressure**: a sensor with a force reading gives it as the frame's raw pressure word
+  (`f.has = OPENSC2_PAD_HAS_PRESSURE`, `f.pressure`); once a pressure calibration is stored
+  (vendor command `0xC3`, or `opensc2 cal pressure` in `app/`) the pad has the real controller's
+  pressure and its click by pressure.
 - **The left trackpad**: a second touch device with its own callback and `OPENSC2_LEFT`; its click
   is `OPENSC2_KEY_LEFT_PAD_CLICK`. `app/src/trackpad.c` does both pads from the devicetree
   (`opensc2,right-trackpad`, `opensc2,left-trackpad`).

@@ -14,22 +14,36 @@ config APP_OBEY_BOOTLOADER_REQUEST
 
 config APP_ANALOG_SAMPLE
 	bool "Read the sticks and triggers right before each state report, four conversions averaged"
+	default y
 	help
 	  As the real controller: no analog thread; the axes are read in the library's sample
 	  callback (in its radio or USB report thread), each converted four times and averaged, with
 	  the sensors' supply (zephyr,user sensor-supply-gpios, optional) on only while they are
 	  read, after sensor-supply-settle-us (200 by default). The readings are as fresh as the report
-	  that carries them. Untested on hardware.
+	  that carries them. Off: a thread of its own reads them every 4 ms. Untested on hardware.
 
 config APP_ANALOG_RAW
-	bool "Calibrated sticks and triggers through the library's stored calibration"
+	bool "Sticks and triggers through the library's stored calibration, as the real controller"
 	depends on APP_ANALOG_SAMPLE && OPENSC2_CAL
+	default y
 	help
-	  A stick or trigger with a usable stored calibration (cal/joy_l, cal/trg_l, ...) goes to the
-	  library as raw counts: the real controller's processing, controller settings 46 and 62, and
-	  the recordings of vendor commands 0xD8 and 0xC0 or of the shell's "opensc2 cal". Without a
-	  calibration the axis keeps this firmware's own centring, so a new board works before it is
-	  calibrated. Untested on hardware.
+	  Every stick and trigger goes to the library as raw counts: the real controller's processing
+	  with its stored calibration (cal/joy_l, cal/trg_l, ...), controller settings 46 and 62, and
+	  the recordings of vendor commands 0xD8 and 0xC0 or of the shell's "opensc2 cal". As on the
+	  real controller, a stick or trigger without a usable calibration reads 0 (calibrate it once:
+	  "opensc2 cal sticks 1", "2", "3", and "opensc2 cal triggers ..."), unless
+	  APP_ANALOG_SELF_CENTRE gives it this firmware's own centring until then. Untested on
+	  hardware.
+
+config APP_ANALOG_SELF_CENTRE
+	bool "Without a stored calibration, centre each stick and trigger at boot"
+	help
+	  For boards without a stored calibration (potentiometer sticks, a board being built): a stick
+	  or trigger that has none takes its resting value at boot as its centre or released end,
+	  starts with a range of 40 % (80 % for a trigger) that grows as the input goes further, and has
+	  a small centre dead zone; it gives setting 46's raw output itself. Off (the default), such an
+	  input reads 0, as on the real controller. With APP_ANALOG_RAW off every input is handled
+	  this way.
 
 config APP_BATTERY
 	bool "Measure the battery for report 0x43"
@@ -62,20 +76,15 @@ config APP_IMU
 	help
 	  Set when the overlay aliases a sensor as imu0.
 
-config APP_IMU_ALWAYS
-	bool "Stream the IMU even while Steam has it switched off"
-	depends on APP_IMU
-	help
-	  Like the real controller, the IMU only streams while controller setting 48 is not 0.
-
 config APP_IMU_STREAM
 	bool "Stream an LSM6DSV16X's FIFO with its own fusion, as the real controller"
 	depends on APP_IMU && LSM6DSV16X_STREAM
 	help
 	  Instead of reading any IMU every 4 ms: the FIFO of an ST LSM6DSV16X streamed with Zephyr's
 	  sensor streaming API (CONFIG_SENSOR_ASYNC_API, CONFIG_I2C_RTIO and an interrupt pin), with
-	  its own game rotation vector and gyro-bias estimate, from boot; setting 48 = 0 stops it and
-	  any other value starts it again; setting 84 subtracts the bias; the stored gyro bias is its
+	  its own game rotation vector and gyro-bias estimate, from boot, at the real controller's
+	  250 Hz (the chip's high-accuracy mode); the library's IMU (<opensc2/imu.h>) switches it with
+	  setting 48 and subtracts the bias while setting 84 is on; the stored gyro bias is its
 	  starting bias. app/imu-stream.conf builds it. Untested on hardware.
 
 config APP_IMU_BIAS
@@ -83,10 +92,11 @@ config APP_IMU_BIAS
 	depends on APP_IMU && !APP_IMU_STREAM
 	help
 	  For IMUs without a bias estimate of their own (the real controller takes its IMU's): a
-	  rest-based estimate of OpenSC2's own, subtracted while controller setting 84 is not 0 (the
-	  default), with setting 85 as its rest threshold in report units (default 100, about
-	  6 deg/s). It starts from the stored cal/sensors/gyroscope/bias when there is one. Not with
-	  APP_IMU_STREAM, which subtracts the LSM6DSV16X's own estimate. Untested on hardware.
+	  rest-based estimate of OpenSC2's own, handed to the library's IMU as the sensor's bias, which
+	  it subtracts while controller setting 84 is not 0 (the default), with setting 85 as its rest
+	  threshold in report units (default 100, about 6 deg/s). It starts from the stored
+	  cal/sensors/gyroscope/bias when there is one. Not with APP_IMU_STREAM, which takes the
+	  LSM6DSV16X's own estimate. Untested on hardware.
 
 config APP_PAD_PROCESSING
 	bool "The real controller's trackpad processing on the touch devices"

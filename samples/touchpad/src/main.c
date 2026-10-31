@@ -16,6 +16,7 @@
 #include <zephyr/input/input.h>
 #include <zephyr/logging/log.h>
 #include <opensc2/opensc2.h>
+#include <opensc2/trackpad.h>
 
 LOG_MODULE_REGISTER(touchpad, LOG_LEVEL_INF);
 
@@ -76,17 +77,11 @@ static void pair_button(bool pressed)
 
 /* ---- The trackpad ---------------------------------------------------------------------------- */
 
-static int16_t scale(int32_t v, int32_t size)
-{
-	return (int16_t)CLAMP(v * (2 * OPENSC2_AXIS_MAX) / size - OPENSC2_AXIS_MAX,
-			      -OPENSC2_AXIS_MAX, OPENSC2_AXIS_MAX);
-}
-
 static void on_touch(struct input_event *evt, void *user_data)
 {
 	static int32_t x, y, z;
 	static bool key_seen, key_down;
-	struct opensc2_trackpad pad = { 0 };
+	struct opensc2_pad_frame f = { 0 };
 
 	ARG_UNUSED(user_data);
 	if (evt->type == INPUT_EV_ABS && evt->code == INPUT_ABS_X) {
@@ -102,13 +97,14 @@ static void on_touch(struct input_event *evt, void *user_data)
 	if (!evt->sync) {
 		return;   /* wait for the whole report */
 	}
-	pad.touched = key_seen ? key_down : z > 0;
-	if (pad.touched) {
-		pad.x = scale(x, width);
-		pad.y = (int16_t)-scale(y, height);
-		pad.pressure = z ? (uint16_t)MIN(z * 520, OPENSC2_TRIGGER_MAX) : 16384;
-	}
-	opensc2_set_trackpad(OPENSC2_RIGHT, &pad);
+	/* One trackpad frame: the touch and the position in millionths of the pad, counted from the
+	 * top left as the real controller's pads count; the library processes it as the real
+	 * controller processes its pads (the filter, the rotation, the stabiliser, Y turned up). No
+	 * pressure word: the pad's pressure is 0 and its click is the button below. */
+	f.touched = key_seen ? key_down : z > 0;
+	f.x = (int32_t)((int64_t)x * 1000000 / width);
+	f.y = (int32_t)((int64_t)y * 1000000 / height);
+	(void)opensc2_pad_frame(OPENSC2_RIGHT, &f);
 }
 INPUT_CALLBACK_DEFINE(DEVICE_DT_GET(DT_NODELABEL(touch)), on_touch, NULL);
 
