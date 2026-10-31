@@ -33,7 +33,7 @@ say which, and which of them the documentation has now.
 | Pairing over the cable, and the reboot into wireless mode | [The cable](#overview-the-cable) | [Pairing a controller with a puck over the cable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable), [Reboot into wireless mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#reboot-into-wireless-mode) |
 | The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
 | Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
-| The battery voltage and charge level, what erases the stored settings | [api.md, Battery helpers](api.md#battery-helpers), [gap 31](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
+| The battery voltage and charge level, the charge states, what erases the stored settings | [api.md, The battery and the charger](api.md#the-battery-and-the-charger), [api.md, Battery helpers](api.md#battery-helpers), [gaps 3 and 31](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
 | Power, the chords, the keylock, the idle timeout, low battery, shutdown, the status LED's modes and patterns, the cues | [Power, chords and the status LED](#overview-power-chords-and-the-status-led), [api.md, Power and the system state machine](api.md#power-and-the-system-state-machine), [api.md, Status LED](api.md#status-led), [gap 34](#where-this-library-had-to-fill-gaps) | [docs/controller/09-system.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md) |
 | Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
 | Bluetooth LE: advertising, pairing, the HID service, the gate, reports, the transport choice (an opt-in build here) | [Bluetooth LE](#overview-bluetooth-le), [api.md, Wireless transports](api.md#wireless-transports-and-bluetooth-le) | [docs/controller/05-bluetooth.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/05-bluetooth.md) |
@@ -372,13 +372,19 @@ open, the library does what should work with Steam and the puck, and says so her
 2. **Rumble report `0x80`** (closed). The research documentation and SDL's `MsgHapticRumble` agree:
    `[0]` the type, `[1..2]` the level, `[3..4]` the left speed, `[6..7]` the right speed. The
    library also decodes the gain bytes `[5]` and `[8]`, which the July 2026 firmware used.
-3. **Report `0x43` charge state.** The library sends the application's charge state as given, in
-   SDL's `EChargeState` numbering (the type SDL gives this byte; SDL reads 1 as on battery, 2 as
-   charging, 4 as charged). The real controller adds a flag bit `0x80` to it while its charger has
-   given up on a supply that does not charge the battery (it tries again 60 s later); the library
-   has no charger logic of its own and never adds it, but an application may
-   (`OPENSC2_CHARGE_GAVE_UP`), and then, as on the real controller, the power rules and the LED are
-   told 100 % while the level is above 0.
+3. **Report `0x43` charge state** (closed for a board that runs the library's fuel gauge). The
+   charge state is the index of the real controller's charge state machine, in SDL's
+   `EChargeState` numbering (SDL reads 1 as on battery, 2 as charging, 4 as charged): 0 starting
+   over, 1 not charging, 3 checking the supply, 2 charging, 4 done, with the flag bit `0x80` while
+   the supply check has given up (it tries again 60 s later). With `CONFIG_OPENSC2_BATTERY_GAUGE`
+   and `opensc2_battery_start()` the library runs that machine on the board's charger status and
+   input power, with the documented timings and limits, and adds the flag as the real controller
+   does ([api.md](api.md#the-battery-and-the-charger)); then, as on the real controller, the power
+   rules and the LED are told 100 % while the flag is set and the level is above 0. What stays the
+   board's: the charger itself. A board whose charger reports no status gets the library's model
+   (charging under the charge voltage asked for, then done), and the input-voltage limit and the
+   charge voltage reach a charger only through the board's callbacks. Without the gauge the
+   application's charge state goes out as given (a board without a battery: "done", 100 %).
 4. **Answer layouts not given byte for byte**: `0xF2` selector 2 (uptime u32, then the reason as a
    u32) and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for the
    puck). `0xA1` follows the documentation byte for byte (18 bytes; the real controller's flag
@@ -554,18 +560,19 @@ open, the library does what should work with Steam and the puck, and says so her
     unclamped (a channel above 100 is brighter, up to full duty), so a channel sent above 100 is
     brighter there and reads back 100 or 200, where the library keeps and reads back 100. Steam is
     not known to send such values, nor to read `0xE9` at all.
-25. **`0xBE`'s bytes 13 and 14.** The documentation gives byte 13 as "1 while charging" and byte 14
-    as `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the
-    application's charge state (1 for state 2, charging, with or without the flag), its simplest
-    reading; on the real controller it may come from the charger's own status, which no host has
-    been seen to compare.
+25. **`0xBE`'s bytes 13 and 14** (closed). Byte 13 is the fuel gauge's flags: 1 exactly while its
+    charge state machine is in state 2 (charging, which never carries the give-up flag); byte 14 is
+    `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the charge
+    state the same way, which the documentation of the real controller's gauge confirms.
 26. **Settings by name.** The library knows exactly the real controller's keys
     ([api.md](api.md#settings-by-name)); other names go to the application. It keeps `user/keylock`,
     `user/fully_charged_led_intensity`, `mte/charge_level` and the `settings/haptics/` keys as plain
     values: set in RAM, saved and read back where the real controller has a read function, deleted
     by the factory reset where it deletes them. The system state machine acts on the keylock and the
-    fully-charged LED level (gap 34); nothing acts on the factory charge window and the haptics
-    settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
+    fully-charged LED level (gap 34); the library's fuel gauge acts on the factory charge window as
+    the real controller's does (every load or `0xEE` of it sets the charge voltage target to the
+    window's upper end, or back to the configured one; a delete changes nothing until the next
+    boot); nothing acts on the haptics settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
     valid window (both values 0, or 3400 to 4120 mV in 10 mV steps), and `0xEF` saves what `0xED`
     would read back, as the real controller saves what the key's read function gives: it fails for
     the `settings/haptics/` keys (no read function) and for an invalid charge window, and writes

@@ -25,7 +25,7 @@ config OPENSC2_BATTERY_GAUGE_PRIORITY
 
 config OPENSC2_BATTERY_GAUGE_STACK_SIZE
 	int "The fuel gauge's thread stack size"
-	default 1024
+	default 1536
 
 config OPENSC2_CHARGE_TARGET_MV
 	int "Charge voltage target, mV"

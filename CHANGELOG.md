@@ -164,6 +164,30 @@ controller is listed in docs/protocol.md's gaps.
   ends, sharing their values with the HID service; reports go to the vendor characteristic first
   when the host subscribed there.
 
+**The battery, the charger and the board's parts**
+
+- The library's fuel gauge (`<opensc2/battery.h>`, `CONFIG_OPENSC2_BATTERY_GAUGE`, on with
+  `CONFIG_OPENSC2_BATTERY`): `opensc2_battery_start()` takes the board's battery reading and,
+  optionally, its charger's controls, a cut-off and a curve or gauge chip of its own; the charger's
+  status and five values (system and input voltage, battery and input current, temperature) can be
+  set at any time (`opensc2_charger_set_status()`, `opensc2_charger_set_values()`, or the
+  `charger_update` callback at every pass). The library then runs the real controller's gauge: a
+  pass once a second (the first after 250 ms), 40 fresh readings in a row at the start and when
+  charging starts or stops (then 250 ms), the reported voltage as their average (frozen while the
+  charge is done), the level per direction with the stretch's scale in whole percent, kept over a
+  warm reboot in the retained RAM area, and the charge state machine 0 / 1 / 3 / 2 / 4 with the
+  supply check (4600, 4500, 4400 mV, 5 s apart), its give-up flag `0x80` and 60 s rest, the
+  4120 / 4160 mV charge voltages, the charge window `mte/charge_level` as a cap, and the battery
+  cut-off at power-off without input power. A board without a charger status gets the library's
+  charger model; `opensc2_battery_set_charge_target()`, `opensc2_battery_get()`.
+- The blank canvas's battery option (`CONFIG_APP_BATTERY`) runs the fuel gauge: the divider
+  switched on once per batch of readings, the chip's VDD as the system voltage, an optional `input`
+  io-channel, the charger pin as the charger's status.
+- The stream build's IMU set-up as the real controller's (`app/src/imu_board.c`): both sensors at
+  250 Hz in high-accuracy mode (`LSM6DSVXXX_DT_ODR_HA01_AT_250Hz`), the free-fall window (63, or 0
+  on hardware ID `0x45`) and the fusion block's alpha-blending factor 0.05 on hardware IDs up to
+  `0x48` (by the hardware ID the board reports).
+
 **The dock**
 
 - The controller's end of Valve's puck's charging pads: the 73-byte frames with their CRC-16/KERMIT
@@ -219,6 +243,16 @@ controller is listed in docs/protocol.md's gaps.
 
 ### Changed
 
+- Reports `0x43` and `0xBE` send a level of 255 as it is (the real controller's "no reading yet");
+  other levels over 100 still go out as 100. With the fuel gauge, the first `0x43` after a cold
+  start carries level 255, charge state 0 and zeros, as the real controller's does.
+- The blank canvas frees each I2C bus at boot whenever it has one (`CONFIG_APP_I2C_RECOVER` is on
+  by default now), as the real controller does at every start of its I2C drivers.
+- `app/expander.conf` reads its PCA9555 on the expander's INT output (P0.24, the left trigger
+  button's pin) instead of polling it every 16 ms, as the real controller reads its expander only
+  when its interrupt line says something changed.
+- The LED examples (app overlay comments, `app/README.md`, `samples/rgb_led`) use the real
+  controller's 50 µs PWM period (20 kHz) instead of 1 ms.
 - Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does
   (it hands them to its IMU); the application still sees the values Steam wrote. A number above 85
   reads 0, also as on the real controller (it was a STALL).
