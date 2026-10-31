@@ -6,18 +6,19 @@
  * between the frames (dock_rules.c) and the rest of the library:
  *   - a session: while it runs, the dock is an active transport and the controller counts as
  *     docked; any frame that fails (too short, a bad CRC, a receive error) ends it;
- *   - the four requests: the probe's identity record, vendor commands on a stored request of the
- *     dock's own (OSC2_LINK_DOCK; 0x81 and 0x85 do nothing there), and GET input;
- *   - GET input: with another link up, the copy of the latest state report that report.c leaves
- *     here (the dock never takes a sequence number from that link's stream); with the dock alone,
- *     one new report per request;
+ *   - the four requests: the probe's identity record (taken once per boot), vendor commands on a
+ *     stored request of the dock's own (OSC2_LINK_DOCK; 0x81 and 0x85 do nothing there), and GET
+ *     input, each answer built over the previous one;
+ *   - GET input: the copy of the latest state report that report.c leaves here (with another link
+ *     up the dock never takes a sequence number from that link's stream); with the dock alone each
+ *     request then builds one report, which the next one answers;
  *   - attribute 11 of 0x83: 64000 µs while the dock is the only link;
  *   - the supply rule on the board's readings (dock power or USB power), which the system state
  *     machine takes as its power source while the application leaves that to the library.
  * Nothing goes out on the dock but the answers: no lizard reports, no 0x43, no 0x44.
  *
- * Who feeds it frames: dock.c's UART (CONFIG_OPENSC2_DOCK) and the hardware test hooks' dock frame
- * op (test_dock.c). It has no thread and no pins of its own; the host tests build it too. Not a
+ * Who feeds it frames: dock.c's UART (CONFIG_OPENSC2_DOCK), the application's own wire
+ * (<opensc2/docking.h>) and the hardware test hooks' dock frame op (test_dock.c). It has no thread and no pins of its own; the host tests build it too. Not a
  * public interface. With the option off every call is an empty inline function.
  */
 #ifndef OPENSC2_DOCK_LINK_H_
