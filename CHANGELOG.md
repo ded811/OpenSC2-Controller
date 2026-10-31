@@ -118,6 +118,27 @@ controller is listed in docs/protocol.md's gaps.
   OpenSC2's own sound for each when it is built in; otherwise playing them is the application's.
 - `OPENSC2_CHARGE_GAVE_UP` (the charge state's `0x80` flag) and `opensc2_charge_state_of()`; an
   optional charger status pin in the blank canvas (`charger-status-gpios`).
+- The system machine's remaining rules of the real controller: the wired start attaches the USB
+  device once STEAM is up and turns a STEAM press before a host (one held through the power-on
+  included) into a reboot back to wireless; USB power in the battery wait turns a battery build
+  wired in place; the warm-restart mark is set the moment Steam's request arrives, kept by later
+  plain reboots of that boot and used up by a transport chord held at boot; the keylock chord held
+  through a battery power-on unlocks and starts; the chords are two combinations each (with STEAM
+  and without) in the real controller's order; dropping the link stops only a link that is up; the
+  60 s update window with its green blink (a bootloader request on battery or the dock; USB power
+  inside it asks for the bootloader); host requests queue like the machine's other events; the
+  factory charge window's announcement at power-on (cue 8, seven magenta blinks).
+- The battery level kept over a warm reset (`opensc2_battery_kept_level()`, in the retained RAM
+  area), the level the power-on decision sees (as the real controller's first report: kept, else
+  255); `opensc2_charge_target_mv()` for a charger that can stop at a stored factory charge window;
+  the Zephyr statistics group "battery" (`CONFIG_OPENSC2_BATTERY_STATS`, with `CONFIG_STATS`).
+- `<opensc2/gauge.h>`: a step in parts (`opensc2_gauge_begin()`, `_add()`, `_finish()`) for the
+  real controller's 40 fresh readings after a start or a charging change and none while the charge
+  is done, and `opensc2_gauge_voltage()`, the averaged voltage report `0x43` carries (held while
+  done). The blank canvas's battery option uses both, and starts from the kept level.
+- The LED player: the update window's blink (`update_window`, `update_requests` in the status),
+  Steam's colour between a breathe's two fades, the searching pattern's fade-out skipped when the
+  link is up by then and its dark part looked at every 50 ms.
 
 **The haptics synthesiser**
 
@@ -226,8 +247,9 @@ controller is listed in docs/protocol.md's gaps.
   its range (0.2.0 knew nine ranges and stored the rest as sent; 48, 84 and 85 still go unclamped,
   as on the real controller), and the settings 0.2.0 had no default for start from theirs (setting
   3 reads 1200 after a boot, 28 and 29 start above their range, as there).
-- `0xE9` reads the LED colour back the way the real controller does: a channel reads 100 when it is
-  exactly 100, otherwise 0. The colour itself is kept as sent.
+- `0xE9` reads the LED colour back the way the real controller does: 0 below 100, 100 from 100 to
+  199, 200 from 200. The colour itself is kept as sent, now also above 100 (it was clamped to 100):
+  such a channel is brighter, up to full duty, as on the real controller.
 - `0xBE`: byte 13 is 1 while the charge state is "charging" (else 0) and byte 14 is the charge state
   without its `0x80` flag, as on the real controller. The `gauge_flags` field of
   `struct opensc2_battery` is no longer sent.
@@ -268,9 +290,23 @@ controller is listed in docs/protocol.md's gaps.
 - The blank canvas's LED shows the real controller's patterns (on its one-colour LED: on once set up
   or connected, a slow blink while it looks for the puck, two quick flashes while it pairs over the
   air, a short dark blink every second for amber).
-- `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` defaults to 60 s in a battery build.
-- The retained RAM area's layout is version 2 (the crash record's slot and the test hooks' system
-  words), so the first boot of this firmware starts with an empty USB session log.
+- `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` defaults to 60 s and `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` to 10 s
+  in every build, as on the real controller: on USB power a board that finds no puck switches
+  wireless off (amber; STEAM then reboots it wired).
+- The hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`) is on by default, as on the real controller
+  (not yet tried on hardware with this firmware); `app/watchdog.conf` is no longer needed.
+- Reports `0x43` and `0xBE` send the level as given (it was capped at 100), so 255, the real
+  controller's "no level yet", goes out as such. A battery build reports what the real controller's
+  first report carries until the application gives a battery (the kept level or 255, charge state
+  0, zeros); a build without a battery keeps reporting a full one.
+- With the system state machine the power source counts at every 50 ms poll whichever way (power
+  going away waited 0.2 s), and `opensc2_reboot()` leaves Bluetooth with an all-zero report and
+  100 ms first, as the real controller does before every reboot.
+- `<opensc2/gauge.h>`'s history averages the readings since its last reset (the first reading no
+  longer fills all 40 slots); `struct opensc2_gauge_history` has `count` in place of `filled`.
+- The retained RAM area's layout is version 3 (the crash record's slot, the test hooks' system words
+  and the kept battery level), so the first boot of this firmware starts with an empty USB session
+  log.
 - Vendor commands run one at a time across links (a mutex in the command channel), now that the dock
   and Bluetooth can run them beside USB or the radio.
 - With the synthesiser, `app/`'s optional vibration motor follows the rendered blocks' loudness.
