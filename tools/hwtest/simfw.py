@@ -308,7 +308,7 @@ class SimBoard:
 
     def led_color_write(self, rgbw, link):
         for k, v in zip(("red", "green", "blue", "white"), rgbw):
-            self.led[k] = min(v, 100)
+            self.led[k] = v
         self.notify_led(link)
 
     def load_defaults(self, link):

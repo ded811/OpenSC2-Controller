@@ -239,7 +239,9 @@ struct opensc2_output {
 
 /* The status LED colour Steam sets with vendor command 0xC5, and the settings that go with it. */
 struct opensc2_led {
-	uint8_t red, green, blue, white;  /* percent 0..100 */
+	uint8_t red, green, blue, white;  /* percent, as 0xC5 sent them: 0..255, where the real
+					   * controller shows a channel above 100 brighter, up to
+					   * full duty */
 	bool override;     /* controller setting 37: show this colour instead of the status pattern */
 	uint8_t brightness;  /* controller setting 45, percent 0..100 (default 50) */
 };

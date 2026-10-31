@@ -17,8 +17,12 @@
 enum seg_kind {
 	SEG_HOLD,          /* show the colour */
 	SEG_FADE,          /* fade from the colour last shown to this one */
-	SEG_HOLD_UNTIL,    /* dark, cut short when a link comes up (the searching pattern) */
+	SEG_HOLD_UNTIL,    /* dark, cut short when a link comes up, looked at every 50 ms (the
+			    * searching pattern) */
 	SEG_HOLD_LINK,     /* the steady link display: cut short only when the mode leaves 1 and 2 */
+	SEG_FADE_SEARCH,   /* the searching fade-out: skipped when a link is up as it begins */
+	SEG_OVERRIDE,      /* between a breathe's two fades: the cycle ends here while the override
+			    * is on */
 };
 
 /* Colours in thousandths: R, G, B, W. */
@@ -30,6 +34,7 @@ static const uint16_t AMBER_DIM[4] = { 15, 20, 0, 0 };
 static const uint16_t RED[4] = { 100, 0, 0, 0 };
 static const uint16_t WHITE[4] = { 0, 0, 0, 200 };
 static const uint16_t DARK[4] = { 0, 0, 0, 0 };
+static const uint16_t UPDATE_GREEN[4] = { 0, 500, 0, 0 };
 
 /* The fully-charged display's colours: full, medium, dim, per mode 1 to 4. */
 static const uint16_t FULL_COLOURS[4][3][4] = {
@@ -52,6 +57,8 @@ static const uint8_t CURVE[101] = {
 #define LOW_LEVEL        5       /* at or below: the red displays */
 #define LINK_STEADY_MS   2000    /* the steady link display's cycle */
 #define LINK_CHECK_MS    100     /* how often it looks whether the mode left the link pattern */
+#define SEARCH_CHECK_MS  50      /* how often the searching pattern's dark looks for a link */
+#define UPDATE_QUEUE     2       /* update requests waiting at most (more are lost) */
 
 uint8_t opensc2_led_brightness(int16_t setting45, int16_t setting38)
 {
@@ -137,11 +144,37 @@ static void from_dark(struct opensc2_led_player *p)
 	add(p, SEG_HOLD, 0, DARK);
 }
 
+/* Dark to the colour and back, 1.8 s each; the override, when it comes on meanwhile, shows after
+ * the first fade. */
 static void breathe(struct opensc2_led_player *p, const uint16_t c[4])
 {
 	from_dark(p);
 	add(p, SEG_FADE, 1800, c);
+	add(p, SEG_OVERRIDE, 0, c);
 	add(p, SEG_FADE, 1800, DARK);
+}
+
+/* The update window's blink: from the colour last shown to green in 0.1 s, 0.9 s on, 0.9 s dark. */
+static void update_blink(struct opensc2_led_player *p)
+{
+	add(p, SEG_FADE, 100, UPDATE_GREEN);
+	add(p, SEG_HOLD, 900, UPDATE_GREEN);
+	add(p, SEG_HOLD, 900, DARK);
+}
+
+/* Takes one waiting update request, if there is one (at most UPDATE_QUEUE wait; more are lost). */
+static bool take_update(struct opensc2_led_player *p, const struct opensc2_led_status *st)
+{
+	uint8_t waiting = (uint8_t)(st->update_requests - p->updates_seen);
+
+	if (waiting == 0) {
+		return false;
+	}
+	if (waiting > UPDATE_QUEUE) {
+		p->updates_seen = (uint8_t)(st->update_requests - UPDATE_QUEUE);
+	}
+	p->updates_seen++;
+	return true;
 }
 
 static void full_display(struct opensc2_led_player *p, const struct opensc2_led_status *st,
@@ -160,13 +193,25 @@ static void build(struct opensc2_led_player *p, const struct opensc2_led_status 
 	bool low = st->level <= LOW_LEVEL;
 
 	p->count = 0;
-	if (st->override) {
+	if (p->blinking) {
+		/* The update blink goes on for as long as the window runs; then the next waiting
+		 * request, or straight on to the mode's pattern (no look at the override between). */
+		if (st->update_window || take_update(p, st)) {
+			update_blink(p);
+			return;
+		}
+		p->blinking = false;
+	} else if (st->override) {
 		uint16_t o[4];
 
 		for (int i = 0; i < 4; i++) {
 			o[i] = (uint16_t)(st->override_rgbw[i] * 10u);   /* percent: not clamped */
 		}
 		steady(p, o);
+		return;
+	} else if (take_update(p, st)) {
+		p->blinking = true;   /* once at least, even if the window is over already */
+		update_blink(p);
 		return;
 	}
 	switch (st->mode) {
@@ -186,7 +231,7 @@ static void build(struct opensc2_led_player *p, const struct opensc2_led_status 
 			/* Listening, advertising for the bonded host, or off. */
 			add(p, SEG_FADE, 100, c);
 			add(p, SEG_HOLD, 900, c);
-			add(p, SEG_FADE, 100, DARK);
+			add(p, SEG_FADE_SEARCH, 100, DARK);
 			add(p, SEG_HOLD_UNTIL, 900, DARK);
 		}
 		break;
@@ -268,8 +313,15 @@ void opensc2_led_player_step(struct opensc2_led_player *player,
 		s = &p->seg[p->index];
 		elapsed = now_ms - p->seg_start;
 		len = s->ms;
+		if (s->kind == SEG_OVERRIDE && status->override) {
+			begin_cycle(p, status, p->seg_start);   /* the override, now */
+			continue;
+		}
 		if (s->kind == SEG_HOLD_UNTIL && status->connected) {
-			len = elapsed < s->ms ? elapsed : s->ms;   /* a link came up: it ends now */
+			/* A link came up: the dark ends at its next 50 ms look. */
+			uint32_t at = (elapsed + SEARCH_CHECK_MS - 1) / SEARCH_CHECK_MS * SEARCH_CHECK_MS;
+
+			len = at < s->ms ? at : s->ms;
 		} else if (s->kind == SEG_HOLD_LINK && status->mode != OPENSC2_LED_MODE_BLUETOOTH &&
 			   status->mode != OPENSC2_LED_MODE_PUCK) {
 			/* the mode left the link pattern: it ends at the next 100 ms check */
@@ -281,16 +333,21 @@ void opensc2_led_player_step(struct opensc2_led_player *player,
 		if (elapsed < len) {
 			break;
 		}
-		memcpy(p->from, s->rgbw, sizeof(p->from));
-		memcpy(p->shown, s->rgbw, sizeof(p->shown));
+		/* A searching fade-out skipped, or its dark ended at its first look, showed nothing. */
+		if (len > 0 || (s->kind != SEG_FADE_SEARCH && s->kind != SEG_HOLD_UNTIL)) {
+			memcpy(p->from, s->rgbw, sizeof(p->from));
+			memcpy(p->shown, s->rgbw, sizeof(p->shown));
+		}
 		p->seg_start += len;
 		if (++p->index >= p->count) {
 			begin_cycle(p, status, p->seg_start);
+		} else if (p->seg[p->index].kind == SEG_FADE_SEARCH && status->connected) {
+			p->seg[p->index].ms = 0;   /* a link is up as the fade-out would begin: none */
 		}
 	}
 	s = &p->seg[p->index];
 	elapsed = now_ms - p->seg_start;
-	if (s->kind == SEG_FADE && s->ms > 0) {
+	if ((s->kind == SEG_FADE || s->kind == SEG_FADE_SEARCH) && s->ms > 0) {
 		/* Linear, in 10 ms steps. */
 		uint32_t at = elapsed / OPENSC2_LED_STEP_MS * OPENSC2_LED_STEP_MS;
 

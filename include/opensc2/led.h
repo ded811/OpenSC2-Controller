@@ -59,7 +59,12 @@ struct opensc2_led_status {
 	uint32_t below_full_ms;    /* uptime when the level last read below 100 % (0: never) */
 	uint8_t brightness;        /* percent, setting 45 through the curve of setting 38 */
 	bool override;             /* setting 37: show the 0xC5 colour instead */
-	uint8_t override_rgbw[4];  /* that colour, percent */
+	uint8_t override_rgbw[4];  /* that colour, percent (as sent: above 100 is brighter, up to
+				    * full duty, as on the real controller) */
+	bool update_window;        /* the 60 s update window runs (a bootloader request on battery
+				    * or the dock): blink green */
+	uint8_t update_requests;   /* bootloader requests that opened or restarted it so far
+				    * (wraps); the player blinks once more for each new one */
 };
 
 /* The status now (the library's own, never NULL fields). */
@@ -79,11 +84,13 @@ struct opensc2_led_segment {
 struct opensc2_led_player {
 	uint16_t shown[4];         /* the colour shown last */
 	uint16_t from[4];          /* where the current fade started */
-	struct opensc2_led_segment seg[5];
+	struct opensc2_led_segment seg[6];
 	uint8_t count, index;
 	uint16_t peak;             /* the brightest channel of the cycle (for one-colour LEDs) */
 	uint32_t seg_start;
 	bool running;
+	bool blinking;             /* the update window's green blink is playing */
+	uint8_t updates_seen;      /* update requests taken (status.update_requests) */
 };
 
 void opensc2_led_player_init(struct opensc2_led_player *player);
@@ -92,8 +99,11 @@ void opensc2_led_player_init(struct opensc2_led_player *player);
  * status shows once the cycle in progress is over, as on the real controller: within 0.1 s from
  * the dark display and the override; from the steady link display (connected on battery, a chord
  * state) within 0.1 s for a mode other than 1 or 2 and otherwise at the end of its 2 s cycle; up
- * to 10.3 s from the keylock pattern. The breathing patterns start every cycle from dark; the
- * other fades start from the colour last shown. */
+ * to 10.3 s from the keylock pattern. The override also shows between the two fades of a
+ * breathing pattern (within 1.8 s). The breathing patterns start every cycle from dark; the other
+ * fades start from the colour last shown. An update request (status.update_requests) blinks green
+ * (0.1 s fade in, 0.9 s on, 0.9 s dark) for as long as the update window runs, at least once,
+ * before the override and the mode's pattern. */
 void opensc2_led_player_step(struct opensc2_led_player *player,
 			     const struct opensc2_led_status *status, uint32_t now_ms,
 			     uint16_t rgbw[4]);

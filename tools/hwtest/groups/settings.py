@@ -66,9 +66,9 @@ def run(ctx):
             colour = rig.led_color()
             rig.lizard_off()
             start = rig.ring_next()
-            # sent, kept (each channel clamped to 100); 0xE9 reads the kept colour back as the
-            # real controller does: a channel of exactly 100 reads 100, anything else 0
-            steps = (((100, 0, 50, 10), (100, 0, 50, 10)), ((0xFF, 0, 0, 0), (100, 0, 0, 0)),
+            # sent and kept as sent, as on the real controller; 0xE9 reads the kept colour back
+            # as the real controller does: 0 below 100, 100 from 100 to 199, 200 from 200
+            steps = (((100, 0, 50, 10), (100, 0, 50, 10)), ((0xFF, 0, 0, 0), (0xFF, 0, 0, 0)),
                      ((100, 100, 100, 100), (100, 100, 100, 100)), ((99, 1, 100, 50),
                                                                     (99, 1, 100, 50)))
             for sent, kept in steps:

@@ -53,8 +53,8 @@ OPENSC2_TEST(proto_led_readback)
 	CHECK_EQ(osc2_led_readback(1), 0);
 	CHECK_EQ(osc2_led_readback(50), 0);
 	CHECK_EQ(osc2_led_readback(99), 0);
-	/* The real controller keeps values above 100 and reads them back cut to whole hundreds (the
-	 * library clamps at 0xC5, proto_cmd_led_readback below, so these never reach its answers). */
+	/* Values above 100 are kept as sent and read back cut to whole hundreds, as on the real
+	 * controller (proto_cmd_led_readback below). */
 	CHECK_EQ(osc2_led_readback(101), 100);
 	CHECK_EQ(osc2_led_readback(199), 100);
 	CHECK_EQ(osc2_led_readback(200), 200);
@@ -330,10 +330,11 @@ OPENSC2_TEST(proto_cmd_led_readback)
 	CHECK_EQ(proto_usb(0xC5, full, sizeof(full), reply), -1);
 	CHECK_EQ(proto_usb(0xE9, NULL, 0, reply), 4);
 	CHECK(memcmp(&reply[3], full, 4) == 0);
-	/* 0xC5 clamps to 100 first: 255 becomes 100 and reads back as 100. */
+	/* 0xC5 keeps a channel above 100 as sent (brighter, as on the real controller): 255 reads
+	 * back as 200, 101 as 100. */
 	CHECK_EQ(proto_usb(0xC5, over, sizeof(over), reply), -1);
-	CHECK_EQ(osc2.led.red, 100);
-	CHECK_EQ(osc2.led.blue, 100);
+	CHECK_EQ(osc2.led.red, 255);
+	CHECK_EQ(osc2.led.blue, 101);
 	CHECK_EQ(proto_usb(0xE9, NULL, 0, reply), 4);
-	CHECK(memcmp(&reply[3], (const uint8_t[]){ 100, 0, 100, 0 }, 4) == 0);
+	CHECK(memcmp(&reply[3], (const uint8_t[]){ 200, 0, 100, 0 }, 4) == 0);
 }

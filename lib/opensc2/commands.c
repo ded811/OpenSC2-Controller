@@ -484,10 +484,11 @@ void osc2_led_color_write(const uint8_t rgbw[4])
 {
 	k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
 
-	osc2.led.red = MIN(rgbw[0], 100);
-	osc2.led.green = MIN(rgbw[1], 100);
-	osc2.led.blue = MIN(rgbw[2], 100);
-	osc2.led.white = MIN(rgbw[3], 100);
+	/* As sent, as on the real controller: a channel above 100 is brighter, up to full duty. */
+	osc2.led.red = rgbw[0];
+	osc2.led.green = rgbw[1];
+	osc2.led.blue = rgbw[2];
+	osc2.led.white = rgbw[3];
 	k_spin_unlock(&osc2.lock, lk);
 	osc2_notify_led();
 }
