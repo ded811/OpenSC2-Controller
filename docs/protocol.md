@@ -300,8 +300,9 @@ hardware**; [api.md](api.md#the-bluetooth-build) has every detail and what is no
   Valve's vendor service (`100F6Cxx-1735-4313-B402-38567131E5F3`), the same reports as plain
   characteristics, which SDL's Android and Apple back ends use. Vendor command `0x83` still reports
   product ID `0x1302`.
-- **The gate**: no report until the link is encrypted and its ATT MTU is 64 or more; then Bluetooth
-  is the active transport and attribute 11 of `0x83` is the connection interval in µs.
+- **The gate**: no report until the link is encrypted and the last ATT MTU heard of (kept across
+  links) is 64 or more; then Bluetooth is the active transport and attribute 11 of `0x83` is the
+  connection interval in µs.
 - **Reports**: one state report per connection event, as `0x45` (the first 45 bytes of `0x42`, the
   quaternion cut); lizard mode, battery and haptic status on their own characteristics.
 - **Commands and outputs**: feature report 1 is the command channel (refusals are ATT errors);
@@ -522,30 +523,38 @@ open, the library does what should work with Steam and the puck, and says so her
     before); without Bluetooth, `0xEE` with 0 or 1 is taken and changes nothing; a board that stored
     only `opensc2/slot` (older firmware) starts on that puck slot. What Steam does when it reads 0
     or 1 during a cable pairing is not known.
-23. **Bluetooth LE** (an opt-in build; built, not yet tested on hardware). Where it differs from the
-    documented controller, or the documentation is silent:
+23. **Bluetooth LE.** Where it differs from the documented controller, or the documentation is
+    silent (since this round the bond rule, the pairing cue's replay, the kept ATT MTU, feature
+    report 1's reads and its stored request, the sampling margin, a refused report's log, the
+    vendor `0x45` flag, the system state machine's drop and the LED's "connected" are the real
+    controller's, quirks included):
 
     | Point | The documented controller | OpenSC2 |
     | --- | --- | --- |
-    | Sharing the radio with the puck's ESB | MPSL is shut down when the puck link stops, and started again by Bluetooth | MPSL stays initialised (in this build its clock driver also serves the USB console's crystal); ESB takes the radio interrupt while it runs and the library hands it back to MPSL; switching between the two within one boot is supported both ways |
+    | Sharing the radio with the puck's ESB | MPSL is shut down when the puck link stops, and started again by Bluetooth; Bluetooth, then the puck, then Bluetooth within one boot breaks (inferred) | MPSL stays initialised (in this build its clock driver also serves the USB console's crystal); ESB takes the radio interrupt while it runs and the library hands it back to MPSL; switching between the two within one boot is supported both ways |
     | The advertising window | 60 s | 60 s by default, a Kconfig option (`CONFIG_OPENSC2_BLE_ADV_WINDOW_S`; 0: advertise until a host connects) |
-    | "Wireless off" | on battery the controller turns off; on USB power wireless goes off | the library stops advertising and keeps the wireless-off flag and its reason (`opensc2 ble status`, the test hooks' `BLE_STATUS`), also through the system state machine's drop that follows; with the machine (the default) wireless goes off on USB power (amber; STEAM reboots wired, `opensc2 start` advertises again) and a battery build shuts down; without it the application gets `OPENSC2_POWER_WIRELESS_OFF` and the blank canvas stays on until a button or `opensc2 start` |
-    | Turning wireless off while Bluetooth advertises, or before the gate | Bluetooth is left advertising until its window ends (inferred, not observed) | `opensc2_stop()` stops it in any state |
-    | The bond rule | a host that pairs on an identity that had no bond at the start deletes the bond on the slot's other identity, once the link reaches security level 2 | the same, once the host has bonded: a host that pairs without bonding leaves the slot's host alone |
-    | A pairing request while a host is connected on the slot | not documented (a chord asks for it while wireless is off) | the link ends (the zero report, `0x13`), then the slot's other identity advertises in pairing mode |
-    | The subscription flags | a quirk can send state reports to the vendor characteristic whatever the host subscribed to (after an odd puck disconnect reason in the same boot; inferred, not observed) | not copied: a report goes where the host enabled notifications, the vendor characteristic first |
+    | "Wireless off" | on battery the controller turns off; on USB power wireless goes off | the same with the system state machine (the default); the library also keeps the wireless-off flag and its reason (`opensc2 ble status`, `opensc2_ble_status()`, the test hooks' `BLE_STATUS`); without the machine the application gets `OPENSC2_POWER_WIRELESS_OFF` and the blank canvas stays on until a button or `opensc2 start` |
+    | A start while Bluetooth runs | a start is ignored unless Bluetooth is off; the state machine never sends one then | only the library's API and shell reach this: the same slot without pairing keeps the link; another slot, or a pairing request (`opensc2_pair_start()`, `opensc2_select_transport_pairing()`), ends the link (the zero report, `0x13`) and advertises for it; `opensc2_stop()` stops Bluetooth in any state |
+    | Bluetooth's state after a host's `0x13` on USB power | stays "connected" until a disable reaches it, which never happens: that state only reboots or shuts down | the link is `OFF` at once; nothing a host or user can see differs |
+    | A deleted bond of the identity in use | the identity is reset, which, on a connected link, ends it (no route to this is known) | only logged while that identity advertises or is connected |
     | LED patterns | blue: the pairing double flash, the searching fade, connected steady or fading on external power | the system state machine selects them; the blank canvas shows them in blue on an RGB LED, as brightness alone on its one-colour LED |
-    | The ATT MTU | the last value is remembered across connections | per connection, as the specification has it (hosts raise it at every connection) |
-    | Reading feature report 1 | 64 bytes, the answer then left-overs; a read blob gets the start again | the 63 bytes the report map declares; a read blob gets the rest of the same answer |
-    | Feature report 1's stored request | kept from one connection to the next: a new connection's first read answers what the last SET of an earlier one selected (`0x83` until the first SET after boot) | starts again at `0x83` at every connection, as the radio's does; a host that sends a SET before its GET, as Steam and SDL do, sees no difference |
     | No connection-event trigger | no state reports (inferred) | a timer at the connection interval paces them |
-    | Report pacing | the report slot is one connection interval after the event's start less 500 µs, and the state is sampled before it by the worst processing time of the last 65 frames | the same slot (`CONFIG_OPENSC2_BLE_REPORT_LEAD_US`, 500 µs), with the state sampled at the slot itself |
-    | A report that cannot be sent | logged as an error with its ID | logged at debug level (at the default MTU every state report would be) |
+    | The sampling margin | starts over when a link becomes active and when the stick or trigger calibration changes | starts over when a link passes the gate |
+    | Buffers and threads | 5 L2CAP and 25 connection TX buffers; the report thread waits for a buffer; both threads cooperative (priority -1) | 8 ACL, 8 L2CAP and 10 ATT TX buffers; at most 8 notifications in flight, a state or battery report without room dropped (a battery report waits), the others queued; preemptible threads (`CONFIG_OPENSC2_BLE_THREAD_PRIORITY`, `_REPORT_THREAD_PRIORITY`). Seen only as latency or a drop under congestion |
+    | The log | Valve's lines | the same moments in OpenSC2's own words |
+    | The report map's bytes | Valve's 372 bytes | the USB report descriptor (gap 13: the same reports, 20 bytes in another item order) |
 
     Valve's Bluetooth company ID and the PnP ID `28DE:1303` are advertised for interoperability, as
     the USB IDs are, and the vendor service uses Valve's UUIDs for the same reason
     ([NOTICE.md](../NOTICE.md)); the IDs are Kconfig options and the vendor service can be left
-    out (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE`).
+    out (`CONFIG_OPENSC2_BLE_VENDOR_SERVICE`). **The vendor `0x45` quirk, copied:** the real
+    controller keeps the vendor service's subscription flag of the state report in bit 0 of the
+    puck link's last disconnect reason (what `0xF2` selector 2 reports), so a host's subscription
+    to the vendor `0x45` sets that bit and its end clears it, and after a puck link that ended with
+    an odd reason (1, link lost; 3, turned off by the puck) in the same boot, state reports go to
+    the vendor characteristic whatever the host subscribed to: a host that uses only the HID
+    service gets none until the board resets or a vendor `0x45` subscription ends. The library does
+    the same (read from the protocol documentation, not observed on a real controller).
 24. **`0xE9`'s read-back, copied.** The real controller converts the stored colour in a way that
     truncates before it scales, so each channel of `0xE9` reads 0 below 100, 100 from 100 to 199
     and 200 from 200. A host can see that answer, so the library gives the same one; the colour
