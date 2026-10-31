@@ -523,11 +523,10 @@ open, the library does what should work with Steam and the puck, and says so her
     before); without Bluetooth, `0xEE` with 0 or 1 is taken and changes nothing; a board that stored
     only `opensc2/slot` (older firmware) starts on that puck slot. What Steam does when it reads 0
     or 1 during a cable pairing is not known.
-23. **Bluetooth LE.** Where it differs from the documented controller, or the documentation is
-    silent (since this round the bond rule, the pairing cue's replay, the kept ATT MTU, feature
-    report 1's reads and its stored request, the sampling margin, a refused report's log, the
-    vendor `0x45` flag, the system state machine's drop and the LED's "connected" are the real
-    controller's, quirks included):
+23. **Bluetooth LE.** The bond rule, the pairing cue's replay, the kept ATT MTU, feature report
+    1's reads and its stored request, the sampling margin, a refused report's log, the vendor
+    `0x45` flag, the system state machine's drop and the LED's "connected" follow the documented
+    controller, quirks included. Where OpenSC2 still differs, or the documentation is silent:
 
     | Point | The documented controller | OpenSC2 |
     | --- | --- | --- |
