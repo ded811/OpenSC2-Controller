@@ -387,7 +387,9 @@ closed.
    OSC..." appears; select it: it pairs without a PIN or a prompt (Just Works).
 5. **Check it**: `opensc2 ble status` shows `connected and active, security 2` (or more), an ATT MTU
    of 64 or more, the interval Windows granted (7500 µs asked for) and `paced by the connection
-   events`, and the state reports counting up. Device Manager (View, Devices by connection) shows
+   events`, and the state reports counting up (if they are all dropped instead, a puck link lost
+   earlier in this boot set the real controller's vendor `0x45` quirk: reboot, the transport is
+   stored; [protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23). Device Manager (View, Devices by connection) shows
    under the Bluetooth device a HID device with three collections (a mouse, a keyboard and a vendor
    collection); its hardware IDs contain `VID&0228DE_PID&1303` (Windows may print the hex in lower
    case). The transport is now stored (`opensc2 transport`: `stored ble`): wireless boots start on
