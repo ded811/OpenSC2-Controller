@@ -134,6 +134,9 @@ config OPENSC2_BLE_REPORT_LEAD_US
 	range 0 5000
 	help
 	  The real controller sets its report slot one connection interval after the start of each
-	  connection event, less 500 us, so one fresh state report is ready for every event.
+	  connection event, less 500 us, so one fresh state report is ready for every event. As
+	  there, the state is sampled ahead of that slot by the sampling margin: the longest a
+	  frame took over the current and the last run of 65 frames (about 2.5 ms until the first
+	  run is complete).
 
 endif # OPENSC2_BLE
