@@ -156,8 +156,10 @@ def run(ctx):
             rig.flush()
             b0 = _ble_counts(rig) if path == "B" else None
             got = rig.read_stream(duration_s=2.0)
-            cnt = rig.cnt_read()
+            # Bluetooth's count first, so its window lies inside the frame counters' one (each
+            # request over Bluetooth takes tens of milliseconds, several reports' worth).
             b1 = _ble_counts(rig) if path == "B" else None
+            cnt = rig.cnt_read()
             tail = rig.read_stream(duration_s=0.05)
             received = sum(1 for _t, r in got + tail if r[0] == C.RPT_STATE)
             c.observe(frames=cnt.get("frames"), usb_sent=cnt.get("usb_sent"),

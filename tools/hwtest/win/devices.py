@@ -222,7 +222,11 @@ def enumerate_nodes():
         for iface in cfg.interface_list(guid):
             own = cfg.interface_property(iface, iid_key)
             own_dn = cfg.locate(own) if own else None
-            usb_dn, usb_id = usb_device(cfg, own_dn) if own_dn is not None else (None, None)
+            # A Bluetooth LE HID collection: among its ancestors is the PC's Bluetooth radio,
+            # often a USB device itself, which is not the board's USB device.
+            is_ble = kind == "hid" and (own or "").upper().startswith("HID\\{00001812-")
+            usb_dn, usb_id = usb_device(cfg, own_dn) if own_dn is not None and not is_ble \
+                else (None, None)
             node = {
                 "kind": kind,
                 "interface_id": iface,
@@ -235,8 +239,7 @@ def enumerate_nodes():
                 else None,
                 "com": cfg.port_name(own_dn) if kind == "port" and own_dn is not None else None,
             }
-            if kind == "hid" and usb_id is None and own_dn is not None and \
-                    (own or "").upper().startswith("HID\\{00001812-"):
+            if is_ble and own_dn is not None:
                 service_id, address, names = ble_device(cfg, own_dn)
                 if service_id:
                     node["instance_id"] = service_id

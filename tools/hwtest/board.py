@@ -241,7 +241,7 @@ class Rig:
         try:
             return fn(*args)
         except Stall as e:
-            if e.win_error in C.DEVICE_GONE_ERRORS:
+            if e.win_error in C.DEVICE_GONE_ERRORS and not self._ble_refusal(e.win_error):
                 raise BoardGone("the board went away (Win32 error %d)" % e.win_error) from e
             raise
         except TimeoutError as e:
@@ -257,6 +257,19 @@ class Rig:
                         from e
             raise T.ProtocolError("a feature request hung for %.0f s (cancelled; the 0x83 probe "
                                   "answered)" % C.FEATURE_IOCTL_TIMEOUT_S) from e
+
+    def _ble_refusal(self, win_error):
+        """Over Bluetooth, Windows reports the board's refusal (ATT error 0x04, the counterpart
+        of a STALL) as Win32 error 6, and the device and its handle stay usable (seen on
+        hardware). So error 6 on B is a refusal while the board's Bluetooth HID device is still
+        listed."""
+        if self.path != "B" or win_error != 6:
+            return False
+        nodes = getattr(self.backend, "ble_nodes", None)
+        try:
+            return nodes is not None and any(mine for mine, _why in nodes())
+        except Exception:
+            return False
 
     def _usb_set(self, buf):
         return self._usb(self.backend.feature_set, buf)

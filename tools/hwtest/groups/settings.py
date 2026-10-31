@@ -256,9 +256,20 @@ def run(ctx):
             i = _expiry(rig, entries)
             c.true("the watchdog ran", i is not None)
             if i is not None and t0 is not None:
+                # The last re-arm is the 0x87 writing 9 = 0, timed by its own ring entry: over
+                # Bluetooth the requests before it take longer than the sleeps between them.
+                t_exp = entries[i]["time_us"]
+                rearm = [e["time_us"] for e in rig.ring_all(start)[2]
+                         if e["kind"] == C.RING_VENDOR and e["time_us"] < t_exp and
+                         e.get("opcode") == C.VC_SETTINGS_SET and e.get("direction") == 0]
                 dt = (entries[i]["time_us"] - t0) / 1e6
-                c.true("about 24 s after the start, 10 s after the last re-arm (%.2f s)" % dt,
-                       abs(dt - 24.0) <= 0.4)
+                c.true("about 24 s after the start (%.2f s)" % dt, 23.6 <= dt <= 25.5)
+                if rearm:
+                    dr = (entries[i]["time_us"] - rearm[-1]) / 1e6
+                    c.true("10 s after the last re-arm, the 0x87 of 9 = 0 (%.2f s)" % dr,
+                           abs(dr - 10.0) <= 0.4)
+                else:
+                    c.fail("no 0x87 SET in the ring before the expiry")
             _restore(rig, snap, range(86))
 
     if ctx.want("settings.watchdog_off"):
