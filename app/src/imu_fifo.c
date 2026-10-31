@@ -101,6 +101,10 @@ void imu_setting(uint8_t number, int16_t value)
 		(void)rtio_sqe_cancel(stream);
 		stream = NULL;
 		cancelled_id = stream_id;
+		k_mutex_unlock(&stream_lock);
+		/* as on the real controller: a drop sound still due, and the re-arm, go with it */
+		opensc2_haptics_imu_stopped();
+		return;
 	}
 	k_mutex_unlock(&stream_lock);
 	stream_start();

@@ -143,6 +143,9 @@ static void imu_thread(void *p1, void *p2, void *p3)
 				opensc2_set_imu(&out);   /* zeros while Steam has it off */
 				opensc2_freefall_init(&fall);   /* no fall carried over the pause */
 				streaming = false;
+				/* as on the real controller: a drop sound still due, and the re-arm,
+				 * go with the stream */
+				opensc2_haptics_imu_stopped();
 			}
 			continue;
 		}
