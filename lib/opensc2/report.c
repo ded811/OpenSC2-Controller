@@ -282,6 +282,7 @@ static void battery_fn(struct k_work *work)
 	/* The level reaches the power rules (the application's, or the test hooks' system
 	 * injection; never the report injection below). */
 	osc2_sys_battery_report(&b);
+	osc2_battery_stats(&b);
 	osc2_test_battery(&b);
 	opensc2_encode_battery(&b, report);
 	osc2_test_count(osc2_input_send(report, sizeof(report), true) == 0 ?

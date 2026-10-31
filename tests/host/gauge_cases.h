@@ -21,13 +21,13 @@ OPENSC2_TEST(gauge_divider_history)
 	opensc2_gauge_history_reset(&h);
 	CHECK_EQ(opensc2_gauge_latest(&h), 0);
 	CHECK_EQ(opensc2_gauge_average(&h), 0);
-	opensc2_gauge_history_add(&h, 4000);   /* the first reading fills all 40 */
+	opensc2_gauge_history_add(&h, 4000);   /* the readings since the reset count */
 	CHECK_EQ(opensc2_gauge_latest(&h), 4000);
 	CHECK_EQ(opensc2_gauge_average(&h), 4000);
 	CHECK_EQ(opensc2_gauge_max(&h), 4000);
 	opensc2_gauge_history_add(&h, 3900);
 	CHECK_EQ(opensc2_gauge_latest(&h), 3900);
-	CHECK_EQ(opensc2_gauge_average(&h), 3997);
+	CHECK_EQ(opensc2_gauge_average(&h), 3950);
 	CHECK_EQ(opensc2_gauge_max(&h), 4000);
 	for (int i = 0; i < OPENSC2_GAUGE_HISTORY; i++) {
 		opensc2_gauge_history_add(&h, 3800);
@@ -73,18 +73,42 @@ OPENSC2_TEST(gauge_level)
 {
 	struct opensc2_gauge g;
 
+	/* As the real controller's gauge: 40 readings in a row after a start, then one a step. */
 	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
 	CHECK_EQ(g.level, OPENSC2_GAUGE_NO_LEVEL);
-	CHECK_EQ(opensc2_gauge_step(&g, 4000, OPENSC2_CHARGE_DISCHARGING), 81);
-	CHECK_EQ(opensc2_gauge_step(&g, 4100, OPENSC2_CHARGE_DISCHARGING), 81);   /* never rises */
-	CHECK_EQ(opensc2_gauge_step(&g, 3800, OPENSC2_CHARGE_DISCHARGING), 80);
-	/* charging: the history starts over, the level only rises */
-	CHECK_EQ(opensc2_gauge_step(&g, 4000, OPENSC2_CHARGE_CHARGING), 80);
-	CHECK_EQ(opensc2_gauge_average(&g.history), 4000);
-	CHECK_EQ(opensc2_gauge_step(&g, 4150, OPENSC2_CHARGE_CHARGING), 80);
-	/* done reads 100 */
+	CHECK_EQ(opensc2_gauge_voltage(&g), 0);
+	CHECK_EQ(opensc2_gauge_begin(&g, OPENSC2_CHARGE_DISCHARGING), 40);
+	for (int i = 0; i < 40; i++) {
+		opensc2_gauge_add(&g, 4000);
+	}
+	CHECK_EQ(opensc2_gauge_finish(&g), 81);
+	CHECK_EQ(opensc2_gauge_voltage(&g), 4000);
+	CHECK_EQ(opensc2_gauge_begin(&g, OPENSC2_CHARGE_DISCHARGING), 1);
+	opensc2_gauge_add(&g, 4400);
+	CHECK_EQ(opensc2_gauge_finish(&g), 81);                                    /* never rises */
+	CHECK_EQ(opensc2_gauge_voltage(&g), 4010);                                 /* the average */
+	CHECK_EQ(opensc2_gauge_step(&g, 3600, OPENSC2_CHARGE_DISCHARGING), 81);  /* 4000 average */
+	/* charging: the history starts over (40 again), the level only rises */
+	CHECK_EQ(opensc2_gauge_begin(&g, OPENSC2_CHARGE_CHARGING), 40);
+	for (int i = 0; i < 40; i++) {
+		opensc2_gauge_add(&g, 3900);
+	}
+	CHECK_EQ(opensc2_gauge_finish(&g), 81);
+	CHECK_EQ(opensc2_gauge_average(&g.history), 3900);
+	CHECK_EQ(opensc2_gauge_step(&g, 4150, OPENSC2_CHARGE_CHARGING), 81);
+	/* done reads 100, takes no reading, and the reported voltage holds */
+	CHECK_EQ(opensc2_gauge_begin(&g, OPENSC2_CHARGE_DONE), 0);
+	CHECK_EQ(opensc2_gauge_finish(&g), 100);
 	CHECK_EQ(opensc2_gauge_step(&g, 4200, OPENSC2_CHARGE_DONE), 100);
-	CHECK_EQ(opensc2_gauge_step(&g, 3900, OPENSC2_CHARGE_DISCHARGING), 100);
+	CHECK_EQ(opensc2_gauge_voltage(&g), 3906);
+	/* charging ended at "done", which started the history over: on battery again, 40 fresh
+	 * readings; the level falls from 100 to what they read */
+	CHECK_EQ(opensc2_gauge_begin(&g, OPENSC2_CHARGE_DISCHARGING), 40);
+	opensc2_gauge_add(&g, 3900);
+	CHECK_EQ(opensc2_gauge_finish(&g), 59);
+	/* a single reading a step still works (the history grows by one a step) */
+	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
+	CHECK_EQ(opensc2_gauge_step(&g, 4000, OPENSC2_CHARGE_DISCHARGING), 81);
 
 	/* a level kept over a warm reboot: the first reading cannot raise it */
 	opensc2_gauge_init(&g, 55);

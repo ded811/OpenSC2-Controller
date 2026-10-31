@@ -50,6 +50,8 @@ zephyr_library_sources(
 	idle_rules.c
 	led_rules.c
 )
+# the "battery" statistics group (CONFIG_OPENSC2_BATTERY_STATS, with CONFIG_STATS)
+zephyr_library_sources_ifdef(CONFIG_OPENSC2_BATTERY_STATS battery_stats.c)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 	usb.c
 	usb_rules.c

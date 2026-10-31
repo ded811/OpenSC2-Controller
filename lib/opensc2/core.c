@@ -294,6 +294,17 @@ static void default_power(enum opensc2_power_request request)
 	}
 }
 
+void osc2_power_to_app(enum opensc2_power_request request, const char *why)
+{
+	running_why = why;
+	if (osc2.cb && osc2.cb->power_request) {
+		osc2.cb->power_request(request, osc2.user_data);
+	} else {
+		default_power(request);
+	}
+	running_why = NULL;
+}
+
 void osc2_power_now(enum opensc2_power_request request, const char *why)
 {
 	const char *text = why ? why : "";
@@ -301,17 +312,10 @@ void osc2_power_now(enum opensc2_power_request request, const char *why)
 	LOG_INF("Power request %d (%s)", request, text);
 	osc2_usblog("power request %d: %s", request, text);
 	osc2_test_note_power((uint8_t)request, why);
-	running_why = why;
 	if (osc2_sys_power_request(request, why)) {
-		running_why = NULL;   /* the system state machine took it */
-		return;
+		return;   /* the system state machine took it (it may pass it on later) */
 	}
-	if (osc2.cb && osc2.cb->power_request) {
-		osc2.cb->power_request(request, osc2.user_data);
-	} else {
-		default_power(request);
-	}
-	running_why = NULL;
+	osc2_power_to_app(request, why);
 }
 
 /* The pending request and its cause, written by several threads (the links' command threads, the
@@ -471,14 +475,54 @@ int opensc2_set_imu(const struct opensc2_imu *imu)
 	return 0;
 }
 
+static bool battery_set;   /* the application has given its battery (opensc2_set_battery()) */
+
 int opensc2_set_battery(const struct opensc2_battery *battery)
 {
 	k_spinlock_key_t key = k_spin_lock(&osc2.lock);
 
 	osc2.battery = *battery;
+	battery_set = true;
 	k_spin_unlock(&osc2.lock, key);
+#if defined(CONFIG_OPENSC2_USB)
+	osc2_retained_level_set(battery->level);   /* kept over a warm reset, as the real gauge does */
+#endif
 	osc2_sys_battery_given();   /* from now on its level counts for the power rules */
 	return 0;
+}
+
+uint8_t opensc2_battery_kept_level(void)
+{
+#if defined(CONFIG_OPENSC2_USB)
+	return osc2_retained_level_at_boot();
+#else
+	return OPENSC2_BATTERY_NO_LEVEL;
+#endif
+}
+
+/* The battery report before the application gives one. A battery build sends what the real
+ * controller's first report after start-up carries, before its gauge has measured anything: the
+ * level kept over a warm reset (else 255), charge state 0 and zeros. A board without a battery
+ * reports a full one on USB power. */
+static void battery_defaults(void)
+{
+	if (battery_set) {
+		return;   /* given before opensc2_init(): kept */
+	}
+	if (IS_ENABLED(CONFIG_OPENSC2_BATTERY)) {
+		osc2.battery = (struct opensc2_battery){
+			.charge_state = OPENSC2_CHARGE_RESET,
+			.level = opensc2_battery_kept_level(),
+		};
+		return;
+	}
+	osc2.battery = (struct opensc2_battery){
+		.charge_state = OPENSC2_CHARGE_DONE,
+		.level = 100,
+		.battery_mv = 4100,
+		.system_mv = 3300,
+		.input_mv = 5000,
+	};
 }
 
 int opensc2_send_report(const uint8_t *report, size_t len)
@@ -586,13 +630,7 @@ int opensc2_init(const struct opensc2_config *config)
 	osc2.cb = config->callbacks;
 	osc2.user_data = config->user_data;
 	osc2.chime = 2;
-	osc2.battery = (struct opensc2_battery){
-		.charge_state = OPENSC2_CHARGE_DONE,
-		.level = 100,
-		.battery_mv = 4100,
-		.system_mv = 3300,
-		.input_mv = 5000,
-	};
+	battery_defaults();
 	osc2.policy = IS_ENABLED(CONFIG_OPENSC2_DEFAULT_POLICY_WIRELESS) ? OPENSC2_POLICY_WIRELESS :
 									   OPENSC2_POLICY_AUTO;
 	osc2.transport = OSC2_TRANSPORT_DEFAULT;

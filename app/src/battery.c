@@ -7,8 +7,10 @@
  *
  *  - The level (CONFIG_APP_BATTERY, off by default), the way the real controller's fuel gauge
  *    works (<opensc2/gauge.h>): once a second one reading of the battery voltage, through a
- *    divider, plus the stored offset cal/volt_offset; the level from the average of the last 40
- *    readings, falling only while discharging and rising only while charging. The reading comes
+ *    divider, plus the stored offset cal/volt_offset (40 in a row at the start and whenever
+ *    charging starts or stops, none while the charge is done); the level from the average of
+ *    the last 40 readings, falling only while discharging and rising only while charging, and
+ *    starting from the level kept over a warm reset; the reported voltage is that average. The reading comes
  *    from zephyr,user's io-channel named "battery" when the overlay has one, with
  *        battery-divider-ohms = <total bottom>;   (default <1 1>: the pin carries the battery)
  *        battery-enable-gpios = <...>;            (optional: the divider on for 5 ms around it)
@@ -140,40 +142,72 @@ static int read_pin_mv(int32_t *mv)
 #endif
 }
 
+/* One reading of the battery, in mV with the stored offset. */
+static int read_battery_mv(uint16_t *battery_mv)
+{
+	int32_t pin_mv = 0;
+	int err;
+
+#if DT_NODE_HAS_PROP(USER, battery_enable_gpios)
+	(void)gpio_pin_set_dt(&enable, 1);
+	k_msleep(SETTLE_MS);
+#endif
+	err = read_pin_mv(&pin_mv);
+#if DT_NODE_HAS_PROP(USER, battery_enable_gpios)
+	(void)gpio_pin_set_dt(&enable, 0);
+#endif
+	if (err == 0) {
+		int32_t mv = opensc2_gauge_divider_mv(pin_mv, DIVIDER_TOTAL, DIVIDER_BOTTOM,
+						      opensc2_cal_volt_offset());
+
+		*battery_mv = (uint16_t)CLAMP(mv, 0, UINT16_MAX);
+	}
+	return err;
+}
+
 static void battery_thread(void *p1, void *p2, void *p3)
 {
 	ARG_UNUSED(p1);
 	ARG_UNUSED(p2);
 	ARG_UNUSED(p3);
 
-	opensc2_gauge_init(&gauge, OPENSC2_GAUGE_NO_LEVEL);
+	/* The level kept over a warm reset (Steam's reboot into wireless mode), as the real
+	 * controller's gauge keeps it; its first pass 250 ms after the start. */
+	opensc2_gauge_init(&gauge, opensc2_battery_kept_level());
+	k_msleep(250);
 	for (;;) {
-		struct opensc2_battery b = { 0 };
 		bool usb = usb_power();
-		int32_t pin_mv = 0;
-		int err;
+		uint8_t state = charge_state(usb);
+		struct opensc2_battery b = { 0 };
+		uint8_t n;
+		int err = 0;
 
-#if DT_NODE_HAS_PROP(USER, battery_enable_gpios)
-		(void)gpio_pin_set_dt(&enable, 1);
-		k_msleep(SETTLE_MS);
-#endif
-		err = read_pin_mv(&pin_mv);
-#if DT_NODE_HAS_PROP(USER, battery_enable_gpios)
-		(void)gpio_pin_set_dt(&enable, 0);
-#endif
-		if (err == 0) {
-			int32_t mv = opensc2_gauge_divider_mv(pin_mv, DIVIDER_TOTAL, DIVIDER_BOTTOM,
-							      opensc2_cal_volt_offset());
+		if ((state == OPENSC2_CHARGE_CHARGING) !=
+		    (gauge.charge_state == OPENSC2_CHARGE_CHARGING)) {
+			k_msleep(250);   /* charging starts or stops: the readings jump, let them settle */
+		}
+		/* 40 readings in a row after a start or such a change, then one a second; none
+		 * while the charge is done. */
+		n = opensc2_gauge_begin(&gauge, state);
+		for (uint8_t i = 0; i < n && err == 0; i++) {
+			uint16_t mv;
 
-			b.charge_state = charge_state(usb);
-			b.battery_mv = (uint16_t)CLAMP(mv, 0, UINT16_MAX);
-			b.level = opensc2_gauge_step(&gauge, b.battery_mv, b.charge_state);
-			b.system_mv = 3300;
-			b.input_mv = usb ? 5000 : 0;
-			(void)opensc2_set_battery(&b);
-		} else {
+			err = read_battery_mv(&mv);
+			if (err == 0) {
+				opensc2_gauge_add(&gauge, mv);
+			}
+		}
+		if (err) {
 			LOG_WRN("Battery reading failed (%d)", err);
 		}
+		b.charge_state = state;
+		b.level = opensc2_gauge_finish(&gauge);
+		b.battery_mv = opensc2_gauge_voltage(&gauge);   /* the average, held while done */
+		/* This board measures neither its supply rails nor currents nor temperature: the
+		 * values a board without those parts reports. */
+		b.system_mv = 3300;
+		b.input_mv = usb ? 5000 : 0;
+		(void)opensc2_set_battery(&b);
 		k_msleep(PERIOD_MS);
 	}
 }

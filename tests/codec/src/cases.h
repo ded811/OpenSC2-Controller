@@ -123,7 +123,7 @@ OPENSC2_TEST(battery_reports)
 
 	memset(&b, 0, sizeof(b));
 	b.charge_state = OPENSC2_CHARGE_CHARGING;
-	b.level = 150;   /* clamps to 100 */
+	b.level = 150;   /* sent as given, as the real controller sends its gauge's value */
 	b.battery_mv = 3900;
 	b.system_mv = 3300;
 	b.input_mv = 5000;
@@ -135,7 +135,7 @@ OPENSC2_TEST(battery_reports)
 	CHECK_EQ(opensc2_encode_battery(&b, r), 15);
 	CHECK_EQ(r[0], 0x43);
 	CHECK_EQ(r[1], 2);
-	CHECK_EQ(r[2], 100);
+	CHECK_EQ(r[2], 150);
 	CHECK_EQ(opensc2_get_le16(&r[3]), 3900);
 	CHECK_EQ(opensc2_get_le16(&r[5]), 3300);
 	CHECK_EQ(opensc2_get_le16(&r[7]), 5000);
@@ -147,7 +147,7 @@ OPENSC2_TEST(battery_reports)
 	CHECK_EQ(opensc2_encode_battery_data(&b, d), 15);
 	CHECK_EQ(opensc2_get_le16(&d[0]), 0x0BCD);   /* temperature first */
 	CHECK_EQ(opensc2_get_le16(&d[2]), 3900);
-	CHECK_EQ(d[12], 100);
+	CHECK_EQ(d[12], 150);
 	CHECK_EQ(d[13], 1);      /* charging; the gauge flags are not sent */
 	CHECK_EQ(d[14], 2);
 

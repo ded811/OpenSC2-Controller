@@ -178,7 +178,13 @@ enum opensc2_power_request {
 					  * or STEAM pressed while no USB host configured the wired
 					  * device, or (a charger test build only) no host within
 					  * CONFIG_OPENSC2_NO_HOST_WIRELESS_MS: opensc2_reboot(WIRELESS) */
-	OPENSC2_POWER_BOOTLOADER,        /* 0x90, or 0x95 with 0xECAABAC0 (Steam's firmware update) */
+	OPENSC2_POWER_BOOTLOADER,        /* 0x90, or 0x95 with 0xECAABAC0 (Steam's firmware update).
+					  * With CONFIG_OPENSC2_SYSTEM, on battery or the dock the
+					  * request opens a 60 s update window instead (the LED
+					  * blinks green); USB power plugged in inside it ends the
+					  * machine with this request, the warm-restart mark set: if
+					  * the application returns without rebooting, the library
+					  * reboots (back wireless on USB power) */
 	OPENSC2_POWER_FACTORY_RESET,     /* 0x86 with 0xEFC1A917: bonds are erased; reboot now */
 	OPENSC2_POWER_USB_PLUGGED,       /* USB power appeared while wireless (policy auto) with the
 					  * link down or STEAM held: the real controller reboots to
@@ -240,7 +246,9 @@ enum opensc2_cue {
 	OPENSC2_CUE_POWER_OFF = 5,        /* shutting down; wireless switched off on USB or the dock */
 	OPENSC2_CUE_PAIRING = 6,          /* pairing mode starts (Bluetooth; the over-the-air pairing) */
 	OPENSC2_CUE_PAIRED = 7,           /* a new host or puck has paired */
-	OPENSC2_CUE_CHARGE_WINDOW = 8,    /* the real controller's factory charge window (not raised) */
+	OPENSC2_CUE_CHARGE_WINDOW = 8,    /* power-on with a factory charge window stored
+					   * (mte/charge_level): the announcement before the power-on
+					   * decision */
 	OPENSC2_CUE_UNUSED = 9,           /* nothing raises it */
 	OPENSC2_CUE_HOST_ASLEEP = 10,     /* the puck says the PC is asleep: once per boot */
 };
@@ -423,8 +431,21 @@ int opensc2_set_trackpad(enum opensc2_side side, const struct opensc2_trackpad *
 int opensc2_set_imu(const struct opensc2_imu *imu);
 
 /* Battery state, sent as input report 0x43 every CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS on
- * the link in use and answered to vendor command 0xBE. Until it is set: 100 %, "charging done". */
+ * the link in use and answered to vendor command 0xBE. Call it whenever a value changes, at any
+ * time (before opensc2_init() too). Until it is set, a battery build (CONFIG_OPENSC2_BATTERY)
+ * reports what the real controller's first report after start-up carries, before its gauge has
+ * measured: the level kept over a warm reset (opensc2_battery_kept_level(), else 255), charge
+ * state 0 and zeros; a build without a battery reports 100 %, "charging done". The level is kept
+ * over a warm reset (a reboot, the watchdog), as the real controller's gauge keeps it. */
 int opensc2_set_battery(const struct opensc2_battery *battery);
+
+/* No battery level (the real controller's first report after a cold start carries it). */
+#define OPENSC2_BATTERY_NO_LEVEL 255
+
+/* The level of the last opensc2_set_battery() before a warm reset (a reboot, the watchdog, a
+ * crash), OPENSC2_BATTERY_NO_LEVEL after a cold start or without one. A gauge starts from it
+ * (opensc2_gauge_init()), so the level does not jump at Steam's reboot into wireless mode. */
+uint8_t opensc2_battery_kept_level(void);
 
 /* Send any other input report (ID first, at most 64 bytes, the length the host expects for that
  * ID) on the link in use: through the puck it rides with the next state reports, on USB it goes
@@ -506,6 +527,13 @@ bool opensc2_keylock(void);
 /* The charge state for report 0x43 from a charger's status output: without input power 1 (on
  * battery); with it 2 while the charger charges, else 4 (done: report level 100). Pure. */
 uint8_t opensc2_charge_state_of(bool input_power, bool charging);
+
+/* The factory charge window a host can store (settings-by-name key mte/charge_level, 0xEE and
+ * 0xEF): while a valid one other than 0/0 is stored, the real controller's charger stops at its
+ * upper voltage instead of its own target. The millivolts to charge to, or 0 for none (the
+ * board's own target). A board with a charger it can program applies it; it changes when a host
+ * writes the key, and takes effect, as on the real controller, at the next battery report. */
+uint16_t opensc2_charge_target_mv(void);
 
 #ifdef __cplusplus
 }
