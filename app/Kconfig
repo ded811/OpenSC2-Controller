@@ -33,11 +33,15 @@ config APP_ANALOG_RAW
 
 config APP_BATTERY
 	bool "Measure the battery for report 0x43"
+	select OPENSC2_BATTERY_GAUGE
 	help
-	  Once a second: the battery's voltage through a divider plus cal/volt_offset, the level from
-	  the average of the last 40 readings with OpenSC2's LiPo curves (<opensc2/gauge.h>), charging
-	  while USB power is present. Without a "battery" io-channel in zephyr,user it reads the
-	  nRF52840's VDDH / 5, for a cell that feeds VDDH. Untested on a battery.
+	  The library's fuel gauge (<opensc2/battery.h>) on this board's readings: the battery's
+	  voltage through a divider plus cal/volt_offset, 40 readings with an average, the level with
+	  OpenSC2's LiPo curves, kept over a warm reboot, and the real controller's charge states,
+	  from a charger status pin (charger-status-gpios) or the library's charger model. Without a
+	  "battery" io-channel in zephyr,user it reads the nRF52840's VDDH / 5, for a cell that feeds
+	  VDDH; the system voltage is the chip's VDD, the input voltage an optional "input"
+	  io-channel. Untested on a battery.
 
 config APP_PWM
 	bool

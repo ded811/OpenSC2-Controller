@@ -31,6 +31,7 @@
 #if defined(CONFIG_SHELL)
 #include <zephyr/shell/shell.h>
 #endif
+#include <opensc2/battery.h>
 #include "app.h"
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
@@ -178,7 +179,9 @@ static void on_cue(const struct opensc2_cue_event *cue, void *user_data)
 /* The system state machine's shutdown has run (the link dropped, the power-off cue, STEAM let go):
  * off, the way Zephyr's nordic system_off sample does it, with STEAM as the pin that wakes the
  * chip (a new USB supply wakes the nRF52840 too). Only a battery build gets here: without a
- * battery (CONFIG_OPENSC2_BATTERY off) the library asks for a reboot instead. */
+ * battery (CONFIG_OPENSC2_BATTERY off) the library asks for a reboot instead. Last, a board with a
+ * battery cut-off (a charger's ship mode, battery.c) disconnects its battery when no input power
+ * is there, as the real controller does. */
 static void power_off(void)
 {
 #if defined(CONFIG_POWEROFF)
@@ -187,6 +190,7 @@ static void power_off(void)
 	LOG_INF("Power off: %d wake-up pin%s, or a new USB supply", pins, pins == 1 ? "" : "s");
 	status_off();
 	k_msleep(20);   /* the log */
+	(void)opensc2_battery_cutoff();
 	sys_poweroff();
 #else
 	opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);
