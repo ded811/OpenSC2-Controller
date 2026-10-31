@@ -114,8 +114,9 @@ The sample is built to do the following; none of it has run on hardware yet.
   `pad R     touch <x> <y> pressure <p>` while a finger is on the pad, and `buttons   0x00400000`
   while the click is held. If the module did not start, the log says "The touch module did not
   start". `opensc2 status` shows the board's serials: mask them before you post the output.
-- When the PC goes to sleep, the puck tells the controller to turn off: the library's system state
-  machine switches wireless off, as the real controller does on USB power, and nothing in this
+- When the PC goes to sleep, the puck tells the controller to turn off (a board that finds no puck
+  within 60 s, or no pairing in its slot within 10 s, gives up the same way): the library's system
+  state machine switches wireless off, as the real controller does on USB power, and nothing in this
   sample turns it on again. Type `opensc2 start` on its console, or reset the board (short RST to
   GND once), holding the pairing button if it is on USB power, so that it starts wireless again.
 
