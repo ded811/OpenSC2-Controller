@@ -407,6 +407,36 @@ OPENSC2_TEST(sensors_gyro_bias)
 	CHECK(b.bias[2] == -0.125f);
 }
 
+OPENSC2_TEST(sensors_button_hold)
+{
+	struct opensc2_button_hold h;
+	const uint32_t A = 1u << 0, B = 1u << 5;
+
+	opensc2_button_hold_init(&h, B);   /* B held at power-up */
+	CHECK_EQ(opensc2_button_hold_next(&h, 100), 0);
+	/* A pressed: at once, then held 16 ms whatever the pin does */
+	CHECK_EQ(opensc2_button_hold_step(&h, A | B, 100), A | B);
+	CHECK_EQ(opensc2_button_hold_next(&h, 100), 16);
+	CHECK_EQ(opensc2_button_hold_step(&h, B, 101), A | B);       /* a bounce: ignored */
+	CHECK_EQ(opensc2_button_hold_step(&h, A | B, 102), A | B);
+	CHECK_EQ(opensc2_button_hold_step(&h, B, 105), A | B);       /* released after 5 ms */
+	CHECK_EQ(opensc2_button_hold_next(&h, 105), 11);
+	/* the hold ends: the pin's level counts, the short press lasted the whole 16 ms */
+	CHECK_EQ(opensc2_button_hold_step(&h, B, 116), B);
+	CHECK_EQ(opensc2_button_hold_next(&h, 116), 16);             /* the release is held too */
+	CHECK_EQ(opensc2_button_hold_step(&h, A | B, 120), B);
+	CHECK_EQ(opensc2_button_hold_step(&h, A | B, 132), A | B);
+	/* a button not held changes at once while another is held */
+	CHECK_EQ(opensc2_button_hold_step(&h, A, 133), A);
+	CHECK_EQ(opensc2_button_hold_next(&h, 133), 15);             /* A's hold ends first */
+	/* the clock wraps */
+	opensc2_button_hold_init(&h, 0);
+	CHECK_EQ(opensc2_button_hold_step(&h, A, 0xFFFFFFF8u), A);
+	CHECK_EQ(opensc2_button_hold_step(&h, 0, 4), A);
+	CHECK_EQ(opensc2_button_hold_next(&h, 4), 4);
+	CHECK_EQ(opensc2_button_hold_step(&h, 0, 8), 0);
+}
+
 OPENSC2_TEST(sensors_adc_average)
 {
 	/* two channels, four scans: samples[scan * 2 + channel] */

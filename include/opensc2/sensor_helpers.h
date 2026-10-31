@@ -210,6 +210,28 @@ void opensc2_gyro_bias_init(struct opensc2_gyro_bias *b, const float start[3]);
 void opensc2_gyro_bias_update(struct opensc2_gyro_bias *b, const float gyro[3], float threshold,
 			      uint16_t settle);
 
+/* ---- Buttons ----------------------------------------------------------------------------------
+ * The real controller's debounce: a button's change counts at once (at the first look after its
+ * pin moved), then that button is held at its new level for OPENSC2_BUTTON_HOLD_MS whatever the
+ * pin does (bounces are ignored, and a press shorter than the hold is still reported for its whole
+ * length); when the hold ends the pin's level counts again (a change then starts another hold).
+ * Feed it the pins' levels at every change and when opensc2_button_hold_next() says a hold ends.
+ */
+#define OPENSC2_BUTTON_HOLD_MS  16
+
+struct opensc2_button_hold {
+	uint32_t word;          /* the reported levels */
+	uint32_t holding;       /* bits being held */
+	uint32_t until[32];     /* when each bit's hold ends, ms */
+};
+
+/* Start from `word` (the buttons held at power-up), nothing held. */
+void opensc2_button_hold_init(struct opensc2_button_hold *h, uint32_t word);
+/* The pins' levels `level` at `now_ms` (a wrapping millisecond clock): the word to report. */
+uint32_t opensc2_button_hold_step(struct opensc2_button_hold *h, uint32_t level, uint32_t now_ms);
+/* Milliseconds from `now_ms` until the first hold ends (at least 1), or 0 when nothing is held. */
+uint32_t opensc2_button_hold_next(const struct opensc2_button_hold *h, uint32_t now_ms);
+
 /* ---- ADC bursts ------------------------------------------------------------------------------- */
 
 /* The average of `scans` scans of `channels` channels (samples[scan * channels + channel]), each

@@ -481,6 +481,50 @@ void opensc2_gyro_bias_update(struct opensc2_gyro_bias *b, const float gyro[3], 
 	}
 }
 
+/* ---- buttons --------------------------------------------------------------------------------- */
+
+void opensc2_button_hold_init(struct opensc2_button_hold *h, uint32_t word)
+{
+	memset(h, 0, sizeof(*h));
+	h->word = word;
+}
+
+uint32_t opensc2_button_hold_step(struct opensc2_button_hold *h, uint32_t level, uint32_t now_ms)
+{
+	uint32_t changed;
+
+	/* holds that are over: the pin counts again */
+	for (int b = 0; b < 32; b++) {
+		if ((h->holding & (1UL << b)) && (int32_t)(now_ms - h->until[b]) >= 0) {
+			h->holding &= ~(1UL << b);
+		}
+	}
+	changed = (level ^ h->word) & ~h->holding;
+	h->word ^= changed;
+	for (int b = 0; b < 32; b++) {
+		if (changed & (1UL << b)) {
+			h->holding |= 1UL << b;
+			h->until[b] = now_ms + OPENSC2_BUTTON_HOLD_MS;
+		}
+	}
+	return h->word;
+}
+
+uint32_t opensc2_button_hold_next(const struct opensc2_button_hold *h, uint32_t now_ms)
+{
+	uint32_t next = 0;
+
+	for (int b = 0; b < 32; b++) {
+		if (h->holding & (1UL << b)) {
+			int32_t left = (int32_t)(h->until[b] - now_ms);
+			uint32_t ms = left < 1 ? 1u : (uint32_t)left;
+
+			next = next == 0 || ms < next ? ms : next;
+		}
+	}
+	return next;
+}
+
 /* ---- ADC bursts ------------------------------------------------------------------------------ */
 
 void opensc2_adc_average(const int16_t *samples, uint8_t channels, uint8_t scans, uint16_t *out)
