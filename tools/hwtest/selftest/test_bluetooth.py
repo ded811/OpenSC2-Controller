@@ -237,7 +237,7 @@ class DryRuns(unittest.TestCase):
         for tid in ("hooks.arm", "desc.ids", "cmd.attributes", "cmd.stored_request",
                     "inputs.imu", "inputs.full", "battery.values", "stream.ids",
                     "stream.cadence", "reports.app_send_raw", "outputs.haptics", "outputs.pcm",
-                    "outputs.rumble_linkdown", "settings.invalid", "ble.link", "ble.cut",
+                    "outputs.rumble_linkdown", "settings.invalid", "ble.link", "ble.cut", "ble.feature",
                     "ble.reconnect", "ble.wireless_off", "modes.warm_wireless", "modes.identity",
                     "restore.as_found"):
             self.assertEqual(r.statuses(tid), [PASS], tid)

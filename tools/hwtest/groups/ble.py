@@ -17,8 +17,9 @@ from ..proto import console as cproto
 from ..proto import reports as R
 
 GROUP = "ble"
-TESTS = [("ble.link", "B", []), ("ble.cut", "B", []), ("ble.reconnect", "B", []),
-         ("ble.wireless_off", "B", []), ("ble.window", "B", ["flash"])]
+TESTS = [("ble.link", "B", []), ("ble.cut", "B", []), ("ble.feature", "B", []),
+         ("ble.reconnect", "B", []), ("ble.wireless_off", "B", []),
+         ("ble.window", "B", ["flash"])]
 
 LINK_CONNECTED = 4
 LINK_OFF = 0
@@ -133,6 +134,24 @@ def run(ctx):
                 c.true("nothing after its 45 bytes: the quaternion is cut",
                        not any(rep[1 + C.BLE_STATE_LEN:]))
             rig.inject_off()
+
+    if ctx.want("ble.feature"):
+        with ctx.check(GROUP, "ble.feature") as c:
+            # feature report 1 over Bluetooth as the real controller answers it: the GET's answer
+            # over the stored request over the characteristic's value, so after a 0xAE request
+            # longer than its 20-byte answer the request's own bytes follow the answer, then what
+            # the SET wrote (Windows pads it with zeros); USB answers zeros there
+            filler = 0xA5
+            payload = bytes([1]) + bytes([filler]) * 40      # tag 1, then 40 bytes nobody reads
+            raw = rig.vendor_raw(C.VC_STRING_ATTR, payload)
+            c.eq("the answer: 0xAE, n = 20", (raw[1], raw[2]), (C.VC_STRING_ATTR, 20))
+            req_end = 1 + 2 + len(payload)                    # in Windows' buffer (report ID first)
+            c.eq("then the request's left-over bytes (%d to %d)" % (3 + 20, req_end - 1),
+                 list(raw[3 + 20:req_end]), [filler] * (req_end - 23))
+            c.true("then the SET's own bytes (zeros)", not any(raw[req_end:]))
+            # the stored request stays: a plain GET answers 0xAE again
+            a = rig.vendor_get()
+            c.eq("a GET alone answers the stored request again", a.opcode, C.VC_STRING_ATTR)
 
     if ctx.want("ble.reconnect"):
         with ctx.check(GROUP, "ble.reconnect") as c:
