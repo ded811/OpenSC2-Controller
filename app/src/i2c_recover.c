@@ -2,8 +2,8 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * i2c_recover.c: free every I2C bus once at boot (CONFIG_APP_I2C_RECOVER, off by default,
- * untested), after the I2C drivers start and before the sensor and input drivers talk to their
+ * i2c_recover.c: free every I2C bus once at boot (CONFIG_APP_I2C_RECOVER, on whenever the board
+ * has an I2C bus; untested on hardware), after the I2C drivers start and before the sensor and input drivers talk to their
  * parts, as the real controller does: a reset in the middle of a transfer can leave a part
  * holding SDA low, which blocks the bus until SCL is clocked a few times (Zephyr's
  * i2c_recover_bus()).

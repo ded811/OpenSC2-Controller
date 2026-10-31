@@ -104,9 +104,12 @@ config APP_PAD_PROCESSING
 config APP_I2C_RECOVER
 	bool "Free each I2C bus at boot, before its parts' drivers start"
 	depends on APP_I2C
+	default y
 	help
-	  As the real controller does: a reset in the middle of a transfer can leave a part holding
-	  SDA low; clocking SCL frees it (Zephyr's i2c_recover_bus()). Untested on hardware.
+	  As the real controller does at every start of its I2C drivers: a reset in the middle of a
+	  transfer can leave a part holding SDA low; clocking SCL frees it (Zephyr's
+	  i2c_recover_bus()). On whenever the board has an I2C bus; turn it off only for a bus whose
+	  driver cannot recover. Untested on hardware.
 
 config APP_I2C_RECOVER_PRIORITY
 	int "Init priority of the bus recovery (POST_KERNEL)"
