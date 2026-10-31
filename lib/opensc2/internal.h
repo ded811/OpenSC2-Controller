@@ -173,8 +173,6 @@ uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc);
  * {opcode, length, data, zeros}; returns 63, or a negative errno for a command without an answer
  * or a failed GET (an ATT error there, the counterpart of a STALL on USB). */
 int osc2_command_get_strict(enum osc2_link link, uint8_t out[63]);
-/* The link's stored request {opcode, length, payload} into `rec`; returns its length (2 + n). */
-uint8_t osc2_command_request(enum osc2_link link, uint8_t rec[63]);
 /* USB: the 64-byte data stage of SET_REPORT(Feature 1). 0, or a negative errno (STALL). */
 int osc2_usb_feature_set(const uint8_t *data, uint16_t len);
 /* USB: answer GET_REPORT(Feature 1) for the stored request, `reply_len` bytes cut to `wlength`.

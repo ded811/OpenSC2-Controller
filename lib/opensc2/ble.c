@@ -359,7 +359,7 @@ static ssize_t read_feature(struct bt_conn *conn, const struct bt_gatt_attr *att
 			    uint16_t len, uint16_t offset)
 {
 	uint8_t request[FEATURE_CMD_LEN], answer[FEATURE_CMD_LEN], out[OSC2_BLE_FEATURE_LEN];
-	uint8_t request_len = osc2_command_request(OSC2_LINK_BLE, request);
+	uint8_t request_len = osc2_command_stored(OSC2_LINK_BLE, request);
 	size_t n;
 	int rc;
 
