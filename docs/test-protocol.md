@@ -90,7 +90,7 @@ Ops (arguments and results little endian; state52 is report `0x42` without its I
 | `0x80` | HAP_RESET | seed u32 | | the haptics synthesiser (below): everything stops at once, the queues and stream rings empty, the formats forgotten, the scripts and the drop sounds idle, captures off, the rumble's random burst gains restarted from the seed (5323 = `0x14CB` at boot) |
 | `0x81` | HAP_CAPTURE | path u8 (0 pads, 1 grips, 2 both), blocks u8 (0 stops) | | a `HAP_BLOCK` entry for each of the next blocks the path renders; BAD_ARG for a path above 2 |
 | `0x82` | HAP_STATUS | | status, 38 bytes (below) | |
-| `0x83` | HAP_PLAY | what u8; 0 cue: cue u8, level u8; 1 click: channels u8, click u8 (1 A, 2 B), gain s8; 2 script: channels u8, id u8, gain s8; 3 free fall: the random byte its drop sound will use u8; 4 stop: channels u8 | result s32 | the synthesiser's own sounds, as the application or the library would play them: how many grips a cue started on (-1: it plays nothing at that level), how many channels were queued or started, 1 when a free fall was taken (0: not armed); BAD_ARG for another `what` |
+| `0x83` | HAP_PLAY | what u8; 0 cue: cue u8, level u8; 1 click: channels u8, click u8 (1 A, 2 B), gain s8; 2 script: channels u8, id u8, gain s8; 3 free fall: the random byte its drop sound will use u8; 4 stop: channels u8; 5 the IMU stopped (no arguments) | result s32 | the synthesiser's own sounds, as the application or the library would play them: how many grips a cue started on (-1: it plays nothing at that level), how many channels were queued or started, 1 when a free fall was taken (0: not armed), 1 when the IMU's stop cancelled a drop sound or its re-arm; BAD_ARG for another `what` |
 | `0x90` | DOCK_LOAD | offset u8, then 1..53 bytes | | part of a 73-byte [dock frame](api.md#the-dock-link) to hand to the dock link; BAD_ARG past byte 73. The suite loads 53 bytes at 0 and 20 at 53 |
 | `0x91` | DOCK_RUN | length u8 (0..73), flags u8 (bit 0: start a session when none runs) | outcome u8 (0 answered, 1 too short: the session ends, 2 bad CRC: the session ends, 3 nothing arrived: the session goes on), session u8 (1 still running), then the answer's start byte u8, type u8, result s32, flags u8 (bit 0 its CRC checks, bit 1 bytes masked), CRC-32 of the whole answer u32, CRC-32 of the masked bytes in order u32 (0 if none), the handling time µs u32 (21 bytes) | the first `length` loaded bytes as if they had arrived from the puck. NO_LINK when no session runs and bit 0 is clear; DENIED for a SET (type 2) of 73 bytes whose opcode `HOST_SET` would refuse, before anything runs. A session the hooks start ends with their arming |
 | `0x92` | DOCK_READ | offset u8, count u8 (1..55) | offset u8, count u8, the answer's bytes | the last answer; masked bytes read as zeros: a probe's two serials (bytes 24 to 51), the data of a GET answer `HOST_GET` would mask. BUSY before any answer |
@@ -129,7 +129,8 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
 `NO_HOST_WIRELESS_MS` not 0, the charger test build; 15 the rule word, ops `RULES` and `RULES_SET`:
 without it the firmware has OpenSC2 0.2.0's rules, the trigger bits only and none of lizard mode's
-processing; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to stops; 17 `BLE`, the Bluetooth build; 18
+processing; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to stops (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`
+or the haptics synthesiser); 17 `BLE`, the Bluetooth build; 18
 `SYSTEM`, the system state machine and its ops; 19 `HAPTICS_SYNTH`, the haptics synthesiser; 20
 `DOCK_LINK`, the dock link and its ops; 21 `CAL`, the library's calibration and raw inputs with
 `RAW_INJECT`; bits 22 to 31 are left for other options); 6 battery report interval ms u16; 8
@@ -216,14 +217,16 @@ transport selected at run time; it changes no state).
 record what its threads, its script players and the stream writes did, while armed. Its blocks are
 rendered in integers, so a block is bit for bit the same on the board and on a PC: the CRCs of
 `HAP_BLOCK` are compared with the shared vectors in `tests/vectors/hwtest/haptics.txt`. HAP_STATUS
-(38 bytes): 0 features (bit 0 the drop sounds built); 1 bit per path where something plays (bit 0
-pads, 1 grips); 2 bit per path with an output of the application's; 3 the amplifier mode (setting
-75); 4 the master gain s8 (setting 76); 5 bit per channel whose script player runs; 6 the drop
-sounds' state (0 armed, 1 a fall seen, 2 waiting for the re-arm); 7 bit per path whose thread plays
-or drains; 8 blocks rendered u32 (pads), 12 (grips); 16 underruns u16 (pads), 18 (grips); 20 commands
+(38 bytes): 0 features (bit 0 the drop sounds built); 1 bit per path where something is in the mix
+(bit 0 pads, 1 grips); 2 bit per path with an output of the application's; 3 the amplifier mode
+(setting 75); 4 the master gain s8 (setting 76); 5 bit per channel whose script player runs; 6 the
+drop sounds' state (0 armed, 1 a fall seen, 2 waiting for the re-arm, 3 off until a reboot: the IMU
+stopped in the 5 s after a fall); 7 bit per path whose thread plays or drains; 8 blocks rendered u32 (pads), 12 (grips); 16 underruns u16 (pads), 18 (grips); 20 commands
 lost to a full queue u16; 22 the generators running on each channel, a bit per type (u8 × 4); 26
 the bytes in each channel's stream ring (u16 × 4); 34 each channel's stream format (u8 × 4, `0xFF`
-none).
+none). HAP_RESET (seed u32) stops everything at once, empties the queues, rings and interpolation
+values, forgets the formats, frees the script players, re-arms the drop sounds and sets the four
+channel gains from setting 76 as it is; the amplifier modes stay.
 
 ## The ring
 
@@ -258,7 +261,7 @@ request), data length u8 (at most 41), data:
 | `0x22` | VERSION | the protocol version answered |
 | `0x23` | IDENTITY | product ID u16, build time u32, bootloader build time u32, revision u32, git revision 12 bytes (never the serials) |
 | `0x24` | CHANNELS | the four channel bytes of `0xE4` |
-| `0x30` | STOP_STATUS | channel u8 (`0x44`'s numbering: left grip 0, right grip 1, left pad 3, right pad 4), flags u32 (`0x02`): a `0x44` the library sent as the reply to a stop, with the link the output came on |
+| `0x30` | STOP_STATUS | channel u8 (`0x44`'s numbering: left grip 0, right grip 1, left pad 3, right pad 4), flags u32 (`0x02`): a `0x44` the library sent as the reply to a stop, with the link the output came on (with the haptics synthesiser: when its sequencer took the stop; link 3 for a stop of the library's own) |
 | `0x40` | BLE | a Bluetooth link event (link 4): event u8, a u8, b u16, c u32. 1 state: a the link state, b the reason, c the slot (bits 0 to 7), the identity (8 to 15) and the advertising form (16 to 23: 0 pairing mode, 1 allow-listed, 2 directed, `0xFF` none); 2 security: a the level, b the error; 3 the ATT MTU in b; 4 parameters: b the latency, c the interval in µs; 5 the gate: a 1 up, 0 down, b the ATT MTU, c the interval; 6 the connection-event trigger: a 1 set, 0 failed (a timer paces), b the error; 7 disconnect: a the HCI reason acted on (`BLE_DROP`'s, or the stack's), b what followed (0 advertising again after 500 ms, 1 wireless off, 2 nothing: the board ended the link itself, a `0x16`), c the reason the stack reported; 8 advertising started: a the form, b the error (0 running), c the slot (bits 0 to 7), the identity (8 to 15), why (16 to 23: 0 a start, 1 again after a lost link, 2 after a failed connection) and bit 24 set when the identity was reset first; 9 advertising ended: a why (0 a host connected, 1 a connection failed: b the HCI error, `0x3C` when directed advertising went unanswered, 2 the window ran out, 3 stopped), c the identity; 10 identity: a 0 created, 1 reset (a new address, no keys), 2 a reset failed (b the error), c the identity; 11 bond: a 0 a new host bonded (c the identity, bits 8 to 15 the slot's other one, whose bond goes), 1 a bond was deleted and its identity is reset, 2 a bond was deleted but its identity is in use and kept, c the identity; 12 wireless off: a the cause (0 the window ran out, 1 the host ended the link), b the HCI reason |
 | `0x50` | SYS_STATE | from u8, to u8 (the first state left and the last one entered), cause u8 (the event), transport u8, source u8 ([the numbers](#system-injection)) |
 | `0x51` | LED_MODE | mode u8, flags u8 (bit 0 external power, 1 steady, 2 shutting down), level u8, fully-charged level u8 |
@@ -267,10 +270,10 @@ request), data length u8 (at most 41), data:
 | `0x54` | CHORD | what u8 (1 down, 2 up, 3 STEAM pressed, 4 STEAM held, 5 the keylock's tap, 6 the keylock's hold), chord u8 |
 | `0x55` | SOURCE | from u8, to u8, the event it posted u8 (`0xFF`: none, power present did not change) |
 | `0x56` | IDLE | the idle history u16, when the idle event is posted; only while a system injection is in effect |
-| `0x60` | HAP_GEN | channel u8 (0 left pad, 1 right pad, 2 left grip, 3 right grip), generator type u8 (0 click A, 1 click B, 2 pulse train, 3 tone, 4 rumble, 5 sweep, 6 stream, 7 clip), what u8 (1 started, 2 stopped by a command, 3 ended, 4 refused by the sequencer, 5 lost to a full queue, 6 ignored: nothing to play), gain s8, then four u16 by type: pulse on µs, off µs, count, 0; tone Hz, ms, LFO in 0.01 Hz (0xFFFF from 655.35 Hz up), depth (bit 15: started inverted); rumble Hz, ms, burst rate in 0.01 Hz, bit 15 inverted; sweep start Hz, end Hz, ms, bit 15 inverted; clicks and clips samples, format |
+| `0x60` | HAP_GEN | channel u8 (0 left pad, 1 right pad, 2 left grip, 3 right grip), generator type u8 (0 click A, 1 click B, 2 pulse train, 3 tone, 4 rumble, 5 sweep, 6 stream, 7 clip), what u8 (1 started, 2 stopped by a command, 3 ended, 4 refused by the sequencer, 5 lost to a full queue; 6 is no longer made: every start plays, as on the real controller), gain s8, then four u16 by type: pulse on µs, off µs, count, 0; tone Hz, ms, LFO in 0.01 Hz (0xFFFF from 655.35 Hz up), depth (bit 15: started inverted); rumble Hz, ms, burst rate in 0.01 Hz, bit 15 inverted; sweep start Hz, end Hz, ms, bit 15 inverted; clicks and clips samples, format |
 | `0x61` | HAP_BLOCK | path u8, block index u32 (0: the first after the path was idle), CRC-32 u32 of the block's bytes (pads 64, grips 256, little endian), peak u16 (the largest sample, 32767 full scale), flags u8 (bit 0 the first block, with its 4 ms lead-in; bit 1 nothing plays after it) |
 | `0x62` | HAP_STREAM | channel u8, what u8 (1 a start queued, 2 started, 3 ran dry, 4 emptied by a stop, 5 a format command answered, 6 a write, 7 a `0x44` sent), fill u16 (bytes in the ring), flags u32 (the `0x44` flags of what) |
-| `0x63` | HAP_SCRIPT | what u8 (1 started, 2 refused, 3 a step ran, 4 done, 5 a cue, 6 a free fall, 7 the drop sound due, 8 re-armed), channel u8 (a cue: the level), id u8 (a cue: the cue), gain s8, extra u16 (a step: its index; a cue: its script, 0 none; a free fall: 1 taken, 0 not; the drop sound: the random byte) |
+| `0x63` | HAP_SCRIPT | what u8 (1 started, 2 refused, 3 a step ran, 4 done, 5 a cue, 6 a free fall, 7 the drop sound due, 8 re-armed, 9 the IMU stopped), channel u8 (a cue: the level), id u8 (a cue: the cue), gain s8, extra u16 (a step: its index; a cue: its script, 0 none; a free fall: 1 taken, 0 not; the drop sound: the random byte; the IMU stopped: 1 when that turned the drop sounds off) |
 | `0x70` | DOCK_SESSION | what u8 (0 start, 1 end), reason u8 (a start: 0 the pilot, 1 the test hooks; an end: 1 too short, 2 bad CRC, 3 a receive error that cut the frame short (the UART build; its DOCK_FRAME, outcome 1, follows), 4 the receiver not armed, 5 stopped), frames u32 (an end: answered in that session) |
 | `0x71` | DOCK_FRAME | the request's type u8 (`0xFF` below 2 bytes), outcome u8 (0 answered, 1 size, 2 CRC), length u8, the answer's result s32 (0 without one), the handling time µs u32 |
 | `0x72` | DOCK_PILOT | three readings mV s16 (−1 a failed conversion; a reading the hooks fed above 32767 shows as 32767), inside u8 (a bit per reading), present u8 (a passing check, or one the hooks fed) |
