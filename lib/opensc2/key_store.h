@@ -31,5 +31,8 @@ int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save);
 int osc2_keys_store(uint8_t id, const uint8_t *value, uint8_t len);
 /* The factory reset (0x86): every blob it deletes (OSC2_KEYF_FACTORY), in RAM and in flash. */
 int osc2_keys_factory_reset(void);
+/* How often the charge window (mte/charge_level) was loaded or set since boot: the fuel gauge
+ * applies it after each change of this count. */
+uint32_t osc2_keys_window_changes(void);
 
 #endif /* OPENSC2_KEY_STORE_H_ */

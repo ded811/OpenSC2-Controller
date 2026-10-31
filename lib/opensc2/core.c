@@ -16,6 +16,7 @@
 #if defined(CONFIG_POWEROFF)
 #include <zephyr/sys/poweroff.h>
 #endif
+#include <opensc2/battery.h>
 #include "internal.h"
 #include "crash.h"
 #include "hwdt.h"
@@ -283,7 +284,10 @@ static void default_power(enum opensc2_power_request request)
 		break;
 	case OPENSC2_POWER_OFF:
 #if defined(CONFIG_OPENSC2_BATTERY) && defined(CONFIG_POWEROFF)
-		/* No wake-up pin of our own: a new USB supply (or a reset) wakes the chip. */
+		/* The battery cut off first when the board has a cut-off and no input power, as the
+		 * real controller does (opensc2/battery.h). No wake-up pin of our own: a new USB
+		 * supply (or a reset) wakes the chip. */
+		(void)opensc2_battery_cutoff();
 		sys_poweroff();
 #else
 		opensc2_reboot(OPENSC2_REBOOT_PLAIN, NULL);

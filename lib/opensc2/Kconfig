@@ -192,6 +192,9 @@ config SHELL_BACKEND_SERIAL_RX_RING_BUFFER_SIZE
 # Power, chords, the status LED's modes and the cues.
 rsource "Kconfig.pwr"
 
+# The fuel gauge (the battery and the charger).
+rsource "Kconfig.bat"
+
 choice OPENSC2_DEFAULT_POLICY
 	prompt "Mode policy until one is stored"
 	default OPENSC2_DEFAULT_POLICY_AUTO

@@ -20,6 +20,15 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 static struct osc2_blob_store blobs;
 static struct k_spinlock blob_lock;
+/* Loads and sets of the charge window (mte/charge_level): the fuel gauge applies it after each,
+ * as the real controller does after every load of the key (a delete is none: the charger keeps
+ * its cap until the next boot). */
+static atomic_t window_changes;
+
+uint32_t osc2_keys_window_changes(void)
+{
+	return (uint32_t)atomic_get(&window_changes);
+}
 
 static const struct osc2_key_info *blob_key(uint8_t id)
 {
@@ -52,6 +61,9 @@ static int keys_on_set(const char *name, size_t len, settings_read_cb read_cb, v
 
 		(void)osc2_blob_set(&blobs, k->id, buf, (size_t)n);
 		k_spin_unlock(&blob_lock, lk);
+		if (k->id == OSC2_KEY_CHARGE_WINDOW) {
+			atomic_inc(&window_changes);
+		}
 	}
 	return n < 0 ? (int)n : 0;
 }
@@ -138,6 +150,9 @@ int osc2_keys_set(uint8_t id, const uint8_t *value, uint8_t len)
 	lk = k_spin_lock(&blob_lock);
 	err = osc2_blob_set(&blobs, id, value, len);
 	k_spin_unlock(&blob_lock, lk);
+	if (err == 0 && id == OSC2_KEY_CHARGE_WINDOW) {
+		atomic_inc(&window_changes);
+	}
 	return err;
 }
 

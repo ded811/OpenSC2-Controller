@@ -15,6 +15,10 @@ endif()
 zephyr_library_named(opensc2)
 
 zephyr_library_sources(
+	# the battery and the charger (<opensc2/battery.h>; the fuel gauge with
+	# CONFIG_OPENSC2_BATTERY_GAUGE)
+	battery.c
+	fuel_rules.c
 	cal.c
 	codec.c
 	core.c

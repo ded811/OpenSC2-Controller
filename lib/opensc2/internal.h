@@ -316,6 +316,9 @@ bool osc2_retained_was_kept(void);               /* the area survived the last r
 /* The system machine's test words (retained.h): as found at boot, and set one or more (NULL: 0). */
 void osc2_retained_sys_at_boot(uint32_t words[OSC2_RET_SYS_WORDS]);
 void osc2_retained_sys_set(unsigned int first, const uint32_t *words, unsigned int n);
+/* The fuel gauge's battery level kept over a warm reboot (false: none kept). */
+bool osc2_retained_level_get(uint8_t *level);
+void osc2_retained_level_set(uint8_t level);
 void osc2_usblog_start_session(void);
 void osc2_usblog_end_session(const char *why);
 void osc2_usblog_counts(uint32_t requests, uint32_t stalls, uint32_t outputs, uint32_t reports,

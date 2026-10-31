@@ -77,7 +77,12 @@ static int retained_init(void)
 		memcpy(sys_at_boot, r->sys, sizeof(sys_at_boot));
 	}
 	if (!kept) {
+		/* The kept battery level checks itself too: a new layout keeps it. */
+		uint32_t level_magic = r->level_magic, level = r->level;
+
 		osc2_ret_format(r, AREA_SIZE);
+		r->level_magic = level_magic;
+		r->level = level;
 	}
 	memset(r->sys, 0, sizeof(uint32_t) * OSC2_RET_SYS_BOOT_WORDS);
 	r->mark = 0;
@@ -123,6 +128,21 @@ void osc2_retained_sys_set(unsigned int first, const uint32_t *words, unsigned i
 	} else {
 		memset(&RET->sys[first], 0, n * sizeof(uint32_t));
 	}
+}
+
+bool osc2_retained_level_get(uint8_t *level)
+{
+	if (RET->level_magic != OSC2_RET_LEVEL_MAGIC || RET->level > 0xFF) {
+		return false;
+	}
+	*level = (uint8_t)RET->level;
+	return true;
+}
+
+void osc2_retained_level_set(uint8_t level)
+{
+	RET->level = level;
+	RET->level_magic = OSC2_RET_LEVEL_MAGIC;
 }
 
 /* ---- writing lines ------------------------------------------------------------------------------ */

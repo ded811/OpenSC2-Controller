@@ -111,11 +111,23 @@ uint16_t opensc2_gauge_curve(const struct opensc2_gauge_point *points, size_t n,
 
 uint8_t opensc2_gauge_stretch(uint16_t permille, uint16_t target_permille)
 {
-	/* percent = permille / 10 x (200 - target / 10) / 100, rounded */
-	int32_t factor = 2000 - (int32_t)target_permille;
-	int32_t pct = ((int32_t)permille * factor + 5000) / 10000;
+	/* s: the reading at the target in whole percent, rounded; then
+	 * percent = permille / 10 x (200 - s) / 100, rounded */
+	int32_t s = ((int32_t)target_permille + 5) / 10;
+	int32_t pct = ((int32_t)permille * (200 - s) * 2 + 1000) / 2000;   /* s <= 100: never < 0 */
 
-	return (uint8_t)(pct < 0 ? 0 : pct > 100 ? 100 : pct);
+	return (uint8_t)(pct > 100 ? 100 : pct);
+}
+
+uint8_t opensc2_gauge_scale(const struct opensc2_gauge_point *points, size_t n, uint16_t target_mv)
+{
+	return (uint8_t)((opensc2_gauge_curve(points, n, target_mv) + 5) / 10);
+}
+
+uint8_t opensc2_gauge_percent(const struct opensc2_gauge_point *points, size_t n, uint8_t scale,
+			      uint16_t mv)
+{
+	return opensc2_gauge_stretch(opensc2_gauge_curve(points, n, mv), (uint16_t)scale * 10);
 }
 
 /* ---- the level ------------------------------------------------------------------------------- */
