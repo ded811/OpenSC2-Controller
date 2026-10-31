@@ -470,6 +470,18 @@ int opensc2_select_transport(enum opensc2_transport transport);
 int opensc2_select_transport_pairing(enum opensc2_transport transport);
 /* The transport this boot runs. */
 enum opensc2_transport opensc2_selected_transport(void);
+/* The value of user/wireless_transport in RAM, as a host reads it with 0xED: the stored choice
+ * at boot, any byte a host wrote with 0xEE since, and the running transport once its link has
+ * come up (the October 2026 firmware writes it back then). 0 and 1 run Bluetooth, 3 the puck
+ * with bond 2, any other value the puck with bond 1, from the next boot. */
+uint8_t opensc2_transport_key(void);
+
+/* The puck link's transmit power (its acknowledgements), -40 to 8 dBm (-EINVAL otherwise):
+ * CONFIG_OPENSC2_TX_POWER_DBM (+6, the real controller's) until set. Takes effect the next time
+ * the link listens (every connection starts there), so a board with an amplifier or a weaker
+ * antenna can set it at any time. */
+int opensc2_radio_set_tx_power(int8_t dbm);
+int8_t opensc2_radio_tx_power(void);
 
 /* ---- Identity -------------------------------------------------------------------------------- */
 

@@ -22,15 +22,18 @@ int osc2_transport_ble_slot(uint8_t t)
 	return osc2_transport_is_ble(t) ? t - OSC2_TRANSPORT_BLE_1 : -1;
 }
 
-int osc2_transport_key_value(uint8_t value, bool ble)
+uint8_t osc2_transport_runs(uint8_t value, bool ble)
 {
-	return osc2_transport_usable(value, ble) ? value : -1;
+	if (osc2_transport_is_ble(value)) {
+		return ble ? value : OSC2_TRANSPORT_PUCK_1;
+	}
+	return value == OSC2_TRANSPORT_PUCK_2 ? OSC2_TRANSPORT_PUCK_2 : OSC2_TRANSPORT_PUCK_1;
 }
 
-uint8_t osc2_transport_at_boot(uint8_t stored, int legacy_slot, bool ble)
+uint8_t osc2_transport_at_boot(bool stored, uint8_t value, int legacy_slot)
 {
-	if (osc2_transport_usable(stored, ble)) {
-		return stored;
+	if (stored) {
+		return value;
 	}
 	if (legacy_slot == 0 || legacy_slot == 1) {
 		return (uint8_t)(OSC2_TRANSPORT_PUCK_1 + legacy_slot);
@@ -38,9 +41,9 @@ uint8_t osc2_transport_at_boot(uint8_t stored, int legacy_slot, bool ble)
 	return OSC2_TRANSPORT_DEFAULT;
 }
 
-bool osc2_transport_save_due(uint8_t up, uint8_t stored)
+bool osc2_transport_save_due(uint8_t up, bool stored, uint8_t saved)
 {
-	return up <= OSC2_TRANSPORT_PUCK_2 && up != stored;
+	return !stored || up != saved;
 }
 
 const char *osc2_transport_name(uint8_t t)

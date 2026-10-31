@@ -46,10 +46,10 @@ endif # OPENSC2_SYSTEM
 
 config OPENSC2_NO_BOND_TIMEOUT_S
 	int "With the selected bond slot empty, turn wireless off after this many seconds (0 = never)"
-	default 10 if OPENSC2_BATTERY
-	default 0
+	default 10
 	range 0 3600
 	help
-	  The real controller waits 10 s for a bond to be written while its selected slot is
-	  empty, then turns wireless off (on battery: off). 0 waits for good, which suits boards on
-	  USB power. On expiry the link goes OFF with reason OPENSC2_REASON_NO_BOND_TIMEOUT.
+	  As the real controller: it waits 10 s for a bond to be written while its selected slot
+	  is empty, then goes OFF with reason OPENSC2_REASON_NO_BOND_TIMEOUT, which is "wireless
+	  off" (on battery: off; on USB power it waits for STEAM). 0 waits for good, OpenSC2's own
+	  choice.

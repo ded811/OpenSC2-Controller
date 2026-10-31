@@ -42,13 +42,6 @@ BUILD_ASSERT(RESET_PIN == BIT(0) && RESET_SOFTWARE == BIT(1) && RESET_BROWNOUT =
 #define KEY_TURN_OFF           0xABDF9710u   /* 0x95 */
 #define POWER_DELAY_MS         20            /* so the answer can still go out */
 
-/* Bluetooth LE in this build: the transport values 0 and 1 mean something. */
-#if defined(CONFIG_OPENSC2_BLE)
-#define HAVE_BLE true
-#else
-#define HAVE_BLE false
-#endif
-
 /* The request the last successful SET stored on a link, which selects what its next GET answers. */
 struct stored_request {
 	uint8_t opcode;
@@ -121,9 +114,10 @@ static uint8_t bond_slot_of(enum named_key key)
 	return key == KEY_BOND_1 ? 0 : 1;
 }
 
-/* 0xEE: set a key in RAM. Refused for an empty value; a bond must be exactly 24 bytes. Either way
- * the radio hears that the bond changed, as on the real controller (it ignores that while off). A
- * blob must have exactly its key's size. */
+/* 0xEE: set a key in RAM. Refused for an empty value; a bond must be exactly 24 bytes, and is
+ * kept as written (one with an ID of 0 reads back empty and cannot be saved). Either way the radio
+ * hears that a bond was written, as on the real controller (radio_rules.h says what that does in
+ * each state). A blob must have exactly its key's size. */
 static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8_t len)
 {
 	enum named_key key = (enum named_key)info->id;
@@ -143,32 +137,20 @@ static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8
 		}
 		opensc2_bond_unpack(value, &bond);
 		lk = k_spin_lock(&osc2.lock);
-		osc2.bonds[bond_slot_of(key)] = opensc2_bond_valid(&bond) ? bond :
-						 (struct opensc2_bond){ 0 };
+		osc2.bonds[bond_slot_of(key)] = bond;
 		k_spin_unlock(&osc2.lock, lk);
 		osc2_radio_post(OSC2_EV_BOND);
 		return 0;
 	}
-	case KEY_TRANSPORT: {
-		/* The choice in RAM (0xEF saves it). A new puck slot counts at once, as a new bond
-		 * does; a change between the puck and Bluetooth is not run at once: once saved, it
-		 * counts from the next boot (the protocol documentation does not say; docs/protocol.md,
-		 * gap 22). */
-		int t;
-
+	case KEY_TRANSPORT:
+		/* The key's value in RAM, any byte (0xEF stores it; the next boot runs it, as
+		 * transport_rules.h reads it). The running link carries on, and the link coming up
+		 * writes the running transport back into the key, as on the real controller. */
 		if (len != 1) {
 			return -EINVAL;
 		}
-		t = osc2_transport_key_value(value[0], HAVE_BLE);
-		if (t >= 0) {
-			osc2.transport = (uint8_t)t;
-		}
-		if (osc2_transport_is_puck((uint8_t)t)) {
-			osc2.slot = (uint8_t)(t - OSC2_TRANSPORT_PUCK_1);
-			osc2_radio_post(OSC2_EV_BOND);
-		}
-		return 0;   /* without Bluetooth 0 and 1 are taken and change nothing, as above 3 */
-	}
+		osc2.transport = value[0];
+		return 0;
 	case KEY_CHIME:
 		if (len != 1) {
 			return -EINVAL;
@@ -235,7 +217,7 @@ static int key_save(const struct osc2_key_info *info)
 		bool valid = opensc2_bond_valid(&osc2.bonds[bond_slot_of(key)]);
 
 		k_spin_unlock(&osc2.lock, lk);
-		return valid ? osc2_storage_save_bond(bond_slot_of(key)) : -ENOENT;
+		return valid ? osc2_storage_save_bond(bond_slot_of(key)) : -ENODEV;   /* no value */
 	}
 	case KEY_TRANSPORT:
 		return osc2_storage_save_transport(osc2.transport);
@@ -246,7 +228,7 @@ static int key_save(const struct osc2_key_info *info)
 	}
 }
 
-/* 0xF0: delete from flash and clear the RAM value (back to the default). */
+/* 0xF0: delete from flash and, once that worked, clear the RAM value (back to the default). */
 static int key_delete(const struct osc2_key_info *info)
 {
 	enum named_key key = (enum named_key)info->id;
@@ -257,18 +239,27 @@ static int key_delete(const struct osc2_key_info *info)
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2: {
-		k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
+		k_spinlock_key_t lk;
+		int err = osc2_storage_delete_bond(bond_slot_of(key));
 
+		if (err) {
+			return err;
+		}
+		lk = k_spin_lock(&osc2.lock);
 		memset(&osc2.bonds[bond_slot_of(key)], 0, sizeof(osc2.bonds[0]));
 		k_spin_unlock(&osc2.lock, lk);
 		osc2_radio_post(OSC2_EV_BOND);
-		return osc2_storage_save_bond(bond_slot_of(key));   /* an empty bond is deleted */
+		return 0;
 	}
-	case KEY_TRANSPORT:
-		osc2.transport = OSC2_TRANSPORT_DEFAULT;
-		osc2.slot = 0;
-		osc2_radio_post(OSC2_EV_BOND);
-		return osc2_storage_delete_transport();
+	case KEY_TRANSPORT: {
+		/* The key back at 2; the running link carries on. */
+		int err = osc2_storage_delete_transport();
+
+		if (err == 0) {
+			osc2.transport = OSC2_TRANSPORT_DEFAULT;
+		}
+		return err;
+	}
 	case KEY_CHIME:
 		osc2.chime = 2;
 		return osc2_storage_save_chime();
@@ -323,6 +314,31 @@ static int key_read(const struct osc2_key_info *info, uint8_t *out, uint8_t *out
 	default:
 		return -ENOENT;
 	}
+}
+
+/* ---- 0xA2 ------------------------------------------------------------------------------------ */
+
+/* As on the real controller: the bond is written to flash from the system work queue (an invalid
+ * one deletes the stored bond), the bond in RAM stays as it is, and the radio hears nothing; the
+ * new bond counts from the next boot. */
+static uint8_t a2_bond[OPENSC2_BOND_LEN];
+
+static void a2_fn(struct k_work *work)
+{
+	struct opensc2_bond bond;
+
+	ARG_UNUSED(work);
+	opensc2_bond_unpack(a2_bond, &bond);
+	if (osc2_storage_store_bond(0, &bond)) {
+		LOG_WRN("0xA2: the bond could not be stored");
+	}
+}
+static K_WORK_DEFINE(a2_work, a2_fn);
+
+static void bond_write_later(const uint8_t *payload)
+{
+	memcpy(a2_bond, payload, sizeof(a2_bond));
+	k_work_submit(&a2_work);
 }
 
 /* ---- the application's handler --------------------------------------------------------------- */
@@ -584,15 +600,12 @@ static int run_set(enum osc2_link link, uint8_t opcode, const uint8_t *payload, 
 		}
 		return opcode == 0xEF ? key_save(key) : key_delete(key);
 	}
-	case 0xA2: { /* write the main puck's bond: the first slot (API slot 0, shell slot 1) */
-		struct opensc2_bond bond = { 0 };
-
+	case 0xA2: /* store the main puck's bond (the first slot) for the next boot */
 		if (len != OPENSC2_BOND_LEN) {
 			return -EINVAL;
 		}
-		opensc2_bond_unpack(payload, &bond);
-		return opensc2_bond_set(0, &bond);
-	}
+		bond_write_later(payload);
+		return 0;
 
 	case 0x86:   /* factory reset */
 		if (get_u32(payload, MIN(avail, (size_t)4)) != KEY_FACTORY_RESET) {

@@ -21,7 +21,7 @@
 #define OSC2_TRANSPORT_PUCK_1    2   /* the puck with bond 1: the default */
 #define OSC2_TRANSPORT_PUCK_2    3   /* the puck with bond 2 */
 #define OSC2_TRANSPORT_DEFAULT   OSC2_TRANSPORT_PUCK_1
-#define OSC2_TRANSPORT_NONE      0xFF   /* nothing stored */
+#define OSC2_TRANSPORT_NONE      0xFF   /* no choice yet (the system state machine's) */
 
 static inline bool osc2_transport_is_ble(uint8_t t)
 {
@@ -41,18 +41,21 @@ bool osc2_transport_usable(uint8_t t, bool ble);
 int osc2_transport_puck_slot(uint8_t t);
 int osc2_transport_ble_slot(uint8_t t);
 
-/* What a host's 0xEE user/wireless_transport with this one value byte selects (in RAM): 2 and 3
- * always; 0 and 1 only in a build with Bluetooth. -1 for a value that is accepted and changes
- * nothing (0 and 1 without Bluetooth, anything above 3), as OpenSC2 has always answered it. */
-int osc2_transport_key_value(uint8_t value, bool ble);
+/* The transport a value of user/wireless_transport runs, as the real controller picks it: 0 and 1
+ * Bluetooth slots 1 and 2, 3 the puck with bond 2, every other value (2, and anything a host
+ * wrote with 0xEE) the puck with bond 1. Without Bluetooth (`ble` false) 0 and 1 run the puck
+ * with bond 1 too. The key itself keeps the byte as written: 0xED reads it back. */
+uint8_t osc2_transport_runs(uint8_t value, bool ble);
 
-/* The transport of a boot: the stored one if this build can run it, else the puck's slot that an
- * older firmware stored (opensc2/slot, `legacy_slot` 0 or 1, -1 for none), else the default. */
-uint8_t osc2_transport_at_boot(uint8_t stored, int legacy_slot, bool ble);
+/* The value a boot starts with (the real controller's RAM value of the key): the stored one
+ * (`stored`, any byte), else the puck slot an older firmware stored (opensc2/slot, `legacy_slot`
+ * 0 or 1, -1 for none), else the default. */
+uint8_t osc2_transport_at_boot(bool stored, uint8_t value, int legacy_slot);
 
-/* October's rule: a choice is saved once its link is up (Bluetooth when it passes its gate, the
- * puck when the radio connects), and only when it is not already the stored one. */
-bool osc2_transport_save_due(uint8_t up, uint8_t stored);
+/* October's rule: the running transport is saved whenever its link comes up (the real controller
+ * writes it at every connection and reads it back into the key). A write is due unless it is the
+ * stored value already. */
+bool osc2_transport_save_due(uint8_t up, bool stored, uint8_t saved);
 
 /* Text for logs and the shell: "puck 1", "puck 2", "Bluetooth 1", "Bluetooth 2", "?". */
 const char *osc2_transport_name(uint8_t t);

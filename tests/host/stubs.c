@@ -58,11 +58,28 @@ int osc2_storage_save_bond(uint8_t slot)
 	return 0;
 }
 
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond)
+{
+	stub.stored_bond_slot = slot;
+	stub.stored_bond = *bond;
+	stub.stored_bond_writes++;
+	return 0;
+}
+
+int osc2_storage_delete_bond(uint8_t slot)
+{
+	stub.deleted_bonds |= 1u << slot;
+	return stub.bond_delete_error;
+}
+
 int osc2_storage_save_transport(uint8_t t)
 {
+	/* as storage.c: stored, and read back into the key */
 	stub.saved_transport++;
 	stub.stored_transport = t;
 	osc2.transport_saved = t;
+	osc2.transport_stored = true;
+	osc2.transport = t;
 	return 0;
 }
 
@@ -71,6 +88,7 @@ int osc2_storage_delete_transport(void)
 	stub.deleted_transport++;
 	stub.stored_transport = OSC2_TRANSPORT_NONE;
 	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	osc2.transport_stored = false;
 	return 0;
 }
 

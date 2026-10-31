@@ -94,17 +94,21 @@ static int on_set(const char *key, size_t len, settings_read_cb read_cb, void *c
 	}
 	if (settings_name_steq(key, "slot", &next) && !next) {
 		/* The transport key, when there is one, decides the slot (osc2_transport_init()). */
-		if (n == 1 && buf[0] < OPENSC2_BOND_SLOTS &&
-		    !osc2_transport_is_puck(osc2.transport_saved)) {
+		if (n == 1 && buf[0] < OPENSC2_BOND_SLOTS && !osc2.transport_stored) {
 			osc2.slot = buf[0];
 		}
 		return 0;
 	}
 	if (settings_name_steq(key, "transport", &next) && !next) {
-		if (n == 1 && buf[0] <= OSC2_TRANSPORT_PUCK_2) {
+		if (n == 1) {
+			/* Any byte a host stored: it runs the puck with bond 1 unless it is 0, 1 or 3
+			 * (transport_rules.h), and the key reads it back as it is. */
+			uint8_t runs = osc2_transport_runs(buf[0], IS_ENABLED(CONFIG_OPENSC2_BLE));
+
 			osc2.transport_saved = buf[0];
-			if (osc2_transport_is_puck(buf[0])) {
-				osc2.slot = (uint8_t)(buf[0] - OSC2_TRANSPORT_PUCK_1);
+			osc2.transport_stored = true;
+			if (osc2_transport_is_puck(runs)) {
+				osc2.slot = (uint8_t)(runs - OSC2_TRANSPORT_PUCK_1);
 			}
 		}
 		return 0;
@@ -174,7 +178,10 @@ int osc2_storage_save_transport(uint8_t t)
 		err = settings_save_one("opensc2/slot", &s, 1);
 	}
 	if (err == 0) {
+		/* Stored, and read back into the key, as the real controller loads a key it saved. */
 		osc2.transport_saved = t;
+		osc2.transport_stored = true;
+		osc2.transport = t;
 	}
 	return err;
 }
@@ -184,8 +191,33 @@ int osc2_storage_delete_transport(void)
 	int err = settings_delete("opensc2/transport");
 
 	err |= settings_delete("opensc2/slot");
+	if (err) {
+		return -EIO;
+	}
 	osc2.transport_saved = OSC2_TRANSPORT_NONE;
-	return err ? -EIO : 0;
+	osc2.transport_stored = false;
+	return 0;
+}
+
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond)
+{
+	char key[16] = "opensc2/bond0";
+	uint8_t buf[OPENSC2_BOND_LEN];
+
+	key[12] = (char)('0' + slot);
+	if (!opensc2_bond_valid(bond)) {
+		return settings_delete(key);
+	}
+	opensc2_bond_pack(bond, buf);
+	return settings_save_one(key, buf, sizeof(buf));
+}
+
+int osc2_storage_delete_bond(uint8_t slot)
+{
+	char key[16] = "opensc2/bond0";
+
+	key[12] = (char)('0' + slot);
+	return settings_delete(key);
 }
 
 int osc2_storage_save_chime(void)
@@ -253,11 +285,25 @@ int osc2_storage_save_bond(uint8_t slot)
 int osc2_storage_save_transport(uint8_t t)
 {
 	osc2.transport_saved = t;
+	osc2.transport_stored = true;
+	osc2.transport = t;
 	return 0;
 }
 int osc2_storage_delete_transport(void)
 {
 	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	osc2.transport_stored = false;
+	return 0;
+}
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond)
+{
+	ARG_UNUSED(slot);
+	ARG_UNUSED(bond);
+	return 0;
+}
+int osc2_storage_delete_bond(uint8_t slot)
+{
+	ARG_UNUSED(slot);
 	return 0;
 }
 int osc2_storage_save_chime(void) { return 0; }

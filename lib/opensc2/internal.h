@@ -60,8 +60,9 @@ struct osc2_ctx {
 	struct opensc2_identity identity;   /* what is in use: base + stored */
 	struct opensc2_bond bonds[OPENSC2_BOND_SLOTS];
 	uint8_t slot;                 /* the puck's bond slot the radio uses (0 or 1) */
-	uint8_t transport;            /* the chosen wireless transport, OSC2_TRANSPORT_* (in RAM) */
-	uint8_t transport_saved;      /* the one stored, or OSC2_TRANSPORT_NONE */
+	uint8_t transport;            /* user/wireless_transport in RAM: any byte (transport_rules.h) */
+	uint8_t transport_saved;      /* the one stored (when transport_stored), or OSC2_TRANSPORT_NONE */
+	bool transport_stored;        /* a transport is stored (0xFF is a value a host can store) */
 	int16_t settings[OPENSC2_SETTINGS_COUNT];
 	struct opensc2_led led;
 	uint8_t chime;
@@ -125,8 +126,14 @@ void osc2_transport_link_up(uint8_t t);
 /* storage.c (no-ops without CONFIG_OPENSC2_STORAGE) */
 int osc2_storage_load(void);
 int osc2_storage_save_bond(uint8_t slot);
-/* Store transport `t` (opensc2/transport; for a puck transport also its slot as opensc2/slot,
- * which older firmware reads) and note it in osc2.transport_saved; delete both (the default). */
+/* Write `bond` as slot `slot`'s stored bond (an invalid one deletes it) and leave the bond in RAM
+ * as it is (vendor command 0xA2: it counts from the next boot). */
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond);
+/* Delete slot `slot`'s stored bond (vendor command 0xF0, before it empties the bond in RAM). */
+int osc2_storage_delete_bond(uint8_t slot);
+/* Store transport value `t` (opensc2/transport; for a puck transport also its slot as
+ * opensc2/slot, which older firmware reads), note it in osc2.transport_saved and read it back into
+ * the key (osc2.transport); delete both (the default; the key's RAM value is the caller's). */
 int osc2_storage_save_transport(uint8_t t);
 int osc2_storage_delete_transport(void);
 int osc2_storage_save_chime(void);
@@ -139,12 +146,17 @@ int osc2_storage_factory_reset(void);
 #define OSC2_EV_STOP    BIT(1)
 #define OSC2_EV_PAIR    BIT(2)
 #define OSC2_EV_CANCEL  BIT(3)
-#define OSC2_EV_BOND    BIT(4)    /* a bond or the slot selection changed */
+#define OSC2_EV_BOND    BIT(4)    /* a bond was written (either slot): radio_rules.h */
 #define OSC2_EV_RX      BIT(5)    /* packets are waiting */
+#define OSC2_EV_SLOT    BIT(6)    /* another bond slot was chosen at run time */
 
 int osc2_radio_init(bool start);
 void osc2_radio_post(uint32_t events);
 void osc2_radio_set_pair_seconds(uint16_t seconds);
+/* The acknowledgements' transmit power from the next set-up of the radio (every time the link
+ * listens): -40 to 8 dBm, else -EINVAL. */
+int osc2_radio_set_tx_power(int8_t dbm);
+int8_t osc2_radio_tx_power(void);
 enum opensc2_link_state osc2_radio_state(void);
 void osc2_radio_info(struct opensc2_link_info *info);
 bool osc2_radio_connected(void);

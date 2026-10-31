@@ -92,6 +92,7 @@ static void register_test(const char *name, test_fn fn)
 #include "keys_cases.h"
 #include "crash_cases.h"
 #include "transport_cases.h"
+#include "radio_cases.h"
 #include "ble_cases.h"
 #include "vectors_cases.h"
 #include "differential_cases.h"

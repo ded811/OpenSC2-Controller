@@ -78,12 +78,12 @@ config OPENSC2_LIZARD_TICKS
 
 config OPENSC2_REPORT_WAIT_DEPTH
 	int "Radio: lizard and application reports that wait when the report queue is full"
-	default 8
+	default 0
 	range 0 64
 	help
 	  Through the puck, extra input reports ride behind the state reports; up to
-	  CONFIG_OPENSC2_REPORT_QUEUE_DEPTH of them queue. As on the real controller, reports that
-	  must not be lost (lizard mode's, and opensc2_send_report()'s) wait for room instead of
-	  being dropped: up to this many more, while lizard mode waits with its next frame. A battery
-	  report is still dropped when the queue is full. 0: every report is dropped then.
-	  Built; not yet tested on hardware.
+	  CONFIG_OPENSC2_REPORT_QUEUE_DEPTH of them queue. The real controller drops a report that
+	  finds its queue full, lizard mode's included (0, the default). Above 0, OpenSC2's own
+	  option: reports that must not be lost (lizard mode's, and opensc2_send_report()'s) wait
+	  for room instead, up to this many more, while lizard mode waits with its next frame; a
+	  battery report is still dropped. Built; not yet tested on hardware.
