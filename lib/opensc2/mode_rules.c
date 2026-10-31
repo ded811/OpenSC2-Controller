@@ -46,6 +46,11 @@ enum opensc2_mode osc2_mode_decide(const struct osc2_mode_inputs *in,
 	return OPENSC2_MODE_WIRED;
 }
 
+enum osc2_mark osc2_mark_after_chord(enum osc2_mark mark, bool transport_chord_held)
+{
+	return mark == OSC2_MARK_WIRELESS && transport_chord_held ? OSC2_MARK_NONE : mark;
+}
+
 enum osc2_plug_in osc2_plug_in_rule(enum opensc2_policy policy, bool link_up, bool steam_held)
 {
 	if (policy != OPENSC2_POLICY_AUTO) {

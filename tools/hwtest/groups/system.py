@@ -19,6 +19,7 @@ GROUP = "system"
 TESTS = [("system.status", "WR", []), ("system.battery_source", "R", []),
          ("system.turn_off", "R", []), ("system.wireless_off", "R", []),
          ("system.host_asleep", "R", []), ("system.steam_hold_usb", "R", []),
+         ("system.chord_order", "R", []),
          ("system.idle_usb", "R", []), ("system.link_off_steam", "R", []),
          ("system.shutdown_77", "R", []), ("system.idle_battery", "R", []),
          ("system.low_battery", "R", []), ("system.power_on_chord", "R", []),
@@ -285,6 +286,29 @@ def _run(ctx):
                 c.true("connected again", rig.wait_link("connected", 3.0))
             rig.sys_inject_off()
             rig.lizard_off()
+
+    if ctx.want("system.chord_order"):
+        with ctx.check(GROUP, "system.chord_order") as c:
+            # Each transport chord is two combinations, with STEAM and without, looked at in the
+            # real controller's order: STEAM added to A + RB presses the combination with it
+            # before the bare one releases, STEAM lifted releases first. On USB power with the
+            # link up the chords change nothing; the ring has each edge in order.
+            _need_system(rig, c)
+            a_rb = S.BTN_A | S.BTN_RB
+            start = rig.ring_next()
+            for word in (a_rb, S.BTN_STEAM | a_rb, a_rb, 0):
+                rig.sys_inject(S.INJECT_BUTTONS, buttons=word)
+                rig.sleep(0.1)
+            rig.sys_inject_off()
+            entries = rig.ring_all(start)[2]
+            edges = [(e["what_name"], e["chord"]) for e in _of(entries, C.RING_CHORD)
+                     if e.get("what_name") in ("down", "up")]
+            c.eq("CHORD edges of A + RB with STEAM added, lifted, then let go", edges,
+                 [("down", S.CHORD_PUCK1), ("down", S.CHORD_PUCK1), ("up", S.CHORD_PUCK1),
+                  ("up", S.CHORD_PUCK1), ("down", S.CHORD_PUCK1), ("up", S.CHORD_PUCK1)])
+            st = _status(rig, c)
+            c.eq("on USB power with the link up chords change nothing", st["state_name"],
+                 "usb-link-on")
 
     if ctx.want("system.idle_usb"):
         with ctx.check(GROUP, "system.idle_usb") as c:

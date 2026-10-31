@@ -7,7 +7,10 @@
  * that leaves USB the way the real controller does and sets the mark; and, in wireless mode, the
  * real controller's rule for a cable plugged in later, while the policy is "auto": with the link
  * down, or STEAM held, the board reboots to come back wired; with the link up it stays wireless
- * and only charges. A wired boot whose USB device cannot be set up falls back to wireless.
+ * and only charges. A wired boot whose USB device cannot be set up falls back to wireless. With
+ * the system state machine the wired device attaches when the machine's wired start says so
+ * (once STEAM is up), and USB power in its battery wait makes a battery build's boot wired in
+ * place, as on the real controller.
  */
 #include <errno.h>
 #include <string.h>
@@ -22,6 +25,8 @@
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 #define VBUS_POLL_MS 100
+
+static bool boot_warm;   /* the warm-restart mark brought this boot back (a chord did not use it) */
 
 static const char *mode_name(enum opensc2_mode mode)
 {
@@ -67,7 +72,9 @@ void osc2_mode_boot(enum opensc2_boot_mode app)
 #if defined(CONFIG_OPENSC2_USB)
 	struct osc2_usblog_info log;
 
-	in.mark = (enum osc2_mark)osc2_retained_mark_taken();
+	in.mark = osc2_mark_after_chord((enum osc2_mark)osc2_retained_mark_taken(),
+					osc2_sys_transport_chord_held());
+	boot_warm = in.mark == OSC2_MARK_WIRELESS;
 	osc2_usblog_info(&log);
 #endif
 	osc2.mode = osc2_mode_decide(&in, &osc2.mode_reason);
@@ -125,23 +132,68 @@ static void vbus_fn(struct k_work *work)
 }
 #endif
 
+bool osc2_mode_warm(void)
+{
+	return boot_warm;
+}
+
+#if defined(CONFIG_OPENSC2_USB)
+static bool wired_attached;
+
+/* The wired device; 0 when it is up. Otherwise this boot goes on wireless. */
+static int wired_attach(bool start_radio)
+{
+	int err = osc2_usb_wired_start();
+
+	if (err == 0) {
+		wired_attached = true;
+		return 0;
+	}
+	/* No USB device, and the radio was left off for the wired boot: rather than neither link,
+	 * this boot goes on wireless (the session log has the failure). */
+	osc2.mode = OPENSC2_MODE_WIRELESS;
+	osc2.mode_reason = OPENSC2_MODE_USB_FAILED;
+	LOG_WRN("Mode wireless (%s, %d)", reason_name(osc2.mode_reason), err);
+	osc2_usblog("wired start failed (%d): wireless this boot", err);
+	if (start_radio) {
+		(void)osc2_wireless_start();   /* this boot's transport: the radio or Bluetooth */
+	}
+	return err;
+}
+
+void osc2_mode_usb_on(void)
+{
+	if (osc2_wired() && !wired_attached && wired_attach(false) != 0) {
+		(void)osc2_usb_console_start();
+	}
+}
+
+void osc2_mode_go_wired(void)
+{
+	if (osc2_wired()) {
+		return;
+	}
+	/* Nothing wireless runs yet (the battery wait starts its link only at the end): the
+	 * console gives the USB controller back, and this boot is wired from now on. */
+	osc2_usb_console_stop();
+	osc2.mode = OPENSC2_MODE_WIRED;
+	osc2.mode_reason = OPENSC2_MODE_USB_POWER;
+	LOG_INF("Mode wired (USB power in the battery wait)");
+	osc2_usblog("USB power in the battery wait: wired in place");
+}
+#endif
+
 void osc2_mode_start(bool start_radio)
 {
 #if defined(CONFIG_OPENSC2_USB)
 	if (osc2_wired()) {
-		int err = osc2_usb_wired_start();
-
-		if (err == 0) {
-			return;
+		if (IS_ENABLED(CONFIG_OPENSC2_SYSTEM) && (osc2_sys_buttons() & OPENSC2_BTN_STEAM)) {
+			return;   /* the machine's wired start attaches it, once STEAM is up */
 		}
-		/* No USB device, and the radio was left off for the wired boot: rather than neither
-		 * link, this boot goes on wireless (the session log has the failure). */
-		osc2.mode = OPENSC2_MODE_WIRELESS;
-		osc2.mode_reason = OPENSC2_MODE_USB_FAILED;
-		LOG_WRN("Mode wireless (%s, %d)", reason_name(osc2.mode_reason), err);
-		osc2_usblog("wired start failed (%d): wireless this boot", err);
-		if (start_radio) {
-			(void)osc2_wireless_start();   /* this boot's transport: the radio or Bluetooth */
+		/* STEAM up: the device now, as the machine's wired start would at once (a device
+		 * that cannot be set up still falls back to wireless before the machine starts). */
+		if (wired_attach(start_radio) == 0) {
+			return;
 		}
 	}
 	(void)osc2_usb_console_start();
@@ -206,14 +258,26 @@ void opensc2_reboot(enum opensc2_reboot how, const char *why)
 		osc2_usb_detach(reason);   /* the zero report, 10 ms, USB off */
 	}
 #endif
+#if defined(CONFIG_OPENSC2_BLE)
+	if (!osc2_wired() && osc2_ble_active()) {
+		/* Bluetooth is left as the real controller leaves it before every reboot: an
+		 * all-zero state report, 100 ms, then off (the Bluetooth thread does it). */
+		(void)osc2_ble_stop(false, false);
+		k_msleep(110);
+	}
+#endif
 	/* Bond and setting writes are synchronous: nothing is pending. Let the log catch up. */
 	if (IS_ENABLED(CONFIG_LOG)) {
 		k_msleep(20);
 	}
 #if defined(CONFIG_OPENSC2_USB)
-	/* The mark last, right before the reset, so it never outlives a reboot that did not happen. */
-	osc2_retained_mark_set(how == OPENSC2_REBOOT_WIRELESS ? OSC2_MARK_WIRELESS :
-			       how == OPENSC2_REBOOT_WIRED ? OSC2_MARK_WIRED : OSC2_MARK_NONE);
+	/* The mark last, right before the reset, so it never outlives a reboot that did not happen. A
+	 * plain reboot leaves a mark set earlier as it is: the real controller's warm-restart flag,
+	 * once set by Steam's request, brings back any later reboot of that boot wireless. */
+	if (how != OPENSC2_REBOOT_PLAIN) {
+		osc2_retained_mark_set(how == OPENSC2_REBOOT_WIRELESS ? OSC2_MARK_WIRELESS :
+				       OSC2_MARK_WIRED);
+	}
 #endif
 	sys_reboot(SYS_REBOOT_COLD);
 }

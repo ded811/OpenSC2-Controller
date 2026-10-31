@@ -11,12 +11,10 @@
  * events, power requests) and carries the actions out.
  *
  * Where OpenSC2 differs, on purpose (each is in docs/protocol.md's gap list):
- *   - the wired or wireless decision stays with mode_rules.h (made before the machine starts), so
- *     USB power that appears during the battery wait, or after the board was lifted off the dock,
- *     reboots: the next boot is wired, where the real controller enables USB in place;
- *   - the wired start's STEAM rule stays in usb.c (protocol.md gap 18);
- *   - "drop the link" also stops a radio that is still listening (the real controller lets it
- *     search on until its own timer ends);
+ *   - the wired or wireless decision is made before the machine starts (mode_rules.h); the one
+ *     place where the real controller turns USB on in place, USB power during the battery wait,
+ *     does the same here only when the board can (in->go_wired_ok: a battery build), and reboots
+ *     into the wired start otherwise;
  *   - the link started from outside the machine (the shell's `opensc2 start`, the application)
  *     while wireless is off on USB power counts as wireless on again;
  *   - a radio stopped locally (opensc2_stop()) is not "wireless off": the machine only hears of a
@@ -73,6 +71,15 @@ enum osc2_sys_source {
 #define OSC2_SYS_LIFTED_MS        5000
 #define OSC2_SYS_SHUTDOWN_MS      500
 #define OSC2_SYS_STEAM_POLL_MS    10
+#define OSC2_SYS_UPDATE_WINDOW_MS 60000   /* a bootloader request on battery or the dock */
+
+/* The factory charge window's announcement before the power-on decision (mte/charge_level not
+ * 0): the LED override on, cue 8, seven magenta blinks of 105 ms with 105 ms dark, the override
+ * off, then 100 ms. */
+#define OSC2_SYS_ANNOUNCE_BLINKS   7
+#define OSC2_SYS_ANNOUNCE_BLINK_MS 105
+#define OSC2_SYS_ANNOUNCE_TAIL_MS  100
+#define OSC2_SYS_ANNOUNCE_MS (OSC2_SYS_ANNOUNCE_BLINKS * 2 * OSC2_SYS_ANNOUNCE_BLINK_MS + 			      OSC2_SYS_ANNOUNCE_TAIL_MS)
 
 enum osc2_sys_state {
 	OSC2_SYS_START = 0,         /* power-on, until the decision */
@@ -125,20 +132,43 @@ enum osc2_sys_ev {
 enum osc2_sys_end {
 	OSC2_SYS_END_NONE = 0,
 	OSC2_SYS_END_POWER_OFF,     /* power off */
-	OSC2_SYS_END_REBOOT,        /* a plain reboot (by the boot rule: wired on USB power) */
+	OSC2_SYS_END_REBOOT,        /* a reboot (by the boot rule: wired on USB power, unless the
+				     * warm-restart mark is set) */
+};
+
+/* What a reboot end asks of the application (osc2_sys_out.end_request). */
+enum osc2_sys_end_request {
+	OSC2_SYS_REQ_PLAIN = 0,
+	OSC2_SYS_REQ_WARM,          /* the warm-restart mark is set: back wireless on USB power */
+	OSC2_SYS_REQ_BOOTLOADER,    /* USB power inside the update window: the bootloader */
+};
+
+/* What waits for STEAM to be up (the machine holds its events meanwhile). */
+enum osc2_sys_steam_then {
+	OSC2_SYS_THEN_END = 0,      /* a shutdown's end */
+	OSC2_SYS_THEN_USB_ON,       /* the wired start's USB device */
 };
 
 /* Actions, as bits of osc2_sys_out.actions, in the order system.c carries them out. */
 #define OSC2_SYS_DO_STATE         0x0001   /* the state changed: from, to, cause */
 #define OSC2_SYS_DO_IR_OFF        0x0002   /* the IR LED off (its setting stays) */
 #define OSC2_SYS_DO_LED           0x0004   /* a new LED mode: led_mode, led_flags */
-#define OSC2_SYS_DO_DROP          0x0008   /* drop the link */
+#define OSC2_SYS_DO_DROP          0x0008   /* drop the link, if it is connected (one still
+					    * listening or advertising searches on) */
 #define OSC2_SYS_DO_CUE           0x0010   /* play cue `cue` */
 #define OSC2_SYS_DO_KEYLOCK_DEL   0x0020   /* delete the keylock */
 #define OSC2_SYS_DO_KEYLOCK_SET   0x0040   /* store the keylock (it counts from the next boot) */
 #define OSC2_SYS_DO_START         0x0080   /* start transport `transport` (`pairing`) */
 #define OSC2_SYS_DO_END           0x0100   /* end: `end` */
 #define OSC2_SYS_DO_PASS          0x0200   /* a host request this state acts on: carry it out */
+#define OSC2_SYS_DO_STOP          0x0400   /* switch the link off, connected or not (the dock) */
+#define OSC2_SYS_DO_WARM_MARK     0x0800   /* set the warm-restart mark now (the next boot on USB
+					    * power comes back wireless) */
+#define OSC2_SYS_DO_GO_WIRED      0x1000   /* this boot becomes wired in place (USB power in the
+					    * battery wait, when in->go_wired_ok) */
+#define OSC2_SYS_DO_USB_ON        0x2000   /* the wired start: turn the USB device on (STEAM is up) */
+#define OSC2_SYS_DO_UPDATE        0x4000   /* a bootloader request opened (or restarted) the 60 s
+					    * update window: the LED's green blink */
 
 struct osc2_sys {
 	uint8_t state;
@@ -146,7 +176,13 @@ struct osc2_sys {
 	uint8_t chord;           /* in a chord state: its chord (enum osc2_chord) */
 	uint8_t level;           /* the last battery level (255: none yet) */
 	bool timer_on;
-	bool steam_wait;         /* a shutdown that waits for STEAM to be up */
+	bool steam_wait;         /* waiting for STEAM to be up: events stay queued (osc2_sys_wait()) */
+	uint8_t steam_then;      /* enum osc2_sys_steam_then */
+	bool selected;           /* a link was selected since boot (started, or a chord state) */
+	bool window_on;          /* the 60 s update window runs (until window_until) */
+	uint32_t window_until;
+	uint8_t updates;         /* bootloader requests that opened or restarted the window (the
+				  * LED's blink requests; wraps) */
 	bool ended;              /* power off or reboot asked for: nothing more happens */
 	uint32_t timer_at;
 	uint32_t busy_until;     /* a chord state's 500 ms pause: events wait until then */
@@ -158,18 +194,21 @@ struct osc2_sys {
 	bool boot_pairing;       /* a chord state ended with the pairing flag */
 	/* the shutdown in progress, for the ring */
 	uint8_t end_cause;
+	uint8_t end_req;         /* a reboot's request (enum osc2_sys_end_request) */
 };
 
 /* What the machine reads when it handles an event. */
 struct osc2_sys_in {
 	uint8_t stored;          /* user/wireless_transport (0..3; other values: the main puck) */
-	uint8_t chord;           /* the chord matching now (enum osc2_chord) */
+	uint8_t chord;           /* the transport chord held (osc2_chords_boot_chord()) */
+	bool keylock_chord;      /* the keylock chord is held (its 5 ms tap deletes the lock first) */
 	uint8_t level;           /* the battery level the machine is told (255: none yet) */
 	bool steam;              /* the STEAM bit is set now */
 	bool keylock;            /* the keylock is stored */
 	bool reboot_not_off;     /* controller setting 77 is not 0 */
 	bool link_up;            /* a wireless link is connected */
 	bool plug_in_reboot;     /* USB power on battery may reboot into wired (the rule's options) */
+	bool go_wired_ok;        /* USB power in the battery wait may make this boot wired in place */
 };
 
 /* How the board started. */
@@ -191,13 +230,15 @@ struct osc2_sys_out {
 	uint8_t end;             /* DO_END: enum osc2_sys_end */
 	uint8_t end_state;       /* DO_END: the shutdown or reboot state that ends */
 	uint8_t end_cause;       /* DO_END: the event that led into it */
+	uint8_t end_request;     /* DO_END, END_REBOOT: enum osc2_sys_end_request */
 };
 
-/* The power-on decision. In order: a wired boot (the wired start, cue 0); wireless on USB power
- * (the stored transport's cue, the link started); on the dock (the stored link after a warm
- * reboot, else the radio off); on battery: 0 % off silently, the keylock off, 2 % or less off with
- * the low-battery signal, a held transport chord its chord state, otherwise the battery wait.
- * USB and dock power-ons delete the keylock. */
+/* The power-on decision. In order: a wired boot (the wired start, cue 0, the USB device on once
+ * STEAM is up); wireless on USB power (the stored transport's cue, the link started); on the dock
+ * (the stored link after a warm reboot, else the radio off); on battery: 0 % off silently, the
+ * keylock off (not while its chord is held: the chord's 5 ms tap deletes the lock first), 2 % or
+ * less off with the low-battery signal, a held transport chord its chord state, otherwise the
+ * battery wait. USB and dock power-ons delete the keylock. */
 void osc2_sys_boot(struct osc2_sys *m, const struct osc2_sys_in *in,
 		   const struct osc2_sys_boot_in *boot, uint32_t now_ms, struct osc2_sys_out *out);
 
@@ -207,7 +248,8 @@ void osc2_sys_boot(struct osc2_sys *m, const struct osc2_sys_in *in,
 void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev, uint8_t arg,
 		    uint32_t now_ms, struct osc2_sys_out *out);
 
-/* Milliseconds until the machine takes events again (a chord state's pause), 0 when it does. */
+/* Milliseconds until the machine takes events again (a chord state's pause; while it waits for
+ * STEAM to be up, every 10 ms), 0 when it does. Events wait in the queue meanwhile. */
 uint32_t osc2_sys_wait(const struct osc2_sys *m, uint32_t now_ms);
 
 /* Milliseconds until a TIMER is due (0: now), or -1 for none. While a shutdown waits for STEAM
@@ -235,6 +277,14 @@ bool osc2_cue_map(uint8_t cue, uint8_t level, uint8_t *script, int8_t *gain_db);
 /* The level the machine and the LED are told: 100 while the charge state has the "supply check
  * gave up" flag (0x80) and the level is above 0, else the level. */
 uint8_t osc2_sys_level(uint8_t charge_state, uint8_t level);
+
+/* Does the 60 s update window run at `now_ms`? */
+bool osc2_sys_window(const struct osc2_sys *m, uint32_t now_ms);
+
+/* The factory charge window's announcement, `elapsed_ms` after it began: true while the magenta
+ * shows (`*override` true while the LED override is on); -1 once it is over, else the milliseconds
+ * to its next step. */
+int32_t osc2_sys_announce(uint32_t elapsed_ms, bool *magenta, bool *override);
 
 /* Names for logs and the console. */
 const char *osc2_sys_state_name(uint8_t state);

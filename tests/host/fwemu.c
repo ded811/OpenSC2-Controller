@@ -297,6 +297,11 @@ void emu_reboot(void)
 	reboot_now(false, false);
 }
 
+void emu_reboot_warm(void)
+{
+	reboot_now(true, true);
+}
+
 /* A power request falls due: noted as core.c does, then what the blank canvas does with it. */
 static void power_now(void)
 {

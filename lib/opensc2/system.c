@@ -11,10 +11,14 @@
  *     present" is an event, as on the real controller;
  *   - the events the rest of the library posts (battery levels, link and USB events), ten deep
  *     like the real controller's queue, and the power requests it takes over (the turn-off
- *     command, the cable pulled; a host's reboot request in a state that ignores it);
+ *     command, the cable pulled, a host's reboot, warm-reboot and bootloader requests: queued
+ *     like any event, and handed to the application once the state then current acts on them);
+ *     while the machine holds (a chord state's pause, waiting for STEAM to be up) they wait;
+ *   - the factory charge window's announcement before the power-on decision;
  *   - the machine's actions: the LED status (the led_status callback), cues (the cue callback),
- *     dropping and starting the link, the keylock, and the end: OPENSC2_POWER_OFF, or a reboot
- *     (setting 77, a board without a battery, the test hooks in use).
+ *     dropping and starting the link, the wired start's USB device, the warm-restart mark, the
+ *     update window, the keylock, and the end: OPENSC2_POWER_OFF, or a reboot (setting 77, a
+ *     board without a battery, the test hooks in use).
  * The keylock and the fully-charged LED level are the settings-by-name keys user/keylock and
  * user/fully_charged_led_intensity, whose values the library keeps (key_store.c, opensc2/k/): a
  * host's 0xED..0xF0 and the machine see the same value.
@@ -29,11 +33,41 @@
 #include "internal.h"
 #include "dock_link.h"
 #include "key_store.h"
+#include "mode_rules.h"
 #include "system.h"
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 static volatile uint8_t app_source;   /* enum opensc2_power_source, opensc2_set_power_source() */
+
+/* The factory charge window (mte/charge_level): its upper voltage while a valid window other than
+ * 0/0 is stored, as the real controller's charger then stops there. */
+static void charge_window(uint32_t *lo, uint32_t *hi)
+{
+	uint8_t v[OSC2_KEY_VALUE_MAX];
+	uint8_t len = 0;
+
+	*lo = 0;
+	*hi = 0;
+	if (osc2_keys_get(OSC2_KEY_CHARGE_WINDOW, v, &len) == 0 && len == 8) {
+		*lo = opensc2_get_le32(&v[0]);
+		*hi = opensc2_get_le32(&v[4]);
+	}
+}
+
+uint16_t opensc2_charge_target_mv(void)
+{
+	uint8_t v[8];
+	uint32_t lo, hi;
+
+	charge_window(&lo, &hi);
+	opensc2_put_le32(&v[0], lo);
+	opensc2_put_le32(&v[4], hi);
+	if ((lo | hi) == 0 || !osc2_key_value_readable(OSC2_KEY_CHARGE_WINDOW, v, sizeof(v))) {
+		return 0;   /* none, or not a valid window: the board's own target */
+	}
+	return (uint16_t)hi;
+}
 
 int opensc2_set_power_source(enum opensc2_power_source source)
 {
@@ -64,7 +98,6 @@ int opensc2_set_power_source(enum opensc2_power_source source)
 #define FULL_DEFAULT   3             /* user/fully_charged_led_intensity when absent: full */
 #define QUEUE_DEPTH    10
 #define Q_CUE          0x80          /* not a machine event: play cue `arg` */
-#define POWER_GONE_MS  200           /* shorter dips change nothing (a hub resetting its port) */
 #define TOUCH_BITS     (OPENSC2_TOUCH_RIGHT_PAD | OPENSC2_TOUCH_LEFT_PAD |                      \
 			OPENSC2_TOUCH_RIGHT_STICK | OPENSC2_TOUCH_LEFT_STICK)
 
@@ -89,6 +122,8 @@ static uint8_t level_told = 255;    /* the level the machine and the LED were to
 static uint8_t last_cue = 0xFF;
 
 static bool start_allowed;
+static bool announcing;             /* the factory charge window's announcement runs */
+static uint32_t announce_t0;
 static atomic_t frame_activity;
 static atomic_t host_asleep_done;
 static volatile bool battery_given;
@@ -107,6 +142,8 @@ static struct {
 	bool shutting_down;
 	uint8_t level;
 	uint32_t below_full_ms;
+	bool window;             /* the update window runs */
+	uint8_t updates;         /* update requests so far */
 } led = { .level = 255 };
 
 /* ---- the keys (key_store.c) ------------------------------------------------------------------ */
@@ -203,6 +240,13 @@ static uint8_t detect_source(void)
 	return IS_ENABLED(CONFIG_OPENSC2_BATTERY) ? OSC2_SRC_BATTERY : OSC2_SRC_USB;
 }
 
+bool osc2_sys_transport_chord_held(void)
+{
+	boot_injection();
+	return osc2_chord_is_transport(osc2_chord_match(osc2_sys_buttons(),
+							IS_ENABLED(CONFIG_OPENSC2_BLE)));
+}
+
 bool osc2_sys_wired_power(void)
 {
 	boot_injection();
@@ -229,11 +273,12 @@ static bool link_connected(void)
 	return (!osc2_wired() && osc2_radio_connected()) || (bt && bt->connected && bt->connected());
 }
 
-/* The level the machine is told: the application's once it set one (255 until then, as after a
- * cold start), or the test hooks' system injection; 100 while the charger gave up (0x80). */
+/* The level the machine is told: the application's once it set one; until then the level kept
+ * over a warm reset (255 after a cold start), what the real controller's first battery report
+ * carries; or the test hooks' system injection; 100 while the charger gave up (0x80). */
 static uint8_t level_of(const struct opensc2_battery *b)
 {
-	uint8_t level = battery_given ? b->level : 255;
+	uint8_t level = battery_given ? b->level : opensc2_battery_kept_level();
 
 	(void)osc2_test_sys_level(&level);
 	return osc2_sys_level(b->charge_state, level);
@@ -246,11 +291,20 @@ static bool plug_in_allowed(void)
 	       osc2.mode_reason != OPENSC2_MODE_USB_FAILED;
 }
 
+/* USB power in the battery wait may turn this boot wired in place: a battery build (only there is
+ * the battery wait reached) with the USB device, under the plug-in rule's options. */
+static bool go_wired_allowed(void)
+{
+	return IS_ENABLED(CONFIG_OPENSC2_BATTERY) && plug_in_allowed();
+}
+
 static void inputs(struct osc2_sys_in *in)
 {
 	memset(in, 0, sizeof(*in));
 	in->stored = osc2_transport_running();   /* user/wireless_transport, as this boot runs it */
-	in->chord = chords.current;
+	in->chord = osc2_chords_boot_chord(&chords);
+	in->keylock_chord = chords.current == OSC2_CHORD_KEYLOCK;
+	in->go_wired_ok = go_wired_allowed();
 	in->level = level_told;
 	in->steam = (buttons & OPENSC2_BTN_STEAM) != 0;
 	in->keylock = keylock_value() == KEYLOCK_VALUE;
@@ -274,7 +328,12 @@ void opensc2_led_status(struct opensc2_led_status *st)
 	st->shutting_down = led.shutting_down;
 	st->level = led.level;
 	st->below_full_ms = led.below_full_ms;
+	st->update_window = led.window;
+	st->update_requests = led.updates;
 	k_spin_unlock(&led_lock, key);
+	if (st->update_window && !osc2_sys_window(&machine, k_uptime_get_32())) {
+		st->update_window = false;   /* the window is over (nothing posts its end) */
+	}
 	st->connected = link_connected();
 	/* Bluetooth's pairing mode; the radio's over-the-air pairing (OpenSC2's) shows the same. */
 	st->pairing = (bt && bt->pairing && bt->pairing()) ||
@@ -359,19 +418,41 @@ void osc2_sys_cue_post(uint8_t cue)
 
 /* ---- the actions ----------------------------------------------------------------------------- */
 
+/* Drop the link, as the real controller does at a shutdown or a reboot: only a link that is up
+ * (wired: configured by a host; Bluetooth: past its gate; the puck: connected). A radio still
+ * listening, or Bluetooth still advertising, searches on until its own timer ends. */
 static void drop_link(const char *why)
 {
 	if (osc2_wired()) {
 #if defined(CONFIG_OPENSC2_USB)
-		osc2_usb_detach(why);   /* the zero report, 10 ms, USB off */
+		if (osc2_usb_ready()) {
+			osc2_usb_detach(why);   /* the zero report, 10 ms, USB off */
+		}
 #endif
+		return;
+	}
+	if (bt && bt->connected && bt->connected()) {
+		if (bt->stop) {
+			bt->stop();   /* the zero report, 100 ms, off */
+		}
+		return;
+	}
+	if (osc2_radio_connected()) {
+		(void)opensc2_stop();   /* the puck notices the silence */
+	}
+}
+
+/* Switch the link off whatever its state (on the dock with the radio off). */
+static void stop_link(void)
+{
+	if (osc2_wired()) {
 		return;
 	}
 	if (bt && bt->stop) {
 		bt->stop();
 	}
 	if (osc2_radio_state() != OPENSC2_LINK_OFF) {
-		(void)opensc2_stop();   /* the puck notices the silence */
+		(void)opensc2_stop();
 	}
 }
 
@@ -430,7 +511,13 @@ static void end(const struct osc2_sys_out *o)
 
 	if (o->end == OSC2_SYS_END_REBOOT) {
 		how = OSC2_TEST_SYS_HOW_REBOOT;
-		if (o->end_cause == OSC2_SYS_EV_POWER_USB) {
+		if (o->end_request == OSC2_SYS_REQ_BOOTLOADER) {
+			request = OPENSC2_POWER_BOOTLOADER;
+			why = "USB power in the update window: bootloader";
+		} else if (o->end_request == OSC2_SYS_REQ_WARM) {
+			request = OPENSC2_POWER_REBOOT_KEEP_LINK;
+			why = "STEAM before a host: back wireless";
+		} else if (o->end_cause == OSC2_SYS_EV_POWER_USB) {
 			request = OPENSC2_POWER_USB_PLUGGED;
 			why = "USB power: back to wired";
 		} else if (o->end_state == OSC2_SYS_SHUTDOWN) {
@@ -456,6 +543,29 @@ static void end(const struct osc2_sys_out *o)
 	osc2_usblog("system: %s (%s, after %s)", why, osc2_sys_state_name(o->end_state),
 		    osc2_sys_event_name(o->end_cause));
 	osc2_power_now(request, why);
+	if (request == OPENSC2_POWER_BOOTLOADER) {
+		/* The application did not reboot into a bootloader: reboot all the same (the warm
+		 * mark is set, so on USB power the board comes back wireless). */
+		opensc2_reboot(OPENSC2_REBOOT_PLAIN, why);
+	}
+}
+
+/* A host's request that the state acts on: to the application now. */
+static void pass(uint8_t ev)
+{
+	switch (ev) {
+	case OSC2_SYS_EV_BOOTLOADER:
+		osc2_power_to_app(OPENSC2_POWER_BOOTLOADER, "host: bootloader");
+		break;
+	case OSC2_SYS_EV_WARM_REBOOT:
+		osc2_power_to_app(OPENSC2_POWER_REBOOT_KEEP_LINK, "host: reboot into wireless");
+		break;
+	case OSC2_SYS_EV_REBOOT:
+		osc2_power_to_app(OPENSC2_POWER_REBOOT, "host: reboot");
+		break;
+	default:
+		break;
+	}
 }
 
 static void apply(const struct osc2_sys_out *o)
@@ -483,10 +593,31 @@ static void apply(const struct osc2_sys_out *o)
 		osc2_test_sys_note_led(led.mode, flags, level_told, full_level());
 		notify_led();
 	}
+	if (o->actions & OSC2_SYS_DO_UPDATE) {
+		k_spinlock_key_t key = k_spin_lock(&led_lock);
+
+		led.window = true;
+		led.updates = machine.updates;
+		k_spin_unlock(&led_lock, key);
+		LOG_INF("Bootloader request: the 60 s update window (USB power in it: the bootloader)");
+		notify_led();
+	}
 	if (o->actions & OSC2_SYS_DO_DROP) {
 		drop_link(o->cause == OSC2_SYS_EV_UNPLUGGED || o->cause == OSC2_SYS_EV_POWER_NONE ?
 			  "USB power gone" : "shutdown");
 	}
+	if (o->actions & OSC2_SYS_DO_STOP) {
+		LOG_INF("Stopping wireless");
+		stop_link();
+	}
+#if defined(CONFIG_OPENSC2_USB)
+	if (o->actions & OSC2_SYS_DO_WARM_MARK) {
+		osc2_retained_mark_set(OSC2_MARK_WIRELESS);
+	}
+	if (o->actions & OSC2_SYS_DO_GO_WIRED) {
+		osc2_mode_go_wired();
+	}
+#endif
 	if (o->actions & OSC2_SYS_DO_CUE) {
 		play_cue(o->cue);
 	}
@@ -501,6 +632,11 @@ static void apply(const struct osc2_sys_out *o)
 	if (o->actions & OSC2_SYS_DO_START) {
 		start_link(o->transport, o->pairing);
 	}
+#if defined(CONFIG_OPENSC2_USB)
+	if (o->actions & OSC2_SYS_DO_USB_ON) {
+		osc2_mode_usb_on();   /* the wired start, once STEAM is up */
+	}
+#endif
 	if (o->actions & OSC2_SYS_DO_END) {
 		end(o);
 	}
@@ -520,19 +656,27 @@ static void run(uint8_t ev, uint8_t arg, uint32_t now, struct osc2_sys_out *out)
 	if (ev == OSC2_SYS_EV_LEVEL) {
 		level_seen(arg);
 	}
+	if (ev >= OSC2_SYS_EV_BOOTLOADER && ev <= OSC2_SYS_EV_WARM_REBOOT) {
+		if (out->actions & OSC2_SYS_DO_PASS) {
+			pass(ev);
+		} else if (!(out->actions & OSC2_SYS_DO_UPDATE)) {
+			LOG_INF("Host %s request ignored in %s", osc2_sys_event_name(ev),
+				osc2_sys_state_name(machine.state));
+		}
+	}
 }
 
 /* ---- the work item --------------------------------------------------------------------------- */
 
 static void chord_events(const struct osc2_chord_out *co)
 {
-	if (co->events & OSC2_CHORD_EV_UP) {
-		osc2_test_sys_note_chord(OSC2_TEST_CHORD_UP, co->up);
-		post(OSC2_SYS_EV_CHORD_UP, co->up);
-	}
-	if (co->events & OSC2_CHORD_EV_DOWN) {
-		osc2_test_sys_note_chord(OSC2_TEST_CHORD_DOWN, co->down);
-		post(OSC2_SYS_EV_CHORD_DOWN, co->down);
+	/* Each transport chord's press and release, in the order the real controller reports them
+	 * (chord_rules.h). */
+	for (uint8_t i = 0; i < co->edges; i++) {
+		const struct osc2_chord_edge *e = &co->edge[i];
+
+		osc2_test_sys_note_chord(e->down ? OSC2_TEST_CHORD_DOWN : OSC2_TEST_CHORD_UP, e->chord);
+		post(e->down ? OSC2_SYS_EV_CHORD_DOWN : OSC2_SYS_EV_CHORD_UP, e->chord);
 	}
 	if (co->events & OSC2_CHORD_EV_STEAM_PRESS) {
 		osc2_test_sys_note_chord(OSC2_TEST_CHORD_STEAM_PRESS, OSC2_CHORD_STEAM);
@@ -595,29 +739,16 @@ static void look_idle(uint32_t now)
 	input_recent = osc2_idle_recent(&idle);
 }
 
-static void look_source(uint32_t now)
+/* The power source, at every poll (CONFIG_OPENSC2_POWER_POLL_MS, 50 ms as the real controller's
+ * charger polls its supply): a change of "power present" is an event at once. */
+static void look_source(void)
 {
-	static bool gone;
-	static uint32_t gone_at;
 	uint8_t s = detect_source();
 	int ev;
 
 	if (s == source) {
-		gone = false;
 		return;
 	}
-	/* Power that goes away must stay away 0.2 s, as the wired device's unplug rule wants; power
-	 * that comes counts at once. */
-	if (s == OSC2_SRC_BATTERY) {
-		if (!gone) {
-			gone = true;
-			gone_at = now;
-		}
-		if (now - gone_at < POWER_GONE_MS) {
-			return;
-		}
-	}
-	gone = false;
 	ev = osc2_sys_source_event(source, s);
 	osc2_test_sys_note_source(source, s, ev);
 	LOG_INF("Power source %u -> %u", source, s);
@@ -633,8 +764,6 @@ static void boot(uint32_t now)
 	struct osc2_sys_in in;
 	struct osc2_sys_out out;
 	struct osc2_chord_out co;
-	struct opensc2_battery battery;
-	k_spinlock_key_t key;
 
 	boot_injection();
 	buttons = osc2_sys_buttons();
@@ -642,12 +771,13 @@ static void boot(uint32_t now)
 	osc2_chords_init(&chords, bt != NULL, buttons, now, &co);
 	osc2_idle_start(&idle, osc2.settings[OPENSC2_SETTING_SLEEP_TIMEOUT_S], now);
 	source = detect_source();
-	key = k_spin_lock(&osc2.lock);
-	battery = osc2.battery;
-	k_spin_unlock(&osc2.lock, key);
-	level_told = level_of(&battery);
+	/* The real controller decides on the level its first battery report passes on, before its
+	 * gauge has measured: the one kept over a warm reset, else 255 (neither 0 % nor low), even
+	 * when the application has already given one. Later reports bring the application's. */
+	level_told = opensc2_battery_kept_level();
+	(void)osc2_test_sys_level(&level_told);
 	b.wired = osc2_wired();
-	b.warm = osc2.mode_reason == OPENSC2_MODE_WARM_RESTART;
+	b.warm = osc2_mode_warm();   /* the warm-restart mark, unless a held chord used it up */
 	b.source = source;
 	inputs(&in);
 	osc2_sys_boot(&machine, &in, &b, now, &out);
@@ -669,6 +799,50 @@ static int32_t soonest(int32_t a, int32_t b)
 	return MIN(a, b);
 }
 
+/* The factory charge window's announcement, before the power-on decision: the LED override on
+ * (setting 37), cue 8, seven magenta blinks, the override off and 100 ms; events wait meanwhile.
+ * The override colour is left dark afterwards, as on the real controller. Returns the
+ * milliseconds to its next step, or -1 once it is over. */
+static int32_t announce(uint32_t now)
+{
+	static const uint8_t magenta[4] = { 100, 0, 100, 0 }, dark[4] = { 0, 0, 0, 0 };
+	static bool was_magenta, was_override;
+	bool mg, ov;
+	int32_t next;
+
+	if (!announcing) {
+		uint32_t lo, hi;
+
+		charge_window(&lo, &hi);
+		if ((lo | hi) == 0) {
+			return -1;
+		}
+		LOG_INF("Factory charge window %u..%u mV stored: the announcement", (unsigned int)lo,
+			(unsigned int)hi);
+		announcing = true;
+		announce_t0 = now;
+		was_magenta = false;
+		was_override = false;
+		play_cue(OPENSC2_CUE_CHARGE_WINDOW);
+	}
+	next = osc2_sys_announce(now - announce_t0, &mg, &ov);
+	if (ov != was_override && ov) {
+		osc2_settings_write(OPENSC2_SETTING_LED_OVERRIDE, 1);
+	}
+	if (mg != was_magenta || (ov && !was_override)) {
+		osc2_led_color_write(mg ? magenta : dark);
+	}
+	if (ov != was_override && !ov) {
+		osc2_settings_write(OPENSC2_SETTING_LED_OVERRIDE, 0);
+	}
+	was_magenta = mg;
+	was_override = ov;
+	if (next < 0) {
+		announcing = false;
+	}
+	return next;
+}
+
 static void sys_work_fn(struct k_work *work)
 {
 	uint32_t now = k_uptime_get_32();
@@ -678,8 +852,19 @@ static void sys_work_fn(struct k_work *work)
 
 	ARG_UNUSED(work);
 	if (!booted) {
+		static bool announced;
+
 		if (!boot_pending) {
 			return;
+		}
+		if (!announced) {
+			int32_t wait = announce(now);
+
+			if (wait >= 0) {
+				(void)k_work_reschedule(&sys_work, K_MSEC(MAX(wait, 1)));
+				return;
+			}
+			announced = true;
 		}
 		boot(now);
 	}
@@ -688,7 +873,7 @@ static void sys_work_fn(struct k_work *work)
 	}
 	look_buttons(now);
 	look_idle(now);
-	look_source(now);
+	look_source();
 	while (!machine.ended && osc2_sys_wait(&machine, now) == 0 &&
 	       k_msgq_get(&osc2_sys_q, &m, K_NO_WAIT) == 0) {
 		if (m.ev == Q_CUE) {
@@ -807,11 +992,17 @@ void osc2_sys_usb_changed(const struct opensc2_usb_info *info)
 
 bool osc2_sys_power_request(enum opensc2_power_request request, const char *why)
 {
-	uint32_t now = k_uptime_get_32();
 	bool host = why && strncmp(why, "host:", 5) == 0;
-	struct osc2_sys_out out;
 	uint8_t ev;
 
+#if defined(CONFIG_OPENSC2_USB)
+	if (host && request == OPENSC2_POWER_REBOOT_KEEP_LINK) {
+		/* The real controller sets its warm-restart flag the moment the request arrives,
+		 * whatever the state then does with it: a later reboot of this boot, of any kind,
+		 * comes back wireless on USB power. */
+		osc2_retained_mark_set(OSC2_MARK_WIRELESS);
+	}
+#endif
 	if (!booted || machine.ended) {
 		return false;   /* its own end (or before the power-on decision): the application */
 	}
@@ -837,25 +1028,12 @@ bool osc2_sys_power_request(enum opensc2_power_request request, const char *why)
 		return false;
 	}
 	if (ev >= OSC2_SYS_EV_BOOTLOADER && ev <= OSC2_SYS_EV_WARM_REBOOT && !host) {
-		return false;   /* the library's own rules (STEAM before a host, a shell command) */
+		return false;   /* the library's own rules (a shell command, the pairing button) */
 	}
-	if (osc2_sys_wait(&machine, now) > 0 || machine.steam_wait) {
-		/* A chord state's pause, or a shutdown waiting for STEAM: neither acts on it. */
-		if (ev == OSC2_SYS_EV_TURN_OFF || ev == OSC2_SYS_EV_UNPLUGGED) {
-			post(ev, 0);
-		}
-		return true;
-	}
-	run(ev, 0, now, &out);
-	(void)k_work_reschedule(&sys_work, K_NO_WAIT);
-	if (ev == OSC2_SYS_EV_TURN_OFF || ev == OSC2_SYS_EV_UNPLUGGED) {
-		return true;
-	}
-	if (!(out.actions & OSC2_SYS_DO_PASS)) {
-		LOG_INF("%s ignored in %s", why, osc2_sys_state_name(machine.state));
-		return true;
-	}
-	return false;
+	/* Queued like any other event (a chord state's pause or a wait for STEAM holds it); the
+	 * state then current decides, and passes a host's request to the application (run()). */
+	post(ev, 0);
+	return true;
 }
 
 void osc2_sys_bluetooth(const struct osc2_bt_transport *transport)
@@ -995,6 +1173,9 @@ int osc2_sys_shell(const struct shell *sh, size_t argc, char **argv)
 		    keylock_value() == KEYLOCK_VALUE ? "stored" : "none", full_level());
 	shell_print(sh, "idle:      setting 50 = %d s, history %04x, input recent %s",
 		    idle.timeout_s, idle.history, input_recent ? "yes" : "no");
+	shell_print(sh, "update:    window %s; charge target %u mV%s",
+		    osc2_sys_window(&machine, k_uptime_get_32()) ? "open" : "closed",
+		    opensc2_charge_target_mv(), opensc2_charge_target_mv() ? "" : " (the board's own)");
 	return 0;
 }
 #endif

@@ -13,6 +13,8 @@
 #include <opensc2/led.h>
 #include "chord_rules.h"
 #include "idle_rules.h"
+#include "mode_rules.h"
+#include "retained.h"
 #include "sys_rules.h"
 
 /* ---- chords ---------------------------------------------------------------------------------- */
@@ -52,6 +54,12 @@ OPENSC2_TEST(chord_match)
 	CHECK(!osc2_chord_is_transport(OSC2_CHORD_NONE));
 }
 
+/* The one edge of a change, or OSC2_CHORD_NONE (0) for none / more than one. */
+static uint8_t one_edge(const struct osc2_chord_out *o, bool down)
+{
+	return o->edges == 1 && o->edge[0].down == down ? o->edge[0].chord : OSC2_CHORD_NONE;
+}
+
 OPENSC2_TEST(chord_timers)
 {
 	struct osc2_chords c;
@@ -60,10 +68,12 @@ OPENSC2_TEST(chord_timers)
 	/* STEAM alone: down at once, "pressed" at 20 ms, "held" at 7 s, up at the release. */
 	osc2_chords_init(&c, false, 0, 1000, &o);
 	CHECK_EQ(o.events, 0);
+	CHECK_EQ(o.edges, 0);
 	CHECK_EQ(osc2_chords_next(&c, 1000), -1);
 	osc2_chords_update(&c, OPENSC2_BTN_STEAM, 1000, &o);
-	CHECK_EQ(o.events, OSC2_CHORD_EV_DOWN);
-	CHECK_EQ(o.down, OSC2_CHORD_STEAM);
+	CHECK_EQ(o.events, OSC2_CHORD_EV_EDGES);
+	CHECK_EQ(one_edge(&o, true), OSC2_CHORD_STEAM);
+	CHECK_EQ(osc2_chords_boot_chord(&c), OSC2_CHORD_STEAM);
 	CHECK_EQ(osc2_chords_next(&c, 1000), 20);
 	osc2_chords_poll(&c, 1019, &o);
 	CHECK_EQ(o.events, 0);
@@ -76,8 +86,9 @@ OPENSC2_TEST(chord_timers)
 	osc2_chords_poll(&c, 9000, &o);
 	CHECK_EQ(o.events, 0);                         /* each fires once */
 	osc2_chords_update(&c, 0, 9000, &o);
-	CHECK_EQ(o.events, OSC2_CHORD_EV_UP | OSC2_CHORD_EV_STEAM_UP);
-	CHECK_EQ(o.up, OSC2_CHORD_STEAM);
+	CHECK_EQ(o.events, OSC2_CHORD_EV_EDGES | OSC2_CHORD_EV_STEAM_UP);
+	CHECK_EQ(one_edge(&o, false), OSC2_CHORD_STEAM);
+	CHECK_EQ(osc2_chords_boot_chord(&c), OSC2_CHORD_NONE);
 
 	/* A release before 20 ms cancels both timers. */
 	osc2_chords_update(&c, OPENSC2_BTN_STEAM, 10000, &o);
@@ -89,11 +100,11 @@ OPENSC2_TEST(chord_timers)
 	/* STEAM, then A + RB with STEAM: STEAM alone releases, the transport chord matches. */
 	osc2_chords_update(&c, OPENSC2_BTN_STEAM, 30000, &o);
 	osc2_chords_update(&c, OPENSC2_BTN_STEAM | OPENSC2_BTN_A, 30005, &o);
-	CHECK_EQ(o.events, OSC2_CHORD_EV_UP);
-	CHECK_EQ(o.up, OSC2_CHORD_STEAM);
+	CHECK_EQ(o.events, OSC2_CHORD_EV_EDGES);
+	CHECK_EQ(one_edge(&o, false), OSC2_CHORD_STEAM);
 	osc2_chords_update(&c, OPENSC2_BTN_STEAM | OPENSC2_BTN_A | OPENSC2_BTN_R, 30010, &o);
-	CHECK_EQ(o.events, OSC2_CHORD_EV_DOWN);
-	CHECK_EQ(o.down, OSC2_CHORD_PUCK1);
+	CHECK_EQ(o.events, OSC2_CHORD_EV_EDGES);
+	CHECK_EQ(one_edge(&o, true), OSC2_CHORD_PUCK1);
 	CHECK_EQ(osc2_chords_next(&c, 30010), -1);     /* no STEAM timers with another button */
 	/* A bit the chords ignore changes nothing. */
 	osc2_chords_update(&c, OPENSC2_BTN_STEAM | OPENSC2_BTN_A | OPENSC2_BTN_R |
@@ -101,9 +112,10 @@ OPENSC2_TEST(chord_timers)
 	CHECK_EQ(o.events, 0);
 	CHECK_EQ(c.current, OSC2_CHORD_PUCK1);
 
-	/* The keylock: the 5 ms tap, 3 s, and no DOWN or UP (it is no transport chord). */
+	/* The keylock: the 5 ms tap, 3 s, and no edge of its own (it is no transport chord). */
 	osc2_chords_update(&c, 0x00070180u, 40000, &o);
-	CHECK_EQ(o.events, OSC2_CHORD_EV_UP);
+	CHECK_EQ(o.events, OSC2_CHORD_EV_EDGES);
+	CHECK_EQ(one_edge(&o, false), OSC2_CHORD_PUCK1);
 	CHECK_EQ(osc2_chords_next(&c, 40000), 5);
 	osc2_chords_poll(&c, 40005, &o);
 	CHECK_EQ(o.events, OSC2_CHORD_EV_KEYLOCK_TAP);
@@ -114,14 +126,77 @@ OPENSC2_TEST(chord_timers)
 
 	/* At boot a held chord matches at once; STEAM alone starts its timers then. */
 	osc2_chords_init(&c, false, OPENSC2_BTN_STEAM, 500, &o);
-	CHECK_EQ(o.events, OSC2_CHORD_EV_DOWN);
-	CHECK_EQ(o.down, OSC2_CHORD_STEAM);
+	CHECK_EQ(o.events, OSC2_CHORD_EV_EDGES);
+	CHECK_EQ(one_edge(&o, true), OSC2_CHORD_STEAM);
 	CHECK_EQ(osc2_chords_next(&c, 500), 20);
 	osc2_chords_init(&c, true, 0x00010202u, 500, &o);
-	CHECK_EQ(o.down, OSC2_CHORD_BT1);
+	CHECK_EQ(one_edge(&o, true), OSC2_CHORD_BT1);
+	CHECK_EQ(osc2_chords_boot_chord(&c), OSC2_CHORD_BT1);
 	/* The same word again does nothing. */
 	osc2_chords_update(&c, 0x00010202u, 600, &o);
 	CHECK_EQ(o.events, 0);
+}
+
+/* Each transport chord is two combinations, with STEAM and without, that report the same chord
+ * and are looked at in the real controller's order: adding or lifting STEAM mid-chord ends one
+ * and begins the other. */
+OPENSC2_TEST(chord_steam_mid_chord)
+{
+	const uint32_t a_rb = OPENSC2_BTN_A | OPENSC2_BTN_R, a_lb = OPENSC2_BTN_A | OPENSC2_BTN_L;
+	const uint32_t b_rb = OPENSC2_BTN_B | OPENSC2_BTN_R, b_lb = OPENSC2_BTN_B | OPENSC2_BTN_L;
+	const uint32_t st = OPENSC2_BTN_STEAM;
+	struct osc2_chords c;
+	struct osc2_chord_out o;
+
+	/* STEAM lifted from STEAM + A + RB: released first, then pressed again; still held. */
+	osc2_chords_init(&c, true, st | a_rb, 0, &o);
+	CHECK_EQ(osc2_chords_boot_chord(&c), OSC2_CHORD_PUCK1);
+	osc2_chords_update(&c, a_rb, 100, &o);
+	CHECK_EQ(o.edges, 2);
+	CHECK(!o.edge[0].down);
+	CHECK_EQ(o.edge[0].chord, OSC2_CHORD_PUCK1);
+	CHECK(o.edge[1].down);
+	CHECK_EQ(o.edge[1].chord, OSC2_CHORD_PUCK1);
+	CHECK_EQ(osc2_chords_boot_chord(&c), OSC2_CHORD_PUCK1);
+	/* STEAM added to A + RB: the combination with STEAM comes first in the order, so the press
+	 * comes before the bare one's release, and the chord ends up counted as released. */
+	osc2_chords_update(&c, st | a_rb, 200, &o);
+	CHECK_EQ(o.edges, 2);
+	CHECK(o.edge[0].down);
+	CHECK(!o.edge[1].down);
+	CHECK_EQ(o.edge[1].chord, OSC2_CHORD_PUCK1);
+	CHECK_EQ(osc2_chords_boot_chord(&c), OSC2_CHORD_NONE);
+	/* The same for the second bond and for Bluetooth. */
+	osc2_chords_init(&c, true, a_lb, 0, &o);
+	osc2_chords_update(&c, st | a_lb, 100, &o);
+	CHECK_EQ(o.edges, 2);
+	CHECK(o.edge[0].down);
+	CHECK_EQ(o.edge[0].chord, OSC2_CHORD_PUCK2);
+	CHECK(!o.edge[1].down);
+	osc2_chords_init(&c, true, st | b_lb, 0, &o);
+	osc2_chords_update(&c, b_lb, 100, &o);
+	CHECK_EQ(o.edges, 2);
+	CHECK(!o.edge[0].down);
+	CHECK_EQ(o.edge[0].chord, OSC2_CHORD_BT2);
+	CHECK(o.edge[1].down);
+	osc2_chords_init(&c, true, b_rb, 0, &o);
+	osc2_chords_update(&c, st | b_rb, 100, &o);
+	CHECK(o.edge[0].down);
+	CHECK_EQ(o.edge[0].chord, OSC2_CHORD_BT1);
+	CHECK(!o.edge[1].down);
+	CHECK_EQ(osc2_chords_boot_chord(&c), OSC2_CHORD_NONE);
+	/* Without Bluetooth B with a bumper is no chord at all. */
+	osc2_chords_init(&c, false, st | b_rb, 0, &o);
+	CHECK_EQ(o.edges, 0);
+	/* From STEAM alone to STEAM + A + RB in one change: STEAM alone's release first, then the
+	 * transport chord's press (the table's order). */
+	osc2_chords_init(&c, false, st, 0, &o);
+	osc2_chords_update(&c, st | a_rb, 100, &o);
+	CHECK_EQ(o.edges, 2);
+	CHECK(!o.edge[0].down);
+	CHECK_EQ(o.edge[0].chord, OSC2_CHORD_STEAM);
+	CHECK(o.edge[1].down);
+	CHECK_EQ(o.edge[1].chord, OSC2_CHORD_PUCK1);
 }
 
 /* ---- the idle monitor ------------------------------------------------------------------------ */
@@ -580,13 +655,16 @@ OPENSC2_TEST(sys_battery_rules)
 	ev(OSC2_SYS_EV_TIMER, 0, 1000);
 	ev(OSC2_SYS_EV_POWER_DOCK, 0, 2000);
 	CHECK_EQ(sm.state, OSC2_SYS_DOCK_ON);
-	/* On battery: requests pass, chords and STEAM pressed do nothing. */
+	/* On battery: reboot requests pass, the bootloader request opens the update window, chords
+	 * and STEAM pressed do nothing. */
 	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
 	ev(OSC2_SYS_EV_TIMER, 0, 1000);
 	ev(OSC2_SYS_EV_REBOOT, 0, 2000);
 	CHECK(HAS(OSC2_SYS_DO_PASS));
 	ev(OSC2_SYS_EV_BOOTLOADER, 0, 2000);
-	CHECK(HAS(OSC2_SYS_DO_PASS));
+	CHECK(!HAS(OSC2_SYS_DO_PASS));
+	CHECK(HAS(OSC2_SYS_DO_UPDATE));
+	CHECK(osc2_sys_window(&sm, 2000));
 	ev(OSC2_SYS_EV_CHORD_DOWN, OSC2_CHORD_PUCK2, 2100);
 	ev(OSC2_SYS_EV_STEAM_PRESSED, 0, 2200);
 	ev(OSC2_SYS_EV_LEVEL, 5, 2300);
@@ -678,7 +756,9 @@ OPENSC2_TEST(sys_requests_by_state)
 		CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_ON);
 		sys_boot(false, true, OSC2_SRC_DOCK, 0);
 		ev(requests[i], 0, 200);
-		CHECK(HAS(OSC2_SYS_DO_PASS));
+		/* (docked, the bootloader request opens the update window instead) */
+		CHECK(HAS(requests[i] == OSC2_SYS_EV_BOOTLOADER ? OSC2_SYS_DO_UPDATE :
+			  OSC2_SYS_DO_PASS));
 		CHECK_EQ(sm.state, OSC2_SYS_DOCK_ON);
 		/* ... and nowhere else: before a host configured the device, with wireless off, in
 		 * the battery wait and in a chord state. */
@@ -749,7 +829,8 @@ OPENSC2_TEST(sys_dock_rules)
 	ev(OSC2_SYS_EV_TURN_OFF, 0, 6000);
 	CHECK_EQ(sm.state, OSC2_SYS_DOCK_OFF);
 	CHECK_EQ(sysout.cue, OSC2_CUE_POWER_OFF);
-	CHECK(HAS(OSC2_SYS_DO_DROP));
+	CHECK(HAS(OSC2_SYS_DO_STOP));   /* the link selected since boot, whatever its state */
+	CHECK(!HAS(OSC2_SYS_DO_DROP));
 	/* Lifted off with the radio off: dark, 5 s, then off silently ... */
 	ev(OSC2_SYS_EV_POWER_NONE, 0, 7000);
 	CHECK_EQ(sm.state, OSC2_SYS_LIFTED);
@@ -828,6 +909,209 @@ OPENSC2_TEST(sys_sources_cues_levels)
 
 /* ---- the status LED -------------------------------------------------------------------------- */
 
+/* The wired start: the chime, the USB device only once STEAM is up (the machine holds its events
+ * meanwhile), 0.5 s for a host after that; a STEAM press before a host set the device up, a press
+ * that began before the boot included, sets the warm mark and reboots back wireless. */
+OPENSC2_TEST(sys_wired_start)
+{
+	sys_in_reset();
+	sysin.steam = true;
+	sys_boot(true, false, OSC2_SRC_USB, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_WIRED_WAIT);
+	CHECK_EQ(sysout.cue, OSC2_CUE_POWER_ON);
+	CHECK(!HAS(OSC2_SYS_DO_USB_ON));
+	CHECK(sm.steam_wait);
+	CHECK_EQ(osc2_sys_wait(&sm, 0), 10);       /* events stay queued */
+	CHECK_EQ(osc2_sys_next(&sm, 0), 10);       /* STEAM looked at every 10 ms */
+	ev(OSC2_SYS_EV_TIMER, 0, 10);
+	CHECK(!HAS(OSC2_SYS_DO_USB_ON));
+	sysin.steam = false;
+	ev(OSC2_SYS_EV_TIMER, 0, 1500);
+	CHECK(HAS(OSC2_SYS_DO_USB_ON));
+	CHECK(!sm.steam_wait);
+	CHECK_EQ(osc2_sys_wait(&sm, 1500), 0);
+	CHECK_EQ(osc2_sys_next(&sm, 1500), 500);   /* the 0.5 s from the USB device on */
+	/* The press queued while STEAM was held (20 ms after the boot) comes now. */
+	ev(OSC2_SYS_EV_STEAM_PRESSED, 0, 1500);
+	CHECK_EQ(sm.state, OSC2_SYS_REBOOT);
+	CHECK(HAS(OSC2_SYS_DO_WARM_MARK));
+	CHECK(HAS(OSC2_SYS_DO_END));
+	CHECK_EQ(sysout.end, OSC2_SYS_END_REBOOT);
+	CHECK_EQ(sysout.end_request, OSC2_SYS_REQ_WARM);
+
+	/* STEAM up at the boot: the USB device at once; no host in 0.5 s: amber; configured: the
+	 * wired state, where STEAM does nothing. */
+	sys_in_reset();
+	sys_boot(true, false, OSC2_SRC_USB, 0);
+	CHECK(HAS(OSC2_SYS_DO_USB_ON));
+	CHECK_EQ(osc2_sys_next(&sm, 0), 500);
+	ev(OSC2_SYS_EV_TIMER, 0, 500);
+	CHECK_EQ(sysout.led_mode, OSC2_LED_AMBER);
+	ev(OSC2_SYS_EV_CONFIGURED, 0, 600);
+	CHECK_EQ(sm.state, OSC2_SYS_WIRED);
+	ev(OSC2_SYS_EV_STEAM_PRESSED, 0, 700);
+	ev(OSC2_SYS_EV_STEAM_HELD, 0, 7700);
+	CHECK_EQ(sm.state, OSC2_SYS_WIRED);
+
+	/* USB power in the battery wait: the wired start in place where the board can (a battery
+	 * build), else a plain reboot back wired. */
+	sys_in_reset();
+	sysin.go_wired_ok = true;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	ev(OSC2_SYS_EV_POWER_USB, 0, 300);
+	CHECK_EQ(sm.state, OSC2_SYS_WIRED_WAIT);
+	CHECK(HAS(OSC2_SYS_DO_GO_WIRED));
+	CHECK(HAS(OSC2_SYS_DO_USB_ON));
+	CHECK_EQ(sysout.cue, OSC2_CUE_POWER_ON);
+	CHECK(!HAS(OSC2_SYS_DO_START));
+	sysin.go_wired_ok = false;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	ev(OSC2_SYS_EV_POWER_USB, 0, 300);
+	CHECK_EQ(sm.state, OSC2_SYS_REBOOT);
+	CHECK_EQ(sysout.end_request, OSC2_SYS_REQ_PLAIN);
+	CHECK(!HAS(OSC2_SYS_DO_WARM_MARK));
+}
+
+/* A shutdown waiting for STEAM to be up holds the machine: its events wait in the queue. */
+OPENSC2_TEST(sys_steam_hold_queues)
+{
+	sys_in_reset();
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	ev(OSC2_SYS_EV_TIMER, 0, 1000);
+	sysin.steam = true;
+	ev(OSC2_SYS_EV_STEAM_HELD, 0, 8000);
+	CHECK_EQ(sm.state, OSC2_SYS_SHUTDOWN);
+	ev(OSC2_SYS_EV_TIMER, 0, 8500);
+	CHECK(sm.steam_wait);
+	CHECK(!HAS(OSC2_SYS_DO_END));
+	CHECK_EQ(osc2_sys_wait(&sm, 8500), 10);
+	/* the look at STEAM comes due every 10 ms (system.c runs a TIMER then) */
+	CHECK_EQ(osc2_sys_next(&sm, 8505), 5);
+	CHECK_EQ(osc2_sys_next(&sm, 8510), 0);
+	ev(OSC2_SYS_EV_TIMER, 0, 8510);
+	CHECK(sm.steam_wait);
+	CHECK_EQ(osc2_sys_next(&sm, 8510), 10);
+	sysin.steam = false;
+	ev(OSC2_SYS_EV_TIMER, 0, 8520);
+	CHECK(HAS(OSC2_SYS_DO_END));
+	CHECK_EQ(sysout.end, OSC2_SYS_END_POWER_OFF);
+}
+
+/* The 60 s update window: a bootloader request on battery or the dock opens (or restarts) it; USB
+ * power inside it on battery is the bootloader, with the warm mark. */
+OPENSC2_TEST(sys_update_window)
+{
+	sys_in_reset();
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	ev(OSC2_SYS_EV_TIMER, 0, 1000);
+	CHECK_EQ(sm.state, OSC2_SYS_BATTERY);
+	ev(OSC2_SYS_EV_BOOTLOADER, 0, 2000);
+	CHECK(HAS(OSC2_SYS_DO_UPDATE));
+	CHECK_EQ(sm.updates, 1);
+	CHECK(osc2_sys_window(&sm, 61999));
+	CHECK(!osc2_sys_window(&sm, 62000));
+	ev(OSC2_SYS_EV_BOOTLOADER, 0, 30000);       /* restarted */
+	CHECK_EQ(sm.updates, 2);
+	CHECK(osc2_sys_window(&sm, 89999));
+	ev(OSC2_SYS_EV_POWER_USB, 0, 60000);
+	CHECK_EQ(sm.state, OSC2_SYS_REBOOT);
+	CHECK(HAS(OSC2_SYS_DO_WARM_MARK));
+	CHECK_EQ(sysout.end_request, OSC2_SYS_REQ_BOOTLOADER);
+	/* After the window: USB power with the link up only charges. */
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	ev(OSC2_SYS_EV_TIMER, 0, 1000);
+	ev(OSC2_SYS_EV_BOOTLOADER, 0, 2000);
+	ev(OSC2_SYS_EV_POWER_USB, 0, 62000);
+	CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_ON);
+	/* Opened on the dock, it still runs once lifted onto battery. */
+	sys_boot(false, true, OSC2_SRC_DOCK, 0);
+	ev(OSC2_SYS_EV_BOOTLOADER, 0, 100);
+	CHECK(HAS(OSC2_SYS_DO_UPDATE));
+	CHECK_EQ(sm.state, OSC2_SYS_DOCK_ON);
+	ev(OSC2_SYS_EV_POWER_NONE, 0, 200);
+	CHECK_EQ(sm.state, OSC2_SYS_BATTERY);
+	ev(OSC2_SYS_EV_POWER_USB, 0, 300);
+	CHECK_EQ(sysout.end_request, OSC2_SYS_REQ_BOOTLOADER);
+	/* Elsewhere it is passed on (wired, USB with the link on) or ignored (the dock, radio off). */
+	sys_boot(false, true, OSC2_SRC_USB, 0);
+	ev(OSC2_SYS_EV_BOOTLOADER, 0, 100);
+	CHECK(HAS(OSC2_SYS_DO_PASS));
+	CHECK(!HAS(OSC2_SYS_DO_UPDATE));
+	sys_boot(false, false, OSC2_SRC_DOCK, 0);
+	ev(OSC2_SYS_EV_BOOTLOADER, 0, 100);
+	CHECK_EQ(sysout.actions, 0);
+}
+
+/* The keylock chord held through a battery power-on: its 5 ms tap deletes the lock before the
+ * real controller decides, so the board starts. A lock without the chord still turns it off. */
+OPENSC2_TEST(sys_keylock_chord_at_power_on)
+{
+	sys_in_reset();
+	sysin.keylock = true;
+	sysin.keylock_chord = true;
+	sysin.level = 50;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_BATTERY_WAIT);
+	sysin.keylock_chord = false;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_SHUTDOWN_LOCKED);
+	/* 0 % comes first all the same. */
+	sysin.keylock_chord = true;
+	sysin.level = 0;
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_SHUTDOWN_SILENT);
+}
+
+/* Dropping the link stops only a link that is up (system.c); on the dock with the radio off a
+ * link selected since boot is switched off whatever its state, and none is at a cold boot. */
+OPENSC2_TEST(sys_drop_and_stop)
+{
+	sys_in_reset();
+	sys_boot(false, false, OSC2_SRC_DOCK, 0);
+	CHECK_EQ(sm.state, OSC2_SYS_DOCK_OFF);
+	CHECK(!HAS(OSC2_SYS_DO_STOP));
+	CHECK(!HAS(OSC2_SYS_DO_DROP));
+	/* The battery wait chooses but selects nothing before its timer. */
+	sys_boot(false, false, OSC2_SRC_BATTERY, 0);
+	ev(OSC2_SYS_EV_POWER_DOCK, 0, 500);
+	CHECK_EQ(sm.state, OSC2_SYS_DOCK_OFF);
+	CHECK(!HAS(OSC2_SYS_DO_STOP));
+	/* On USB power, wireless off drops the link (if it is up). */
+	sys_boot(false, true, OSC2_SRC_USB, 0);
+	ev(OSC2_SYS_EV_STEAM_HELD, 0, 7000);
+	CHECK_EQ(sm.state, OSC2_SYS_USB_LINK_OFF);
+	CHECK(HAS(OSC2_SYS_DO_DROP));
+	CHECK(!HAS(OSC2_SYS_DO_STOP));
+}
+
+/* The factory charge window's announcement: seven magenta blinks of 105 ms, 105 ms dark between,
+ * with the LED override on; the override off, then 100 ms. */
+OPENSC2_TEST(sys_charge_window_announcement)
+{
+	bool mg, ov;
+
+	CHECK_EQ(OSC2_SYS_ANNOUNCE_MS, 1570);
+	CHECK_EQ(osc2_sys_announce(0, &mg, &ov), 105);
+	CHECK(mg);
+	CHECK(ov);
+	CHECK_EQ(osc2_sys_announce(104, &mg, &ov), 1);
+	CHECK(mg);
+	CHECK_EQ(osc2_sys_announce(105, &mg, &ov), 105);
+	CHECK(!mg);
+	CHECK(ov);
+	CHECK_EQ(osc2_sys_announce(6 * 210, &mg, &ov), 105);   /* the seventh blink */
+	CHECK(mg);
+	CHECK_EQ(osc2_sys_announce(1469, &mg, &ov), 1);
+	CHECK(!mg);
+	CHECK(ov);
+	CHECK_EQ(osc2_sys_announce(1470, &mg, &ov), 100);
+	CHECK(!mg);
+	CHECK(!ov);
+	CHECK_EQ(osc2_sys_announce(1569, &mg, &ov), 1);
+	CHECK_EQ(osc2_sys_announce(1570, &mg, &ov), -1);
+	CHECK(!ov);
+}
+
 OPENSC2_TEST(led_brightness)
 {
 	static const struct {
@@ -897,19 +1181,21 @@ OPENSC2_TEST(led_patterns)
 	CHECK_EQ(opensc2_led_player_envelope(&lp), 0);
 	led_at(&st, 1500);
 	CHECK_EQ(lc[3], 0);
-	st.connected = true;               /* the link came up: the dark part ends at once ... */
+	st.connected = true;               /* the link came up: the dark part ends at its next ... */
 	led_at(&st, 1510);
-	/* ... and the next cycle is steady (connected on battery), chosen again every 2 s. */
-	led_at(&st, 1520);
+	CHECK_EQ(lc[3], 0);
+	/* ... 50 ms look (1100 + 450), and the next cycle is steady (connected on battery), chosen
+	 * again every 2 s. */
+	led_at(&st, 1550);
 	CHECK_EQ(lc[3], 500);
 	CHECK_EQ(lc[2], 50);
 	/* Connected on battery at 5 % or less: steady red, but only from the next 2 s cycle. */
 	st.level = 5;
 	led_at(&st, 1700);
 	CHECK_EQ(lc[3], 500);
-	led_at(&st, 3500);
+	led_at(&st, 3540);
 	CHECK_EQ(lc[3], 500);
-	led_at(&st, 3510);
+	led_at(&st, 3550);
 	CHECK_EQ(lc[0], 100);
 	CHECK_EQ(lc[3], 0);
 	/* A lost link waits for the cycle's end too ... */
@@ -917,16 +1203,16 @@ OPENSC2_TEST(led_patterns)
 	st.connected = false;
 	led_at(&st, 4000);
 	CHECK_EQ(lc[0], 100);              /* still the red */
-	/* ... a mode other than 1 or 2 shows at the next 100 ms check: 5510 + 0.1 s */
+	/* ... a mode other than 1 or 2 shows at the next 100 ms check: 5550 + 0.1 s */
 	st.connected = true;
-	led_at(&st, 5510);                 /* a new steady cycle, the puck's colour */
+	led_at(&st, 5550);                 /* a new steady cycle, the puck's colour */
 	CHECK_EQ(lc[3], 500);
 	st.mode = OPENSC2_LED_MODE_OFF;
-	led_at(&st, 5560);
-	CHECK_EQ(lc[3], 500);
 	led_at(&st, 5600);
 	CHECK_EQ(lc[3], 500);
-	led_at(&st, 5610);
+	led_at(&st, 5640);
+	CHECK_EQ(lc[3], 500);
+	led_at(&st, 5650);
 	CHECK_EQ(lc[3], 0);                /* the dark display */
 	CHECK_EQ(lp.count, 1);
 
@@ -1047,6 +1333,115 @@ OPENSC2_TEST(led_patterns)
 	CHECK_EQ(lc[0], 100);
 }
 
+/* Details of the real controller's LED engine: the override shows between a breathe's two fades;
+ * the searching fade-out is skipped when a link is up as it would begin; a 0xC5 channel above 100
+ * is brighter; the update window's green blink. */
+OPENSC2_TEST(led_engine_details)
+{
+	struct opensc2_led_status st;
+
+	/* Wired below 100 %: the green breathe. The override, switched on during the fade up, shows
+	 * at its end (1.8 s), not after the whole cycle. */
+	memset(&st, 0, sizeof(st));
+	st.mode = OPENSC2_LED_MODE_WIRED;
+	st.level = 50;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	st.override = true;
+	st.override_rgbw[0] = 40;
+	led_at(&st, 900);
+	CHECK_EQ(lc[0], 0);                /* still the breathe */
+	CHECK_EQ(lc[1], 125);
+	led_at(&st, 1800);
+	CHECK_EQ(lc[0], 400);              /* the override, at the fade's end */
+	CHECK_EQ(lc[1], 0);
+	/* Without the override the breathe goes on down. */
+	st.override = false;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	led_at(&st, 2700);
+	CHECK_EQ(lc[1], 125);
+	/* A channel above 100: brighter, up to full duty. */
+	st.override = true;
+	st.override_rgbw[0] = 250;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	CHECK_EQ(lc[0], 2500);
+	CHECK_EQ(opensc2_led_duty(lc[0], 90, 100), 1000);
+	CHECK_EQ(opensc2_led_duty(1500, 50, 100), 750);
+
+	/* Searching: a link already up when the fade-out would begin skips it (the colour stays) and
+	 * the dark part ends at its first look. */
+	memset(&st, 0, sizeof(st));
+	st.mode = OPENSC2_LED_MODE_PUCK;
+	st.level = 80;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	led_at(&st, 990);
+	CHECK_EQ(lc[3], 500);
+	st.connected = true;
+	led_at(&st, 1000);                 /* the fade-out's start: skipped, no dark */
+	CHECK_EQ(lc[3], 500);              /* the next cycle: steady, connected on battery */
+	CHECK_EQ(lp.count, 1);             /* (the steady link display) */
+	/* A link that comes up during the fade-out: it runs to dark, then no dark part. */
+	st.connected = false;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	led_at(&st, 1000);
+	led_at(&st, 1050);
+	CHECK_EQ(lc[3], 250);              /* half-way out */
+	st.connected = true;
+	led_at(&st, 1090);
+	CHECK(lc[3] < 250);
+	led_at(&st, 1100);                 /* the fade's end: dark, then the steady cycle */
+	CHECK_EQ(lc[3], 500);
+
+	/* The update window: green, 0.1 s in, 0.9 s on, 0.9 s dark, again while it runs, before the
+	 * mode's pattern; the override waits for the blinks to end. */
+	memset(&st, 0, sizeof(st));
+	st.mode = OPENSC2_LED_MODE_PUCK;
+	st.connected = true;
+	st.level = 80;
+	opensc2_led_player_init(&lp);
+	led_at(&st, 0);
+	CHECK_EQ(lc[3], 500);              /* steady, 2 s */
+	st.update_window = true;
+	st.update_requests = 1;
+	led_at(&st, 2000);                 /* the next cycle: the blink */
+	led_at(&st, 2100);
+	CHECK_EQ(lc[1], 500);
+	CHECK_EQ(lc[3], 0);
+	led_at(&st, 2999);
+	CHECK_EQ(lc[1], 500);
+	led_at(&st, 3000);
+	CHECK_EQ(lc[1], 0);
+	st.override = true;                /* not looked at while the window runs */
+	st.override_rgbw[2] = 100;
+	led_at(&st, 3900);
+	led_at(&st, 4000);
+	CHECK_EQ(lc[1], 500);
+	CHECK_EQ(lc[2], 0);
+	st.update_window = false;          /* over: the blink in progress ends ... */
+	led_at(&st, 5700);
+	CHECK_EQ(lc[1] + lc[3], 0);
+	/* ... and the mode's pattern follows at once, without the override (as on the real
+	 * controller); the override shows from the next cycle. */
+	led_at(&st, 5800);
+	CHECK_EQ(lc[3], 500);
+	CHECK_EQ(lc[2], 50);
+	led_at(&st, 7800);
+	CHECK_EQ(lc[2], 1000);
+	/* A request whose window already ended still blinks once. */
+	st.override = false;
+	st.update_requests = 2;
+	led_at(&st, 7900);
+	led_at(&st, 8000);
+	CHECK_EQ(lc[1], 500);
+	led_at(&st, 9800);
+	CHECK_EQ(lc[1], 0);
+	CHECK_EQ(lc[3], 500);
+}
+
 OPENSC2_TEST(led_full_display)
 {
 	struct opensc2_led_status st;
@@ -1113,4 +1508,25 @@ OPENSC2_TEST(led_full_display)
 	led_at(&st, 4100);
 	CHECK_EQ(lc[3], 500);              /* steady, full colour */
 	CHECK_EQ(lc[2], 50);
+}
+
+/* The battery level kept over a warm reset (retained.h), and the warm-restart mark a held
+ * transport chord uses up (mode_rules.h). */
+OPENSC2_TEST(sys_kept_level_and_warm_mark)
+{
+	uint32_t w = osc2_ret_level_word(57);
+
+	CHECK_EQ(osc2_ret_level_from(w, ~w), 57);
+	CHECK_EQ(osc2_ret_level_from(osc2_ret_level_word(0), ~osc2_ret_level_word(0)), 0);
+	CHECK_EQ(osc2_ret_level_from(osc2_ret_level_word(100), ~osc2_ret_level_word(100)), 100);
+	CHECK_EQ(osc2_ret_level_word(101), 0);                 /* none kept */
+	CHECK_EQ(osc2_ret_level_word(255), 0);
+	CHECK_EQ(osc2_ret_level_from(w, w), OSC2_RET_NO_LEVEL);          /* not a pair */
+	CHECK_EQ(osc2_ret_level_from(0, ~0u), OSC2_RET_NO_LEVEL);        /* a cleared area */
+	CHECK_EQ(osc2_ret_level_from(w + 60, ~(w + 60)), OSC2_RET_NO_LEVEL);   /* above 100 */
+
+	CHECK_EQ(osc2_mark_after_chord(OSC2_MARK_WIRELESS, false), OSC2_MARK_WIRELESS);
+	CHECK_EQ(osc2_mark_after_chord(OSC2_MARK_WIRELESS, true), OSC2_MARK_NONE);
+	CHECK_EQ(osc2_mark_after_chord(OSC2_MARK_WIRED, true), OSC2_MARK_WIRED);
+	CHECK_EQ(osc2_mark_after_chord(OSC2_MARK_NONE, true), OSC2_MARK_NONE);
 }

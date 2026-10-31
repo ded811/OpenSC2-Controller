@@ -39,6 +39,10 @@ uint32_t osc2_sys_app_buttons(void);
 
 #if defined(CONFIG_OPENSC2_SYSTEM)
 
+/* At boot, before the mode is decided: a transport chord (STEAM alone included) is held, which
+ * uses up the warm-restart mark on the real controller. */
+bool osc2_sys_transport_chord_held(void);
+
 /* opensc2_init(), last: the power-on decision (in the system work queue). `start`: the
  * application lets the library start the link (opensc2_config.start). */
 void osc2_sys_init(bool start);
@@ -91,6 +95,11 @@ int osc2_sys_shell(const struct shell *sh, size_t argc, char **argv);
 static inline void osc2_sys_init(bool start)
 {
 	(void)start;
+}
+
+static inline bool osc2_sys_transport_chord_held(void)
+{
+	return false;
 }
 
 static inline uint32_t osc2_sys_buttons(void)

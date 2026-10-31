@@ -8,7 +8,9 @@
  * battery levels, the link, the turn-off command, the test hooks' system ops (test_sys.c) with a
  * boot-time injection and the last end in "retained" words that outlive the emulated reboots, and
  * the keylock in "flash" (its RAM value is the key table's, as in system.c: here the stand-in blob
- * store of stubs.c). Every end reboots, as on a board without a battery.
+ * store of stubs.c). Every end reboots, as on a board without a battery; a reboot the machine
+ * asks to come back wireless (STEAM before a host, the update window) comes back wireless. The
+ * emulated host configures the wired device as soon as the machine turns it on.
  */
 #include <errno.h>
 #include <string.h>
@@ -25,7 +27,6 @@
 #define KEYLOCK_VALUE 0x41FB0AC3u
 #define QUEUE_MAX     10
 #define Q_CUE         0x80
-#define POWER_GONE_MS 200
 
 static struct osc2_sys machine;
 static struct osc2_chords chords;
@@ -36,8 +37,6 @@ static uint32_t buttons;
 static uint8_t level_told = 255;
 static uint8_t last_cue = 0xFF;
 static bool host_asleep_done;
-static bool gone;
-static uint32_t gone_at;
 static uint8_t led_mode, led_flags;
 static bool shutting_down;
 static struct {
@@ -104,7 +103,8 @@ static void inputs(struct osc2_sys_in *in)
 {
 	memset(in, 0, sizeof(*in));
 	in->stored = (uint8_t)(OSC2_TRANSPORT_PUCK1 + osc2.slot);
-	in->chord = chords.current;
+	in->chord = osc2_chords_boot_chord(&chords);
+	in->keylock_chord = chords.current == OSC2_CHORD_KEYLOCK;
 	in->level = level_told;
 	in->steam = (buttons & OPENSC2_BTN_STEAM) != 0;
 	in->keylock = keylock_ram() == KEYLOCK_VALUE;
@@ -139,6 +139,15 @@ static void end(const struct osc2_sys_out *o)
 	osc2_test_sys_note_end(o->end_state, o->end_cause, o->end, e.how);
 	osc2_test_sys_end_pack(&e, words);
 	memcpy(&retained[OSC2_RET_SYS_BOOT_WORDS], words, sizeof(words));
+	if (o->end == OSC2_SYS_END_REBOOT && o->end_request != OSC2_SYS_REQ_PLAIN) {
+		/* The warm mark is set: back wireless on USB power (the blank canvas ignores the
+		 * bootloader request, and the library then reboots). */
+		osc2_test_note_power(o->end_request == OSC2_SYS_REQ_WARM ?
+				     OPENSC2_POWER_REBOOT_KEEP_LINK : OPENSC2_POWER_BOOTLOADER,
+				     "system: reboot");
+		emu_reboot_warm();
+		return;
+	}
 	osc2_test_note_power(o->end_cause == OSC2_SYS_EV_POWER_USB ? OPENSC2_POWER_USB_PLUGGED :
 			     OPENSC2_POWER_REBOOT, "system: reboot");
 	emu_reboot();
@@ -160,8 +169,11 @@ static void apply(const struct osc2_sys_out *o)
 		osc2_test_sys_note_led(led_mode, (uint8_t)(led_flags | (shutting_down ? 0x04 : 0)),
 				       level_told, 3);
 	}
-	if ((o->actions & OSC2_SYS_DO_DROP) && hk.radio_connected) {
-		emu_radio(false);
+	if ((o->actions & (OSC2_SYS_DO_DROP | OSC2_SYS_DO_STOP)) && hk.radio_connected) {
+		emu_radio(false);   /* the emulated radio is either connected or off */
+	}
+	if (o->actions & OSC2_SYS_DO_USB_ON) {
+		post(OSC2_SYS_EV_CONFIGURED, 0);   /* the emulated host configures it at once */
 	}
 	if (o->actions & OSC2_SYS_DO_CUE) {
 		play_cue(o->cue);
@@ -197,13 +209,11 @@ static void run(uint8_t ev, uint8_t arg, uint32_t now, struct osc2_sys_out *out)
 
 static void chord_events(const struct osc2_chord_out *co)
 {
-	if (co->events & OSC2_CHORD_EV_UP) {
-		osc2_test_sys_note_chord(OSC2_TEST_CHORD_UP, co->up);
-		post(OSC2_SYS_EV_CHORD_UP, co->up);
-	}
-	if (co->events & OSC2_CHORD_EV_DOWN) {
-		osc2_test_sys_note_chord(OSC2_TEST_CHORD_DOWN, co->down);
-		post(OSC2_SYS_EV_CHORD_DOWN, co->down);
+	for (uint8_t i = 0; i < co->edges; i++) {
+		const struct osc2_chord_edge *e = &co->edge[i];
+
+		osc2_test_sys_note_chord(e->down ? OSC2_TEST_CHORD_DOWN : OSC2_TEST_CHORD_UP, e->chord);
+		post(e->down ? OSC2_SYS_EV_CHORD_DOWN : OSC2_SYS_EV_CHORD_UP, e->chord);
 	}
 	if (co->events & OSC2_CHORD_EV_STEAM_PRESS) {
 		osc2_test_sys_note_chord(OSC2_TEST_CHORD_STEAM_PRESS, OSC2_CHORD_STEAM);
@@ -260,17 +270,9 @@ void emu_sys_process(void)
 		post(OSC2_SYS_EV_IDLE, 0);
 	}
 	s = detect_source();
-	if (s == source) {
-		gone = false;
-	} else if (s == OSC2_SRC_BATTERY && (!gone || now - gone_at < POWER_GONE_MS)) {
-		if (!gone) {
-			gone = true;
-			gone_at = now;
-		}
-	} else {
+	if (s != source) {
 		int ev = osc2_sys_source_event(source, s);
 
-		gone = false;
 		osc2_test_sys_note_source(source, s, ev);
 		source = s;
 		if (ev >= 0) {
@@ -390,7 +392,6 @@ void emu_sys_boot(bool warm)
 	q_len = 0;
 	last_cue = 0xFF;
 	host_asleep_done = false;
-	gone = false;
 	led_mode = led_flags = 0;
 	shutting_down = false;
 	keylock_ram_set(keylock_flash);
@@ -412,9 +413,6 @@ void emu_sys_boot(bool warm)
 	osc2_sys_boot(&machine, &in, &b, now, &out);
 	booted = true;
 	apply(&out);
-	if (b.wired) {
-		post(OSC2_SYS_EV_CONFIGURED, 0);   /* the emulated host configures the device at once */
-	}
 }
 
 void emu_sys_battery(const struct opensc2_battery *b)
@@ -430,9 +428,12 @@ bool emu_sys_power(enum opensc2_power_request request)
 		return false;
 	}
 	if (request == OPENSC2_POWER_TURN_OFF) {
-		run(OSC2_SYS_EV_TURN_OFF, 0, (uint32_t)stub.now_ms, &out);
+		/* queued like any event, as system.c does */
+		post(OSC2_SYS_EV_TURN_OFF, 0);
+		emu_sys_process();
 		return true;
 	}
+	(void)out;
 	return false;
 }
 

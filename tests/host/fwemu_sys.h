@@ -23,6 +23,7 @@ void emu_sys_host_asleep(void);
 
 /* fwemu.c */
 void emu_reboot(void);                     /* a plain reboot, now */
+void emu_reboot_warm(void);                /* a reboot with the warm mark set, now */
 void emu_radio(bool on);                   /* the radio link on (connected at once) or off */
 
 #endif /* OSC2_HOST_FWEMU_SYS_H_ */
