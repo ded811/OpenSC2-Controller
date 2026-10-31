@@ -158,6 +158,8 @@ def run(ctx):
             # a lost link (a supervision timeout, reason 0x08): the same identity advertises again
             # 500 ms later, directed to its host first; Windows connects it again
             before = rig.ble_link_status() or {}
+            # a request a GET answers, stored before the drop: it outlives the link
+            rig.vendor_set(C.VC_STRING_ATTR, bytes([1]))
             start = _ring_next(rig)
             with rig.own_link_drop(grace_s=2.0):
                 a = rig.test(C.OP_BLE_DROP, bytes([HCI_CONN_TIMEOUT]), path=rig.console_path)
@@ -181,6 +183,9 @@ def run(ctx):
             if back:
                 c.true("the board streams again",
                        rig.wait_report(lambda r: r[0] == C.RPT_STATE, rig.t(5.0)) is not None)
+                a = rig.vendor_get()
+                c.eq("the stored request outlived the link: a GET alone answers 0xAE", a.opcode,
+                     C.VC_STRING_ATTR)
 
     if ctx.want("ble.wireless_off"):
         with ctx.check(GROUP, "ble.wireless_off") as c:
