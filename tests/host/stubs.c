@@ -31,6 +31,15 @@ void opensc2_identity_get(struct opensc2_identity *identity)
 	*identity = osc2.identity;
 }
 
+/* As core.c's: the configured identity, the stored fields over it. */
+void osc2_identity_refresh(void)
+{
+	struct opensc2_identity id = osc2.base;
+
+	osc2_id_apply(&id, &osc2.stored);
+	osc2.identity = id;
+}
+
 int opensc2_identity_store(const struct opensc2_identity *identity)
 {
 	(void)identity;

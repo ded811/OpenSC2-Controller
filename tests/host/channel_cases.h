@@ -290,3 +290,43 @@ OPENSC2_TEST(channel_board_setters)
 	stub.storage_error = 0;
 	osc2.initialised = false;
 }
+
+/* opensc2_identity_set(): the configured identity changed in RAM, answered at once on the
+ * command channel, a stored field still winning. */
+OPENSC2_TEST(channel_identity_set)
+{
+	struct opensc2_identity id = { 0 };
+	uint8_t reply[64];
+
+	stub_reset();
+	osc2.base = osc2.identity;
+	id.board_revision = 0x4A;
+	CHECK_EQ(opensc2_identity_set(&id), -EACCES);   /* before opensc2_init() */
+	osc2.initialised = true;
+	CHECK_EQ(opensc2_identity_set(NULL), -EINVAL);
+	id.bootloader_build_time = 0x68D2F9F2;
+	CHECK_EQ(opensc2_identity_set(&id), 0);
+	CHECK_EQ(osc2.identity.board_revision, 0x4A);
+	CHECK_EQ(osc2.identity.bootloader_build_time, 0x68D2F9F2);
+	CHECK(memcmp(osc2.identity.unit_serial, "OSC0123456789", 13) == 0);   /* empty: kept */
+	/* 0x83 answers the new values at once: tag 10 (bootloader), tag 9 (hardware ID). */
+	CHECK_EQ(ch_set(0x83, NULL, 0, 0), 0);
+	CHECK_EQ(ch_get(reply), 63);
+	CHECK_EQ(reply[13], 10);
+	CHECK_EQ(opensc2_get_le32(&reply[14]), 0x68D2F9F2);
+	CHECK_EQ(reply[23], 9);
+	CHECK_EQ(opensc2_get_le32(&reply[24]), 0x4A);
+	/* An invalid result changes nothing. */
+	memcpy(id.unit_serial, "bad serial", 10);
+	CHECK_EQ(opensc2_identity_set(&id), -EINVAL);
+	CHECK(memcmp(osc2.identity.unit_serial, "OSC0123456789", 13) == 0);
+	/* A stored field wins over the RAM one. */
+	memset(&id, 0, sizeof(id));
+	id.board_revision = 0x45;
+	osc2_id_override_set(&osc2.stored, OSC2_ID_REV, &id);
+	id.board_revision = 0x4B;
+	CHECK_EQ(opensc2_identity_set(&id), 0);
+	CHECK_EQ(osc2.base.board_revision, 0x4B);
+	CHECK_EQ(osc2.identity.board_revision, 0x45);
+	osc2.initialised = false;
+}

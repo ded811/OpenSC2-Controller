@@ -482,6 +482,13 @@ void opensc2_identity_get(struct opensc2_identity *identity);
 int opensc2_identity_store(const struct opensc2_identity *identity);
 /* Forget the stored identity: back to the opensc2_init() / Kconfig values. */
 int opensc2_identity_clear(void);
+/* Change the configured identity in RAM, nothing stored, at any time after opensc2_init() (for
+ * values the board learns later: a revision from straps, its bootloader's build time). Read as
+ * opensc2_init()'s: empty / zero fields keep their value; a stored identity's fields still win.
+ * The answers on every link (0x83, 0xAE, 0xF2, the radio's identity record at its next
+ * connection) use it at once; the USB strings at the next attach. -EINVAL for an invalid result
+ * (nothing changes), -EACCES before opensc2_init(). */
+int opensc2_identity_set(const struct opensc2_identity *identity);
 
 /* ---- Settings and other state Steam sets ----------------------------------------------------- */
 
