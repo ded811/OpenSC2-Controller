@@ -218,10 +218,27 @@ class VendorDenylist(unittest.TestCase):
     def test_named_refusal_forms_allowed_without_flash(self):
         ctx = safety.Context()
         ctx.empty_slots = {"esb/bond_2"}
-        # 0xDC type 2 (refused by firmware), 0xF0 on a name that is no key, 0xEE bond length != 24
+        # 0xDC type 2 (acknowledged, nothing written), 0xF0 on a name nothing stores, 0xEE bond
+        # length != 24
         safety.check_vendor(C.VC_USER_STORE_SET, b"\x02\x01", "usb", ctx=ctx)
         safety.check_vendor(C.VC_BY_NAME_DELETE, C.NO_KEY.encode() + b"\x00", "usb", ctx=ctx)
         safety.check_vendor(C.VC_BY_NAME_SET, b"esb/bond\x00\x00", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_SET, C.NO_KEY.encode() + b"\x00\x01", "usb", ctx=ctx)
+
+    def test_other_settings_handlers(self):
+        """The by-name commands reach every settings handler of the build, as on the real
+        controller (Bluetooth's keys, the application's): no name but the one nothing has is
+        set or deleted without a token."""
+        ctx = safety.Context()
+        for opcode, payload in ((C.VC_BY_NAME_SET, b"bt/name\x00x"),
+                                (C.VC_BY_NAME_DELETE, b"bt/name\x00"),
+                                (C.VC_BY_NAME_DELETE, b"app/thing\x00"),
+                                (C.VC_BY_NAME_SAVE, b"bt/name\x00")):
+            with self.assertRaises(safety.SafetyError):
+                safety.check_vendor(opcode, payload, "usb", ctx=ctx)
+        # the forms refused before anything happens
+        safety.check_vendor(C.VC_BY_NAME_DELETE, b"bt/name\x00\x01", "usb", ctx=ctx)
+        safety.check_vendor(C.VC_BY_NAME_SAVE, b"bt/name", "usb", ctx=ctx)
 
     def test_crash_record_read(self):
         """0xF2 selector 1 marks a new crash record seen (a flash write): only after 0xED showed

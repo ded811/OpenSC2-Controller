@@ -257,7 +257,9 @@ enum opensc2_usb_set_error opensc2_usb_feature_check(const uint8_t *data, size_t
 						      const uint8_t **rec);
 
 /* Build a GET_REPORT(Feature 1) reply: `01 <opcode> <n> <answer>`, zeros after the answer,
- * `reply_len` bytes (64 or 63) but never more than the host's wLength. Returns the bytes written. */
+ * `reply_len` bytes (64 or 63) but never more than the host's wLength. Returns the bytes written.
+ * A helper for tools and tests: the library's own replies carry the request's bytes after the
+ * answer, as the real controller's do (docs/api.md, Vendor commands). */
 size_t opensc2_usb_feature_reply(uint8_t opcode, const uint8_t *answer, uint8_t n,
 				 size_t reply_len, size_t wlength, uint8_t *out);
 

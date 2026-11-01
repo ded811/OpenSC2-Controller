@@ -726,15 +726,22 @@ static void handle_records(const struct rx_item *it)
 			push_answer(OPENSC2_REC_GET_ANSWER, answer, n);
 			break;
 		}
-		case OPENSC2_REC_OUTPUT:
-			/* The report's own length, as on USB. The real controller's handlers get the
-			 * record's, one more (it counts the report ID): its 0x87 takes a byte from
-			 * beyond the report, its 0x89 allows n one larger; not copied (protocol.md,
-			 * gap 35). */
-			if (rec.len >= 1) {
-				(void)osc2_output_dispatch(OSC2_LINK_RADIO, rec.data, rec.len);
+		case OPENSC2_REC_OUTPUT: {
+			/* As on the real controller, the report's handler is told the record's length,
+			 * one more than the report's payload: 0x87 takes the byte after the record
+			 * (the next record's length byte, or what the packet buffer holds there) and
+			 * 0x89 allows n one larger. The other reports have fixed sizes. */
+			size_t len = rec.len;
+
+			if (len >= 1 && (rec.data[0] == 0x87 || rec.data[0] == 0x89) &&
+			    rec.data + len < it->data + sizeof(it->data)) {
+				len++;
+			}
+			if (len >= 1) {
+				(void)osc2_output_dispatch(OSC2_LINK_RADIO, rec.data, len);
 			}
 			break;
+		}
 		default:
 			break;
 		}

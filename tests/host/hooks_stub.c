@@ -152,6 +152,8 @@ static void env_caps(struct osc2_test_lib_caps *caps)
 #if defined(OSC2_HOST_FWEMU)
 	caps->build_flags |= OSC2_TEST_FLAG_SYSTEM;   /* fwemu_sys.c: the system state machine */
 	caps->build_flags |= OSC2_TEST_FLAG_DOCK;   /* the emulator has the dock link, as the app */
+	/* the app's USB form, October 2026's (63-byte GET replies: fwemu.c) */
+	caps->build_flags |= OSC2_TEST_FLAG_USB_PROFILE_OCTOBER;
 #endif
 #if defined(CONFIG_OPENSC2_HAPTICS_SYNTH)
 	caps->build_flags |= OSC2_TEST_FLAG_HAPTICS_SYNTH;   /* the firmware emulator has it */

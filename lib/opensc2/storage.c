@@ -5,7 +5,8 @@
  * storage.c: what the library keeps across reboots, in the Zephyr settings subtree "opensc2":
  *   opensc2/bond0, opensc2/bond1   the two bonds, 24 bytes each (the vendor command 0xA2 format)
  *   opensc2/transport              the wireless transport, 1 byte: user/wireless_transport's
- *                                  values (0, 1 Bluetooth; 2, 3 the puck with bond 1 or 2)
+ *                                  values (0, 1 Bluetooth; 2, 3 the puck with bond 1 or 2; any
+ *                                  other byte a host stored, which starts the main puck)
  *   opensc2/slot                   the puck's bond slot, 1 byte (written with a puck transport;
  *                                  firmware before the transport key reads only this one)
  *   opensc2/chime                  the power-on chime level (vendor command 0xDC), 1 byte
@@ -13,6 +14,9 @@
  *   opensc2/name                   the stored USB product name, its characters (no NUL)
  *   opensc2/mode                   the mode policy (opensc2_policy_set), 1 byte
  * Without CONFIG_OPENSC2_STORAGE everything lives in RAM only.
+ *
+ * The by-name commands also reach every other Zephyr settings handler of the build, as on the real
+ * controller (Bluetooth's "bt" keys, the application's own handlers): osc2_storage_named_*().
  */
 #include <errno.h>
 #include <string.h>
@@ -101,7 +105,10 @@ static int on_set(const char *key, size_t len, settings_read_cb read_cb, void *c
 		return 0;
 	}
 	if (settings_name_steq(key, "transport", &next) && !next) {
-		if (n == 1 && buf[0] <= OSC2_TRANSPORT_PUCK_2) {
+		if (n == 1) {
+			/* As stored: user/wireless_transport reads it back, whatever its value. */
+			osc2.transport_key = buf[0];
+			osc2.transport_key_loaded = true;
 			osc2.transport_saved = buf[0];
 			if (osc2_transport_is_puck(buf[0])) {
 				osc2.slot = (uint8_t)(buf[0] - OSC2_TRANSPORT_PUCK_1);
@@ -150,17 +157,27 @@ int osc2_storage_load(void)
 	return settings_load_subtree("opensc2");
 }
 
-int osc2_storage_save_bond(uint8_t slot)
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond)
 {
 	char key[16] = "opensc2/bond0";
 	uint8_t buf[OPENSC2_BOND_LEN];
 
 	key[12] = (char)('0' + slot);
-	if (!opensc2_bond_valid(&osc2.bonds[slot])) {
+	if (!opensc2_bond_valid(bond)) {
 		return settings_delete(key);
 	}
-	opensc2_bond_pack(&osc2.bonds[slot], buf);
+	opensc2_bond_pack(bond, buf);
 	return settings_save_one(key, buf, sizeof(buf));
+}
+
+int osc2_storage_save_bond(uint8_t slot)
+{
+	struct opensc2_bond b;
+	k_spinlock_key_t lk = k_spin_lock(&osc2.lock);
+
+	b = osc2.bonds[slot];
+	k_spin_unlock(&osc2.lock, lk);
+	return osc2_storage_store_bond(slot, &b);
 }
 
 int osc2_storage_save_transport(uint8_t t)
@@ -172,9 +189,13 @@ int osc2_storage_save_transport(uint8_t t)
 		uint8_t s = (uint8_t)slot;
 
 		err = settings_save_one("opensc2/slot", &s, 1);
+	} else if (err == 0 && !osc2_transport_usable(t, true)) {
+		/* A value that names no transport starts the main puck: no older slot choice. */
+		err = settings_delete("opensc2/slot");
 	}
 	if (err == 0) {
 		osc2.transport_saved = t;
+		osc2.transport_key = t;   /* the key reads what is stored from now on */
 	}
 	return err;
 }
@@ -188,9 +209,14 @@ int osc2_storage_delete_transport(void)
 	return err ? -EIO : 0;
 }
 
+int osc2_storage_store_chime(uint8_t level)
+{
+	return settings_save_one("opensc2/chime", &level, 1);
+}
+
 int osc2_storage_save_chime(void)
 {
-	return settings_save_one("opensc2/chime", &osc2.chime, 1);
+	return osc2_storage_store_chime(osc2.chime);
 }
 
 int osc2_storage_save_identity(void)
@@ -238,6 +264,84 @@ int osc2_storage_factory_reset(void)
 	return err ? -EIO : 0;
 }
 
+/* ---- other settings handlers, by name ------------------------------------------------------- */
+
+/* The library's own subtree ("opensc2", "opensc2/...") is never reached this way: a host must not
+ * write the board's identity, bonds or policy under their internal names. */
+#if defined(CONFIG_SETTINGS_RUNTIME)
+static bool own_subtree(const char *name)
+{
+	return settings_name_steq(name, "opensc2", NULL) != 0;
+}
+#endif
+
+int osc2_storage_named_set(const char *name, const void *value, size_t len)
+{
+#if defined(CONFIG_SETTINGS_RUNTIME)
+	if (own_subtree(name)) {
+		return -EINVAL;
+	}
+	return settings_runtime_set(name, value, len);
+#else
+	ARG_UNUSED(name);
+	ARG_UNUSED(value);
+	ARG_UNUSED(len);
+	return -EINVAL;
+#endif
+}
+
+int osc2_storage_named_get(const char *name, void *out, size_t size)
+{
+#if defined(CONFIG_SETTINGS_RUNTIME)
+	if (own_subtree(name)) {
+		return -EINVAL;
+	}
+	return (int)settings_runtime_get(name, out, size);
+#else
+	ARG_UNUSED(name);
+	ARG_UNUSED(out);
+	ARG_UNUSED(size);
+	return -EINVAL;
+#endif
+}
+
+int osc2_storage_named_save(const char *name, const void *value, size_t len)
+{
+#if defined(CONFIG_SETTINGS_RUNTIME)
+	if (own_subtree(name)) {
+		return -EINVAL;
+	}
+	return settings_save_one(name, value, len);
+#else
+	ARG_UNUSED(name);
+	ARG_UNUSED(value);
+	ARG_UNUSED(len);
+	return -EINVAL;
+#endif
+}
+
+int osc2_storage_named_delete(const char *name)
+{
+#if defined(CONFIG_SETTINGS_RUNTIME)
+	int err;
+
+	if (own_subtree(name)) {
+		return 0;   /* nothing of that name is the host's to delete */
+	}
+	err = settings_delete(name);   /* a name nothing stored is no error */
+	if (err == 0) {
+		(void)osc2_storage_named_set(name, NULL, 0);   /* its handler's "deleted" value */
+	}
+	return err;
+#else
+	/* Without SETTINGS_RUNTIME no other handler is reached by name (as 0xEE and 0xEF find
+	 * none): acknowledged, nothing deleted, so a host cannot remove another handler's keys
+	 * (Bluetooth's bonds) from flash. */
+	ARG_UNUSED(name);
+	return 0;
+#endif
+}
+
 #else /* !CONFIG_OPENSC2_STORAGE */
 
 int osc2_storage_load(void)
@@ -250,9 +354,16 @@ int osc2_storage_save_bond(uint8_t slot)
 	ARG_UNUSED(slot);
 	return 0;
 }
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond)
+{
+	ARG_UNUSED(slot);
+	ARG_UNUSED(bond);
+	return 0;
+}
 int osc2_storage_save_transport(uint8_t t)
 {
 	osc2.transport_saved = t;
+	osc2.transport_key = t;
 	return 0;
 }
 int osc2_storage_delete_transport(void)
@@ -261,6 +372,37 @@ int osc2_storage_delete_transport(void)
 	return 0;
 }
 int osc2_storage_save_chime(void) { return 0; }
+int osc2_storage_store_chime(uint8_t level)
+{
+	ARG_UNUSED(level);
+	return 0;
+}
+int osc2_storage_named_set(const char *name, const void *value, size_t len)
+{
+	ARG_UNUSED(name);
+	ARG_UNUSED(value);
+	ARG_UNUSED(len);
+	return -EINVAL;
+}
+int osc2_storage_named_get(const char *name, void *out, size_t size)
+{
+	ARG_UNUSED(name);
+	ARG_UNUSED(out);
+	ARG_UNUSED(size);
+	return -EINVAL;
+}
+int osc2_storage_named_save(const char *name, const void *value, size_t len)
+{
+	ARG_UNUSED(name);
+	ARG_UNUSED(value);
+	ARG_UNUSED(len);
+	return -EINVAL;
+}
+int osc2_storage_named_delete(const char *name)
+{
+	ARG_UNUSED(name);
+	return 0;
+}
 int osc2_storage_save_identity(void) { return 0; }
 int osc2_storage_save_policy(void) { return 0; }
 int osc2_storage_factory_reset(void) { return 0; }

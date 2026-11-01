@@ -11,6 +11,7 @@
 #include "internal.h"
 #include "cal_store.h"
 #include "cal_host.h"
+#include "cmd_deferred.h"
 #include "dock_link.h"
 #include "dock_stub.h"
 #include "stubs.h"
@@ -28,6 +29,17 @@ int64_t k_uptime_get(void)
 void opensc2_identity_get(struct opensc2_identity *identity)
 {
 	*identity = osc2.identity;
+}
+
+K_MUTEX_DEFINE(osc2_id_lock);   /* core.c's */
+
+/* As core.c's: the configured identity, the stored fields over it. */
+void osc2_identity_refresh(void)
+{
+	struct opensc2_identity id = osc2.base;
+
+	osc2_id_apply(&id, &osc2.stored);
+	osc2.identity = id;
 }
 
 int opensc2_identity_store(const struct opensc2_identity *identity)
@@ -54,8 +66,14 @@ void osc2_radio_post(uint32_t events)
 
 int osc2_storage_save_bond(uint8_t slot)
 {
+	return osc2_storage_store_bond(slot, &osc2.bonds[slot]);
+}
+
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond)
+{
 	stub.saved_bonds |= 1u << slot;
-	return 0;
+	stub.stored_bonds[slot] = opensc2_bond_valid(bond) ? *bond : (struct opensc2_bond){ 0 };
+	return stub.storage_error;
 }
 
 int osc2_storage_save_transport(uint8_t t)
@@ -63,6 +81,7 @@ int osc2_storage_save_transport(uint8_t t)
 	stub.saved_transport++;
 	stub.stored_transport = t;
 	osc2.transport_saved = t;
+	osc2.transport_key = t;
 	return 0;
 }
 
@@ -96,13 +115,118 @@ bool osc2_ble_active(void)
 
 int osc2_storage_save_chime(void)
 {
+	return osc2_storage_store_chime(osc2.chime);
+}
+
+int osc2_storage_store_chime(uint8_t level)
+{
+	if (stub.storage_error) {
+		return stub.storage_error;
+	}
 	stub.saved_chime++;
+	stub.stored_chime = level;
 	return 0;
 }
 
 int osc2_storage_factory_reset(void)
 {
+	stub.storage_factory_resets++;
 	return 0;
+}
+
+/* Another Zephyr settings handler, as storage.c reaches it: one stand-in handler, "app/thing" (a
+ * 2-byte value with a read function), and "app/wo" (set only); any other name has none. */
+static bool own_subtree(const char *name)
+{
+	return strncmp(name, "opensc2", 7) == 0 && (name[7] == '\0' || name[7] == '/');
+}
+
+int osc2_storage_named_set(const char *name, const void *value, size_t len)
+{
+	if (own_subtree(name)) {
+		return -EINVAL;
+	}
+	if (strcmp(name, "app/thing") == 0) {
+		if (len == 0) {
+			memset(stub.named_value, 0, sizeof(stub.named_value));
+			return 0;
+		}
+		if (len != sizeof(stub.named_value)) {
+			return -EINVAL;
+		}
+		memcpy(stub.named_value, value, len);
+		return 0;
+	}
+	if (strcmp(name, "app/wo") == 0) {
+		return len == 0 || len == 1 ? 0 : -EINVAL;
+	}
+	return -EINVAL;
+}
+
+int osc2_storage_named_get(const char *name, void *out, size_t size)
+{
+	if (own_subtree(name)) {
+		return -EINVAL;
+	}
+	if (strcmp(name, "app/thing") == 0) {
+		if (size < sizeof(stub.named_value)) {
+			return -ENODEV;
+		}
+		memcpy(out, stub.named_value, sizeof(stub.named_value));
+		return (int)sizeof(stub.named_value);
+	}
+	if (strcmp(name, "app/wo") == 0) {
+		return -ENOTSUP;
+	}
+	return -EINVAL;
+}
+
+int osc2_storage_named_save(const char *name, const void *value, size_t len)
+{
+	ARG_UNUSED(value);
+	if (own_subtree(name)) {
+		return -EINVAL;
+	}
+	stub.named_saves++;
+	stub.named_saved_len = (int)len;
+	return 0;
+}
+
+int osc2_storage_named_delete(const char *name)
+{
+	if (own_subtree(name)) {
+		return 0;
+	}
+	stub.named_deletes++;
+	(void)osc2_storage_named_set(name, NULL, 0);
+	return 0;
+}
+
+/* cmd_deferred.c's, recorded. The power request goes through osc2_schedule_power()'s stand-in 20
+ * ms later (the emulator acts on it); a turn-off is dropped at once while wired, where the real
+ * file drops it when it falls due. */
+void osc2_cmd_power(enum opensc2_power_request request, const char *why)
+{
+	stub.cmd_power++;
+	stub.cmd_power_last = request;
+	if (request == OPENSC2_POWER_TURN_OFF && osc2_wired()) {
+		return;
+	}
+	osc2_schedule_power(request, 20, why);
+}
+
+void osc2_cmd_factory_reset(void)
+{
+	stub.factory_resets++;
+	(void)osc2_storage_factory_reset();
+	(void)osc2_keys_factory_reset();
+	osc2_schedule_power(OPENSC2_POWER_FACTORY_RESET, 110, "host: factory reset");
+}
+
+void osc2_cmd_bond_write(const struct opensc2_bond *bond)
+{
+	stub.bond_writes++;
+	(void)osc2_storage_store_bond(0, bond);
 }
 
 /* key_store.c, on the pure blob store; saves and deletes are recorded, nothing is stored. */
@@ -193,7 +317,7 @@ int osc2_keys_factory_reset(void)
 		const struct osc2_key_info *k = osc2_key_by_id(id);
 
 		if (blob(id) && (k->flags & OSC2_KEYF_FACTORY)) {
-			(void)osc2_keys_delete(id);
+			stub.key_deletes |= 1u << id;   /* flash only: the RAM value stays */
 		}
 	}
 	return 0;
@@ -301,6 +425,7 @@ void stub_reset(void)
 	osc2.chime = 2;
 	osc2.transport = OSC2_TRANSPORT_DEFAULT;   /* as core.c starts it */
 	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	osc2.transport_key = OSC2_TRANSPORT_DEFAULT;
 	stub.stored_transport = OSC2_TRANSPORT_NONE;
 	osc2.mode = OPENSC2_MODE_WIRED;
 	stub.link_active[OSC2_LINK_USB] = true;

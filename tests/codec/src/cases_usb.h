@@ -310,10 +310,10 @@ OPENSC2_TEST(warm_marks)
 }
 
 /* ---- when the wired link sends reports --------------------------------------------------------
- * The view follows the USB stack through a PC sleep that ends with a bus reset instead of a resume
- * (a reset-resume, a restart with USB standby power): the stack clears its own "suspended" at the
- * reset and sends no RESUME message, and reports must flow again once the host configures the
- * device.
+ * As on the real controller, state reports are built from the configuration until the host
+ * deconfigures the device (a bus reset) or the board leaves the bus; a suspended bus and full
+ * buffers change nothing here (the stack keeps up to eight reports for the resume, and a report
+ * that finds no buffer is lost with its sequence number).
  */
 
 OPENSC2_TEST(usb_report_gate)
@@ -323,46 +323,20 @@ OPENSC2_TEST(usb_report_gate)
 	/* Attached, not configured yet: nothing is built or counted. */
 	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_IDLE);
 	CHECK_EQ(osc2_usb_send_gate(&v), -ENOTCONN);
-	/* A suspend before the first reset (at attach): still nothing. */
-	v.suspended = true;
-	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_IDLE);
-	v.suspended = false;   /* the reset */
 
-	/* Configured: state reports flow from now on. */
+	/* Configured: state reports flow from now on, a suspended bus included. */
 	v.configured = true;
 	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_SEND);
 	CHECK_EQ(osc2_usb_send_gate(&v), 0);
 
-	/* The PC sleeps: the bus is suspended, reports are dropped (and use no sequence number). */
-	v.suspended = true;
-	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_SUSPENDED);
-	CHECK_EQ(osc2_usb_send_gate(&v), -EAGAIN);
-	v.buffers_full = true;   /* suspended counts first, for the remote-wakeup check */
-	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_SUSPENDED);
-	v.buffers_full = false;
-
-	/* It wakes with a bus reset: no longer suspended, and deconfigured. */
-	v.suspended = false;
+	/* A bus reset deconfigures: nothing until the host configures it again. */
 	v.configured = false;
 	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_IDLE);
 	CHECK_EQ(osc2_usb_send_gate(&v), -ENOTCONN);
-
-	/* Configured again: reports flow again. */
 	v.configured = true;
 	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_SEND);
-	CHECK_EQ(osc2_usb_send_gate(&v), 0);
 
-	/* A plain resume ends a suspend the same way, the configuration kept. */
-	v.suspended = true;
-	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_SUSPENDED);
-	v.suspended = false;
-	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_SEND);
-
-	/* Every buffer still with the host: the state report is skipped; a send queues or drops by
-	 * itself. On the way to a reboot: nothing. */
-	v.buffers_full = true;
-	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_BUSY);
-	CHECK_EQ(osc2_usb_send_gate(&v), 0);
+	/* On the way to a reboot: nothing. */
 	v.detaching = true;
 	CHECK_EQ(osc2_usb_tick_action(&v), OSC2_USB_TICK_IDLE);
 	CHECK_EQ(osc2_usb_send_gate(&v), -ENOTCONN);

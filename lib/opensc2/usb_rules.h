@@ -12,31 +12,24 @@
 #include <stdbool.h>
 #include <opensc2/opensc2.h>
 
-/* What the wired link looks like at a report tick or a send. */
+/* What the wired link looks like at a report tick or a send. A suspended bus and full buffers do
+ * not count here: as on the real controller, reports are built and handed to the stack whatever
+ * the bus does (they wait in the eight buffers for a resume), and one that finds no buffer free
+ * is lost, its sequence number with it. */
 struct osc2_usb_view {
 	bool configured;     /* the HID interface is configured (the class's interface-ready event) */
 	bool detaching;      /* on the way to a reboot */
-	/* The bus is suspended as the USB stack itself sees it (usbd_is_suspended()), never a copy
-	 * kept from its messages: a bus reset ends a suspend without any RESUME message, and the
-	 * stack drops a message when its pool is full. */
-	bool suspended;
-	bool buffers_full;   /* every IN buffer is still on its way to the host */
 };
 
 /* What one tick of the report timer does. */
 enum osc2_usb_tick {
 	OSC2_USB_TICK_IDLE,        /* not configured, or leaving: nothing, nothing counted */
-	OSC2_USB_TICK_SUSPENDED,   /* the bus is suspended: skipped (counted as dropped, no sequence
-				    * number used) */
-	OSC2_USB_TICK_BUSY,        /* no IN buffer free: skipped the same way */
-	OSC2_USB_TICK_SEND,        /* build the state report and send it */
+	OSC2_USB_TICK_SEND,        /* build the state report (a sequence number) and send it */
 };
 
 enum osc2_usb_tick osc2_usb_tick_action(const struct osc2_usb_view *v);
 
-/* May a report go to the HID class now? 0, -ENOTCONN (not configured, or leaving) or -EAGAIN (the
- * bus is suspended: the report would be stale by the time the host resumes, so it is dropped). A
- * full set of buffers is the sender's business (it queues or drops). */
+/* May a report go to the HID class now? 0, or -ENOTCONN (not configured, or leaving). */
 int osc2_usb_send_gate(const struct osc2_usb_view *v);
 
 /* ---- the charger test build: no host, then wireless ---------------------------------------------

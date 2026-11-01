@@ -66,11 +66,13 @@ def run(ctx):
             colour = rig.led_color()
             rig.lizard_off()
             start = rig.ring_next()
-            # sent, kept (each channel clamped to 100); 0xE9 reads the kept colour back as the
-            # real controller does: a channel of exactly 100 reads 100, anything else 0
-            steps = (((100, 0, 50, 10), (100, 0, 50, 10)), ((0xFF, 0, 0, 0), (100, 0, 0, 0)),
+            # sent and kept as sent (above 100 is brighter on the real controller); 0xE9 reads
+            # the colour back as the real controller does: 0 below 100, 100 from 100 to 199,
+            # 200 from 200
+            steps = (((100, 0, 50, 10), (100, 0, 50, 10)), ((0xFF, 0, 0, 0), (0xFF, 0, 0, 0)),
                      ((100, 100, 100, 100), (100, 100, 100, 100)), ((99, 1, 100, 50),
-                                                                    (99, 1, 100, 50)))
+                                                                    (99, 1, 100, 50)),
+                     ((150, 199, 200, 101), (150, 199, 200, 101)))
             for sent, kept in steps:
                 rig.vendor_set(C.VC_LED_SET, bytes(sent))
                 c.eq("0xE9 after %02X %02X %02X %02X" % sent, rig.led_color(),
@@ -194,12 +196,13 @@ def run(ctx):
     if ctx.want("settings.invalid"):
         with ctx.check(GROUP, "settings.invalid") as c:
             base.need(rig, "settings")
+            # whole triplets: a byte after the last one is ignored, as on the real controller
             four = bytes([27, 0x05, 0x00, 0x00])
             if rig.own_hid:
-                c.true("0x87 with 4 bytes is refused (STALL)", rig.refused(C.VC_SETTINGS_SET,
-                                                                            four))
+                c.true("0x87 with 4 bytes is taken", not rig.refused(C.VC_SETTINGS_SET, four))
             else:
-                c.eq("0x87 with 4 bytes: rc", rig.host_set(C.VC_SETTINGS_SET, four), -22)
+                c.eq("0x87 with 4 bytes: rc", rig.host_set(C.VC_SETTINGS_SET, four), 0)
+            c.eq("27 = 5 (the triplet before the extra byte)", rig.settings_read()[27], 5)
             start = rig.ring_next()
             rig.vendor_set(C.VC_SETTINGS_SET, bytes([90]) + struct.pack("<h", 5) + bytes([27]) +
                            struct.pack("<h", -11))

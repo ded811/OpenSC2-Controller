@@ -20,8 +20,10 @@
  *    report size 8, its count, its usage and its main item: 15 bytes; the two feature reports
  *    state only ID, count, usage 1 and main item: 8 bytes) and the order of the vendor reports
  *    (these two not in that documentation yet).
- * No source gives every byte of the mouse and keyboard collections: they follow the usual boot
- * layouts at those sizes, and the two items marked "a guess" below are what makes the sizes fit.
+ * The items of the mouse and keyboard collections, their order included (the report count stated
+ * again before the horizontal pan, the logical minimum stated again in the keyboard), also follow
+ * that study, so all 372 bytes are the real controller's (the same bytes serve as the Bluetooth
+ * report map).
  */
 #include <stdio.h>
 #include <string.h>
@@ -48,11 +50,11 @@ const uint8_t opensc2_hid_report_desc[OPENSC2_HID_REPORT_DESC_LEN] = {
 	0x29, 0x02,          /*     Usage Maximum (2) */
 	0x15, 0x00,          /*     Logical Minimum (0) */
 	0x25, 0x01,          /*     Logical Maximum (1) */
-	0x95, 0x02,          /*     Report Count (2) */
 	0x75, 0x01,          /*     Report Size (1) */
+	0x95, 0x02,          /*     Report Count (2) */
 	0x81, 0x02,          /*     Input (Data, Variable, Absolute): the two buttons */
-	0x95, 0x01,          /*     Report Count (1) */
 	0x75, 0x06,          /*     Report Size (6) */
+	0x95, 0x01,          /*     Report Count (1) */
 	0x81, 0x01,          /*     Input (Constant): padding */
 	0x05, 0x01,          /*     Usage Page (Generic Desktop) */
 	0x09, 0x30,          /*     Usage (X) */
@@ -62,12 +64,12 @@ const uint8_t opensc2_hid_report_desc[OPENSC2_HID_REPORT_DESC_LEN] = {
 	0x75, 0x08,          /*     Report Size (8) */
 	0x95, 0x02,          /*     Report Count (2) */
 	0x81, 0x06,          /*     Input (Data, Variable, Relative): X, Y */
-	0x09, 0x38,          /*     Usage (Wheel) */
 	0x95, 0x01,          /*     Report Count (1) */
+	0x09, 0x38,          /*     Usage (Wheel) */
 	0x81, 0x06,          /*     Input (Data, Variable, Relative): wheel */
 	0x05, 0x0C,          /*     Usage Page (Consumer) */
 	0x0A, 0x38, 0x02,    /*     Usage (AC Pan) */
-	0x95, 0x01,          /*     Report Count (1), repeated: a guess (see the top) */
+	0x95, 0x01,          /*     Report Count (1), stated again */
 	0x81, 0x06,          /*     Input (Data, Variable, Relative): horizontal pan */
 	0xC0,                /*   End Collection */
 	0xC0,                /* End Collection */
@@ -86,12 +88,12 @@ const uint8_t opensc2_hid_report_desc[OPENSC2_HID_REPORT_DESC_LEN] = {
 	0x95, 0x08,          /*   Report Count (8) */
 	0x81, 0x02,          /*   Input (Data, Variable, Absolute): modifiers */
 	0x81, 0x01,          /*   Input (Constant): reserved byte */
-	0x95, 0x06,          /*   Report Count (6) */
-	0x75, 0x08,          /*   Report Size (8) */
-	0x15, 0x00,          /*   Logical Minimum (0), restated: a guess (see the top) */
-	0x25, 0x65,          /*   Logical Maximum (0x65) */
 	0x19, 0x00,          /*   Usage Minimum (0) */
 	0x29, 0x65,          /*   Usage Maximum (0x65) */
+	0x15, 0x00,          /*   Logical Minimum (0), stated again */
+	0x25, 0x65,          /*   Logical Maximum (0x65) */
+	0x75, 0x08,          /*   Report Size (8) */
+	0x95, 0x06,          /*   Report Count (6) */
 	0x81, 0x00,          /*   Input (Data, Array, Absolute): six key codes */
 	0xC0,                /* End Collection */
 

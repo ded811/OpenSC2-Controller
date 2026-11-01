@@ -30,16 +30,17 @@ uint8_t osc2_led_readback(uint8_t percent)
 #define ZEPHYR_RESET_BROWNOUT  (1u << 2)
 #define ZEPHYR_RESET_POR       (1u << 3)
 #define ZEPHYR_RESET_WATCHDOG  (1u << 4)
+/* Debug (5) up to temperature (14): the causes the real controller reports as "other". The later
+ * bits (the bootloader, a flash error) it does not count. */
+#define ZEPHYR_RESET_OTHERS    (0x3FFu << 5)
 
 uint8_t osc2_reset_flags(uint32_t causes)
 {
-	const uint32_t named = ZEPHYR_RESET_PIN | ZEPHYR_RESET_SOFTWARE | ZEPHYR_RESET_BROWNOUT |
-			       ZEPHYR_RESET_POR | ZEPHYR_RESET_WATCHDOG;
 	uint8_t flags = 0;
 
 	flags |= (causes & ZEPHYR_RESET_POR) ? OSC2_RESET_POWER_ON : 0;
 	flags |= (causes & ZEPHYR_RESET_BROWNOUT) ? OSC2_RESET_BROWNOUT : 0;
-	flags |= (causes & ~named) ? OSC2_RESET_OTHER : 0;   /* debug, wake, lock-up, ... */
+	flags |= (causes & ZEPHYR_RESET_OTHERS) ? OSC2_RESET_OTHER : 0;   /* debug, wake, lock-up */
 	flags |= (causes & ZEPHYR_RESET_PIN) ? OSC2_RESET_PIN : 0;
 	flags |= (causes & ZEPHYR_RESET_WATCHDOG) ? OSC2_RESET_WATCHDOG : 0;
 	flags |= (causes & ZEPHYR_RESET_SOFTWARE) ? OSC2_RESET_SOFTWARE : 0;

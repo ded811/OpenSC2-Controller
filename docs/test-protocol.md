@@ -19,7 +19,7 @@ One binary protocol, the same bytes on every transport:
 
 | Transport | Request | Answer |
 | --- | --- | --- |
-| USB (wired) | `SET_REPORT(Feature 1)`: `01 7E <n> <request>`, zero padded to 64 bytes | the next `GET_REPORT(Feature 1)`: `01 7E <m> <answer>` |
+| USB (wired) | `SET_REPORT(Feature 1)`: `01 7E <n> <request>`, zero padded to 64 bytes | the next `GET_REPORT(Feature 1)`: `01 7E <m> <answer>`, always 64 bytes (the October device form cuts the vendor commands' replies to 63, which would cut a 61-byte answer) |
 | the radio, through the puck | the puck's feature report 1, the same bytes (a SET record) | the puck's GET (retried until the answer is there) |
 | Bluetooth (the opt-in Bluetooth build; the suite's path B, `--bluetooth`) | a write of feature report 1's characteristic: `7E <n> <request>`, without the report ID | the next read of it: `7E <m> <answer>`, 63 bytes |
 | the console (wireless) | `opensc2 test <id> raw <request as hex>` | `HWT <id> RAW <answer as hex>` |

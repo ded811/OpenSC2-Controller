@@ -21,6 +21,8 @@ from .proto import reports as R
 from .proto import testproto as T
 
 ENOTSUP, EINVAL, ENOENT, EMSGSIZE, EBADMSG, E2BIG = -134, -22, -2, -122, -74, -7
+EPERM = -1
+EOPNOTSUPP, ENODEV = -95, -19
 KEY_FACTORY_RESET, KEY_BOOTLOADER = 0xEFC1A917, 0xECAABAC0
 KEY_KEEP_LINK, KEY_TURN_OFF = 0xA427AF52, 0xABDF9710
 LINKS = {"radio": 0, "usb": 1, "test": 2, "ble": 4}
@@ -82,6 +84,8 @@ class SimBoard:
         self.lizard = M.LizardModel(self.rules)   # on at boot (setting 9 = 1)
         self.set_rules(self.rules)
         self.slot = world.slot
+        # user/wireless_transport's RAM value (commands.c): None follows the transport running
+        self.transport_key = None
         if not hasattr(world, "kept_saved"):
             world.kept_saved = {}              # key_store.c's stored values (C.KEPT_KEYS)
             world.kept_writes = 0
@@ -308,7 +312,7 @@ class SimBoard:
 
     def led_color_write(self, rgbw, link):
         for k, v in zip(("red", "green", "blue", "white"), rgbw):
-            self.led[k] = min(v, 100)
+            self.led[k] = v          # as sent: above 100 is brighter on the real controller
         self.notify_led(link)
 
     def load_defaults(self, link):
@@ -353,14 +357,15 @@ class SimBoard:
             return name, payload[nul + 1:]
         return (NAMED.index(name) if name in NAMED else -1), payload[nul + 1:]
 
+    def _transport_key(self):
+        return self.transport_key if self.transport_key is not None else 2 + self.slot
+
     def run_set(self, link, opcode, payload, avail):
         if opcode in (0x83, 0xAE, 0xF2, 0xA1, 0xBE, 0xE9, 0xDB, 0x89, 0xED):
             return 0
-        if opcode == 0x87:
-            if len(payload) % 3:
-                return EINVAL
+        if opcode == 0x87:      # whole triplets; a byte after the last one is ignored
             led = False
-            for i in range(0, len(payload), 3):
+            for i in range(0, len(payload) - len(payload) % 3, 3):
                 num = payload[i]
                 if num >= 86:
                     continue
@@ -382,36 +387,43 @@ class SimBoard:
         if opcode == 0xC5:
             self.led_color_write((list(payload) + [0, 0, 0, 0])[:4], link)
             return 0
-        if opcode == 0xDC:
-            if len(payload) >= 2 and payload[0] == 1:
-                self.world.chime = payload[1]
-                return 0
-            return EINVAL
-        if opcode == 0xE2:
-            if payload and payload[0] > 1:
-                return EINVAL
+        if opcode == 0xDC:      # read whatever n says; other types acknowledged
+            p = bytes(avail[:2]) + bytes(2)
+            if p[0] == 1:
+                self.world.chime = p[1]
+            return 0
+        if opcode == 0xE2:      # the side byte read whatever n says; above 1 is -1
+            if (bytes(avail[:1]) + bytes(1))[0] > 1:
+                return EPERM
             return 0
         if opcode in (0xEE, 0xEF, 0xF0):
             key, value = self._named(payload)
+            if opcode == 0xEE and (key is None or not value or payload[:1] == b"\0"):
+                return EINVAL           # no name, or no value
+            if opcode != 0xEE and (key is None or len(value) != 0):
+                return EINVAL           # the NUL must be the last byte
             if isinstance(key, str):
                 return self._kept_key(opcode, key, value)
-            if key is None or key < 0:
-                return ENOENT   # the blank canvas's vendor_command knows no other key
+            if key < 0:
+                # no settings handler has the name (the stand-in board has none of its own)
+                return 0 if opcode == 0xF0 else EINVAL
             if opcode == 0xEE:
                 return self._key_set(key, value)
-            if len(value) != 0:
-                return EINVAL
             if opcode == 0xEF:
                 if key in (0, 1):
-                    return 0 if self.world.bonds[key] else ENOENT
+                    return 0 if self.world.bonds[key] else ENODEV
                 return 0
             if key in (0, 1):
                 self.world.bonds[key] = b""
+            elif key == 2:
+                self.transport_key = 2
+            elif key == 3:
+                self.world.chime = 2
             return 0
-        if opcode == 0xA2:
+        if opcode == 0xA2:      # stored for the next boot; the bond in use stays
             if len(payload) != 24:
                 return EINVAL
-            self.world.bonds[0] = bytes(payload) if any(payload[:8]) else b""
+            self.world.a2_writes = getattr(self.world, "a2_writes", 0) + 1
             return 0
         if opcode == 0x86:
             return 0          # (the runner never sends it)
@@ -437,7 +449,7 @@ class SimBoard:
             return 0
         if opcode == 0xC1 and self.fault == "stall_missing":
             return 0
-        return ENOTSUP          # the blank canvas's vendor_command refuses the rest
+        return EINVAL           # an opcode nobody knows
 
     def _key_set(self, key, value):
         if key in (0, 1):
@@ -448,8 +460,7 @@ class SimBoard:
         if len(value) != 1:
             return EINVAL
         if key == 2:
-            if value[0] in (2, 3):
-                self.slot = value[0] - 2
+            self.transport_key = value[0]   # RAM only: nothing runs at once
             return 0
         self.world.chime = value[0]
         return 0
@@ -462,10 +473,14 @@ class SimBoard:
                 return EINVAL
             self.kept[name] = bytes(value)
             return 0
-        if len(value) != 0:
-            return EINVAL           # the NUL must be the last byte
         if opcode == 0xEF:
-            self.world.kept_saved[name] = self.kept.get(name, kept_default(name))
+            readable = C.KEPT_KEYS[name][1]
+            value = self.kept.get(name, kept_default(name))
+            if not readable:
+                return ENOTSUP
+            if name == "mte/charge_level" and not M.charge_window_valid(value):
+                return ENODEV
+            self.world.kept_saved[name] = value
             self.world.kept_writes += 1
         else:
             self.kept.pop(name, None)
@@ -530,7 +545,12 @@ class SimBoard:
                 return 0, bytes([sel, 0, 0])
             return 0, bytes([sel]) + struct.pack("<h", M.setting_answer(sel, self.settings[sel]))
         if opcode == 0xED:
-            key, _value = self._named(payload)
+            # the name is read in the reply, where the request's zero padding ends it
+            if not payload or payload[0] == 0:
+                return EINVAL, b""
+            if b"\0" not in payload and len(payload) >= 61:
+                return 0, b""
+            key, _value = self._named(bytes(payload) + b"\0")
             if isinstance(key, str):    # a kept key: its value, or nothing without a read function
                 value = self.kept.get(key, kept_default(key))
                 if key == "mte/charge_level" and not M.charge_window_valid(value):
@@ -539,27 +559,26 @@ class SimBoard:
             if key is not None and key in (0, 1):
                 return 0, self.world.bonds[key]
             if key == 2:
-                return 0, bytes([2 + self.slot])
+                return 0, bytes([self._transport_key()])
             if key == 3:
                 return 0, bytes([self.world.chime])
             return 0, b""
-        if opcode in (0x81, 0x85, 0x86, 0x87, 0x8E, 0x90, 0x95, 0x9F, 0xA2, 0xC5, 0xDC, 0xE2,
-                      0xEE, 0xEF, 0xF0):
-            return ENOTSUP, b""
+        if opcode in (0x81, 0x85, 0x86, 0x87, 0x8E, 0x90, 0x95, 0x9F, 0xA2, 0xC0, 0xC3, 0xC5,
+                      0xD8, 0xDC, 0xE2, 0xEE, 0xEF, 0xF0, 0xFE):
+            return EOPNOTSUPP, b""
         if opcode == C.TEST_OPCODE:
             held = self.hooks.answer(link)
             if held is not None:
                 return 0, held
-        return ENOTSUP, b""
+        return EINVAL, b""
 
     def command_set(self, link, rec, avail=None):
         """osc2_command_set(): {opcode, n, payload}; `avail` the bytes after n that exist."""
-        if len(rec) < 2:
-            return EINVAL
+        rec = (bytes(rec) + bytes(63))[:63]          # zero padded, as the links carry it
         opcode, n = rec[0], rec[1]
         payload = bytes(rec[2:2 + n])
         avail = bytes(rec[2:]) if avail is None else avail
-        if n > len(rec) - 2 or n > 61:
+        if n > 61:
             self.hooks.note_vendor(link, False, opcode, n, EINVAL, payload, avail)
             return EINVAL
         self.hooks.ctx = link
@@ -1066,6 +1085,7 @@ class Hooks:
             "build_flags": ((1 << C.CAP_TRIGGER_CLICK_AUTO) | (1 << C.CAP_LIZARD_MODE) |
                             (1 << C.CAP_STEAM_WATCHDOG) | (1 << C.CAP_USB) |
                             (1 << C.CAP_USB_CONSOLE) | (1 << C.CAP_STORAGE) |
+                            (1 << C.CAP_USB_PROFILE_OCTOBER) |
                             (1 << C.CAP_USB_LOG) | (1 << C.CAP_USB_PLUG_IN_REBOOT) |
                             (1 << C.CAP_SHELL) | (1 << C.CAP_RULES) |
                             (1 << C.CAP_HAPTIC_STOP_STATUS) |

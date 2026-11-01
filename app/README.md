@@ -425,7 +425,7 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | Option | |
 | --- | --- |
 | `CONFIG_OPENSC2_TEST_HOOKS=n` | build without the [hardware test hooks](#the-hardware-test-hooks) |
-| `CONFIG_OPENSC2_USB_PROFILE_OCTOBER=y` | the October 2026 form of the USB device instead of the July form Steam was seen pairing ([details](../docs/api.md#wired-mode)) |
+| `CONFIG_OPENSC2_USB_PROFILE_JULY=y` | the July 2026 form of the USB device, the one Steam was seen pairing with 0.2.0, instead of the October form, the default ([details](../docs/api.md#wired-mode)) |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_WIRELESS=y` | never wired until `opensc2 mode auto` |
 | `CONFIG_OPENSC2_USB_CONSOLE=n` | nothing on USB in wireless mode |
 | `CONFIG_OPENSC2_USB_WIRED_CONSOLE=y` | debug only: the serial port also while wired (a composite device, unlike the real controller) |

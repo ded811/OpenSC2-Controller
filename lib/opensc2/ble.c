@@ -331,9 +331,14 @@ static ssize_t write_feature(struct bt_conn *conn, const struct bt_gatt_attr *at
 static ssize_t read_feature(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
 			    uint16_t len, uint16_t offset)
 {
-	/* The GET runs for a read from the start; a read blob of the rest gets the same answer. */
-	if (offset == 0 && osc2_command_get_strict(OSC2_LINK_BLE, feature_answer) < 0) {
-		return BT_GATT_ERR(OSC2_ATT_ERR_INVALID_PDU);
+	/* The GET runs for a read from the start; a read blob of the rest gets the same answer. As
+	 * on the real controller the answer is written over the value last written, so the bytes
+	 * after the request and its answer are that value's (the host's padding). */
+	if (offset == 0) {
+		memcpy(feature_answer, feature_value, sizeof(feature_answer));
+		if (osc2_command_get_strict(OSC2_LINK_BLE, feature_answer) < 0) {
+			return BT_GATT_ERR(OSC2_ATT_ERR_INVALID_PDU);
+		}
 	}
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, feature_answer,
 				 sizeof(feature_answer));

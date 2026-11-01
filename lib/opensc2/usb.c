@@ -10,8 +10,10 @@
  *   - output reports on the interrupt OUT endpoint, decoded as on the radio link;
  *   - on interrupt IN the state report 0x42 every 132 ticks of the 32,768 Hz clock (a 4000 µs
  *     timer) from the moment the host configures the device, plus the battery and lizard-mode
- *     reports. Eight IN buffers; a state report that finds none free is dropped, so nothing ever
- *     waits for the host (a suspended bus included).
+ *     reports. Eight IN buffers, as on the real controller: every report goes into one or is lost
+ *     (a state report keeps the sequence number it was built with, so the host sees a gap), and
+ *     reports go on being built while the bus is suspended, so up to eight wait there for the
+ *     host's resume. Nothing ever waits for a buffer.
  * Leaving the bus is always on the way to a reboot: one all-zero state report, 10 ms, USB off.
  * USB power gone for 0.2 s (the cable pulled; only a board with a battery is still running) is
  * handed to the application as OPENSC2_POWER_USB_UNPLUGGED: the real controller shuts down, and
@@ -200,27 +202,11 @@ UDC_STATIC_BUF_DEFINE(in_pool, IN_BUFS * IN_BUF_SIZE);
 static atomic_t in_busy;               /* one bit per buffer on its way to the host */
 static K_MUTEX_DEFINE(send_lock);      /* keeps the order of submissions */
 
-struct pending_report {
-	uint8_t len;
-	uint8_t data[IN_BUF_SIZE];
-};
-/* Reports that must not be lost (lizard mode, the application's) wait here for a buffer. */
-K_MSGQ_DEFINE(osc2_usb_pending, sizeof(struct pending_report), 8, 1);
-
-static bool buffers_full(void)
-{
-	atomic_val_t all = (atomic_val_t)BIT_MASK(IN_BUFS);
-
-	return (atomic_get(&in_busy) & all) == all;
-}
-
 static struct osc2_usb_view link_view(void)
 {
 	return (struct osc2_usb_view){
 		.configured = configured,
 		.detaching = detaching,
-		.suspended = bus_suspended(),
-		.buffers_full = buffers_full(),
 	};
 }
 
@@ -240,62 +226,31 @@ static int submit_locked(const uint8_t *report, size_t len)
 			return err;
 		}
 	}
-	return -ENOBUFS;
+	return -ENOMEM;
 }
 
-static int queue_locked(const uint8_t *report, size_t len)
-{
-	struct pending_report p = { .len = (uint8_t)len };
-
-	memcpy(p.data, report, len);
-	return k_msgq_put(&osc2_usb_pending, &p, K_NO_WAIT) ? -ENOMEM : 0;
-}
-
+/* Every report alike, as on the real controller: copied into a free buffer, or lost when the eight
+ * are all on their way (the host has not read them: a stall, or a suspended bus). `droppable`
+ * is kept for the callers; no report waits on this link. */
 int osc2_usb_send(const uint8_t *report, size_t len, bool droppable)
 {
 	struct osc2_usb_view v;
 	int err;
 
+	ARG_UNUSED(droppable);
 	if (len < 1 || len > IN_BUF_SIZE) {
 		return -EINVAL;
 	}
 	v = link_view();
-	err = osc2_usb_send_gate(&v);   /* not configured, leaving, or suspended (dropped) */
+	err = osc2_usb_send_gate(&v);   /* not configured, or leaving */
 	if (err) {
 		return err;
 	}
 	k_mutex_lock(&send_lock, K_FOREVER);
-	if (!droppable && k_msgq_num_used_get(&osc2_usb_pending)) {
-		err = queue_locked(report, len);   /* behind the ones already waiting */
-	} else {
-		err = submit_locked(report, len);
-		if (err == -ENOBUFS && !droppable) {
-			err = queue_locked(report, len);
-		}
-	}
+	err = submit_locked(report, len);
 	k_mutex_unlock(&send_lock);
 	return err;
 }
-
-static void pending_fn(struct k_work *work)
-{
-	struct pending_report p;
-
-	ARG_UNUSED(work);
-	k_mutex_lock(&send_lock, K_FOREVER);
-	while (k_msgq_peek(&osc2_usb_pending, &p) == 0) {
-		if (!configured || detaching) {
-			k_msgq_purge(&osc2_usb_pending);
-			break;
-		}
-		if (submit_locked(p.data, p.len) == -ENOBUFS) {
-			break;   /* the next "report done" tries again */
-		}
-		(void)k_msgq_get(&osc2_usb_pending, &p, K_NO_WAIT);
-	}
-	k_mutex_unlock(&send_lock);
-}
-static K_WORK_DEFINE(pending_work, pending_fn);
 
 static void on_input_report_done(const struct device *dev, const uint8_t *const report)
 {
@@ -304,9 +259,6 @@ static void on_input_report_done(const struct device *dev, const uint8_t *const 
 	ARG_UNUSED(dev);
 	if (at >= 0 && at < IN_BUFS * IN_BUF_SIZE) {
 		atomic_clear_bit(&in_busy, (int)(at / IN_BUF_SIZE));
-	}
-	if (k_msgq_num_used_get(&osc2_usb_pending)) {
-		k_work_submit(&pending_work);
 	}
 }
 
@@ -384,18 +336,13 @@ static void report_thread_fn(void *p1, void *p2, void *p3)
 		if (action == OSC2_USB_TICK_IDLE) {
 			continue;
 		}
-		if (action != OSC2_USB_TICK_SEND) {
-			/* Suspended, or no buffer free: skipped without using a sequence number. */
-			n_dropped++;
-			osc2_test_count(OSC2_TEST_CNT_USB_SKIPPED);
 #if defined(CONFIG_OPENSC2_USB_REMOTE_WAKEUP)
-			if (action == OSC2_USB_TICK_SUSPENDED) {
-				wakeup_check();
-			}
-#endif
-			counters_tick();
-			continue;
+		if (bus_suspended()) {
+			wakeup_check();
 		}
+#endif
+		/* Built whatever the buffers and the bus do, as on the real controller: a report that
+		 * finds no buffer free is lost with its sequence number. */
 		osc2_report_state(state_report, &s);
 		if (osc2_usb_send(state_report, sizeof(state_report), true) == 0) {
 			n_reports++;
@@ -403,6 +350,7 @@ static void report_thread_fn(void *p1, void *p2, void *p3)
 		} else {
 			n_dropped++;
 			osc2_test_count(OSC2_TEST_CNT_USB_DROPPED);   /* its sequence number is lost */
+			LOG_DBG("No buffer for a full HID report");
 		}
 		/* The frame's lizard reports, sent before lizard mode can turn off (0x81 runs in the
 		 * USB stack's thread): never after its release reports. */
@@ -421,7 +369,6 @@ static void on_iface_ready(const struct device *dev, const bool ready)
 	if (ready) {
 		k_mutex_lock(&send_lock, K_FOREVER);
 		atomic_set(&in_busy, 0);   /* a report in flight at a bus reset may never be "done" */
-		k_msgq_purge(&osc2_usb_pending);
 		k_mutex_unlock(&send_lock);
 		configured_at_ms = k_uptime_get();
 		configured = true;
@@ -441,8 +388,9 @@ static void on_iface_ready(const struct device *dev, const bool ready)
 			 * the application's "no host" rules, until the host configures it again. */
 			usb_state = OPENSC2_USB_ATTACHED;
 		}
+		/* Nothing else, as on the real controller: a rumble the host started runs out by
+		 * itself (its 500 ms), the outputs are not cut here. */
 		osc2_usblog("deconfigured");
-		osc2_output_link_down();
 	}
 	notify();
 }
@@ -593,7 +541,8 @@ static void on_usb_msg(struct usbd_context *const ctx, const struct usbd_msg *co
 	ARG_UNUSED(ctx);
 	switch (msg->type) {
 	case USBD_MSG_SUSPEND:
-		/* The October 2026 controller changes nothing on a suspend; reports are dropped. */
+		/* The October 2026 controller changes nothing on a suspend: the reports go on, and
+		 * wait in the eight buffers for the resume (the rest are lost). */
 		osc2_usblog("bus suspended");
 		notify();
 		break;
@@ -630,6 +579,9 @@ static void on_usb_msg(struct usbd_context *const ctx, const struct usbd_msg *co
 
 static bool steam_seen_up;
 static uint8_t steam_polls;
+/* A wired boot with STEAM held: the device goes on the bus once STEAM is released, as on the real
+ * controller (it plays its power-on chime, waits for the release, then enables USB). */
+static bool enable_pending;
 
 static void wait_fn(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(wait_work, wait_fn);
@@ -671,11 +623,42 @@ static bool no_host_check(void)
 }
 #endif
 
+/* On the bus: the device enabled, the 0.5 s wait for a host started. */
+static int attach_now(void)
+{
+	int err;
+
+	usb_state = OPENSC2_USB_ATTACHED;
+	attach_ms = k_uptime_get();
+	osc2_usblog_set_time_base();
+	err = usbd_enable(&osc2_usbd);
+	if (err) {
+		LOG_ERR("Enabling the USB device failed (%d)", err);
+		osc2_usblog("USB enable failed (%d)", err);
+	}
+	return err;
+}
+
 static void wait_fn(struct k_work *work)
 {
 	ARG_UNUSED(work);
 	if (!started || detaching || configured_once) {
 		return;
+	}
+	if (enable_pending) {
+		if (osc2_sys_buttons() & OPENSC2_BTN_STEAM) {
+			k_work_reschedule(&wait_work, K_MSEC(WAIT_POLL_MS));
+			return;
+		}
+		enable_pending = false;
+		steam_seen_up = true;
+		osc2_usblog("STEAM released: attach");
+		if (attach_now() != 0) {
+			usb_state = OPENSC2_USB_OFF;   /* the real controller logs it and goes on */
+			notify();
+			return;
+		}
+		notify();
 	}
 	if (usb_state == OPENSC2_USB_ATTACHED && k_uptime_get() - attach_ms >= NO_HOST_MS) {
 		usb_state = OPENSC2_USB_NO_HOST;
@@ -865,14 +848,16 @@ int osc2_usb_wired_start(void)
 	k_thread_start(osc2_usb_tid);
 
 	started = true;
-	usb_state = OPENSC2_USB_ATTACHED;
-	attach_ms = k_uptime_get();
-	osc2_usblog_set_time_base();
-	err = usbd_enable(&osc2_usbd);
-	if (err) {
-		LOG_ERR("Enabling the USB device failed (%d)", err);
-		osc2_usblog("USB enable failed (%d)", err);
-		return wired_start_failed(err, true);
+	if (osc2_sys_buttons() & OPENSC2_BTN_STEAM) {
+		/* Held at the start (the application reported it before opensc2_init()): on the bus
+		 * once it is released. */
+		enable_pending = true;
+		osc2_usblog("STEAM held: attach when it is released");
+	} else {
+		err = attach_now();
+		if (err) {
+			return wired_start_failed(err, true);
+		}
 	}
 	/* The name itself stays out of the log: it may be personal. */
 	osc2_usblog("attach: %04X:%04X, %s profile, bcdDevice %04X, %s product string",
@@ -904,19 +889,14 @@ void osc2_usb_detach(const char *why)
 	(void)k_work_cancel_delayable(&wait_work);
 	(void)k_work_cancel_delayable(&unplug_work);
 	if (configured) {
-		/* One all-zero state report (sequence 0) so the host releases everything. */
+		/* One all-zero state report (sequence 0) so the host releases everything; lost, as on
+		 * the real controller, when no buffer is free. */
 		static const uint8_t neutral[OPENSC2_STATE_REPORT_LEN] = { OPENSC2_RPT_STATE };
-		int err = -ENOBUFS;
+		int err;
 
-		for (int i = 0; i < 5 && err == -ENOBUFS; i++) {
-			k_mutex_lock(&send_lock, K_FOREVER);
-			k_msgq_purge(&osc2_usb_pending);
-			err = submit_locked(neutral, sizeof(neutral));
-			k_mutex_unlock(&send_lock);
-			if (err == -ENOBUFS) {
-				k_msleep(1);
-			}
-		}
+		k_mutex_lock(&send_lock, K_FOREVER);
+		err = submit_locked(neutral, sizeof(neutral));
+		k_mutex_unlock(&send_lock);
 		osc2_usblog("neutral state report %s", err ? "not sent" : "sent");
 	}
 	k_msleep(10);

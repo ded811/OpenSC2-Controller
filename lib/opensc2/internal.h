@@ -62,6 +62,11 @@ struct osc2_ctx {
 	uint8_t slot;                 /* the puck's bond slot the radio uses (0 or 1) */
 	uint8_t transport;            /* the chosen wireless transport, OSC2_TRANSPORT_* (in RAM) */
 	uint8_t transport_saved;      /* the one stored, or OSC2_TRANSPORT_NONE */
+	/* user/wireless_transport's value in RAM, as the by-name commands see it: what is stored (any
+	 * byte), a host's 0xEE until it is saved, or the transport chosen at boot when nothing is
+	 * stored (transport_key_loaded false). */
+	uint8_t transport_key;
+	bool transport_key_loaded;
 	int16_t settings[OPENSC2_SETTINGS_COUNT];
 	struct opensc2_led led;
 	uint8_t chime;
@@ -81,6 +86,10 @@ static inline bool osc2_wired(void)
 }
 
 /* core.c */
+/* Held by everything that changes the configured or the stored identity and works out the one in
+ * use from them (opensc2_identity_set(), _store(), _clear(), the by-name identity keys), so that a
+ * board's identity_set() and a host's write never mix their halves. */
+extern struct k_mutex osc2_id_lock;
 void osc2_identity_refresh(void);
 /* Store the fields in `fields` (OSC2_ID_*) of `value` on the board, whatever their values: unlike
  * opensc2_identity_store(), a 0 or an empty string is stored too (the shell sets one field at a
@@ -125,11 +134,24 @@ void osc2_transport_link_up(uint8_t t);
 /* storage.c (no-ops without CONFIG_OPENSC2_STORAGE) */
 int osc2_storage_load(void);
 int osc2_storage_save_bond(uint8_t slot);
+/* Store `bond` as bond `slot` in flash only (an invalid one deletes it); the bond in RAM stays. */
+int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond);
 /* Store transport `t` (opensc2/transport; for a puck transport also its slot as opensc2/slot,
- * which older firmware reads) and note it in osc2.transport_saved; delete both (the default). */
+ * which older firmware reads; any other byte as given) and note it in osc2.transport_saved and
+ * osc2.transport_key; delete both (the default). */
 int osc2_storage_save_transport(uint8_t t);
 int osc2_storage_delete_transport(void);
 int osc2_storage_save_chime(void);
+/* Store `level` as the chime level in flash only. */
+int osc2_storage_store_chime(uint8_t level);
+/* The by-name commands on any other Zephyr settings handler of the build (Bluetooth's, the
+ * application's), never the library's own "opensc2" subtree: settings_runtime_set() and _get()
+ * (-EINVAL without a handler, -ENOTSUP for a handler that cannot be read), a save, a delete
+ * (a name nothing stored is no error) followed by the handler's "deleted" value. */
+int osc2_storage_named_set(const char *name, const void *value, size_t len);
+int osc2_storage_named_get(const char *name, void *out, size_t size);
+int osc2_storage_named_save(const char *name, const void *value, size_t len);
+int osc2_storage_named_delete(const char *name);
 int osc2_storage_save_identity(void);
 int osc2_storage_save_policy(void);
 int osc2_storage_factory_reset(void);
@@ -166,12 +188,14 @@ int32_t osc2_command_set(enum osc2_link link, const uint8_t *rec, uint8_t rec_le
  * `out` ({opcode, length, data}); returns the bytes written ({opcode, 0} when the command has no
  * answer). The record's own byte is not used: Valve's puck does not set it. */
 uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63]);
-/* The same, with the command's own result in `*rc` (0, or a negative errno; -ENOTSUP when the
- * stored command has nothing to read), for the dock, which answers it. */
+/* The same, with the command's own result in `*rc` (0, or a negative errno: -EOPNOTSUPP when the
+ * stored command has nothing to read, -EINVAL for an opcode nobody knows), for the dock, which
+ * answers it. */
 uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc);
-/* A link whose transport can refuse a read (Bluetooth): the stored request's GET as 63 bytes
- * {opcode, length, data, zeros}; returns 63, or a negative errno for a command without an answer
- * or a failed GET (an ATT error there, the counterpart of a STALL on USB). */
+/* A link whose transport can refuse a read (Bluetooth): the stored request's GET written over the
+ * 63 bytes `out` holds (the link's buffer: the bytes after the request and its answer stay);
+ * returns 63, or a negative errno for a command without an answer or a failed GET (an ATT error
+ * there, the counterpart of a STALL on USB). */
 int osc2_command_get_strict(enum osc2_link link, uint8_t out[63]);
 /* USB: the 64-byte data stage of SET_REPORT(Feature 1). 0, or a negative errno (STALL). */
 int osc2_usb_feature_set(const uint8_t *data, uint16_t len);
@@ -188,7 +212,8 @@ uint8_t osc2_command_stored(enum osc2_link link, uint8_t rec[2 + OPENSC2_ANSWER_
 /* Exactly what one triplet of vendor command 0x87 does: clamped, with the side effects of
  * settings 9 (lizard mode) and 71 (the Steam watchdog), the led callback for 37 and 45. */
 void osc2_settings_write(uint8_t number, int16_t value);
-/* Exactly what vendor command 0xC5 does: the colour, each percentage clamped to 100. */
+/* Exactly what vendor command 0xC5 does: the colour, each percentage as sent (0..255; above 100
+ * is brighter on the real controller, up to full duty). */
 void osc2_led_color_write(const uint8_t rgbw[4]);
 
 /* report.c: the state report, lizard mode, the battery report and output reports, shared by the

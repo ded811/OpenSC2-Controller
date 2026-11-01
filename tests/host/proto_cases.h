@@ -169,9 +169,12 @@ OPENSC2_TEST(proto_reset_flags)
 	CHECK_EQ(osc2_reset_flags(1u << 0), OSC2_RESET_PIN);
 	CHECK_EQ(osc2_reset_flags(1u << 4), OSC2_RESET_WATCHDOG);
 	CHECK_EQ(osc2_reset_flags(1u << 1), OSC2_RESET_SOFTWARE);
-	for (int bit = 5; bit <= 16; bit++) {
+	for (int bit = 5; bit <= 14; bit++) {
 		CHECK_EQ(osc2_reset_flags(1u << bit), OSC2_RESET_OTHER);
 	}
+	/* The bootloader (15) and a flash error (16) are not counted, as on the real controller. */
+	CHECK_EQ(osc2_reset_flags(1u << 15), 0);
+	CHECK_EQ(osc2_reset_flags(1u << 16), 0);
 	/* They add up: a pin reset, then two reboots, then a watchdog, before a power-on. */
 	CHECK_EQ(osc2_reset_flags((1u << 0) | (1u << 1) | (1u << 4)), 0x70);
 	CHECK_EQ(osc2_reset_flags(0x1FFFF), 0x7B);
@@ -330,10 +333,12 @@ OPENSC2_TEST(proto_cmd_led_readback)
 	CHECK_EQ(proto_usb(0xC5, full, sizeof(full), reply), -1);
 	CHECK_EQ(proto_usb(0xE9, NULL, 0, reply), 4);
 	CHECK(memcmp(&reply[3], full, 4) == 0);
-	/* 0xC5 clamps to 100 first: 255 becomes 100 and reads back as 100. */
+	/* 0xC5 keeps values above 100 (brighter on the real controller, up to full duty): 255
+	 * reads back as 200, 101 as 100. */
 	CHECK_EQ(proto_usb(0xC5, over, sizeof(over), reply), -1);
-	CHECK_EQ(osc2.led.red, 100);
-	CHECK_EQ(osc2.led.blue, 100);
+	CHECK_EQ(osc2.led.red, 255);
+	CHECK_EQ(osc2.led.green, 99);
+	CHECK_EQ(osc2.led.blue, 101);
 	CHECK_EQ(proto_usb(0xE9, NULL, 0, reply), 4);
-	CHECK(memcmp(&reply[3], (const uint8_t[]){ 100, 0, 100, 0 }, 4) == 0);
+	CHECK(memcmp(&reply[3], (const uint8_t[]){ 200, 0, 100, 0 }, 4) == 0);
 }

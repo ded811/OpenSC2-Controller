@@ -285,9 +285,13 @@ def _check_named(opcode, payload, ctx, consume=True):
             return   # the value 0xED just read back, in RAM only
         raise SafetyError("0xEE %s with a new value needs --flash and a token" % name)
     if opcode == C.VC_BY_NAME_DELETE:   # 0xF0
-        if name is None or not known:
-            return   # deleting an unknown key: the firmware refuses before any flash access
-        raise SafetyError("0xF0 on a known key needs --flash and a token")
+        if name is None or len(value) > 0:
+            return   # no NUL, or a byte after it: refused before any flash access
+        if name == C.NO_KEY:
+            return   # a name nothing stores: the delete finds nothing to write
+        # any other name reaches the settings store (another handler's keys too, such as
+        # Bluetooth's), as on the real controller
+        raise SafetyError("0xF0 on %r needs --flash and a token" % name)
     if opcode == C.VC_BY_NAME_SAVE:     # 0xEF
         if name is None:
             return
@@ -311,7 +315,7 @@ def _check_named(opcode, payload, ctx, consume=True):
             if len(value) in (0, 2):
                 return   # refused forms
             if value == b"\x01" and not ctx.caps_ble:
-                return   # Bluetooth: accepted, ignored (key_set stores nothing for 0 and 1)
+                return   # RAM only, put back at once by cmd.by_name_harmless; nothing runs
             if value == ctx.read_values.get(name):
                 return   # the value read back
             raise SafetyError("0xEE %s with a new value needs --flash and a token" % name)
@@ -325,10 +329,14 @@ def _check_named(opcode, payload, ctx, consume=True):
             raise SafetyError("0xEE %s with a new value needs --flash and a token" % name)
         if name is not None and name.startswith("opensc2/"):
             if value == b"bad!" and not ctx.caps_identity_write:
-                return
+                return   # the library's own subtree is never reached by name: refused
             raise SafetyError("0xEE %s: identity write refused" % name)
-        # any other name: the library does not know it, the firmware refuses
-        return
+        if name == C.NO_KEY:
+            return   # no settings handler has it: refused
+        # any other name may reach another settings handler of the build (Bluetooth's, the
+        # application's), as on the real controller
+        raise SafetyError("0xEE on %r, a name another settings handler may take, is never sent"
+                          % name)
     raise SafetyError("unreachable named opcode")
 
 
@@ -363,7 +371,7 @@ def check_vendor(opcode, payload, transport, ctx=None, key_u32=None, consume=Tru
             raise SafetyError("0xA2 (write bond) needs --flash and a token")
         if opcode == C.VC_USER_STORE_SET:   # 0xDC
             if len(payload) >= 1 and payload[0] != 1:
-                return   # a type other than 1: refused by the firmware before writing
+                return   # a type other than 1: acknowledged, nothing written
             if ctx.flash_allowed and ctx._take_token(opcode, None, payload, consume):
                 return
             raise SafetyError("0xDC type 1 (chime) needs --flash and a token")

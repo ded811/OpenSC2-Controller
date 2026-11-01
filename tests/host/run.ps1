@@ -33,7 +33,7 @@ $flags = @('-std=c11', '-Wall', '-Wextra', '-Wshadow', '-Werror', "-I$shim", "-I
 $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
     "$lib\codec.c", "$lib\lizard.c", "$lib\settings_defaults.c", "$lib\fusion.c",
     "$lib\usb_desc.c", "$lib\usb_rules.c", "$lib\mode_rules.c", "$lib\retained.c",
-    "$lib\id_rules.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c",
+    "$lib\id_rules.c", "$lib\identity_set.c", "$lib\commands.c", "$lib\report_rules.c", "$lib\test_core.c",
     "$lib\proto_rules.c", "$lib\key_rules.c", "$lib\crash_rules.c", "$lib\input_rules.c",
     "$lib\report_queue.c")
 # the wireless transports and Bluetooth LE

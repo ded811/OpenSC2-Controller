@@ -120,8 +120,11 @@ config OPENSC2_STORAGE
 	bool "Keep bonds, the identity and the mode policy in Zephyr settings"
 	default y
 	depends on SETTINGS
+	imply SETTINGS_RUNTIME
 	help
-	  Keys under "opensc2/". Without it, pairings are lost at every reboot.
+	  Keys under "opensc2/". Without it, pairings are lost at every reboot. With
+	  SETTINGS_RUNTIME (implied) the vendor commands by name also reach every other settings
+	  handler of the build, as on the real controller (Bluetooth's keys, the application's).
 
 config OPENSC2_SHELL
 	bool "Shell commands (opensc2 ...)"
@@ -226,7 +229,7 @@ if OPENSC2_USB
 
 choice OPENSC2_USB_PROFILE
 	prompt "USB identity form"
-	default OPENSC2_USB_PROFILE_JULY
+	default OPENSC2_USB_PROFILE_OCTOBER
 	help
 	  The two forms of the real controller's USB device. They differ only in bcdUSB and the BOS
 	  descriptor, the device class, bcdDevice and the length of feature GET replies.
@@ -234,12 +237,14 @@ choice OPENSC2_USB_PROFILE
 config OPENSC2_USB_PROFILE_JULY
 	bool "July 2026 firmware: USB 2.00, class EF/02/01, release 3.07, 64-byte GET replies"
 	help
-	  The form Steam was seen pairing over the cable.
+	  The earlier form, the one Steam was seen pairing over the cable with a real controller
+	  and with OpenSC2 0.2.0.
 
 config OPENSC2_USB_PROFILE_OCTOBER
 	bool "October 2026 firmware: USB 2.01 with a USB 2.0 extension, class 00/00/00, 4.04"
 	help
-	  The later form: a BOS descriptor, 63-byte GET replies. Not yet seen with Steam.
+	  The current controller firmware's form (the default): a BOS descriptor, 63-byte GET
+	  replies.
 
 endchoice
 

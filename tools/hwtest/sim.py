@@ -629,7 +629,8 @@ class SimBackend:
         return self._hid_info_usb()
 
     def _hid_info_usb(self):
-        return {"vid": 0x28DE, "pid": 0x1302, "version": 0x0307,
+        october = not self.cleared_build_flags & (1 << C.CAP_USB_PROFILE_OCTOBER)
+        return {"vid": 0x28DE, "pid": 0x1302, "version": 0x0404 if october else 0x0307,
                 "manufacturer": "Valve Software", "product": self.usb_product(),
                 "serial": self.unit_serial, "usage_page": 0xFF00, "usage": 1, "input_len": 54,
                 "output_len": 64, "feature_len": 64,

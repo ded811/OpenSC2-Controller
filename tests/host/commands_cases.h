@@ -346,6 +346,7 @@ OPENSC2_TEST(usb_cmd_settings)
 	CHECK_EQ(osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS], 100);
 	CHECK_EQ(osc2.led.brightness, 100);
 	CHECK(stub.led_notified > 0);
-	/* Triplets only. */
-	CHECK(usb_set(0x87, clamped, 4) < 0);
+	/* Whole triplets; a byte after the last one is ignored. */
+	CHECK_EQ(usb_set(0x87, (const uint8_t[]){ 45, 30, 0, 99 }, 4), 0);
+	CHECK_EQ(osc2.settings[OPENSC2_SETTING_LED_BRIGHTNESS], 30);
 }
