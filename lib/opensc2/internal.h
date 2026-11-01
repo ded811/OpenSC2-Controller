@@ -157,6 +157,10 @@ void osc2_radio_set_pair_seconds(uint16_t seconds);
  * listens): -40 to 8 dBm, else -EINVAL. */
 int osc2_radio_set_tx_power(int8_t dbm);
 int8_t osc2_radio_tx_power(void);
+/* The listening and no-bond give-ups in seconds (0: never), from the next time the link listens or
+ * waits for a bond. */
+void osc2_radio_set_give_ups(uint16_t listen_seconds, uint16_t no_bond_seconds);
+void osc2_radio_give_ups(uint16_t *listen_seconds, uint16_t *no_bond_seconds);
 enum opensc2_link_state osc2_radio_state(void);
 void osc2_radio_info(struct opensc2_link_info *info);
 bool osc2_radio_connected(void);

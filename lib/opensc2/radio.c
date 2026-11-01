@@ -82,6 +82,9 @@ static volatile enum opensc2_link_state link_state = OPENSC2_LINK_OFF;
 static enum opensc2_reason entry_reason;   /* why the next state is entered */
 static uint16_t pair_seconds = CONFIG_OPENSC2_PAIRING_TIMEOUT_S;
 static int8_t tx_power = CONFIG_OPENSC2_TX_POWER_DBM;
+/* The give-ups (0: never), from Kconfig until the application sets them. */
+static uint16_t listen_s = CONFIG_OPENSC2_LISTEN_TIMEOUT_S;
+static uint16_t no_bond_s = CONFIG_OPENSC2_NO_BOND_TIMEOUT_S;
 static bool radio_on;
 static uint32_t rx_overflow;
 static uint8_t run_slot;                   /* the bond slot NO_BOND and LISTENING run */
@@ -327,6 +330,18 @@ int8_t osc2_radio_tx_power(void)
 	return tx_power;
 }
 
+void osc2_radio_set_give_ups(uint16_t listen_seconds, uint16_t no_bond_seconds)
+{
+	listen_s = listen_seconds;   /* from the next time the link listens or waits for a bond */
+	no_bond_s = no_bond_seconds;
+}
+
+void osc2_radio_give_ups(uint16_t *listen_seconds, uint16_t *no_bond_seconds)
+{
+	*listen_seconds = listen_s;
+	*no_bond_seconds = no_bond_s;
+}
+
 enum opensc2_link_state osc2_radio_state(void)
 {
 	return link_state;
@@ -501,9 +516,8 @@ static enum opensc2_link_state do_off(uint32_t *ctrl)
 static enum opensc2_link_state do_no_bond(uint32_t *ctrl)
 {
 	enum opensc2_link_state next;
-	int64_t deadline = CONFIG_OPENSC2_NO_BOND_TIMEOUT_S ?
-			   k_uptime_get() + (int64_t)CONFIG_OPENSC2_NO_BOND_TIMEOUT_S * 1000 :
-			   INT64_MAX;
+	uint16_t seconds = no_bond_s;
+	int64_t deadline = seconds ? k_uptime_get() + (int64_t)seconds * 1000 : INT64_MAX;
 
 	run_slot = osc2.slot;
 	(void)esb_stop_rx();
@@ -513,7 +527,7 @@ static enum opensc2_link_state do_no_bond(uint32_t *ctrl)
 			return next;
 		}
 		if (k_uptime_get() >= deadline) {
-			LOG_INF("No bond within %u s: wireless off", CONFIG_OPENSC2_NO_BOND_TIMEOUT_S);
+			LOG_INF("No bond within %u s: wireless off", seconds);
 			entry_reason = OPENSC2_REASON_NO_BOND_TIMEOUT;
 			return OPENSC2_LINK_OFF;
 		}
@@ -662,8 +676,8 @@ static enum opensc2_link_state do_listen(uint32_t *ctrl)
 	struct opensc2_bond bond;
 	struct rx_item *it = &rx_it;
 	enum opensc2_link_state next;
-	int64_t deadline = CONFIG_OPENSC2_LISTEN_TIMEOUT_S ?
-			   k_uptime_get() + (int64_t)CONFIG_OPENSC2_LISTEN_TIMEOUT_S * 1000 : INT64_MAX;
+	uint16_t seconds = listen_s;
+	int64_t deadline = seconds ? k_uptime_get() + (int64_t)seconds * 1000 : INT64_MAX;
 	int err;
 
 	run_slot = osc2.slot;
@@ -695,7 +709,7 @@ static enum opensc2_link_state do_listen(uint32_t *ctrl)
 			return OPENSC2_LINK_CONNECTED;
 		}
 		if (k_uptime_get() >= deadline) {
-			LOG_INF("No puck within %u s: wireless off", CONFIG_OPENSC2_LISTEN_TIMEOUT_S);
+			LOG_INF("No puck within %u s: wireless off", seconds);
 			entry_reason = OPENSC2_REASON_LISTEN_TIMEOUT;
 			return OPENSC2_LINK_OFF;
 		}

@@ -228,3 +228,22 @@ int8_t opensc2_radio_tx_power(void)
 {
 	return osc2_radio_tx_power();
 }
+
+int opensc2_radio_set_give_ups(uint16_t listen_seconds, uint16_t no_bond_seconds)
+{
+	osc2_radio_set_give_ups(listen_seconds, no_bond_seconds);
+	return 0;
+}
+
+void opensc2_radio_give_ups(uint16_t *listen_seconds, uint16_t *no_bond_seconds)
+{
+	uint16_t l, n;
+
+	osc2_radio_give_ups(&l, &n);
+	if (listen_seconds) {
+		*listen_seconds = l;
+	}
+	if (no_bond_seconds) {
+		*no_bond_seconds = n;
+	}
+}

@@ -18,7 +18,9 @@ controller is listed in docs/protocol.md's gaps.
 
 - `opensc2_radio_set_tx_power()` and `opensc2_radio_tx_power()`: the puck link's transmit power at
   run time, for boards with an amplifier or a weaker antenna (from the next time the link listens);
-  `opensc2_transport_key()`: `user/wireless_transport` as a host reads it.
+  `opensc2_transport_key()`: `user/wireless_transport` as a host reads it;
+  `opensc2_radio_set_give_ups()` and `opensc2_radio_give_ups()`: the 60 s and 10 s give-ups at run
+  time.
 
 - The real controller's haptic stream status replies: every stop-all (`0x81` with an on time of 0,
   `0x82` command 0, a zero speed in `0x80`) and `0x86`'s stream stop send `0x44 {channel, 0x02}`
@@ -281,6 +283,7 @@ controller is listed in docs/protocol.md's gaps.
 - `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` (60 s) and `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` (10 s) are on in
   every build, as on the real controller (they were 0, never, without `CONFIG_OPENSC2_BATTERY`):
   a board on USB power that finds no puck goes "wireless off" (amber), and STEAM reboots it wired.
+- `CONFIG_OPENSC2_RX_QUEUE_DEPTH` is 5 (was 8), the real controller's queue of received packets.
 - `user/wireless_transport` as on the real controller: `0xEE` takes any one byte and leaves the
   running link alone (a new puck slot no longer counts at once; 0 and 1 without Bluetooth and values
   above 3 are kept as written), `0xED` reads it back, `0xF0` sets 2 and leaves the link alone; the

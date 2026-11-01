@@ -483,6 +483,16 @@ uint8_t opensc2_transport_key(void);
 int opensc2_radio_set_tx_power(int8_t dbm);
 int8_t opensc2_radio_tx_power(void);
 
+/* The puck link's give-ups, in seconds (0: never): listening for the puck (60, the real
+ * controller's, CONFIG_OPENSC2_LISTEN_TIMEOUT_S) and waiting for a bond while the selected slot is
+ * empty (10, CONFIG_OPENSC2_NO_BOND_TIMEOUT_S). Either ends in "wireless off" (OPENSC2_LINK_OFF
+ * with OPENSC2_REASON_LISTEN_TIMEOUT or _NO_BOND_TIMEOUT), which the system state machine turns
+ * into the real controller's power-off on battery, or amber on USB power. Callable at any time;
+ * counts from the next time the link listens or waits for a bond. The getter takes NULL for a
+ * value it does not want. */
+int opensc2_radio_set_give_ups(uint16_t listen_seconds, uint16_t no_bond_seconds);
+void opensc2_radio_give_ups(uint16_t *listen_seconds, uint16_t *no_bond_seconds);
+
 /* ---- Identity -------------------------------------------------------------------------------- */
 
 /* The identity in use. */

@@ -57,7 +57,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_pair_start(s)`, `opensc2_pair_cancel()` | pair over the air with a puck's open pairing window (with Bluetooth as the transport: pairing mode) | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_link_state()`, `opensc2_link_info(&info)` | the wireless link's state and counters | [Life cycle](#life-cycle) |
 | `opensc2_select_transport(t)`, `opensc2_select_transport_pairing(t)`, `opensc2_selected_transport()` | the wireless transport: the puck with bond 1 or 2, or Bluetooth slot 1 or 2 (with the pairing flag, Bluetooth opens the slot for a new host) | [Wireless transports](#wireless-transports-and-bluetooth-le) |
-| `opensc2_transport_key()`, `opensc2_radio_set_tx_power(dbm)`, `opensc2_radio_tx_power()` | `user/wireless_transport` as a host reads it; the puck link's transmit power | [Wireless transports](#wireless-transports-and-bluetooth-le) |
+| `opensc2_transport_key()`, `opensc2_radio_set_tx_power(dbm)`, `opensc2_radio_tx_power()`, `opensc2_radio_set_give_ups()`, `opensc2_radio_give_ups()` | `user/wireless_transport` as a host reads it; the puck link's transmit power and its give-up timers | [Wireless transports](#wireless-transports-and-bluetooth-le) |
 | `opensc2_mode()`, `opensc2_mode_reason()` | this boot's mode (wired or wireless) and why | [Modes](#modes) |
 | `opensc2_policy()`, `opensc2_policy_set(p)` | the stored rule for boots with USB power | [Modes](#modes) |
 | `opensc2_reboot(how, why)`, `opensc2_reboot_later(how, why, ms)` | reboot by the rule, into wireless, or into wired once | [Modes](#modes) |
@@ -1410,6 +1410,7 @@ pairs a controller over the cable:
 | `opensc2_selected_transport()` | the transport this boot runs |
 | `opensc2_transport_key()` | `user/wireless_transport` as a host reads it with `0xED` (below) |
 | `opensc2_radio_set_tx_power(dbm)`, `opensc2_radio_tx_power()` | the puck link's transmit power, -40 to 8 dBm (`-EINVAL` otherwise); `CONFIG_OPENSC2_TX_POWER_DBM` (+6, the real controller's) until set. From the next time the link listens (every connection starts there): a board with an amplifier or a weak antenna can set it at any time |
+| `opensc2_radio_set_give_ups(listen_s, no_bond_s)`, `opensc2_radio_give_ups(&listen_s, &no_bond_s)` | the puck link's two give-ups in seconds, 0 for never: listening for the puck (60) and waiting for a bond with the selected slot empty (10), as the real controller; `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` and `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` until set. Either ends in "wireless off" (`OPENSC2_LINK_OFF` with `LISTEN_TIMEOUT` or `NO_BOND_TIMEOUT`). Callable at any time; counts from the next time the link listens or waits for a bond. The getter takes `NULL` for a value it does not need |
 
 The key behaves as on the real controller. A boot runs the value it holds (a board from before
 the transport key: the slot it stored); `opensc2_config.bond_slot` can choose the puck's slot for
@@ -1687,8 +1688,8 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_THREAD_PRIORITY`, `_STACK_SIZE` | 5, 2048 | the radio thread |
 | `CONFIG_OPENSC2_TX_POWER_DBM` | 6 | as the real controller; `opensc2_radio_set_tx_power()` changes it at run time |
 | `CONFIG_OPENSC2_REPORT_DELAY_US` | 2075 | the state report's slot after a keep-alive is handled (68 ticks of 32768 Hz, as the real controller); the report is built early by the longest build of the last 65 |
-| `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` | 60 | as the real controller: listening gives up after this long (wireless off); 0: never (OpenSC2's choice) |
-| `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` | 10 | as the real controller: with the selected slot empty, the radio goes `OFF` after this long (wireless off); 0: never; 0 to 3600 |
+| `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` | 60 | as the real controller: listening gives up after this long (wireless off); 0: never (OpenSC2's choice); `opensc2_radio_set_give_ups()` at run time |
+| `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` | 10 | as the real controller: with the selected slot empty, the radio goes `OFF` after this long (wireless off); 0: never; 0 to 3600; `opensc2_radio_set_give_ups()` at run time |
 | `CONFIG_OPENSC2_SYSTEM` | y | the [system state machine](#power-and-the-system-state-machine): power, chords, the status LED's mode, cues; off: as v0.2.0 |
 | `CONFIG_OPENSC2_BATTERY` | n | the board runs on a battery without USB power: shutdowns turn it off (`OPENSC2_POWER_OFF`; selects `CONFIG_POWEROFF`); off, every shutdown reboots |
 | `CONFIG_OPENSC2_POWER_POLL_MS` | 50 | how often the system state machine looks at the power source; 10 to 1000 |
@@ -1716,7 +1717,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_CRASH_RECORD` | y (n with `CONFIG_RESET_ON_FATAL_ERROR`) | the fatal-error handler: a crash record, then a reset ([Crash records](#crash-records)) |
 | `CONFIG_OPENSC2_WATCHDOG` | n (not yet tried with the UF2 bootloader) | the real controller's hardware watchdog with its warning crash ([The hardware watchdog](#the-hardware-watchdog)) |
 | `CONFIG_OPENSC2_STORAGE_RECOVERY` | y with NVS settings | erase a settings partition with every sector occupied ([The settings partition](#the-settings-partition)) |
-| `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH`, `_REPORT_WAIT_DEPTH` | 8, 5, 0 | the radio's queues: received packets; extra input reports behind the state reports (5, as the real controller, which drops a report that finds them full); OpenSC2's option to let lizard and application reports wait for room instead |
+| `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH`, `_REPORT_WAIT_DEPTH` | 5, 5, 0 | the radio's queues: received packets (5, as the real controller; one that finds the queue full is dropped and counted); extra input reports behind the state reports (5, as the real controller, which drops a report that finds them full); OpenSC2's option to let lizard and application reports wait for room instead |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
 | `CONFIG_OPENSC2_USB` | y with the `opensc2,usb-hid` node | wired mode |
 | `CONFIG_OPENSC2_USB_PROFILE_JULY` / `_OCTOBER` | July | the USB device's form |

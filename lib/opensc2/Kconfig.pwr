@@ -52,4 +52,4 @@ config OPENSC2_NO_BOND_TIMEOUT_S
 	  As the real controller: it waits 10 s for a bond to be written while its selected slot
 	  is empty, then goes OFF with reason OPENSC2_REASON_NO_BOND_TIMEOUT, which is "wireless
 	  off" (on battery: off; on USB power it waits for STEAM). 0 waits for good, OpenSC2's own
-	  choice.
+	  choice. opensc2_radio_set_give_ups() changes it at run time.

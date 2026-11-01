@@ -39,7 +39,12 @@ config OPENSC2_THREAD_STACK_SIZE
 
 config OPENSC2_RX_QUEUE_DEPTH
 	int "Received packets waiting for the radio thread"
-	default 8
+	default 5
+	range 1 64
+	help
+	  5, as on the real controller: a packet that finds the queue full is dropped (counted, and
+	  logged once the thread catches up). The puck sends one every few milliseconds, so the queue
+	  only fills when the radio thread is held up for longer than that.
 
 config OPENSC2_REPORT_QUEUE_DEPTH
 	int "Extra input reports waiting to ride along with state reports"
@@ -71,12 +76,13 @@ config OPENSC2_REPORT_DELAY_US
 config OPENSC2_LISTEN_TIMEOUT_S
 	int "Stop listening for the puck after this many seconds (0 = never)"
 	default 60
+	range 0 65535
 	help
 	  As the real controller: it listens 60 s for its puck (afresh each time it starts
 	  listening: at the start, after a lost link, after a bond write), then goes OFF with reason
 	  OPENSC2_REASON_LISTEN_TIMEOUT, which is "wireless off" (the system state machine turns a
 	  battery board off; on USB power it waits for STEAM, which reboots it wired). 0 keeps
-	  listening, OpenSC2's own choice.
+	  listening, OpenSC2's own choice. opensc2_radio_set_give_ups() changes it at run time.
 
 config OPENSC2_PAIRING_TIMEOUT_S
 	int "Default pairing window, seconds"
