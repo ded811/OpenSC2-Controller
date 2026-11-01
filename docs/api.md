@@ -509,7 +509,9 @@ application hands over; the application supplies nothing else for it
   the order it can: **`0x85` while the keyboard runs** leaves an "on" pending, so the next
   switch-off (`0x81`, or setting 9 = 0) sends the empty keyboard report twice (it stops, takes up
   the "on" and starts again) and the keyboard keeps typing with setting 9 at 0, the mouse stopped,
-  until the switch-off after that (the next `0x81`). Steam and SDL never send `0x85`.
+  until the switch-off after that (the next `0x81`). This quirk comes from the protocol
+  documentation's reading of the controller's firmware; no host has been seen sending `0x85`
+  while lizard mode is on.
 - **The Steam watchdog** (`CONFIG_OPENSC2_STEAM_WATCHDOG`, controller setting 71): a 10 s timer,
   armed at boot and re-armed by every `0x81` and every write of setting 9 = 0, independent of the
   link. When it runs out with lizard mode off, lizard mode comes back and the settings return to
