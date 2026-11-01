@@ -13,9 +13,10 @@
 #include "dock_link.h"
 #include "sys_rules.h"
 
+/* Test values of OpenSC2's own (a board gives its own). */
 static const struct opensc2_dock_stick_offsets dk_offsets = {
-	.x = { .min = -15, .max = -15, .rest_low = -15, .rest_high = -15 },
-	.y = { .min = -80, .max = -28, .rest_low = -65, .rest_high = -65 },
+	.x = { .min = -10, .max = -11, .rest_low = -12, .rest_high = -13 },
+	.y = { .min = -70, .max = -30, .rest_low = -50, .rest_high = -60 },
 };
 
 OPENSC2_TEST(dock_offsets_apply)
@@ -33,12 +34,12 @@ OPENSC2_TEST(dock_offsets_apply)
 	CHECK_EQ(c.x.max, 65535);
 	CHECK_EQ(c.x.rest_low, 1600);
 	opensc2_dock_stick_offsets_apply(&dk_offsets, &c);
-	CHECK_EQ(c.x.rest_low, 1585);
-	CHECK_EQ(c.x.rest_high, 1685);
-	CHECK_EQ(c.y.min, 220);
-	CHECK_EQ(c.y.max, 2972);
-	CHECK_EQ(c.y.rest_low, 1485);
-	CHECK_EQ(c.y.rest_high, 1585);
+	CHECK_EQ(c.x.rest_low, 1588);
+	CHECK_EQ(c.x.rest_high, 1687);
+	CHECK_EQ(c.y.min, 230);
+	CHECK_EQ(c.y.max, 2970);
+	CHECK_EQ(c.y.rest_low, 1500);
+	CHECK_EQ(c.y.rest_high, 1590);
 }
 
 OPENSC2_TEST(dock_offsets_follow_the_states)
@@ -64,8 +65,8 @@ OPENSC2_TEST(dock_offsets_follow_the_states)
 	CHECK(opensc2_cal_generation() != gen);
 	moved = c;
 	opensc2_dock_stick_adjust(OPENSC2_LEFT, &moved);
-	CHECK_EQ(moved.x.min, 285);
-	CHECK_EQ(moved.y.rest_high, 1585);
+	CHECK_EQ(moved.x.min, 290);
+	CHECK_EQ(moved.y.rest_high, 1590);
 	/* the right stick has none */
 	moved = c;
 	opensc2_dock_stick_adjust(OPENSC2_RIGHT, &moved);
