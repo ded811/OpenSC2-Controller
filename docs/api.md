@@ -777,7 +777,8 @@ every power request goes to the application, `opensc2_led_status()` selects no m
 | `OPENSC2_POWER_SOURCE_DOCK` | the puck's dock contacts: an application that senses their power can name it; with `AUTO` the dock's supply rule decides |
 
 `opensc2_set_power_source(s)` sets it (`-EINVAL` for another value), for example from a charger's
-input type; `opensc2_power_source()` returns the source in effect. The library looks at it every
+input type; `opensc2_power_source()` returns the source in effect (from a thread: with a pilot to
+read it may make the dock's pilot check, about 9 ms, for a supply that has just appeared). The library looks at it every
 `CONFIG_OPENSC2_POWER_POLL_MS` (50 ms, as often as the real controller polls its USB power
 detection). USB power that goes away counts once it has stayed away 0.2 s, the dock's at the next
 poll, as on the real controller; power that comes counts at once. Only a change of "power present" is an event: USB to the dock with power all along changes

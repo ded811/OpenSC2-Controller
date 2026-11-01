@@ -502,7 +502,9 @@ uint8_t opensc2_chime_level(void);
  * OPENSC2_POWER_SOURCE_AUTO for its own view. Call it before opensc2_init() for the power-on
  * decision (the dock: a boot that is not wired), and again whenever it changes. */
 int opensc2_set_power_source(enum opensc2_power_source source);
-/* The power source in effect. */
+/* The power source in effect. With a pilot to read (<opensc2/docking.h>) it may make the dock's
+ * pilot check (about 9 ms, sleeping) for a supply that has just appeared: call it from a thread,
+ * not from an interrupt. */
 enum opensc2_power_source opensc2_power_source(void);
 /* Is the keylock (travel lock) stored? It takes effect at a power-on on battery. */
 bool opensc2_keylock(void);
