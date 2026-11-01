@@ -141,14 +141,17 @@ static uint8_t bond_slot_of(enum named_key key)
 	return key == KEY_BOND_1 ? 0 : 1;
 }
 
-/* 0xEE: set a key in RAM; a value of another size than the key's is refused. The radio hears that
- * a bond changed (it ignores that while off), also after a refused one, as on the real
- * controller. user/wireless_transport takes any byte and does nothing else: the next boot uses it
- * once it is saved. */
+/* 0xEE: set a key in RAM. Refused for an empty value; a bond must be exactly 24 bytes, and is
+ * kept as written (one with an ID of 0 reads back empty and cannot be saved). Either way the radio
+ * hears that a bond was written, as on the real controller (radio_rules.h says what that does in
+ * each state). A blob must have exactly its key's size. */
 static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8_t len)
 {
 	enum named_key key = (enum named_key)info->id;
 
+	if (len == 0) {
+		return -EINVAL;   /* no value: refused before any key hears of it */
+	}
 	if (info->kind == OSC2_KEYK_BLOB) {
 		return osc2_keys_set(info->id, value, len);
 	}
@@ -164,17 +167,19 @@ static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8
 		}
 		opensc2_bond_unpack(value, &bond);
 		lk = k_spin_lock(&osc2.lock);
-		osc2.bonds[bond_slot_of(key)] = opensc2_bond_valid(&bond) ? bond :
-						 (struct opensc2_bond){ 0 };
+		osc2.bonds[bond_slot_of(key)] = bond;
 		k_spin_unlock(&osc2.lock, lk);
 		osc2_radio_post(OSC2_EV_BOND);
 		return 0;
 	}
 	case KEY_TRANSPORT:
+		/* The key's value in RAM, any byte (0xEF stores it; the next boot runs it, as
+		 * transport_rules.h reads it). The running link carries on, and the link coming up
+		 * writes the running transport back into the key, as on the real controller. */
 		if (len != 1) {
 			return -EINVAL;
 		}
-		osc2.transport_key = value[0];
+		osc2.transport = value[0];
 		return 0;
 	case KEY_CHIME:
 		if (len != 1) {
@@ -241,10 +246,10 @@ static int key_save(const struct osc2_key_info *info)
 		bool valid = opensc2_bond_valid(&osc2.bonds[bond_slot_of(key)]);
 
 		k_spin_unlock(&osc2.lock, lk);
-		return valid ? osc2_storage_save_bond(bond_slot_of(key)) : -ENODEV;
+		return valid ? osc2_storage_save_bond(bond_slot_of(key)) : -ENODEV;   /* no value */
 	}
 	case KEY_TRANSPORT:
-		return osc2_storage_save_transport(osc2.transport_key);
+		return osc2_storage_save_transport(osc2.transport);
 	case KEY_CHIME:
 		return osc2_storage_save_chime();
 	default:
@@ -266,22 +271,23 @@ static int key_delete(const struct osc2_key_info *info)
 	switch (key) {
 	case KEY_BOND_1:
 	case KEY_BOND_2: {
-		static const struct opensc2_bond none;
 		k_spinlock_key_t lk;
 
-		err = osc2_storage_store_bond(bond_slot_of(key), &none);
-		if (err == 0) {
-			lk = k_spin_lock(&osc2.lock);
-			memset(&osc2.bonds[bond_slot_of(key)], 0, sizeof(osc2.bonds[0]));
-			k_spin_unlock(&osc2.lock, lk);
-			osc2_radio_post(OSC2_EV_BOND);
+		err = osc2_storage_delete_bond(bond_slot_of(key));
+		if (err) {
+			return err;
 		}
-		return err;
+		lk = k_spin_lock(&osc2.lock);
+		memset(&osc2.bonds[bond_slot_of(key)], 0, sizeof(osc2.bonds[0]));
+		k_spin_unlock(&osc2.lock, lk);
+		osc2_radio_post(OSC2_EV_BOND);
+		return 0;
 	}
 	case KEY_TRANSPORT:
+		/* The key back at 2; the running link carries on. */
 		err = osc2_storage_delete_transport();
 		if (err == 0) {
-			osc2.transport_key = OSC2_TRANSPORT_DEFAULT;
+			osc2.transport = OSC2_TRANSPORT_DEFAULT;
 		}
 		return err;
 	case KEY_CHIME:
@@ -331,7 +337,7 @@ static void key_read(const struct osc2_key_info *info, uint8_t *out, uint8_t *ou
 		}
 		return;
 	case KEY_TRANSPORT:
-		out[0] = osc2.transport_key;
+		out[0] = osc2.transport;
 		*out_len = 1;
 		return;
 	case KEY_CHIME:

@@ -383,6 +383,10 @@ GONE_TIMEOUT_S = 2.0
 # closing it (a closed port can hold the board's shell in its "rebooting" message)
 REBOOT_LEAVE_S = 3.0
 RECONNECT_TIMEOUT_S = 5.0
+# The puck's radio listens 60 s for its puck, then goes OFF with this reason ("wireless off"),
+# as the real controller (CONFIG_OPENSC2_LISTEN_TIMEOUT_S, enum opensc2_reason)
+LISTEN_TIMEOUT_MS = 60000
+REASON_LISTEN_TIMEOUT = 18
 POLL_INTERVAL_S = 0.200
 LEAK_WINDOW_READY_S = 2.0
 

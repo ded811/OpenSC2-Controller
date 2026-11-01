@@ -120,9 +120,10 @@ setting 38).
 - In wireless mode the board's USB serial port has a shell
   ([Reach the shell](../../docs/getting-started.md#reach-the-shell)): `opensc2 status` shows the
   mode and the link. It also shows the board's serials: mask them before you post the output.
-- When the PC goes to sleep, the puck tells the controller to turn off: the system state machine
-  switches wireless off and the LED turns amber. This sample has no STEAM button: reset the board
-  (short RST to GND once), holding the pairing button if it is on USB power, so that it starts
+- When the PC goes to sleep, the puck tells the controller to turn off (a board that finds no puck
+  within 60 s, or no pairing in its slot within 10 s, gives up the same way): the system state
+  machine switches wireless off and the LED turns amber. This sample has no STEAM button: reset the
+  board (short RST to GND once), holding the pairing button if it is on USB power, so that it starts
   wireless again, or type `opensc2 start` on its console.
 
 ## Change it

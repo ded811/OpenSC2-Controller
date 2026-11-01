@@ -51,27 +51,31 @@ OPENSC2_TEST(transport_rules)
 	CHECK_EQ(osc2_transport_puck_slot(1), -1);
 	CHECK_EQ(osc2_transport_ble_slot(1), 1);
 	CHECK_EQ(osc2_transport_ble_slot(2), -1);
-	/* A host's 0xEE: 0 and 1 only with Bluetooth; anything above 3 changes nothing. */
-	CHECK_EQ(osc2_transport_key_value(0, false), -1);
-	CHECK_EQ(osc2_transport_key_value(1, true), 1);
-	CHECK_EQ(osc2_transport_key_value(3, false), 3);
-	CHECK_EQ(osc2_transport_key_value(4, true), -1);
-	CHECK_EQ(osc2_transport_key_value(0xFF, true), -1);
-	/* The boot choice: the stored one if usable, else an older firmware's slot, else 2. */
-	CHECK_EQ(osc2_transport_at_boot(OSC2_TRANSPORT_NONE, 0, false), 2);
-	CHECK_EQ(osc2_transport_at_boot(OSC2_TRANSPORT_NONE, 1, false), 3);
-	CHECK_EQ(osc2_transport_at_boot(OSC2_TRANSPORT_NONE, -1, true), 2);
-	CHECK_EQ(osc2_transport_at_boot(1, 0, true), 1);
-	CHECK_EQ(osc2_transport_at_boot(1, 1, false), 3);   /* a Bluetooth choice without Bluetooth */
-	CHECK_EQ(osc2_transport_at_boot(3, 0, false), 3);
-	CHECK_EQ(osc2_transport_at_boot(7, -1, true), 2);   /* a stored value above 3: the default */
-	/* October's rule: saved once the link is up, unless it is the stored one already. */
-	CHECK(osc2_transport_save_due(2, OSC2_TRANSPORT_NONE));
-	CHECK(!osc2_transport_save_due(2, 2));
-	CHECK(osc2_transport_save_due(0, 2));
-	CHECK(osc2_transport_save_due(3, 1));    /* back from Bluetooth slot 2 to the second puck */
-	CHECK(!osc2_transport_save_due(OSC2_TRANSPORT_NONE, 2));
-	CHECK(!osc2_transport_save_due(4, 2));   /* no such transport */
+	/* The link a value runs, as the real controller picks it: 0 and 1 Bluetooth (the puck with
+	 * bond 1 without it), 3 the second puck, every other byte the puck with bond 1. */
+	CHECK_EQ(osc2_transport_runs(0, true), 0);
+	CHECK_EQ(osc2_transport_runs(1, true), 1);
+	CHECK_EQ(osc2_transport_runs(0, false), 2);
+	CHECK_EQ(osc2_transport_runs(1, false), 2);
+	CHECK_EQ(osc2_transport_runs(2, false), 2);
+	CHECK_EQ(osc2_transport_runs(3, true), 3);
+	CHECK_EQ(osc2_transport_runs(4, true), 2);
+	CHECK_EQ(osc2_transport_runs(0xFF, true), 2);
+	/* The boot value: the stored byte as it is, else an older firmware's slot, else 2. */
+	CHECK_EQ(osc2_transport_at_boot(false, 0, 0), 2);
+	CHECK_EQ(osc2_transport_at_boot(false, 0, 1), 3);
+	CHECK_EQ(osc2_transport_at_boot(false, 0, -1), 2);
+	CHECK_EQ(osc2_transport_at_boot(true, 1, 0), 1);
+	CHECK_EQ(osc2_transport_at_boot(true, 3, 0), 3);
+	CHECK_EQ(osc2_transport_at_boot(true, 7, -1), 7);       /* kept: it runs the puck, bond 1 */
+	CHECK_EQ(osc2_transport_at_boot(true, 0xFF, 1), 0xFF);  /* a stored 0xFF is a value too */
+	/* October's rule: written whenever its link comes up, unless it is the stored value. */
+	CHECK(osc2_transport_save_due(2, false, OSC2_TRANSPORT_NONE));
+	CHECK(!osc2_transport_save_due(2, true, 2));
+	CHECK(osc2_transport_save_due(0, true, 2));
+	CHECK(osc2_transport_save_due(3, true, 1));    /* back from Bluetooth slot 2 to the puck */
+	CHECK(!osc2_transport_save_due(7, true, 7));   /* the stored byte, running as the puck */
+	CHECK(osc2_transport_save_due(0xFF, false, 0xFF));
 	/* Names and the shell's words. */
 	CHECK(strcmp(osc2_transport_name(0), "Bluetooth 1") == 0);
 	CHECK(strcmp(osc2_transport_name(3), "puck 2") == 0);
@@ -84,15 +88,16 @@ OPENSC2_TEST(transport_rules)
 	CHECK_EQ(osc2_transport_from_word("bluetooth"), -1);
 }
 
-/* The key as the real controller keeps it (its handler's RAM byte): 0xEE takes any byte and
- * changes nothing else (the transport running, the radio's slot), 0xED reads it back, 0xEF stores
- * it as it is, 0xF0 deletes it and the key reads 2 again; the factory reset deletes it from flash
- * and leaves RAM until the reboot. */
-OPENSC2_TEST(transport_key_without_ble)
+/* The key, as on the real controller (the host tests' build has no Bluetooth; it makes no
+ * difference to the key): 0xEE sets any one byte in RAM and leaves the running link alone (no
+ * event for the radio, the slot unchanged), 0xED reads it back, 0xEF stores it, 0xF0 deletes it
+ * and the key reads 2 again; the running link carries on through all of it. */
+OPENSC2_TEST(transport_key_as_the_real_one)
 {
 	uint8_t reply[64];
 	uint8_t named[40];
 	size_t key_len = sizeof(key_transport);
+	const uint8_t values[] = { 3, 1, 0, 7, 0xFF, 2 };
 
 	stub_reset();
 	CHECK_EQ(usb_set(0xED, key_transport, (uint8_t)key_len), 0);
@@ -101,43 +106,45 @@ OPENSC2_TEST(transport_key_without_ble)
 	CHECK_EQ(reply[3], 2);   /* the default: the puck with bond 1 */
 
 	memcpy(named, key_transport, key_len);
-	named[key_len] = 3;
-	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
-	CHECK_EQ(osc2.transport_key, 3);
-	CHECK_EQ(osc2.transport, 2);      /* nothing runs at once */
-	CHECK_EQ(osc2.slot, 0);
-	CHECK(!(stub.radio_events & OSC2_EV_BOND));
-	CHECK_EQ(stub.saved_transport, 0);   /* RAM only */
-	named[key_len] = 1;   /* Bluetooth: no Bluetooth in this build, kept all the same */
-	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
-	CHECK_EQ(osc2.transport_key, 1);
-	named[key_len] = 7;   /* above 3: kept as it is */
-	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
-	CHECK_EQ(osc2.transport_key, 7);
-	CHECK_EQ(usb_set(0xEE, named, (uint8_t)key_len), -EINVAL);   /* no value byte */
-	named[key_len + 1] = 3;
-	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 2)), -EINVAL);   /* two bytes */
-	CHECK_EQ(usb_set(0xED, key_transport, (uint8_t)key_len), 0);
-	CHECK_EQ(usb_get(reply, 64), 64);
-	CHECK_EQ(reply[3], 7);
+	for (size_t i = 0; i < sizeof(values); i++) {
+		named[key_len] = values[i];
+		stub.radio_events = 0;
+		CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
+		CHECK_EQ(osc2.transport, values[i]);
+		CHECK_EQ(osc2.slot, 0);                /* the running link is not touched */
+		CHECK_EQ(stub.radio_events, 0);
+		CHECK_EQ(stub.saved_transport, 0);     /* RAM only */
+		CHECK_EQ(usb_set(0xED, key_transport, (uint8_t)key_len), 0);
+		CHECK_EQ(usb_get(reply, 64), 64);
+		CHECK_EQ(reply[2], 1);
+		CHECK_EQ(reply[3], values[i]);
+	}
+	CHECK(usb_set(0xEE, named, (uint8_t)key_len) < 0);   /* no value byte */
+	named[key_len + 1] = 2;
+	CHECK(usb_set(0xEE, named, (uint8_t)(key_len + 2)) < 0);   /* two value bytes */
 
-	/* 0xEF stores the byte as it is; 0xF0 deletes it and the key reads the default. */
+	/* 0xEF stores the key's byte, as it is; 0xF0 deletes it and the key reads 2. */
+	named[key_len] = 7;
+	CHECK_EQ(usb_set(0xEE, named, (uint8_t)(key_len + 1)), 0);
 	CHECK_EQ(usb_set(0xEF, key_transport, (uint8_t)key_len), 0);
 	CHECK_EQ(stub.saved_transport, 1);
 	CHECK_EQ(stub.stored_transport, 7);
-	CHECK_EQ(osc2.transport, 2);
+	CHECK(osc2.transport_stored);
+	osc2.slot = 1;   /* a link running bond 2 */
 	CHECK_EQ(usb_set(0xF0, key_transport, (uint8_t)key_len), 0);
 	CHECK_EQ(stub.deleted_transport, 1);
-	CHECK_EQ(osc2.transport_key, 2);
 	CHECK_EQ(osc2.transport, 2);
+	CHECK_EQ(osc2.slot, 1);   /* it carries on */
+	CHECK_EQ(stub.radio_events, 0);
+	CHECK(!osc2.transport_stored);
 	CHECK_EQ(stub.stored_transport, OSC2_TRANSPORT_NONE);
 
 	/* The factory reset deletes the stored choice; the RAM values stay until its reboot. */
-	osc2.transport_key = 3;
+	osc2.transport = 3;
 	CHECK_EQ(usb_set(0x86, (const uint8_t[]){ 0x17, 0xA9, 0xC1, 0xEF }, 4), 0);
 	CHECK_EQ(stub.factory_resets, 1);
 	CHECK_EQ(stub.storage_factory_resets, 1);
-	CHECK_EQ(osc2.transport_key, 3);
+	CHECK_EQ(osc2.transport, 3);
 	CHECK_EQ(stub.power, OPENSC2_POWER_FACTORY_RESET);
 }
 

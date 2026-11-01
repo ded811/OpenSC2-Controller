@@ -27,7 +27,7 @@ compile() {
 		"$lib/mode_rules.c" "$lib/retained.c" "$lib/id_rules.c" "$lib/commands.c" \
 		"$lib/report_rules.c" "$lib/test_core.c" "$lib/proto_rules.c" "$lib/key_rules.c" \
 		"$lib/crash_rules.c" "$lib/input_rules.c" "$lib/report_queue.c" \
-		"$lib/transport_rules.c" "$lib/ble_rules.c" \
+		"$lib/transport_rules.c" "$lib/ble_rules.c" "$lib/radio_rules.c" \
 		"$lib/cal.c" "$lib/sensor_helpers.c" "$lib/gauge.c" "$lib/cal_store.c" \
 		"$lib/sys_rules.c" "$lib/chord_rules.c" "$lib/idle_rules.c" "$lib/led_rules.c" \
 		"$lib/test_sys.c" "$lib/haptics_dsp.c" "$lib/haptics_tables.c" \

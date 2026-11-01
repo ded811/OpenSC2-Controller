@@ -624,9 +624,6 @@ int opensc2_init(const struct opensc2_config *config)
 		osc2.slot = config->bond_slot;
 	}
 	osc2_transport_init();   /* the stored transport (a puck one uses the slot just set) */
-	if (!osc2.transport_key_loaded) {
-		osc2.transport_key = osc2.transport;   /* user/wireless_transport with nothing stored */
-	}
 	osc2_identity_refresh();
 	for (int link = 0; link < OSC2_LINK_COUNT; link++) {
 		osc2_commands_reset((enum osc2_link)link);

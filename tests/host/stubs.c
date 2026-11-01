@@ -66,22 +66,39 @@ void osc2_radio_post(uint32_t events)
 
 int osc2_storage_save_bond(uint8_t slot)
 {
-	return osc2_storage_store_bond(slot, &osc2.bonds[slot]);
+	stub.saved_bonds |= 1u << slot;
+	stub.stored_bonds[slot] = opensc2_bond_valid(&osc2.bonds[slot]) ? osc2.bonds[slot] :
+									(struct opensc2_bond){ 0 };
+	return stub.storage_error;
 }
 
+/* 0xA2's write (flash only; the bond in RAM stays) */
 int osc2_storage_store_bond(uint8_t slot, const struct opensc2_bond *bond)
 {
-	stub.saved_bonds |= 1u << slot;
+	stub.stored_bond_slot = slot;
+	stub.stored_bond = *bond;
+	stub.stored_bond_writes++;
 	stub.stored_bonds[slot] = opensc2_bond_valid(bond) ? *bond : (struct opensc2_bond){ 0 };
 	return stub.storage_error;
 }
 
+int osc2_storage_delete_bond(uint8_t slot)
+{
+	stub.deleted_bonds |= 1u << slot;
+	if (stub.bond_delete_error == 0) {
+		stub.stored_bonds[slot] = (struct opensc2_bond){ 0 };
+	}
+	return stub.bond_delete_error;
+}
+
 int osc2_storage_save_transport(uint8_t t)
 {
+	/* as storage.c: stored, and read back into the key */
 	stub.saved_transport++;
 	stub.stored_transport = t;
 	osc2.transport_saved = t;
-	osc2.transport_key = t;
+	osc2.transport_stored = true;
+	osc2.transport = t;
 	return 0;
 }
 
@@ -90,6 +107,7 @@ int osc2_storage_delete_transport(void)
 	stub.deleted_transport++;
 	stub.stored_transport = OSC2_TRANSPORT_NONE;
 	osc2.transport_saved = OSC2_TRANSPORT_NONE;
+	osc2.transport_stored = false;
 	return 0;
 }
 
@@ -425,7 +443,6 @@ void stub_reset(void)
 	osc2.chime = 2;
 	osc2.transport = OSC2_TRANSPORT_DEFAULT;   /* as core.c starts it */
 	osc2.transport_saved = OSC2_TRANSPORT_NONE;
-	osc2.transport_key = OSC2_TRANSPORT_DEFAULT;
 	stub.stored_transport = OSC2_TRANSPORT_NONE;
 	osc2.mode = OPENSC2_MODE_WIRED;
 	stub.link_active[OSC2_LINK_USB] = true;

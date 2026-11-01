@@ -57,6 +57,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_pair_start(s)`, `opensc2_pair_cancel()` | pair over the air with a puck's open pairing window (with Bluetooth as the transport: pairing mode) | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_link_state()`, `opensc2_link_info(&info)` | the wireless link's state and counters | [Life cycle](#life-cycle) |
 | `opensc2_select_transport(t)`, `opensc2_select_transport_pairing(t)`, `opensc2_selected_transport()` | the wireless transport: the puck with bond 1 or 2, or Bluetooth slot 1 or 2 (with the pairing flag, Bluetooth opens the slot for a new host) | [Wireless transports](#wireless-transports-and-bluetooth-le) |
+| `opensc2_transport_key()`, `opensc2_radio_set_tx_power(dbm)`, `opensc2_radio_tx_power()`, `opensc2_radio_set_give_ups()`, `opensc2_radio_give_ups()` | `user/wireless_transport` as a host reads it; the puck link's transmit power and its give-up timers | [Wireless transports](#wireless-transports-and-bluetooth-le) |
 | `opensc2_mode()`, `opensc2_mode_reason()` | this boot's mode (wired or wireless) and why | [Modes](#modes) |
 | `opensc2_policy()`, `opensc2_policy_set(p)` | the stored rule for boots with USB power | [Modes](#modes) |
 | `opensc2_reboot(how, why)`, `opensc2_reboot_later(how, why, ms)` | reboot by the rule, into wireless, or into wired once | [Modes](#modes) |
@@ -144,11 +145,11 @@ Link states and reasons (`link_changed` gets both):
 
 | State | Means |
 | --- | --- |
-| `OPENSC2_LINK_OFF` | Radio off: before `opensc2_start()`, after `opensc2_stop()`, after the puck turned the controller off, after `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` or `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S`, or wired. |
-| `OPENSC2_LINK_NO_BOND` | Radio on, but the selected slot has no bond: pair first. |
-| `OPENSC2_LINK_PAIRING` | Answering a puck's pairing beacon. |
-| `OPENSC2_LINK_LISTENING` | Waiting on channel 2 for the bonded puck's connection request. |
-| `OPENSC2_LINK_CONNECTED` | On the puck's private pipe; reports flow. |
+| `OPENSC2_LINK_OFF` | Radio off: before `opensc2_start()`, after `opensc2_stop()`, after the puck turned the controller off, after 60 s of listening (`CONFIG_OPENSC2_LISTEN_TIMEOUT_S`) or 10 s without a bond (`CONFIG_OPENSC2_NO_BOND_TIMEOUT_S`), or wired. |
+| `OPENSC2_LINK_NO_BOND` | Radio on, but the selected slot had no bond when the link started: it waits 10 s for one. Any bond write then starts listening, as on the real controller (also one that leaves the slot empty: it then listens for IDs 0 and 0, which no puck sends, until its 60 s are over). |
+| `OPENSC2_LINK_PAIRING` | Answering a puck's pairing beacon (OpenSC2's own: the real controller never pairs over the air). |
+| `OPENSC2_LINK_LISTENING` | Waiting on channel 2 for the bonded puck's connection request, 60 s from each start: at the start, after a lost link, and again after every bond write (of either slot). |
+| `OPENSC2_LINK_CONNECTED` | On the puck's private pipe; reports flow. A bond written now counts from the next time it listens. |
 
 With Bluetooth as the transport the same states mean: `OFF` Bluetooth stopped, or "wireless off"
 (reason `LISTEN_TIMEOUT` or `HOST_DISCONNECTED`); `PAIRING` advertising open to any host (pairing
@@ -160,17 +161,19 @@ once the link is encrypted and its ATT MTU is 64 or more). The reasons `LINK_LOS
 | Reason | Means |
 | --- | --- |
 | `LINK_LOST` (1) | 500 ms without a packet from the puck. |
-| `DISABLED` (2) | `opensc2_stop()`, a local turn-off, pairing started while connected, or another slot selected. |
+| `DISABLED` (2) | `opensc2_stop()`, a local turn-off, pairing started while connected, or another slot selected while connected (the puck sees a stop). |
 | `PUCK_TURN_OFF` (3) | The puck sent "turn off" (the PC went to sleep). The link then goes `OFF`. |
 | `BAD_VERSION` (4) | The puck's protocol version is not 0 or 1. |
 | `PAIRED`, `PAIRING_FAILED` | End of a pairing window. |
 | `LISTEN_TIMEOUT` | `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` passed without the puck; Bluetooth: its advertising window ended without a host (wireless off). |
-| `BOND_CHANGED` | A bond or the slot selection changed. |
+| `BOND_CHANGED` | A bond was written (listening starts again), or another slot was selected at run time. |
 | `HOST_DISCONNECTED` | Bluetooth: the host ended the link (HCI `0x13`) or powered off (`0x15`): wireless off. |
 | `NO_BOND_TIMEOUT` | `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` passed with the selected slot still empty. |
 
-Reasons 0 to 4 are the controller's own disconnect reasons; the last one is what vendor command
-`0xF2` selector 2 reports.
+Reasons 0 to 4 are the controller's own disconnect reasons; the last connection's is what vendor
+command `0xF2` selector 2 reports. As on the real controller the first reason of a connection
+stays: a stop or a lost link after the puck's turn-off (3) or a refused version (4) leaves 3 or 4,
+and the link then goes `OFF` with it (wireless off).
 
 ## Modes
 
@@ -530,9 +533,11 @@ keyboard reports from the input state:
     time the thumb has moved more than 1500 pad units from the last one, and a tick once the steps
     times 1500 exceed setting 14 (5500: every fourth step); click B when a pad's click turns on or
     off, unless its threshold (52, 53) is -1. Each is a [haptic event](#outputs) from the library.
-- **Through the puck**, lizard mode's reports wait for room in the radio's queue instead of being
-  dropped (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`, 8 beyond the queue's 6), and lizard mode waits with
-  its next frame while they do; the next frame takes up the motion. A dropped link does not start
+- **Through the puck**, as on the real controller, lizard mode's reports of a frame ride with the
+  next state report, behind it, and one that finds the radio's queue of 5 full is dropped
+  (`CONFIG_OPENSC2_REPORT_QUEUE_DEPTH`). OpenSC2's option `CONFIG_OPENSC2_REPORT_WAIT_DEPTH` (0 by
+  default) lets that many more wait for room instead, while lizard mode waits with its next frame;
+  the next frame takes up the motion. A dropped link does not start
   the trackers over, as on the real controller: no frames run meanwhile, and the first frame after
   the gap compares the pads with the frame before it.
 
@@ -818,9 +823,9 @@ puck, Bluetooth on that slot in a build with Bluetooth (without one the main puc
 | `dock-on` | the transport's, shown as on external power | STEAM held 7 s, the turn-off command, a link that gave up or the puck's turn-off: the power-off cue, `dock-off`; power gone: `battery`, the link kept; a host's requests reach the application |
 | `shutdown`, `shutdown-silent`, `shutdown-low`, `shutdown-locked`, `reboot` | 5, 5, 6, 7, 5 | nothing else: [Shutdown and power-off](#shutdown-and-power-off) |
 
-"A link that gave up" is the radio going `OFF` after `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` (60 s in a
-battery build), after `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` with the selected slot empty (10 s in a
-battery build), or for a protocol version it does not speak; the puck's turn-off counts the same. A
+"A link that gave up" is the radio going `OFF` after `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` (60 s, as
+the real controller), after `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` with the selected slot empty (10 s),
+or for a protocol version it does not speak; the puck's turn-off counts the same. A
 radio stopped on the board (`opensc2_stop()`, the shell's `opensc2 stop`) is not "wireless off".
 The turn-off command is `0x9F`, or `0x95` with `0xABDF9710`; wired, it is acknowledged and ignored,
 as before. A host's other requests (`0x95` reboots, the bootloader requests) reach `power_request`
@@ -1352,7 +1357,7 @@ shell numbers the two pairing slots 1 and 2; the API numbers them 0 and 1.
 | Function | Does |
 | --- | --- |
 | `opensc2_bond_get(slot, &bond)` | read one |
-| `opensc2_bond_set(slot, &bond)` | store one (both IDs zero: delete). Listening restarts with it. |
+| `opensc2_bond_set(slot, &bond)` | store one (an ID zero: delete), in RAM and on the board, at once. Like any bond write on the real controller: while listening, listening starts again (60 s afresh); while waiting for a bond, listening starts; while connected, it counts from the next time the link listens. |
 | `opensc2_select_slot(slot)`, `opensc2_selected_slot()` | the slot in use (`opensc2_select_transport()` with `OPENSC2_TRANSPORT_PUCK_1` or `_2`) |
 
 **Over the cable** (how Steam pairs a real controller): with the board wired and a puck on the PC,
@@ -1370,11 +1375,20 @@ answers an open window when its pairing button is pressed; with
 [Counterpuck](https://github.com/ded811/Counterpuck) as the puck, its shell command `pair 0` opens a
 window without Steam (also untested with OpenSC2).
 
-Bonds can also arrive through `0xA2` (the first slot, API slot 0). Treat the stored IDs as private:
-they identify the puck.
+Bonds can also arrive through the vendor commands, which act as on the real controller:
+
+| Command | Does |
+| --- | --- |
+| `0xEE esb/bond`, `esb/bond_2` | exactly 24 bytes (else `-EINVAL`), into RAM as written; either way the radio hears a bond write (above). A bond with an ID of 0 reads back empty and cannot be saved |
+| `0xEF` | stores the RAM bond; `-ENODEV` while it is not valid |
+| `0xF0` | deletes the stored bond and, once that worked, empties the RAM bond (a bond write for the radio) |
+| `0xED` | the RAM bond, or length 0 while it is not valid |
+| `0xA2` | exactly 24 bytes (else `-EINVAL`): written to the first slot's storage from the system work queue (an invalid bond deletes it). The RAM bond and the radio are not touched: it counts from the next boot |
+
+Treat the stored IDs as private: they identify the puck.
 
 Storage keys (Zephyr settings): `opensc2/bond0`, `opensc2/bond1`, `opensc2/transport` (the
-wireless transport, 0 to 3), `opensc2/slot` (the puck's slot, written with a puck transport;
+wireless transport: `user/wireless_transport`'s byte), `opensc2/slot` (the puck's slot, written with a puck transport;
 firmware before the transport key reads only this one), `opensc2/chime`, `opensc2/id`,
 `opensc2/name`, `opensc2/mode`, the values the library keeps for settings by name under
 `opensc2/k/` ([Settings by name](#settings-by-name)), and with `CONFIG_OPENSC2_CAL` the calibration
@@ -1403,12 +1417,19 @@ pairs a controller over the cable:
 | `opensc2_select_transport(t)` | Run `t` from now on: the running transport stops and hands over the radio (only one runs at a time). Stored once its link is up, as the October 2026 firmware does (the puck: connected; Bluetooth: connected, encrypted, an ATT MTU of 64 or more), so a choice whose link never comes up is not kept; in wired mode it is stored at once, for the next wireless boot. With the system state machine it is also the machine's choice from then on (the LED's colour, the battery wait's start, `opensc2 power`). `-ENOTSUP` for Bluetooth without `CONFIG_OPENSC2_BLE`, `-EINVAL` for another value. |
 | `opensc2_select_transport_pairing(t)` | The same with the pairing flag that the real controller's transport chords give when held 4 s: Bluetooth opens the slot for a new host (pairing mode on the slot's other identity, which is reset first, so the old host's bond stays until a new host has paired), even when that slot is connected; the puck's radio ignores the flag, as the real controller's does; in wired mode the choice is stored and the flag dropped. |
 | `opensc2_selected_transport()` | the transport this boot runs |
+| `opensc2_transport_key()` | `user/wireless_transport` as a host reads it with `0xED` (below) |
+| `opensc2_radio_set_tx_power(dbm)`, `opensc2_radio_tx_power()` | the puck link's transmit power, -40 to 8 dBm (`-EINVAL` otherwise); `CONFIG_OPENSC2_TX_POWER_DBM` (+6, the real controller's) until set. From the next time the link listens (every connection starts there): a board with an amplifier or a weak antenna can set it at any time |
+| `opensc2_radio_set_give_ups(listen_s, no_bond_s)`, `opensc2_radio_give_ups(&listen_s, &no_bond_s)` | the puck link's two give-ups in seconds, 0 for never: listening for the puck (60) and waiting for a bond with the selected slot empty (10), as the real controller; `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` and `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` until set. Either ends in "wireless off" (`OPENSC2_LINK_OFF` with `LISTEN_TIMEOUT` or `NO_BOND_TIMEOUT`). Callable at any time; counts from the next time the link listens or waits for a bond. The getter takes `NULL` for a value it does not need |
 
-A boot runs the stored transport (a board from before the transport key: the slot it stored).
-A host can also write the key: `0xEE` sets the choice in RAM (a new puck slot counts at once, as a
-new bond does; a change between the puck and Bluetooth is not run at once: saved with `0xEF`, it
-counts from the next boot) and `0xEF` saves it. Without Bluetooth, `0xEE` with 0 or 1 is taken and
-changes nothing, as before.
+The key behaves as on the real controller. A boot runs the value it holds (a board from before
+the transport key: the slot it stored); `opensc2_config.bond_slot` can choose the puck's slot for
+one boot. A host's `0xEE` writes any one byte into RAM (else `-EINVAL`) and leaves the running link
+alone; `0xED` reads the byte back; `0xEF` stores it; `0xF0` deletes it and the key reads 2. A
+choice made at run time (above, the shell, a chord) leaves the key alone until its link comes up:
+then the running transport is written back into the key, and stored, at every connection (so a
+byte a host wrote without `0xEF` is replaced by the running one when the puck connects again). At
+boot, 0 and 1 run Bluetooth (the main puck in a build without it), 3 the second puck, and every
+other byte the main puck (and stays as it is in the key).
 
 ### The Bluetooth build
 
@@ -1721,10 +1742,10 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_ESB_MAX_PAYLOAD_LENGTH` | 128 (128 or more) | checked at build time |
 | `CONFIG_ESB_TX_FIFO_SIZE` | 2 recommended | the real controller keeps two replies queued |
 | `CONFIG_OPENSC2_THREAD_PRIORITY`, `_STACK_SIZE` | 5, 2048 | the radio thread |
-| `CONFIG_OPENSC2_TX_POWER_DBM` | 6 | as the real controller |
-| `CONFIG_OPENSC2_REPORT_DELAY_US` | 2000 | sample a state report this long after a keep-alive |
-| `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` | 0 (never); 60 with `CONFIG_OPENSC2_BATTERY` | the real controller gives up after 60 s |
-| `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` | 0 (never); 10 with `CONFIG_OPENSC2_BATTERY` | with the selected slot empty, the radio goes `OFF` after this long (the real controller waits 10 s for a bond); 0 to 3600 |
+| `CONFIG_OPENSC2_TX_POWER_DBM` | 6 | as the real controller; `opensc2_radio_set_tx_power()` changes it at run time |
+| `CONFIG_OPENSC2_REPORT_DELAY_US` | 2075 | the state report's slot after a keep-alive is handled (68 ticks of 32768 Hz, as the real controller); the report is built early by the longest build of the last 65 |
+| `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` | 60 | as the real controller: listening gives up after this long (wireless off); 0: never (OpenSC2's choice); `opensc2_radio_set_give_ups()` at run time |
+| `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` | 10 | as the real controller: with the selected slot empty, the radio goes `OFF` after this long (wireless off); 0: never; 0 to 3600; `opensc2_radio_set_give_ups()` at run time |
 | `CONFIG_OPENSC2_SYSTEM` | y | the [system state machine](#power-and-the-system-state-machine): power, chords, the status LED's mode, cues; off: as v0.2.0 |
 | `CONFIG_OPENSC2_BATTERY` | n | the board runs on a battery without USB power: shutdowns turn it off (`OPENSC2_POWER_OFF`; selects `CONFIG_POWEROFF`); off, every shutdown reboots |
 | `CONFIG_OPENSC2_POWER_POLL_MS` | 50 | how often the system state machine looks at the power source; 10 to 1000 |
@@ -1752,7 +1773,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_CRASH_RECORD` | y (n with `CONFIG_RESET_ON_FATAL_ERROR`) | the fatal-error handler: a crash record, then a reset ([Crash records](#crash-records)) |
 | `CONFIG_OPENSC2_WATCHDOG` | n (not yet tried with the UF2 bootloader) | the real controller's hardware watchdog with its warning crash ([The hardware watchdog](#the-hardware-watchdog)) |
 | `CONFIG_OPENSC2_STORAGE_RECOVERY` | y with NVS settings | erase a settings partition with every sector occupied ([The settings partition](#the-settings-partition)) |
-| `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH`, `_REPORT_WAIT_DEPTH` | 8, 6, 8 | the radio's queues; lizard and application reports wait for room in the last 8 instead of being dropped |
+| `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH`, `_REPORT_WAIT_DEPTH` | 5, 5, 0 | the radio's queues: received packets (5, as the real controller; one that finds the queue full is dropped and counted); extra input reports behind the state reports (5, as the real controller, which drops a report that finds them full); OpenSC2's option to let lizard and application reports wait for room instead |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
 | `CONFIG_OPENSC2_USB` | y with the `opensc2,usb-hid` node | wired mode |
 | `CONFIG_OPENSC2_USB_PROFILE_JULY` / `_OCTOBER` | October | the USB device's form |
@@ -1789,14 +1810,23 @@ The functions for the settings and the other state Steam sets:
   periodic 4000 µs timer (132 ticks of the 32,768 Hz clock: 4.03 ms, about 248 state reports per
   second); vendor commands and output reports run in Zephyr's USB stack thread, and a command that
   writes flash holds its request until the write is done (Steam waits).
-- The puck sends a keep-alive about every 3 ms; each reply goes out with the acknowledgement of the
-  puck's next packet. State reports are sampled `CONFIG_OPENSC2_REPORT_DELAY_US` after a keep-alive.
-- Link loss: 10 ms on the current channel, then 13 ms on each alternate, 500 ms in all.
+- The puck sends a keep-alive every few milliseconds; each reply goes out with the
+  acknowledgement of the puck's next packet. As on the real controller, only a keep-alive gets a
+  state report: its slot is `CONFIG_OPENSC2_REPORT_DELAY_US` (2075 µs) after the keep-alive is
+  handled, and the report is built earlier than the slot by the longest time building one took
+  over the last 65 (until 65 are timed: 2472 µs, so at once). The radio thread builds it when that
+  time comes while it waits for the next packet, so the next turn starts as soon as a packet is
+  handled. Whatever else is pending ("disconnecting", the version answer, the identity) is queued
+  as soon as a packet is handled, each as its own payload.
+- Link loss: each turn waits 10 ms on the first channel of the list, then 13 ms on each other
+  entry in turn (the first one included, round the list) until 500 ms have passed since the turn
+  began.
 - The Steam watchdog, the battery report and the rumble timeout run in the system work queue,
   whatever the link, and so does the system state machine: it looks at the buttons when they
   change, at the power source every `CONFIG_OPENSC2_POWER_POLL_MS`, and at its own timers when they
   are due; the events of the rest of the library wait in a queue of ten.
 - Lizard mode runs one frame after each state report, in the thread that built it; through the puck
+  its reports ride with the next state report, and with `CONFIG_OPENSC2_REPORT_WAIT_DEPTH` above 0
   a frame waits while reports wait for room in the radio's queue.
 - With the haptics synthesiser: two more threads, one per haptic path
   ([its threads](#settings-threads-and-memory)).

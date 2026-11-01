@@ -73,6 +73,18 @@ static inline int k_mutex_unlock(struct k_mutex *m)
 	return 0;
 }
 
+/* A work item runs at once when it is submitted (one thread here). */
+struct k_work {
+	void (*handler)(struct k_work *work);
+};
+#define K_WORK_DEFINE(name, fn) struct k_work name = { fn }
+
+static inline int k_work_submit(struct k_work *work)
+{
+	work->handler(work);
+	return 1;
+}
+
 /* The tests' clock, in milliseconds. */
 int64_t k_uptime_get(void);
 

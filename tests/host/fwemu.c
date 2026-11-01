@@ -28,9 +28,11 @@
  *   ADVANCE <ms>        the clock moves on (the lease, the end of a disarm, timers)
  *   USBSET <hex>        a SET_REPORT(Feature 1) data stage: "OK" or "STALL <errno>"
  *   USBGET [<wLength>]  a GET_REPORT(Feature 1): "ANS <hex>" or "STALL <errno>"
- *   RADIOSET <hex>      a SET record {opcode, n, payload} from the puck: "RC <rc>"
+ *   RADIOSET <hex>      a SET record {opcode, n, payload} from the puck, zero padded to a whole
+ *                       command as radio.c does: "RC <rc>"
  *   RADIOGET            a GET record: "ANS <hex>" ({opcode, n, data})
- *   OUT <hex>           an output report from the host on the mode's link: "N <decoded>"
+ *   OUT <hex>           an output report from the host on the mode's link (wireless: as radio.c
+ *                       hands on an output record, one byte longer): "N <decoded>"
  *   CONSOLE <words>     "opensc2 test <words>": the console's lines as they are printed
  *   FRAMES <n>          n state reports (4028 µs apart): "RPT <hex>" for each, with the battery
  *                       reports that fall due and the reports the application sent, in order
@@ -56,6 +58,7 @@
 #include "input_rules.h"
 #include "lizard.h"
 #include "proto_rules.h"
+#include "radio_rules.h"
 #include "stubs.h"
 #include "hooks_stub.h"
 #include "fwemu_sys.h"
@@ -697,7 +700,12 @@ int main(void)
 			if (n < 2) {
 				printf("ERR bad record\n");
 			} else {
-				printf("RC %ld\n", (long)osc2_command_set(OSC2_LINK_RADIO, buf, (uint8_t)n));
+				/* radio.c: the record's bytes, zero padded to a whole command */
+				uint8_t cmd[63] = { 0 };
+
+				memcpy(cmd, buf, MIN((size_t)n, sizeof(cmd)));
+				printf("RC %ld\n", (long)osc2_command_set(OSC2_LINK_RADIO, cmd,
+									    sizeof(cmd)));
 				after_request();
 			}
 		} else if (strcmp(line, "RADIOGET") == 0) {
@@ -712,9 +720,21 @@ int main(void)
 			n = osc2_test_unhex(arg, buf, sizeof(buf));
 			if (n < 0) {
 				printf("ERR bad hex\n");
+			} else if (wireless && n > 0) {
+				/* radio.c: an output record goes on with the record's length, one more
+				 * than the report, and the byte after it (0 here: the packet ends) */
+				uint8_t report[OPENSC2_PAYLOAD_MAX + 1];
+				struct opensc2_record rec = {
+					.type = OPENSC2_REC_OUTPUT,
+					.len = (uint8_t)MIN(n, OPENSC2_PAYLOAD_MAX),
+					.data = buf,
+				};
+				size_t len = osc2_radio_output_record(buf, rec.len, &rec, report);
+
+				printf("N %d\n", output(OSC2_LINK_RADIO, report, len));
+				after_request();
 			} else {
-				printf("N %d\n", output(wireless ? OSC2_LINK_RADIO : OSC2_LINK_USB, buf,
-							(size_t)n));
+				printf("N %d\n", output(OSC2_LINK_USB, buf, (size_t)n));
 				after_request();
 			}
 		} else if (strcmp(line, "CONSOLE") == 0) {

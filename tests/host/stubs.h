@@ -16,6 +16,11 @@ struct stub_record {
 	bool link_active[OSC2_LINK_COUNT];
 	uint32_t radio_events;
 	uint32_t saved_bonds;           /* bit per slot */
+	uint32_t deleted_bonds;         /* bit per slot (0xF0) */
+	int bond_delete_error;          /* what deleting a stored bond returns */
+	int stored_bond_writes;         /* 0xA2's writes, and the last one */
+	uint8_t stored_bond_slot;
+	struct opensc2_bond stored_bond;
 	int saved_transport, deleted_transport, saved_chime;
 	uint8_t stored_transport;       /* the last transport stored (OSC2_TRANSPORT_NONE: none) */
 	bool ble_running;               /* the running wireless transport is Bluetooth */

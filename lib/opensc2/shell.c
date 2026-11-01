@@ -82,7 +82,7 @@ static int cmd_status(const struct shell *sh, size_t argc, char **argv)
 #endif
 	shell_print(sh, "transport: %s (stored: %s)",
 		    osc2_transport_name(osc2_transport_running()),
-		    osc2.transport_saved == OSC2_TRANSPORT_NONE ? "none, the default" :
+		    !osc2.transport_stored ? "none, the default" :
 		    osc2_transport_name(osc2.transport_saved));
 	if (opensc2_mode() == OPENSC2_MODE_WIRED) {
 		struct opensc2_usb_info usb;
@@ -294,7 +294,7 @@ static int cmd_transport(const struct shell *sh, size_t argc, char **argv)
 			    osc2_transport_word(osc2_transport_running()),
 			    osc2_transport_name(osc2_transport_running()),
 			    osc2_transport_word(osc2.transport),
-			    osc2.transport_saved == OSC2_TRANSPORT_NONE ? "none" :
+			    !osc2.transport_stored ? "none" :
 			    osc2_transport_word(osc2.transport_saved));
 		return 0;
 	}

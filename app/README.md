@@ -243,7 +243,7 @@ described in the README of its release.
 | --- | --- | --- |
 | off | off | the first second or so after power-up (dark until a mode is chosen); a reboot or a shutdown; wired with the pairing button held 3 s (release it to go wireless) |
 | on | green | wired, set up by the PC |
-| on, with a short dark blink every second | amber | wired, but no PC has set the board up (a charger, a power bank; in the charger [test build](#test-build-the-charger-fallback) for 5 s at most, then it goes wireless); or wireless switched off on USB power (the PC went to sleep, Steam turned the controller off, STEAM held 7 s): STEAM brings it back wired |
+| on, with a short dark blink every second | amber | wired, but no PC has set the board up (a charger, a power bank; in the charger [test build](#test-build-the-charger-fallback) for 5 s at most, then it goes wireless); or wireless switched off on USB power (the PC went to sleep, Steam turned the controller off, STEAM held 7 s, no puck within 60 s, no pairing within 10 s with an empty slot): STEAM brings it back wired |
 | a slow blink, about 1 s on and 1 s off | white with a little blue, fading in and out | wireless, looking for the puck (also when it is not paired yet) |
 | two quick flashes, repeating | the same, flashing | pairing over the air |
 | on | white with a little blue | connected through the puck |

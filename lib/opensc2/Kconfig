@@ -39,39 +39,50 @@ config OPENSC2_THREAD_STACK_SIZE
 
 config OPENSC2_RX_QUEUE_DEPTH
 	int "Received packets waiting for the radio thread"
-	default 8
+	default 5
+	range 1 64
+	help
+	  5, as on the real controller: a packet that finds the queue full is dropped (counted, and
+	  logged once the thread catches up). The puck sends one every few milliseconds, so the queue
+	  only fills when the radio thread is held up for longer than that.
 
 config OPENSC2_REPORT_QUEUE_DEPTH
 	int "Extra input reports waiting to ride along with state reports"
-	default 6
+	default 5
 	help
 	  Battery reports, lizard-mode mouse and keyboard reports and whatever the application
-	  sends with opensc2_send_report().
+	  sends with opensc2_send_report(). 5, as on the real controller, which drops a report that
+	  finds its queue full (CONFIG_OPENSC2_REPORT_WAIT_DEPTH can let some wait instead).
 
 config OPENSC2_TX_POWER_DBM
 	int "Transmit power of the acknowledgements, dBm"
 	default 6
 	range -40 8
 	help
-	  The real controller uses +6 dBm.
+	  The real controller uses +6 dBm. A board can change it at run time with
+	  opensc2_radio_set_tx_power() (from the next time the link listens).
 
 config OPENSC2_REPORT_DELAY_US
-	int "Delay from a keep-alive to sampling the next state report, microseconds"
-	default 2000
+	int "Slot of the state report after a keep-alive, microseconds"
+	default 2075
 	range 0 2800
 	help
-	  The puck sends a keep-alive about every 3 ms, and the state report rides with the
-	  acknowledgement of the next one. Building the report this long after a keep-alive makes
-	  it fresher. The real controller waits about 2.08 ms. 0 builds it at once.
+	  The puck sends a keep-alive every few milliseconds, and the state report rides with the
+	  acknowledgement of the next one. As on the real controller, the report is due this long
+	  after the keep-alive is handled (2075 us: 68 ticks of 32768 Hz), and it is built early by
+	  the longest time building one took over the last 65 reports, so it is ready then. 0 builds
+	  it at once.
 
 config OPENSC2_LISTEN_TIMEOUT_S
 	int "Stop listening for the puck after this many seconds (0 = never)"
-	default 60 if OPENSC2_BATTERY
-	default 0
+	default 60
+	range 0 65535
 	help
-	  The real controller gives up after 60 s and turns itself off on battery. 0 keeps
-	  listening, which suits boards on USB power (the default without CONFIG_OPENSC2_BATTERY).
-	  On expiry the link goes OFF with reason OPENSC2_REASON_LISTEN_TIMEOUT.
+	  As the real controller: it listens 60 s for its puck (afresh each time it starts
+	  listening: at the start, after a lost link, after a bond write), then goes OFF with reason
+	  OPENSC2_REASON_LISTEN_TIMEOUT, which is "wireless off" (the system state machine turns a
+	  battery board off; on USB power it waits for STEAM, which reboots it wired). 0 keeps
+	  listening, OpenSC2's own choice. opensc2_radio_set_give_ups() changes it at run time.
 
 config OPENSC2_PAIRING_TIMEOUT_S
 	int "Default pairing window, seconds"

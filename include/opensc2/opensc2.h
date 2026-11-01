@@ -470,6 +470,28 @@ int opensc2_select_transport(enum opensc2_transport transport);
 int opensc2_select_transport_pairing(enum opensc2_transport transport);
 /* The transport this boot runs. */
 enum opensc2_transport opensc2_selected_transport(void);
+/* The value of user/wireless_transport in RAM, as a host reads it with 0xED: the stored choice
+ * at boot, any byte a host wrote with 0xEE since, and the running transport once its link has
+ * come up (the October 2026 firmware writes it back then). 0 and 1 run Bluetooth, 3 the puck
+ * with bond 2, any other value the puck with bond 1, from the next boot. */
+uint8_t opensc2_transport_key(void);
+
+/* The puck link's transmit power (its acknowledgements), -40 to 8 dBm (-EINVAL otherwise):
+ * CONFIG_OPENSC2_TX_POWER_DBM (+6, the real controller's) until set. Takes effect the next time
+ * the link listens (every connection starts there), so a board with an amplifier or a weaker
+ * antenna can set it at any time. */
+int opensc2_radio_set_tx_power(int8_t dbm);
+int8_t opensc2_radio_tx_power(void);
+
+/* The puck link's give-ups, in seconds (0: never): listening for the puck (60, the real
+ * controller's, CONFIG_OPENSC2_LISTEN_TIMEOUT_S) and waiting for a bond while the selected slot is
+ * empty (10, CONFIG_OPENSC2_NO_BOND_TIMEOUT_S). Either ends in "wireless off" (OPENSC2_LINK_OFF
+ * with OPENSC2_REASON_LISTEN_TIMEOUT or _NO_BOND_TIMEOUT), which the system state machine turns
+ * into the real controller's power-off on battery, or amber on USB power. Callable at any time;
+ * counts from the next time the link listens or waits for a bond. The getter takes NULL for a
+ * value it does not want. */
+int opensc2_radio_set_give_ups(uint16_t listen_seconds, uint16_t no_bond_seconds);
+void opensc2_radio_give_ups(uint16_t *listen_seconds, uint16_t *no_bond_seconds);
 
 /* ---- Identity -------------------------------------------------------------------------------- */
 

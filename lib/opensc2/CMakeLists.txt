@@ -34,6 +34,7 @@ zephyr_library_sources(
 	mode_rules.c
 	proto_rules.c
 	radio.c
+	radio_rules.c
 	report.c
 	report_queue.c
 	report_rules.c

@@ -62,6 +62,11 @@ class Identity:
                 "name": self.name}
 
 
+def bond_valid(bond):
+    """A bond is valid when both IDs (the first two little-endian u32) are non-zero."""
+    return len(bond) >= 8 and any(bond[0:4]) and any(bond[4:8])
+
+
 class SimBoard:
     """One boot. `world` holds what survives a reboot (the bonds, the identity, the chime, the
     policy, the session log) and the clock."""
@@ -84,8 +89,12 @@ class SimBoard:
         self.lizard = M.LizardModel(self.rules)   # on at boot (setting 9 = 1)
         self.set_rules(self.rules)
         self.slot = world.slot
-        # user/wireless_transport's RAM value (commands.c): None follows the transport running
-        self.transport_key = None
+        # 0xA2 wrote the main bond to flash only: it counts from this boot (commands.c)
+        if getattr(world, "bond_a2", None) is not None:
+            world.bonds[0], world.bond_a2 = world.bond_a2, None
+        # user/wireless_transport in RAM: the stored byte, else the slot's value (wireless.c)
+        stored = getattr(world, "transport_key", None)
+        self.transport_key = stored if stored is not None else 2 + world.slot
         if not hasattr(world, "kept_saved"):
             world.kept_saved = {}              # key_store.c's stored values (C.KEPT_KEYS)
             world.kept_writes = 0
@@ -116,6 +125,18 @@ class SimBoard:
         if mode == "R" and self.transport == "ble":
             self.ble = simble.BleLink(self)
             self.ble.adv_start(0)
+        elif self.link_state == 3:
+            self.listen_started()
+
+    # the puck's radio: 60 s of listening, then wireless off (CONFIG_OPENSC2_LISTEN_TIMEOUT_S)
+    def listen_started(self):
+        self.timers["listen"] = self.now() + C.LISTEN_TIMEOUT_MS
+
+    def _timer_listen(self, t):
+        if self.ble is None and self.mode == "R" and self.link_state == 3:
+            self.link_state = 0
+            self.reason_link = C.REASON_LISTEN_TIMEOUT
+            self.hooks.note(C.RING_LINK, 0, bytes([0, C.REASON_LISTEN_TIMEOUT, self.slot, 0, 0]))
 
     # ---- time ----
     def now(self):
@@ -357,9 +378,6 @@ class SimBoard:
             return name, payload[nul + 1:]
         return (NAMED.index(name) if name in NAMED else -1), payload[nul + 1:]
 
-    def _transport_key(self):
-        return self.transport_key if self.transport_key is not None else 2 + self.slot
-
     def run_set(self, link, opcode, payload, avail):
         if opcode in (0x83, 0xAE, 0xF2, 0xA1, 0xBE, 0xE9, 0xDB, 0x89, 0xED):
             return 0
@@ -411,19 +429,23 @@ class SimBoard:
                 return self._key_set(key, value)
             if opcode == 0xEF:
                 if key in (0, 1):
-                    return 0 if self.world.bonds[key] else ENODEV
+                    return 0 if bond_valid(self.world.bonds[key]) else ENODEV
+                if key == 2:
+                    self.world.transport_key = self.transport_key
                 return 0
             if key in (0, 1):
                 self.world.bonds[key] = b""
             elif key == 2:
-                self.transport_key = 2
+                self.world.transport_key = None
+                self.transport_key = 2        # the key reads 2; the running link carries on
             elif key == 3:
                 self.world.chime = 2
             return 0
         if opcode == 0xA2:      # stored for the next boot; the bond in use stays
             if len(payload) != 24:
                 return EINVAL
-            self.world.a2_writes = getattr(self.world, "a2_writes", 0) + 1
+            # flash only: the bond in RAM stays, the radio hears nothing (next boot)
+            self.world.bond_a2 = bytes(payload) if bond_valid(payload) else b""
             return 0
         if opcode == 0x86:
             return 0          # (the runner never sends it)
@@ -455,12 +477,12 @@ class SimBoard:
         if key in (0, 1):
             if len(value) != 24:
                 return EINVAL
-            self.world.bonds[key] = bytes(value) if any(value[:8]) else b""
+            self.world.bonds[key] = bytes(value)   # as written; 0xED reads only a valid one
             return 0
         if len(value) != 1:
             return EINVAL
         if key == 2:
-            self.transport_key = value[0]   # RAM only: nothing runs at once
+            self.transport_key = value[0]           # any byte, RAM only; the link carries on
             return 0
         self.world.chime = value[0]
         return 0
@@ -557,9 +579,10 @@ class SimBoard:
                     return 0, b""       # the charge window only while it is valid (key_rules.c)
                 return 0, value if C.KEPT_KEYS[key][1] else b""
             if key is not None and key in (0, 1):
-                return 0, self.world.bonds[key]
+                bond = self.world.bonds[key]
+                return 0, bytes(bond) if bond_valid(bond) else b""
             if key == 2:
-                return 0, bytes([self._transport_key()])
+                return 0, bytes([self.transport_key])
             if key == 3:
                 return 0, bytes([self.world.chime])
             return 0, b""

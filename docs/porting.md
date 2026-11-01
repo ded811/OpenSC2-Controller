@@ -12,7 +12,7 @@ that ESB also supports are untested.
 
 | Need | Why |
 | --- | --- |
-| An nRF52 radio (nRF52840, nRF52833, nRF52832, nRF52820, nRF52811, nRF52810) | ESB on the BLE 2M PHY at +6 dBm, as the real controller. The nRF52832, 52810 and 52811 stop at +4 dBm (set `CONFIG_OPENSC2_TX_POWER_DBM=4`); the 52810 and 52811 also have little RAM. |
+| An nRF52 radio (nRF52840, nRF52833, nRF52832, nRF52820, nRF52811, nRF52810) | ESB on the BLE 2M PHY at +6 dBm, as the real controller. The nRF52832, 52810 and 52811 stop at +4 dBm (set `CONFIG_OPENSC2_TX_POWER_DBM=4`); the 52810 and 52811 also have little RAM. A board with an amplifier or a weaker antenna can change the power at run time (`opensc2_radio_set_tx_power()`, from the next time the link listens). |
 | The 32 MHz crystal | ESB needs the high-frequency crystal; the library requests it while the radio is on. Every nRF52 module has it. |
 | A 32.768 kHz source | A crystal, or the internal RC oscillator with calibration (`CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y`, `..._RC_CALIBRATION=y`), as the SuperMini's `boards/promicro_nrf52840_nrf52840_uf2.conf` files do. |
 | About 180 KB of flash and 45 KB of RAM, plus a 16 KB retained RAM area for wired mode | measured with nRF Connect SDK v3.4.0 for the SuperMini, with wired mode, the shell and the log: the minimal sample uses 177,184 bytes of flash and 43,004 bytes of RAM, the template 177,452 and 44,860, `app/` (with the test hooks) 213,392 and 52,028. Bluetooth (`app/ble.conf`) takes about 150 KB of flash and 30 KB of RAM more, the haptics synthesiser about 15 KB and 10 KB ([every build of `app/`](../app/README.md#build-options)). A build without USB, the shell or the log is smaller (not measured). Each build prints its exact use. |

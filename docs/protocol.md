@@ -58,18 +58,25 @@ and its [wire-formats.md](https://github.com/ded811/Counterpuck/blob/main/docs/w
   `0xF4 {C, serial}`; both store `{puck ID, C}`.
 - **Connecting** (channel 2, address `ibex`, prefix `0x10`): the puck broadcasts `0xE1 {puck ID,
   controller ID, channel, its address, a pipe prefix}` without acknowledgement. The controller with
-  that bond moves to the private pipe and acknowledges the hello that follows 1 ms later. The real
-  controller listens for 60 s, then turns its radio off (and waits 10 s for a bond when the
-  selected slot is empty); the library listens until it is stopped, unless
-  `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` (and `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S`) set a limit, as they do
-  in a battery build.
+  that bond (exactly 18 bytes, both IDs equal) moves to the private pipe and acknowledges the
+  hello that follows 1 ms later. The controller sets ESB up afresh each time it starts listening,
+  listens for 60 s, then turns its radio off ("wireless off"); with the selected slot empty it
+  waits 10 s for a bond first. Any bond write (either slot) starts the 60 s again, also one that
+  leaves the slot empty; a bond written while connected counts from the next time it listens.
+  The library does all of this (`CONFIG_OPENSC2_LISTEN_TIMEOUT_S` and
+  `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` can turn the give-ups off).
 - **Connected**: the puck opens with `0xE7 {0, 1}` (protocol version 1); the controller answers
   `0xF3 {1}` and once per connection its identity `0xF5`, 57 bytes: the product ID, the application
   and bootloader build times and the board revision (four bytes each), then the unit serial, the
   board serial and the git revision. Then the puck sends `0xE3` keep-alives about every 3 ms,
   carrying records `{length, type, data}`: SET feature (1), GET feature (3), output report (5). The
   controller answers `0xF1`: one SET result (2) or GET answer (4), the state report `0x42` as an
-  input record (6), and any queued input reports, at most 127 bytes.
+  input record (6), and any queued input reports, at most 127 bytes. Only a keep-alive gets a state
+  report, due about 2.08 ms after it; one GET answer and one SET result wait, one each (a newer one
+  is dropped while one waits; the GET answer goes first); up to 5 other input reports wait and ride
+  behind the next state report (lizard mode's of a frame with the next one), and one that finds
+  them full is dropped. "Disconnecting", the version answer and the identity are queued as soon as
+  a packet is handled, each its own payload; the first disconnect reason of a connection stays.
   A GET record is answered with the last SET's command, as on USB: its one data byte is not the
   opcode (Valve's puck leaves it unset), and the puck drops an answer whose opcode is not its SET's.
   Seen on hardware: with that byte taken as the opcode, Steam's bond read through Valve's puck
@@ -409,8 +416,39 @@ open, the library does what should work with Steam and the puck, and says so her
    the real controller keeps its last sample. (0.2.0 sent all four 0 without an IMU.)
 8. **Payload limit**: the controller's payloads are "within 127 bytes", the puck accepts 128; the
    library stays at 127.
-9. **The October firmware's change to the ESB driver** (the processor, not the radio, starts each
-   reception and acknowledgement) is not reproduced: stock nRF Connect SDK ESB is used.
+9. **The radio link: what stays different.** The link follows the documented controller turn by
+   turn (the states, timers, replies and their order, the answers, the queues, the reasons, the
+   bonds and the transport key). What stays different, none of it seen by the puck, Steam or SDL:
+   - the October firmware's change to the ESB driver (the processor, not the radio, starts each
+     reception and acknowledgement) is not reproduced: stock nRF Connect SDK ESB is used (it would
+     take a changed SDK);
+   - one thread does the work of two: the real controller's input loop builds the state report
+     at its time while its radio thread goes on with the next turn; OpenSC2's radio thread builds
+     it while it waits for the next packet (on any channel of the walk), so packets, turns and
+     timers keep the real controller's timing, but a report that falls due while a packet is
+     being handled (a channel change's 0.5 ms wait, a command that writes flash) is built right
+     after that packet, where the real input loop would cut in; the thread runs at priority 5
+     (`CONFIG_OPENSC2_THREAD_PRIORITY`), the real one at 9 below its input loop's 8;
+   - the 32 MHz crystal is waited for at most 500 ms (the real controller waits without a limit;
+     either way the radio stays off), and MPSL is not shut down when the link stops (gap 23);
+   - "wireless off" reaches the system state machine only for the give-ups, the puck's turn-off
+     and a refused version, not after a stop of the board's own (gap 34): the states that stop
+     the link themselves ignore it either way;
+   - the identity packet `0xF5` carries the identity in use when it is sent (the real controller
+     fills it once at start-up; only OpenSC2 can change an identity at run time);
+   - the documented defects are not copied where copying them would corrupt memory or hang the
+     link: records are read within the packet and a SET record's bytes within the command
+     buffer, a channel list without a valid channel (or one above 100) is ignored, a connection
+     request for a channel above 100 is not taken, a short `0xE7` counts its missing bytes as 0,
+     a report sent in the moment the link drops leaks nothing, output `0x8A` does nothing, and a
+     stop that arrives together with a bond write while listening stops the link (the documented
+     controller listens again and loses the stop);
+   - when the link drops, the application's `rumble` callback hears a stop at once (`timeout`
+     set), so a board's motors never run on without a host; the real controller's rumble runs out
+     on its own;
+   - over-the-air pairing (gap 1), run-time transport and slot switching, the give-ups and the
+     transmit power set at run time, the test hooks and the application's view (`link_changed`,
+     `opensc2_link_info()`) are OpenSC2's own.
 10. **Board revision.** What Steam does with the hardware ID is not documented; the default is
     `0x48` (72), what a real controller reports and the value Steam has been seen working with
     ("Controller Info: HWID: 72"); `0x45` and `0x49`..`0x4B`, the other values real controllers
@@ -445,8 +483,9 @@ open, the library does what should work with Steam and the puck, and says so her
     is built and tested on the host (the library against the runner's model, and in the firmware
     emulator); it is not yet tested on hardware, and its feel needs a trackpad, which no test has
     had.
-12. **A bond written with `0xA2`** (closed). As on the real controller it is stored for the next
-    boot after the answer (deleted when an ID is 0), and the bond in use stays until then.
+12. **A bond written with `0xA2`** (closed): as on the documented controller, it is written to
+    flash from a work item after the answer (an invalid one, an ID of 0, deletes the stored bond)
+    and counts from the next boot; the bond in RAM and the radio are not touched.
 13. **The report descriptor's bytes** (closed). All 372 bytes are the real controller's, the items of
     the mouse and keyboard collections in its order too (0.2.0 had 20 of their bytes in another
     order); the same bytes are the Bluetooth report map. The collections, every report's ID,
@@ -515,13 +554,15 @@ open, the library does what should work with Steam and the puck, and says so her
     library asks the application to power off or reboot (`OPENSC2_POWER_USB_UNPLUGGED`), and without
     a callback it reboots, which comes back wireless on a battery. A board without a battery has
     lost its power anyway.
-22. **The wireless transport** (`user/wireless_transport`). The key behaves as on the real
-    controller: `0xEE` takes any byte into RAM and nothing else happens; `0xED` reads that byte back;
-    `0xEF` stores it, and the next boot runs it (a value that names no transport starts the main
-    puck, as on the real controller; Bluetooth's 0 and 1 do too in a build without Bluetooth, which
-    has no such transport); `0xF0` deletes it and the key reads 2. A transport chosen on the board
-    is saved once its link is up, October's rule, and the key then reads it. (0.2.0 refused values
-    above 3 and switched a puck slot at once.)
+22. **The wireless transport** (`user/wireless_transport`, closed). As on the documented controller:
+    `0xEE` writes any one byte into RAM and leaves the running link alone, `0xED` reads it back,
+    `0xEF` stores it, `0xF0` deletes it (the key reads 2); at boot 0 and 1 run Bluetooth, 3 the
+    second puck and every other byte the main puck; a choice made at run time leaves the key alone
+    until its link comes up, and the running transport is then written back into the key, and
+    stored, at every connection. The library's own additions: without Bluetooth, 0 and 1 run the
+    main puck; a board that stored only `opensc2/slot` (older firmware) starts on that puck slot;
+    the application can choose the puck's slot for one boot (`opensc2_config.bond_slot`). What
+    Steam does when it reads 0 or 1 during a cable pairing is not known.
 23. **Bluetooth LE** (an opt-in build; built, not yet tested on hardware). Where it differs from the
     documented controller, or the documentation is silent:
 
@@ -607,13 +648,12 @@ open, the library does what should work with Steam and the puck, and says so her
     trigger always counts, where the real one never sets the bit from 68 = 96 on, and at exactly 95
     sets it only for a trigger calibrated the other way round (direction 1) once its output reaches
     32767, clearing it below 90 %.
-30. **Reports waiting through the puck.** The real controller's input records wait for a free
-    buffer. The library queues up to 6 extra reports behind each state report as before, and lets
-    lizard mode's and the application's reports wait in up to 8 more
-    (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`) instead of dropping them, while lizard mode waits with its
-    next frame (its motion is a difference of positions, so the next frame takes it up; a button
-    pressed and let go within the frames it waits is not seen, where the real controller's
-    keyboard would still send it). The battery report is still dropped when the queue is full.
+30. **Reports waiting through the puck** (closed). As on the documented controller, up to 5 input
+    reports other than the state report wait for the next state report (lizard mode's of a frame
+    ride with the next one), and a report that finds the queue full is dropped, lizard mode's and
+    the application's included. `CONFIG_OPENSC2_REPORT_WAIT_DEPTH` (0 by default) is OpenSC2's
+    option to let lizard mode's and the application's reports wait for room instead, while lizard
+    mode waits with its next frame.
 31. **Calibration** (`CONFIG_OPENSC2_CAL`, on by default). The keys, their sizes and formats, the
     commands `0xD8`, `0xC0`, `0xC3`, `0xE2` and `0xFE`, the recordings' steps and the arithmetic of
     sticks, triggers and pad pressure follow the protocol documentation
@@ -683,9 +723,10 @@ open, the library does what should work with Steam and the puck, and says so her
     - **No battery, no power-off.** Without `CONFIG_OPENSC2_BATTERY` (the default) a board that
       runs without USB power is taken to be on an external supply, which counts as USB power, and
       every shutdown that would turn it off reboots instead (what setting 77 does on the real
-      controller), so a board that could not be woken again is never switched off. The give-up
-      timers (60 s of listening, 10 s without a bond) are the battery build's defaults; without a
-      battery the radio keeps listening, as before.
+      controller), so a board that could not be woken again is never switched off. The radio's
+      give-ups (60 s of listening, 10 s without a bond) are the real controller's in every build:
+      on USB power, or an external supply, they end in "wireless off" (amber), where STEAM reboots
+      the board wired.
     - **The wired or wireless decision stays before the machine** (the boot rule in
       [api.md](api.md#modes)), so USB power that appears during the 1 s battery wait, or after the
       board was lifted off the dock, reboots the board, which comes back wired; the real controller
@@ -754,7 +795,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | Stops and `0x44` | the synthesiser sends `0x01`, `0x08`, `0x04`, `0x02` when a stream runs dry, `0x10`, `0x20` and `0x40`, in the order they happen; it does not send the `0x02` the real controller sends after every stop: those are gap 19's replies (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, which the synthesiser selects), so they never come twice |
     | Setting 70 | does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
-    | `0x87` and `0x89` through the puck | as on the real controller (after 0.2.0): their handlers are told the radio record's length, which counts the report ID too, so through the puck `0x87` takes one byte from beyond the report (the next record's length byte, or what the packet buffer holds there) and `0x89` accepts n one larger. On USB and the other links the report's own length |
+    | `0x87` and `0x89` through the puck | copied: as on the real controller, the radio hands an output report on with its record's length, which counts the report ID too, and the byte after the report with it (the next byte of the packet, or 0 past its end); so through the puck `0x87` takes that byte as its last sample byte and `0x89` accepts n one larger (n = 62 in a full report). On the cable and over Bluetooth a report has its own length |
     | When a command is heard | about 4 ms after it on an idle path, as on the real controller; while something plays 8 to 16 ms after it, one block sooner than the real controller's 16 to 24 ms: OpenSC2's thread takes the queued commands once the output has taken the block before, right before it renders the next, where the real one takes them before it waits for the output |
 
 36. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
