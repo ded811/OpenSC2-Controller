@@ -35,9 +35,9 @@ controller is listed in docs/protocol.md's gaps.
   A crash at every boot writes flash once.
 - The settings partition's recovery (`CONFIG_OPENSC2_STORAGE_RECOVERY`, on with NVS settings): a
   partition with every sector occupied is erased at boot, as on the real controller.
-- The real controller's hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`, off by default; the test
-  build `app/watchdog.conf`): 5 s, fed every 2.5 s from the lowest priority, and a 4.5 s warning
-  that crashes on purpose so a hang leaves a crash record. Not yet tried with the UF2 bootloader.
+- The real controller's hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`, on by default as there): 5 s,
+  fed every 2.5 s from the lowest priority, and a 4.5 s warning that crashes on purpose so a hang
+  leaves a crash record. Not yet tried with the UF2 bootloader.
 
 **Inputs and lizard mode**
 
@@ -136,6 +136,15 @@ controller is listed in docs/protocol.md's gaps.
   real controller's 40 fresh readings after a start or a charging change and none while the charge
   is done, and `opensc2_gauge_voltage()`, the averaged voltage report `0x43` carries (held while
   done). The blank canvas's battery option uses both, and starts from the kept level.
+- `<opensc2/charger.h>`: the real controller's charging rules for a charger the application drives
+  (`opensc2_charger_init()`, `_step()`, `_window()`, `_gauge_state()`, `_state()`,
+  `_ship_mode_ok()`): the charge state report `0x43` carries (0 before the first step, 1 on
+  battery, 3 while a new supply is checked, 2 charging, 4 done, `0x80` after giving up), the charge
+  voltage (the target, raised by the hysteresis while a supply is checked and while charging), the
+  input-voltage limit lowered every 5 s while the charger does not charge (4600, 4500, 4400 mV;
+  giving up at 4300 and trying again 60 s later), the factory window's cap and the ship-mode rule.
+  The blank canvas's charge state follows these rules (charger status pin or USB power).
+- `opensc2_gauge_set_curves()`: a board's own voltage curves and charge targets for the gauge.
 - The LED player: the update window's blink (`update_window`, `update_requests` in the status),
   Steam's colour between a breathe's two fades, the searching pattern's fade-out skipped when the
   link is up by then and its dark part looked at every 50 ms.

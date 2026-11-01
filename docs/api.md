@@ -6,7 +6,8 @@ callback, field, rule and option.
 Everything a project needs from `<opensc2/opensc2.h>` (which also includes `<opensc2/types.h>`,
 `<opensc2/codec.h>`, `<opensc2/settings.h>` and `<opensc2/led.h>`, the status LED), plus the
 optional `<opensc2/fusion.h>`, `<opensc2/cal.h>` (calibration and raw inputs),
-`<opensc2/sensor_helpers.h>` and `<opensc2/gauge.h>` (sensor and battery helpers),
+`<opensc2/sensor_helpers.h>`, `<opensc2/gauge.h>` and `<opensc2/charger.h>` (sensor, battery and
+charging helpers),
 `<opensc2/haptics.h>` (the haptics synthesiser) and `<opensc2/dock.h>` (the dock's frames). The
 library is hardware-agnostic: it has no pins. Your application reads its buttons, sensors and touch parts
 and hands the values over; it receives the outputs through callbacks and drives whatever it has.
@@ -76,6 +77,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_setting_default(n)`, `opensc2_setting_clamp(n, v)` | a setting's default and range (pure) | [Controller settings](#controller-settings) |
 | `opensc2_set_power_source(s)`, `opensc2_power_source()` | what powers the board: a battery, USB or the dock | [Power and the system state machine](#power-and-the-system-state-machine) |
 | `opensc2_keylock()` | whether the keylock (travel lock) is stored | [The keylock](#the-keylock) |
+| `opensc2_docked_sticks()` | whether the sticks read as on the dock (a board applies its own offsets then) | [What powers the board](#what-powers-the-board) |
 | `opensc2_charge_state_of(power, charging)` | report `0x43`'s charge state from a charger's status output (pure) | [Battery](#battery) |
 | `opensc2_charge_target_mv()` | the voltage the charger stops at while a factory charge window is stored (0: the board's own) | [Battery](#battery) |
 | `opensc2_led_status(&st)` | the status LED's mode and everything its pattern depends on | [Status LED](#status-led) |
@@ -86,7 +88,8 @@ is not documented here and has not been checked against this library.
 | `opensc2_encode_state()`, `opensc2_decode_output()`, ... | every wire format as a pure function (`<opensc2/codec.h>`) | [Pure helpers](#pure-helpers) |
 | `opensc2_stick_setup()`, `opensc2_trigger_value()`, `opensc2_pressure_sample()`, ... | the calibration's arithmetic as pure functions (`<opensc2/cal.h>`) | [Calibration helpers](#calibration-helpers) |
 | `opensc2_cap_sample()`, `opensc2_pad_rotate()`, `opensc2_stabiliser_step()`, `opensc2_imu_mount()`, ... | sensor processing as pure functions (`<opensc2/sensor_helpers.h>`) | [Sensor helpers](#sensor-helpers) |
-| `opensc2_gauge_begin()`, `_add()`, `_finish()`, `_step()`, `_voltage()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
+| `opensc2_gauge_begin()`, `_add()`, `_finish()`, `_step()`, `_voltage()`, `_set_curves()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
+| `opensc2_charger_init()`, `_step()`, `_window()`, `_gauge_state()`, `_state()`, `_ship_mode_ok()` | the real controller's charging rules: the charge state, the charge voltage, the input-voltage search (`<opensc2/charger.h>`) | [Charging helpers](#charging-helpers) |
 | `opensc2_haptics_set_output(path, &out)`, `opensc2_haptics_play_cue(cue, level)`, ... | with `CONFIG_OPENSC2_HAPTICS_SYNTH`: the haptics synthesiser's outputs and its own sounds (`<opensc2/haptics.h>`) | [The haptics synthesiser](#the-haptics-synthesiser) |
 | `opensc2_dock_crc16()`, `opensc2_dock_frame_check()`, `opensc2_dock_frame_seal()`, `opensc2_dock_build_request()` | the dock's 73-byte frames (`<opensc2/dock.h>`, pure) | [The dock](#the-frame-functions) |
 
@@ -463,12 +466,19 @@ supply check has given up; [protocol.md, gap 3](protocol.md#where-this-library-h
 its charger has given up on a supply that does not charge the battery (it tries again 60 s later).
 Report `0x43` carries it as given; while it is set and the level is above 0, the
 [system state machine](#low-battery) and the [status LED](#status-led) are told 100 %, and the
-report keeps the measured level. The library never adds it itself (it has no charger logic).
+report keeps the measured level. The library adds nothing to what the application gives; the
+[charging helpers](#charging-helpers) give the whole charge state, flag included, the way the real
+controller's charging rules do.
 
-`opensc2_charge_state_of(input_power, charging)` (pure) gives the state for a charger with a status
-output, such as a TP4056 module's CHRG pin: without input power 1 (on battery), with it 2 while the
-charger charges and 4 (done; report a level of 100) otherwise. The blank canvas uses it for an
-optional charger status pin ([app/README.md](../app/README.md#optional-parts); untested).
+On the real controller every value comes from its charger and gauge: the charge state is the
+state of its charging rules (0 until their first step, then 1 on battery, 3 while a new supply is
+checked, 2 charging, 4 done). A board gets the same from `<opensc2/charger.h>`, fed with its
+charger's status once a second ([Charging helpers](#charging-helpers)); the blank canvas does so for
+an optional charger status pin ([app/README.md](../app/README.md#optional-parts); untested).
+`opensc2_charge_state_of(input_power, charging)` (pure) is the shortcut for a charger with only a
+status output, such as a TP4056 module's CHRG pin: without input power 1 (on battery), with it 2
+while the charger charges and 4 (done; report a level of 100) otherwise, without the real
+controller's moment in state 3.
 
 **The factory charge window.** A host can store a charge window as the settings-by-name key
 `mte/charge_level` (two u32 mV values, the lower and the upper; [Settings by name](#settings-by-name)).
@@ -477,7 +487,8 @@ instead of its own target, and every power-on starts with an announcement (cue 8
 blinks, [The power-on decision](#the-power-on-decision)). `opensc2_charge_target_mv()` gives the
 voltage to charge to: the upper value, or 0 for none (the board's own target); it changes when a
 host writes the key. A board that can program its charger applies it (the real controller does so
-at its next battery report); a board whose charger has a fixed target cannot.
+at its next battery report): passed to `opensc2_charger_window()` at every step, the charging
+rules then work with it. A board whose charger has a fixed target cannot.
 
 With the system state machine the level also counts for the power rules ([Low battery](#low-battery)):
 the power-on decision sees the kept level (or 255) as the real controller does, and the later
@@ -819,6 +830,13 @@ event: USB to the dock with power all along changes nothing. Set it before `open
 the power-on decision: a boot with VBUS whose source is the battery or the dock is not wired
 (`OPENSC2_MODE_NO_USB_POWER`).
 
+`opensc2_docked_sticks()` is true while the sticks read as on the dock, as the real controller
+counts it: from the first docked state (`dock-off` or `dock-on`) until the board is lifted off
+(`lifted`, or `dock-on` to `battery`), through the dock's chord states. The real controller shifts
+its sticks' calibration then (the dock's magnets move the readings; its offsets are its own
+data). A board whose sticks read differently on its dock applies its own offsets while this is
+true, read at every sample; false without `CONFIG_OPENSC2_SYSTEM`.
+
 ### The power-on decision
 
 Once `opensc2_init()` has decided the mode ([Modes](#modes)). First, while a factory charge window
@@ -993,7 +1011,10 @@ reboot instead, read when the shutdown ends. Settings return to their defaults a
 write covers one shutdown. The blank canvas turns the board off the way Zephyr's `system_off` sample
 does: the STEAM key's pin (without one, every key's) as a level-sensing wake-up input
 (`GPIO_INT_LEVEL_ACTIVE`), then `sys_poweroff()` (`CONFIG_POWEROFF`, which the battery option
-selects). A new USB supply, or a reset, also wakes the nRF52840.
+selects). A new USB supply, or a reset, also wakes the nRF52840. The real controller has its
+charger cut the battery off at a power-off (ship mode), only while no supply is connected; a board
+whose charger has a ship mode does the same (`opensc2_charger_ship_mode_ok(input_power)`) and wakes
+the way that charger wakes it.
 
 ```c
 static void on_power(enum opensc2_power_request request, void *user)
@@ -2290,5 +2311,41 @@ battery.
 | `n = opensc2_gauge_begin(&g, charge_state)`, `opensc2_gauge_add(&g, mv)` (n times), `level = opensc2_gauge_finish(&g)` | a step the way the real controller's gauge takes its readings, once a second: `n` is 40 after the start and whenever charging starts or stops (the history starts over; let the voltage settle 250 ms first, as the real controller does), else 1, and 0 while the charge is done (the level reads 100, nothing is read). Charging uses the charging curve and only rises, anything else the discharging curve and only falls |
 | `opensc2_gauge_step(&g, mv, charge_state)` | the three with one reading (the history then grows by one reading a step) |
 | `opensc2_gauge_voltage(&g)` | the battery voltage for report `0x43`, as the real controller's gauge gives it: the average at the last step outside "done", held while the charge is done |
+| `opensc2_gauge_set_curves(&g, &curves)` | a board's own curves and charge targets (`struct opensc2_gauge_curves`: `discharging`, `charging` with their lengths, `target_mv`, `target_charging_mv`; a NULL curve or a 0 target keeps OpenSC2's); call it after `opensc2_gauge_init()`, which goes back to OpenSC2's; NULL: OpenSC2's again |
+
+Pass the charge state of the [charging rules](#charging-helpers) for the step
+(`opensc2_charger_gauge_state()`), as the real controller's gauge does: "done" while the rules are
+done, else charging while the charger says it charges.
+
+### Charging helpers
+
+`<opensc2/charger.h>`: the real controller's charging rules for a charger the application drives,
+pure functions. Once a second the application reads its charger (input power present, and whether
+it charges, pre-charges, is done or does neither), takes the gauge's step, then calls
+`opensc2_charger_step()`; it writes what the step asks for (a charge voltage, an input-voltage
+limit) to its own chip, and reports the returned charge state. A charger without those settings
+still gets the charge state (it ignores the writes). Untested on a charger.
+
+| Function | Does |
+| --- | --- |
+| `opensc2_charger_defaults(&cfg)` | the real controller's numbers: target 4120 mV, hysteresis 40 mV, the input-voltage limit from 4600 mV down by 100 mV every 5000 ms, giving up at 4300 mV, the next try 60000 ms later |
+| `opensc2_charger_init(&c, &cfg or NULL, now_ms, &out)` | start in state 0 (`OPENSC2_CHARGE_RESET`); asks for the charge voltage = the target |
+| `state = opensc2_charger_step(&c, input_power, status, battery_mv, now_ms, &out)` | the rules' step, once a second; `status` is an `enum opensc2_charger_status` (`OPENSC2_CHARGER_NOT_CHARGING`, `_PRECHARGE`, `_FAST_CHARGE`, `_CHARGE_DONE`) and `battery_mv` the gauge's averaged voltage (`opensc2_gauge_voltage()`); returns the charge state for `struct opensc2_battery` |
+| `opensc2_charger_state(&c)` | the charge state as the last step left it, `OPENSC2_CHARGE_GAVE_UP` included |
+| `opensc2_charger_window(&c, opensc2_charge_target_mv())` | the factory charge window's cap (0: the configured target); a change starts the rules over |
+| `opensc2_charger_gauge_state(&c, status)` | the charge state for `opensc2_gauge_begin()`, before the step |
+| `opensc2_charger_ship_mode_ok(input_power)` | whether a power-off may cut the battery off (ship mode): only without a supply |
+
+`out.set_charge` asks for `out.charge_mv`, `out.set_vin_limit` for `out.vin_limit_mv`. The rules:
+without input power they start over (state 1 after the step, the charge voltage the target); with
+it a new supply is checked first (state 3: the charge voltage raised by the hysteresis, and every
+5 s while the charger does not charge the input-voltage limit written, then lowered: 4600, 4500,
+4400 mV). Charging (2) or done (4) ends the check; reaching 4300 mV gives up (state 1 with
+`OPENSC2_CHARGE_GAVE_UP`, the next check 60 s later, the flag kept until charging or done). A
+charge that stops without "done" goes back to 1 and is checked again once the check's last 5 s
+timer has run; a battery at or above the charge voltage with input power counts as done. "Done"
+(the charge voltage back to the target) lasts until the input power goes. The real controller also
+raises its charger's input current limit whenever the charger detects any supply type and lowers it
+without one; a board with such a setting does the same.
 
 Back to the [documentation map](README.md).

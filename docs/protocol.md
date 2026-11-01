@@ -375,10 +375,13 @@ open, the library does what should work with Steam and the puck, and says so her
 3. **Report `0x43` charge state.** The library sends the application's charge state as given, in
    SDL's `EChargeState` numbering (the type SDL gives this byte; SDL reads 1 as on battery, 2 as
    charging, 4 as charged). The real controller adds a flag bit `0x80` to it while its charger has
-   given up on a supply that does not charge the battery (it tries again 60 s later); the library
-   has no charger logic of its own and never adds it, but an application may
-   (`OPENSC2_CHARGE_GAVE_UP`), and then, as on the real controller, the power rules and the LED are
-   told 100 % while the level is above 0. The level goes out as given, 255 included (the real
+   given up on a supply that does not charge the battery (it tries again 60 s later). The library
+   sends what the application gives, flag included (`OPENSC2_CHARGE_GAVE_UP`), and then, as on the
+   real controller, the power rules and the LED are told 100 % while the level is above 0. The
+   real controller's byte is the state of its charging rules; `<opensc2/charger.h>` gives a board
+   the same rules for its own charger ([api.md](api.md#charging-helpers)), and the blank canvas uses
+   them for an optional charger status pin. A board without a charger it can read reports what it
+   knows. The level goes out as given, 255 included (the real
    controller's "no level yet"); before the application gives a battery, a battery build sends what
    the real controller's first report after start-up carries (the level kept over a warm reset, else
    255, charge state 0, zeros), and a build without a battery a full one.
@@ -559,12 +562,12 @@ open, the library does what should work with Steam and the puck, and says so her
     colour itself is kept as `0xC5` sent it, up to 255 per channel, as the real controller keeps it:
     a channel above 100 is brighter, up to full duty (`opensc2_led_duty()`), and the application gets
     it unchanged (`led` callback, `opensc2_led_get()`, the LED status's override colour).
-25. **`0xBE`'s bytes 13 and 14.** The documentation gives byte 13 as "1 while charging" and byte 14
-    as `0x43`'s charge state without its `0x80` flag; byte 12, the level, goes out as given (255
-    included), as `0x43`'s does. The library derives byte 13 from the
-    application's charge state (1 for state 2, charging, with or without the flag), its simplest
-    reading; on the real controller it may come from the charger's own status, which no host has
-    been seen to compare.
+25. **`0xBE`'s bytes 13 and 14** (closed). The documentation gives byte 13 as "1 while charging" and
+    byte 14 as `0x43`'s charge state without its `0x80` flag; byte 12, the level, goes out as given
+    (255 included), as `0x43`'s does. On the real controller byte 13 is 1 exactly while its
+    charging rules are in state 2, and the flag is never set in that state; the library derives
+    byte 13 from the application's charge state the same way (1 for state 2), which is identical
+    whenever the application reports the charging rules' state (`<opensc2/charger.h>`).
 26. **Settings by name.** The library knows exactly the real controller's keys
     ([api.md](api.md#settings-by-name)); other names go to the application. It keeps `user/keylock`,
     `user/fully_charged_led_intensity`, `mte/charge_level` and the `settings/haptics/` keys as plain
@@ -662,9 +665,10 @@ open, the library does what should work with Steam and the puck, and says so her
     - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
       does, so an empty request reads the report's zero padding;
     - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
-    - not reproduced, being Valve's hardware: the stick offsets while docked, the scaling of the
-      capacitive words without external power, the trackpad chip's electrode processing (an
-      application gives positions), and the IMU's runtime settings keys.
+    - not reproduced, being Valve's hardware: the stick offsets while docked (the library says when
+      the real controller applies them, `opensc2_docked_sticks()`; the values are its board's),
+      the scaling of the capacitive words without external power, the trackpad chip's electrode
+      processing (an application gives positions), and the IMU's runtime settings keys.
     The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
     calibration commands (its safety rule S5): calibration is tested by the host tests only.
 32. **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default, inactive with the default
@@ -743,7 +747,14 @@ open, the library does what should work with Steam and the puck, and says so her
     - **Power-off** is the application's: the blank canvas arms STEAM (or every key) as a wake-up
       pin before `sys_poweroff()`, where the real controller sets no wake-up source and has its
       charger cut the battery off (ship mode) when no charger is connected; a board with a charger
-      that has a ship mode can do the same on `OPENSC2_POWER_OFF`.
+      that has a ship mode can do the same on `OPENSC2_POWER_OFF`
+      (`opensc2_charger_ship_mode_ok()`).
+    - **The charger** is the board's. The real controller's charging rules (the charge state, the
+      charge voltage, the input-voltage search and its give-up, the factory window's cap) are
+      helpers the application runs with its own charger (`<opensc2/charger.h>`); the library
+      cannot reach a charger chip itself. Its register values, and the gauge's curves, are Valve's
+      data: OpenSC2 has curves of its own, and a board can give its own
+      (`opensc2_gauge_set_curves()`).
 35. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, off by default; built, not yet
     tested on hardware). Written from the research documentation's description of the real
     controller's sequencers, generators, scripts, cues, streams and rumble emulation
