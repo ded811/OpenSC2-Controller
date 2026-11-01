@@ -146,9 +146,9 @@ int opensc2_haptics_play_clip(uint8_t channel, const uint8_t *data, uint16_t sam
  * an interrupt. */
 void opensc2_haptics_free_fall(void);
 
-/* The IMU's stream went off (<opensc2/imu.h> calls it): a drop sound still waiting its 250 ms is
- * not played, and after a fall further falls never count again until the next boot, as on the real
- * controller. From a thread. */
+/* The IMU's stream went off (<opensc2/imu.h> calls it for a board that set its IMU up): a drop
+ * sound still waiting its 250 ms is not played, and after a fall further falls never count again
+ * until the next boot, as on the real controller. From a thread. */
 void opensc2_haptics_free_fall_cancel(void);
 
 /* What the synthesiser does now. */

@@ -262,6 +262,10 @@ OPENSC2_TEST(imu_stream_off_cancels_drop)
 	/* the key mode by name does the same */
 	CHECK_EQ(imu_named(0xEE, "settings/sensors/imu/mode", (const uint8_t[]){ 0, 0 }, 2), 0);
 	CHECK_EQ(cal_host.fall_cancels, 2);
+	/* a board without an IMU (no handler, no mounting matrix): nothing to cancel */
+	osc2_imu_reset();
+	CHECK_EQ(imu_write(48, 0), 0);
+	CHECK_EQ(cal_host.fall_cancels, 2);
 	stub.now_ms = 0;
 }
 

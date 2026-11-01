@@ -158,6 +158,7 @@ static void stream(bool on)
 	void *user;
 	k_spinlock_key_t lk = k_spin_lock(&imu_lock);
 	bool was = imu.streaming;
+	bool board = imu.board;
 
 	if (!on && was) {
 		fall_rearm_locked(k_uptime_get());
@@ -172,8 +173,9 @@ static void stream(bool on)
 	if (h && h->stream && (on || was)) {
 		h->stream(on, user);
 	}
-	if (!on && was) {
-		opensc2_haptics_free_fall_cancel();   /* a drop sound still due is not played */
+	if (!on && was && board) {
+		/* a drop sound still due is not played (a board without an IMU has no stream to stop) */
+		opensc2_haptics_free_fall_cancel();
 	}
 }
 
