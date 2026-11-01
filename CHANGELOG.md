@@ -145,6 +145,9 @@ controller is listed in docs/protocol.md's gaps.
   giving up at 4300 and trying again 60 s later), the factory window's cap and the ship-mode rule.
   The blank canvas's charge state follows these rules (charger status pin or USB power).
 - `opensc2_gauge_set_curves()`: a board's own voltage curves and charge targets for the gauge.
+- `opensc2_docked_sticks()`: whether the sticks read as on the dock, as the real controller counts
+  it (from the first docked state until the board is lifted off), for a board that applies its own
+  docked stick offsets; `opensc2 power` shows it.
 - The LED player: the update window's blink (`update_window`, `update_requests` in the status),
   Steam's colour between a breathe's two fades, the searching pattern's fade-out skipped when the
   link is up by then and its dark part looked at every 50 ms.
@@ -311,6 +314,8 @@ controller is listed in docs/protocol.md's gaps.
 - With the system state machine the power source counts at every 50 ms poll whichever way (power
   going away waited 0.2 s), and `opensc2_reboot()` leaves Bluetooth with an all-zero report and
   100 ms first, as the real controller does before every reboot.
+- The blank canvas's IR LED goes off when a shutdown or reboot starts, and a later change of setting
+  36 applies again, as on the real controller (it stayed off until the end).
 - `<opensc2/gauge.h>`'s history averages the readings since its last reset (the first reading no
   longer fills all 40 slots); `struct opensc2_gauge_history` has `count` in place of `filled`.
 - The retained RAM area's layout is version 3 (the crash record's slot, the test hooks' system words
