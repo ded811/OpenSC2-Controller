@@ -89,8 +89,9 @@ config OPENSC2_LIZARD_KEYS_AT_ONCE
 	  nowhere, as on the real controller: the first frames after the gap do not send it. Through
 	  the puck a change waits while reports wait for room. While the hardware test hooks are
 	  armed the frames bring the buttons either way. Off: the keyboard hears the buttons once per
-	  state report (up to one frame later), and the thread's stack is saved. Built; not yet
-	  tested on hardware.
+	  state report (up to one frame later; a change made while no link runs is then sent by the
+	  first frame after the gap), and the thread's stack is saved. Built; not yet tested on
+	  hardware.
 
 config OPENSC2_LIZARD_KEYS_STACK_SIZE
 	int "Lizard mode: the keyboard thread's stack size"
