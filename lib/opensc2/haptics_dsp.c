@@ -17,6 +17,7 @@
 #define C5_Q16 546LL
 #define HALF_PI_Q30 1686629713LL      /* pi / 2: Q32 cycles to Q30 radians */
 #define TWO_PI_Q16 411775LL           /* 2 pi: Q32 cycles to Q16 radians (with >> 32) */
+#define EXP2_BOW 3936u                /* (ln 2 / 64)^2 / 2, Q26 */
 
 /* x (1 + x^2 (c3 + x^2 c5)) for x = t * 2 pi, t in Q32 cycles of either sign: Q15. Within the
  * first quarter (and a little beyond) in Q30; up to 10 cycles in Q16; past that the fifth power
@@ -98,22 +99,55 @@ int32_t osc2_hap_log2(uint32_t v)
 	return msb * 65536 + a + (int32_t)(((int64_t)(b - a) * (int32_t)frac) >> 10);
 }
 
+int64_t osc2_hap_log2_q30(uint32_t v)
+{
+	int32_t msb = 31;
+	uint64_t m;
+	int64_t r;
+
+	if (v == 0) {
+		return 0;
+	}
+	while (!(v & (1u << msb))) {
+		msb--;
+	}
+	/* The mantissa 1.xxx in Q30, then one bit of its logarithm per squaring. */
+	m = msb <= 30 ? (uint64_t)v << (30 - msb) : (uint64_t)v >> 1;
+	r = (int64_t)msb << 30;
+	for (int bit = 29; bit >= 0; bit--) {
+		m = (m * m) >> 30;
+		if (m >= (2ull << 30)) {
+			m >>= 1;
+			r += (int64_t)1 << bit;
+		}
+	}
+	return r;
+}
+
 uint64_t osc2_hap_scale_exp2(uint64_t v, int32_t e)
 {
 	/* e = whole * 65536 + f with 0 <= f < 65536 (whole rounded down, also for negative e) */
 	int32_t whole = e >= 0 ? e / 65536 : -((65535 - e) / 65536);
 	uint32_t f = (uint32_t)(e - whole * 65536);
-	uint32_t index = f >> 10;
-	uint32_t frac = f & 0x3FFu;
-	uint32_t a = osc2_hap_exp2_q16[index];
-	uint32_t b = osc2_hap_exp2_q16[index + 1];
-	uint64_t m = a + (((uint64_t)(b - a) * frac) >> 10);   /* 2^(f / 65536), Q16 */
+	uint64_t index = f >> 10;
+	uint64_t frac = f & 0x3FFu;
+	uint64_t a = osc2_hap_exp2_q16[index];
+	uint64_t b = osc2_hap_exp2_q16[index + 1];
+	/* 2^(f / 65536) in Q26: the table's two neighbours interpolated, less the bow of the curve
+	 * between them (a straight line runs above the exponential by a (h ln 2)^2 t (1 - t) / 2
+	 * for the table's step h = 1/64, t = frac / 1024), so no bias builds up over a sweep. */
+	uint64_t m = (a << 10) + (b - a) * frac - ((a * frac * (1024u - frac) * EXP2_BOW) >> 36);
+	uint64_t hi = v >> 26, lo = v & ((1u << 26) - 1u);
 	uint64_t r;
 
-	if (v > UINT64_MAX / m) {
+	if (hi > UINT64_MAX / m) {
 		return INT64_MAX;
 	}
-	r = (v * m) >> 16;
+	r = hi * m;
+	if (r > UINT64_MAX - ((lo * m) >> 26)) {
+		return INT64_MAX;
+	}
+	r += (lo * m) >> 26;
 	if (whole >= 0) {
 		if (whole >= 63 || r > ((uint64_t)INT64_MAX >> whole)) {
 			return INT64_MAX;

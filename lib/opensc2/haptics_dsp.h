@@ -78,7 +78,12 @@ int8_t osc2_hap_db_add(int32_t a, int32_t b);
 /* log2(v) of an integer v >= 1, Q16 (0 for v = 0). */
 int32_t osc2_hap_log2(uint32_t v);
 
-/* v * 2^(e / 65536), e signed Q16; the result saturates at 2^63 - 1. */
+/* log2(v) of an integer v >= 1 to 30 bits of fraction, Q30 (0 for v = 0): a sweep's end
+ * frequency and total phase depend on every bit of its ratio. */
+int64_t osc2_hap_log2_q30(uint32_t v);
+
+/* v * 2^(e / 65536), e signed Q16, with no bias either way (a sweep adds up 65,536 of them); the
+ * result saturates at 2^63 - 1. */
 uint64_t osc2_hap_scale_exp2(uint64_t v, int32_t e);
 
 /* The phase step of a frequency in milli-hertz (negative: the sine runs backwards) at `rate`

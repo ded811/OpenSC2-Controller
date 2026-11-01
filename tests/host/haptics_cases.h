@@ -518,6 +518,26 @@ OPENSC2_TEST(haptics_sweep)
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
 	(void)hap_events_of(OSC2_HAP_GRIPS, OSC2_HAP_EV_GEN, 0, ev, 4);
 
+	/* the phase follows the closed form f0 T (exp(k n / len) - 1) / k to the end: script 10's
+	 * 400 to 1000 Hz in 300 ms on the left grip at 0 dB, against the real arithmetic's values
+	 * (a sum of the steps taken at n, not n + 1/2, drifts 13 degrees by the end, 7,000 counts) */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	c.channel = OSC2_HAP_CH_LEFT_GRIP;
+	c.duration_ms = 300;
+	c.sweep.f0_hz = 400;
+	c.sweep.f1_hz = 1000;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 39, true);
+	CHECK(abs(cap.s[0][32 + 1000] - -21706) <= 32);
+	CHECK(abs(cap.s[0][32 + 1800] - 16785) <= 32);
+	CHECK(abs(cap.s[0][32 + 2348] - 1713) <= 32);
+	CHECK(abs(cap.s[0][32 + 2390] - 7146) <= 32);
+	c.channel = OSC2_HAP_CH_RIGHT_GRIP;
+	c.duration_ms = 500;
+	c.sweep.f0_hz = 100;
+	c.sweep.f1_hz = 800;
+
 	/* the formula's divisions by zero: not a number, which the mix plays as +1 (full scale, the
 	 * negated right grip's gain notwithstanding) for the whole sweep: a start of 0 Hz ... */
 	hap_fresh();

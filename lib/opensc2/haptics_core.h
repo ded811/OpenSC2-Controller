@@ -205,7 +205,7 @@ struct osc2_hap_gen {
 			uint16_t fade_in, fade_out;
 			uint32_t phase;          /* Q32 cycles, modulo a cycle */
 			uint64_t step0;          /* the first sample's step, Q32 cycles */
-			int64_t slope;           /* log2(f1 / f0) per sample, Q32 */
+			int64_t slope;           /* log2(f1 / f0) per sample, Q32, rounded */
 			int32_t value;           /* the constant sine of a wrapped falling sweep */
 		} sweep;
 		struct {

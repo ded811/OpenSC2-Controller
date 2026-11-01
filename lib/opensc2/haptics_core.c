@@ -18,7 +18,7 @@
 #define BIT8(n) ((uint8_t)(1u << (n)))
 #define LFO_START_PHASE (-OSC2_HAP_CYCLE / 8)  /* -pi/4: at full depth the modulation starts low */
 #define STATUS_RESERVE 8                       /* event slots kept for 0x44 statuses */
-#define LN2_Q16 45426                          /* ln 2, Q16 */
+#define LN2_Q30 744261118LL                    /* ln 2, Q30 */
 
 enum sweep_mode {
 	SWEEP_NORMAL = 0,      /* f0 to f1, exponentially */
@@ -540,22 +540,25 @@ static void start(struct osc2_hap *h, struct osc2_hap_seq *s, uint8_t local,
 		} else if (g->sweep.len == 0) {
 			/* A falling sweep whose count wrapped to 0: after the first sample a constant
 			 * sin(T 2 pi f0 / ln(f0 / f1)), which the fade-out's arithmetic then grows. */
-			int32_t ln_q16 = (int32_t)(((int64_t)(osc2_hap_log2(f0) - osc2_hap_log2(f1)) *
-						    LN2_Q16) >> 16);
-			uint64_t den = 1000u * (uint64_t)(ln_q16 > 0 ? ln_q16 : 1);
-			uint64_t num = ((uint64_t)cmd->duration_ms * f0) << 16;
-			uint64_t frac = ((num % den) << 32) / den;
+			int64_t ln_q24 = (((osc2_hap_log2_q30(f0) - osc2_hap_log2_q30(f1)) >> 6) *
+					  LN2_Q30) >> 30;
+			uint64_t den = 1000u * (uint64_t)(ln_q24 > 0 ? ln_q24 : 1);
+			uint64_t num = ((uint64_t)cmd->duration_ms * f0) << 24;
+			uint64_t frac = ((num % den) << 24) / den;
 
 			g->sweep.mode = SWEEP_CONSTANT;
-			g->sweep.value = (int32_t)osc2_hap_sinp((int64_t)frac);
+			g->sweep.value = (int32_t)osc2_hap_sinp((int64_t)(frac << 8));
 		} else {
 			/* f(n) = f0 (f1 / f0)^(n / len): the duration's own rate over the 16-bit
-			 * count, so a wrapped count sweeps faster and higher. */
-			int32_t ratio = osc2_hap_log2(f1) - osc2_hap_log2(f0);
+			 * count, so a wrapped count sweeps faster and higher. The ratio to 30 bits:
+			 * a small error in it moves the end frequency and the whole phase after it. */
+			int64_t ratio = (osc2_hap_log2_q30(f1) - osc2_hap_log2_q30(f0)) * 4;
+			int64_t half = (int64_t)g->sweep.len / 2;
 
 			g->sweep.mode = SWEEP_NORMAL;
 			g->sweep.step0 = (((uint64_t)f0 << 32) / s->rate) * full / g->sweep.len;
-			g->sweep.slope = ((int64_t)ratio * 65536) / (int64_t)g->sweep.len;
+			g->sweep.slope = (ratio >= 0 ? ratio + half : ratio - half) /
+					 (int64_t)g->sweep.len;
 		}
 		break;
 	}
@@ -723,9 +726,13 @@ static int64_t sweep_sample(struct osc2_hap_gen *g, bool *ended)
 	switch (g->sweep.mode) {
 	case SWEEP_NORMAL:
 		v = osc2_hap_sinp(g->sweep.phase);
-		/* The frequency at sample n is f0 * (f1 / f0)^(n / len). */
+		/* The real phase is f0 T (exp(k n / len) - 1) / k cycles (k = ln(f1 / f0)); its
+		 * growth from sample n to n + 1 is the frequency f0 (f1 / f0)^(n / len) taken half a
+		 * sample later (to within (k / len)^2 / 24), the exponent rounded to nearest: summed
+		 * step by step it stays with the closed form to the end. */
 		g->sweep.phase += (uint32_t)osc2_hap_scale_exp2(
-			g->sweep.step0, (int32_t)((g->sweep.slope * (int64_t)pos) >> 16));
+			g->sweep.step0,
+			(int32_t)((g->sweep.slope * (2 * (int64_t)pos + 1) + 65536) >> 17));
 		break;
 	case SWEEP_FIRST_NAN:
 		v = pos == 0 ? OSC2_HAP_NAN : 0;

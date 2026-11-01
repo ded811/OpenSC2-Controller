@@ -142,7 +142,8 @@ controller is listed in docs/protocol.md's gaps.
   polynomial sine (peak 1.0045) with its one-cycle phase wrap (tones above the rate turn into
   clipped noise); sweeps that divide by zero (from 0 Hz, equal ends, duration 0, a 16-bit count
   wrapped to 0) playing a full-scale push over the channel's mix, the 16-bit count wrapping, the
-  fade-out to 0; pulse periods in 16 bits; generators lingering 1 or 4 samples in the mix; 8-bit
+  fade-out to 0, the phase kept with the real closed form to the end (each step taken half a
+  sample on, the ratio's logarithm to 30 bits, the exponential without a bias); pulse periods in 16 bits; generators lingering 1 or 4 samples in the mix; 8-bit
   dB sums; streams keeping their interpolated values across a stop, losing half a sample when they
   run dry, with no water mark before a format and the real handling of format bytes from 12 up;
   every write that finds enough audio queuing a start; channel gains silent until settings 75 and
