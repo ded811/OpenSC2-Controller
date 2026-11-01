@@ -78,12 +78,13 @@ static enum opensc2_charger_status charger_status(bool usb)
 }
 
 /* The charging rules' step, once a second: the charge state report 0x43 carries. This board's
- * charger has no settings, so what the step asks to write is dropped. */
+ * charger has no settings, so what the step asks to write is dropped; for the same reason a
+ * factory charge window cannot cap it (opensc2_charger_window() is for a charger that can stop
+ * there). */
 static uint8_t charger_step(bool usb, enum opensc2_charger_status status, uint16_t battery_mv)
 {
 	struct opensc2_charger_out out;
 
-	opensc2_charger_window(&charger, opensc2_charge_target_mv());
 	return opensc2_charger_step(&charger, usb, status, battery_mv, k_uptime_get_32(), &out);
 }
 
