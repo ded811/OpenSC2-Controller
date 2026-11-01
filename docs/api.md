@@ -1146,8 +1146,10 @@ the fade-out would begin skips it (the colour stays), and the dark part looks fo
 | `opensc2_led_brightness(s45, s38)` | the brightness in percent: with setting 38 not 0 (the default 1) the curve b = 100 × (6^(s/100) − 1) / 5, cut to a whole number (setting 45's default 50 gives 28); with 0, b = s |
 | `opensc2_led_duty(colour, trim, brightness)` | a channel's duty in thousandths: colour × trim / 100 × brightness / 100, at most 1000 (`OPENSC2_LED_FULL_SCALE`). The real controller's factory trims are `OPENSC2_LED_TRIM_RED` 90, `_GREEN` 35, `_BLUE` 120 and `_WHITE` 80 (percent) |
 
-**The IR LED**: controller setting 36 (percent; 0 by default), off during every shutdown and reboot
-(`st.shutting_down`; its setting stays). The blank canvas drives one from a PWM channel named `ir`.
+**The IR LED**: controller setting 36 (percent; 0 by default, above 100 counts as 100), turned off
+when a shutdown or reboot starts (`st.shutting_down` becomes true; its setting stays). As on the
+real controller, a change of setting 36 after that applies again. The blank canvas drives one from
+a PWM channel named `ir`.
 
 ## The haptics synthesiser
 

@@ -262,7 +262,7 @@ calibration keys `cal/rgbw_r`, `_g`, `_b` and `_w`, which start at the real cont
 values 90, 35, 120 and 80 %; or the board's own `led-trims` in the overlay) and by the brightness
 Steam sets (controller setting 45, 50 % by default; Steam writes 100 on the cable), through the curve of
 setting 38. Without a white channel, white is mixed into red, green and blue. An IR LED (a PWM
-channel `ir`) follows controller setting 36 and is off during every shutdown and reboot.
+channel `ir`) follows controller setting 36 and is turned off when a shutdown or reboot starts.
 
 ## The serial console (wireless mode)
 
