@@ -31,6 +31,8 @@ static struct {
 	bool fall_armed;
 	bool fall_cancelled;      /* the stream went off while falls waited: none count again */
 	int64_t fall_rearm_ms;
+	bool board;               /* the board set the IMU up (its mounting matrix or its handler) */
+	bool sampled;             /* a sample reached the reports */
 	const struct opensc2_imu_handler *handler;
 	void *user_data;
 } imu = {
@@ -68,7 +70,19 @@ int opensc2_imu_sample(const struct opensc2_imu_sample *sample)
 	k_spin_unlock(&imu_lock, lk);
 
 	osc2_imu_convert(&p, sample, &out);
+	lk = k_spin_lock(&imu_lock);
+	imu.sampled = true;
+	k_spin_unlock(&imu_lock, lk);
 	return opensc2_set_imu(&out);
+}
+
+bool osc2_imu_before_first_sample(void)
+{
+	k_spinlock_key_t lk = k_spin_lock(&imu_lock);
+	bool waiting = imu.board && !imu.sampled;
+
+	k_spin_unlock(&imu_lock, lk);
+	return waiting;
 }
 
 bool opensc2_imu_streaming(void)
@@ -86,6 +100,7 @@ int opensc2_imu_set_mounting(const int8_t m[9])
 	k_spinlock_key_t lk = k_spin_lock(&imu_lock);
 
 	memcpy(imu.mounting, m ? m : identity, sizeof(imu.mounting));
+	imu.board = true;
 	k_spin_unlock(&imu_lock, lk);
 	return 0;
 }
@@ -111,6 +126,7 @@ int opensc2_imu_set_handler(const struct opensc2_imu_handler *handler, void *use
 
 	imu.handler = handler;
 	imu.user_data = user_data;
+	imu.board = imu.board || handler != NULL;
 	k_spin_unlock(&imu_lock, lk);
 	return 0;
 }
@@ -155,6 +171,9 @@ static void stream(bool on)
 	k_spin_unlock(&imu_lock, lk);
 	if (h && h->stream && (on || was)) {
 		h->stream(on, user);
+	}
+	if (!on && was) {
+		opensc2_haptics_free_fall_cancel();   /* a drop sound still due is not played */
 	}
 }
 

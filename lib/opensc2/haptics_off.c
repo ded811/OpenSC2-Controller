@@ -71,6 +71,10 @@ void opensc2_haptics_free_fall(void)
 {
 }
 
+void opensc2_haptics_free_fall_cancel(void)
+{
+}
+
 int opensc2_haptics_info(struct opensc2_haptics_info *info)
 {
 	memset(info, 0, sizeof(*info));

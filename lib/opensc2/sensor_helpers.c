@@ -447,7 +447,7 @@ void opensc2_imu_mount_quat(const int8_t m[9], const int16_t in[4], int16_t out[
 
 int16_t opensc2_imu_dead_zone(int16_t v, int32_t t)
 {
-	return (v > -t && v < t) ? 0 : v;
+	return ((int64_t)v > -(int64_t)t && v < t) ? 0 : v;   /* no overflow for INT32_MIN */
 }
 
 void opensc2_gyro_bias_init(struct opensc2_gyro_bias *b, const float start[3])

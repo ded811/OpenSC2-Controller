@@ -111,6 +111,11 @@ void opensc2_haptics_free_fall(void)
 	cal_host.free_falls++;
 }
 
+void opensc2_haptics_free_fall_cancel(void)
+{
+	cal_host.fall_cancels++;
+}
+
 enum opensc2_power_source opensc2_power_source(void)
 {
 	return cal_host.power_source;

@@ -48,5 +48,9 @@ uint8_t osc2_imu_key_size(int key);
 int osc2_imu_setting(uint8_t number, int16_t value);
 int osc2_imu_by_name(uint8_t opcode, const uint8_t *payload, uint8_t len, uint8_t *answer_len);
 void osc2_imu_reset(void);
+/* The board set the library's IMU up (opensc2_imu_set_mounting() or a handler) and no sample has
+ * reached the reports yet: the reports' IMU fields are all 0 then, the quaternion's W included, as
+ * the real controller's are until its IMU's first sample. */
+bool osc2_imu_before_first_sample(void);
 
 #endif /* OPENSC2_IMU_RULES_H_ */

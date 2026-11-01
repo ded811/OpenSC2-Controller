@@ -243,3 +243,78 @@ OPENSC2_TEST(imu_free_fall)
 	CHECK_EQ(cal_host.free_falls, 2);
 	stub.now_ms = 0;
 }
+
+/* The stream going off cancels a drop sound still due (the synthesiser's cancel), once per "off" of
+ * a running stream: a second 0, or a 0 before anything ran, does not. */
+OPENSC2_TEST(imu_stream_off_cancels_drop)
+{
+	imu_reset_test();
+	cal_host.fall_cancels = 0;
+	stub.now_ms = 1000;
+	opensc2_imu_free_fall();
+	stub.now_ms = 1100;                 /* the sound is still 150 ms away */
+	CHECK_EQ(imu_write(48, 0), 0);
+	CHECK_EQ(cal_host.fall_cancels, 1);
+	CHECK_EQ(imu_write(48, 0), 0);      /* already off */
+	CHECK_EQ(cal_host.fall_cancels, 1);
+	CHECK_EQ(imu_write(48, 1), 0);
+	CHECK_EQ(cal_host.fall_cancels, 1);
+	/* the key mode by name does the same */
+	CHECK_EQ(imu_named(0xEE, "settings/sensors/imu/mode", (const uint8_t[]){ 0, 0 }, 2), 0);
+	CHECK_EQ(cal_host.fall_cancels, 2);
+	stub.now_ms = 0;
+}
+
+/* A board that set its IMU up sends all 0 (W too) until its first sample, as the real controller's
+ * empty state does; a board that did not keeps "none" as the identity. */
+OPENSC2_TEST(imu_before_first_sample)
+{
+	struct opensc2_imu_sample s = { 0 };
+	static const int8_t m[9] = { 0, 1, 0, -1, 0, 0, 0, 0, 1 };
+
+	imu_reset_test();
+	osc2_imu_reset();   /* no handler, no mounting: no board IMU */
+	CHECK(!osc2_imu_before_first_sample());
+	CHECK_EQ(opensc2_imu_set_mounting(m), 0);
+	CHECK(osc2_imu_before_first_sample());
+	memset(&osc2.state.imu, 0, sizeof(osc2.state.imu));
+	osc2_quat_none_to_identity(&osc2.state);
+	CHECK_EQ(osc2.state.imu.quat[0], 0);
+	/* a sample refused while the stream is off does not count */
+	CHECK_EQ(imu_write(48, 0), 0);
+	CHECK_EQ(opensc2_imu_sample(&s), -EAGAIN);
+	CHECK(osc2_imu_before_first_sample());
+	CHECK_EQ(imu_write(48, 1), 0);
+	s.quat[0] = 1.0f;
+	s.has_quat = true;
+	CHECK_EQ(opensc2_imu_sample(&s), 0);
+	CHECK(!osc2_imu_before_first_sample());
+	CHECK_EQ(osc2.state.imu.quat[0], 32767);
+	/* a handler alone counts as the board's set-up too */
+	osc2_imu_reset();
+	CHECK_EQ(opensc2_imu_set_handler(&imu_handler, NULL), 0);
+	CHECK(osc2_imu_before_first_sample());
+	memset(&osc2.state.imu, 0, sizeof(osc2.state.imu));
+	osc2_quat_none_to_identity(&osc2.state);
+	CHECK_EQ(osc2.state.imu.quat[0], 0);
+	/* without a set-up: the identity */
+	osc2_imu_reset();
+	memset(&osc2.state.imu, 0, sizeof(osc2.state.imu));
+	osc2_quat_none_to_identity(&osc2.state);
+	CHECK_EQ(osc2.state.imu.quat[0], OPENSC2_QUAT_ONE);
+	(void)opensc2_imu_set_handler(NULL, NULL);
+	osc2_imu_reset();
+}
+
+/* The dead zone's edge cases: a threshold of 0 or below never zeroes; INT32_MIN neither (no
+ * overflow on the host). */
+OPENSC2_TEST(imu_dead_zone_edges)
+{
+	CHECK_EQ(opensc2_imu_dead_zone(5, 0), 5);
+	CHECK_EQ(opensc2_imu_dead_zone(0, 0), 0);
+	CHECK_EQ(opensc2_imu_dead_zone(-3, -10), -3);
+	CHECK_EQ(opensc2_imu_dead_zone(-32768, INT32_MIN), -32768);
+	CHECK_EQ(opensc2_imu_dead_zone(100, INT32_MAX), 0);
+	CHECK_EQ(opensc2_imu_dead_zone(9, 10), 0);
+	CHECK_EQ(opensc2_imu_dead_zone(-10, 10), -10);
+}
