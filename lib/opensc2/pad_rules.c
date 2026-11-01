@@ -10,6 +10,7 @@
 #include <string.h>
 #include <opensc2/types.h>
 #include "pad_rules.h"
+#include "sensor_rules.h"
 
 #define STICK_TOUCH_RADIUS  12000   /* the deflection that counts as a touched stick */
 #define HOLD_RADIUS         4369    /* the stabiliser's (setting 80 = 2) */
@@ -118,13 +119,14 @@ bool osc2_pad_step(struct osc2_pad_proc *p, int side, const struct opensc2_pad_f
 	int32_t x = 0, y = 0, fx = f->x, fy = f->y;
 
 	side &= 1;
-	/* a raw sensor's frame: what the real controller's trackpad driver does first */
-	if (f->has & OPENSC2_PAD_HAS_CENTROID) {
-		opensc2_pad_centroid(&fx, &fy, v[OPENSC2_SETTING_PAD_CLIP] > 0, p->stretch);
-	}
-	if (f->has & OPENSC2_PAD_HAS_LEVEL) {
-		touch = opensc2_pad_touch_step(&p->touch, f->level, v[OPENSC2_SETTING_PAD_TOUCH_ON],
-					       v[OPENSC2_SETTING_PAD_TOUCH_OFF], &fx, &fy);
+	/* a raw sensor's frame: what the real controller's trackpad driver does first, in one piece
+	 * (the centroid pushed and stretched goes into the damping unrounded) */
+	if (f->has & (OPENSC2_PAD_HAS_CENTROID | OPENSC2_PAD_HAS_LEVEL)) {
+		touch = osc2_pad_sensor_frame(&p->touch, (f->has & OPENSC2_PAD_HAS_CENTROID) != 0,
+					      v[OPENSC2_SETTING_PAD_CLIP] > 0, p->stretch,
+					      (f->has & OPENSC2_PAD_HAS_LEVEL) != 0, f->level,
+					      v[OPENSC2_SETTING_PAD_TOUCH_ON],
+					      v[OPENSC2_SETTING_PAD_TOUCH_OFF], touch, &fx, &fy);
 	}
 	memset(w, 0, sizeof(*w));
 	w->has = f->has;

@@ -13,6 +13,7 @@
 #include <string.h>
 #include <opensc2/sensor_helpers.h>
 #include "float_rules.h"
+#include "sensor_rules.h"
 
 #define PAD_HALF     16383
 #define REPORT_FULL  32767
@@ -122,12 +123,13 @@ static float lerp_limited(float x, float x0, float x1, float y0, float y1)
 	return fmaf(t, y1 - y0, y0);
 }
 
-bool opensc2_pad_touch_step(struct opensc2_pad_touch *t, int32_t level, int16_t setting72,
-			    int16_t setting73, int32_t *x, int32_t *y)
+/* The touch from the level and the damping near lift-off, on the position as fractions. */
+static bool touch_step(struct opensc2_pad_touch *t, int32_t level, int16_t setting72,
+		       int16_t setting73, float *x, float *y)
 {
 	int32_t on = clamp32(setting72, 0, 16000);
 	int32_t off = clamp32(setting73, 0, 16000);
-	float px = from_millionths(*x), py = from_millionths(*y);
+	float px = *x, py = *y;
 	int32_t limit;
 
 	if (!t->touched) {
@@ -152,9 +154,20 @@ bool opensc2_pad_touch_step(struct opensc2_pad_touch *t, int32_t level, int16_t 
 	}
 	t->x = px;
 	t->y = py;
+	*x = px;
+	*y = py;
+	return t->touched;
+}
+
+bool opensc2_pad_touch_step(struct opensc2_pad_touch *t, int32_t level, int16_t setting72,
+			    int16_t setting73, int32_t *x, int32_t *y)
+{
+	float px = from_millionths(*x), py = from_millionths(*y);
+	bool touched = touch_step(t, level, setting72, setting73, &px, &py);
+
 	*x = to_millionths(px);
 	*y = to_millionths(py);
-	return t->touched;
+	return touched;
 }
 
 int32_t opensc2_pad_stretch_by(int32_t millionths, float offset, float scale)
@@ -190,6 +203,28 @@ void opensc2_pad_centroid(int32_t *x, int32_t *y, bool stretch, const float offs
 	}
 	*x = to_millionths(px);
 	*y = to_millionths(py);
+}
+
+bool osc2_pad_sensor_frame(struct opensc2_pad_touch *t, bool centroid, bool stretch,
+			   const float offset_scale[4], bool level_given, int32_t level,
+			   int16_t setting72, int16_t setting73, bool touched, int32_t *x, int32_t *y)
+{
+	float px = from_millionths(*x), py = from_millionths(*y);
+
+	if (centroid) {
+		px = edge_push(px);
+		py = edge_push(py);
+		if (stretch && offset_scale) {
+			px = (px - offset_scale[0]) / offset_scale[1];
+			py = (py - offset_scale[2]) / offset_scale[3];
+		}
+	}
+	if (level_given) {
+		touched = touch_step(t, level, setting72, setting73, &px, &py);
+	}
+	*x = to_millionths(px);
+	*y = to_millionths(py);
+	return touched;
 }
 
 int32_t opensc2_pad_stretch(enum opensc2_side side, int axis, int32_t millionths)

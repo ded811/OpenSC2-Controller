@@ -355,6 +355,38 @@ OPENSC2_TEST(pad_frames_raw_sensor)
 	CHECK(x < 800000);   /* damped */
 }
 
+OPENSC2_TEST(pad_frames_raw_sensor_past_edge)
+{
+	struct opensc2_pad_frame f = { .has = OPENSC2_PAD_HAS_LEVEL | OPENSC2_PAD_HAS_CENTROID };
+	struct opensc2_pad_result r;
+	float d, pushed, t, damp, expect;
+
+	stub_reset();
+	osc2.settings[OPENSC2_SETTING_PAD_FILTER] = 0;
+	/* touch-down at 0.98: the edge push takes it past the edge (1.0983), reported as 1 */
+	f.level = 2000;
+	f.x = 980000;
+	f.y = 500000;
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+	CHECK_EQ(opensc2_pad_result(OPENSC2_RIGHT, &r), 0);
+	CHECK(r.touched);
+	CHECK_EQ(r.x, 2 * opensc2_pad_scale(1000000));
+	/* near lift-off the damping starts from the pushed position, not from the edge: the real
+	 * controller's driver limits the position only when it reports it */
+	f.level = 1100;   /* running average 1887: damping between 1000 and 1687 */
+	f.x = 600000;
+	CHECK_EQ(opensc2_pad_frame(OPENSC2_RIGHT, &f), 0);
+	CHECK_EQ(opensc2_pad_result(OPENSC2_RIGHT, &r), 0);
+	CHECK(r.touched);
+	d = 0.98f - 0.5f;
+	pushed = 0.98f + (d - 0.35f) * 7.0f * (d - 0.35f);
+	t = (1100.0f - 1000.0f) / (1687.0f - 1000.0f);
+	damp = fmaf(t, 1.0f - 0.2f, 0.2f);
+	expect = fmaf(0.6f - pushed, damp, pushed);
+	CHECK(expect > 0.9f);   /* from the edge it would be about 0.873 */
+	CHECK_EQ(r.x, 2 * opensc2_pad_scale((int32_t)(expect * 1000000.0f)));
+}
+
 OPENSC2_TEST(pad_frames_live_bits)
 {
 	struct opensc2_state s;
