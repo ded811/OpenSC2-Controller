@@ -835,6 +835,9 @@ static void identity_apply(void)
 {
 	struct opensc2_identity id;
 
+	if (atomic_get(&forgetting)) {
+		return;   /* a factory reset deleted bt/: no name stored again before the reboot */
+	}
 	opensc2_identity_get(&id);
 	if (strcmp(named_serial, id.unit_serial) != 0) {
 		char name[OSC2_BLE_NAME_MAX + 1];
