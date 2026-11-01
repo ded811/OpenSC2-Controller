@@ -41,30 +41,28 @@ static const stmdev_ctx_t *imu_ctx(void)
 	return (const stmdev_ctx_t *)imu->config;
 }
 
-/* IEEE 754 single to half precision, rounded to the nearest (ties to even), for normal values. */
-static uint16_t to_half(float value)
+/* A positive value as an IEEE 754 half float, the format the fusion block takes: scaled into
+ * [1, 2) by powers of two (exact in single precision), then ten fraction bits, rounded to the
+ * nearest. Enough for the one small constant set here; no zero, subnormal or overflow handling. */
+static uint16_t half_float(float value)
 {
-	union {
-		float f;
-		uint32_t u;
-	} in = { .f = value };
-	uint32_t sign = (in.u >> 16) & 0x8000u;
-	int32_t exponent = (int32_t)((in.u >> 23) & 0xFFu) - 127 + 15;
-	uint32_t mantissa = in.u & 0x7FFFFFu;
-	uint32_t half, rest;
+	int exponent = 0;
+	uint32_t fraction;
 
-	if (exponent <= 0) {
-		return (uint16_t)sign;   /* too small: zero */
+	while (value >= 2.0f) {
+		value *= 0.5f;
+		exponent++;
 	}
-	if (exponent >= 31) {
-		return (uint16_t)(sign | 0x7C00u);   /* too large: infinity */
+	while (value < 1.0f) {
+		value *= 2.0f;
+		exponent--;
 	}
-	half = sign | ((uint32_t)exponent << 10) | (mantissa >> 13);
-	rest = mantissa & 0x1FFFu;
-	if (rest > 0x1000u || (rest == 0x1000u && (half & 1u))) {
-		half++;
+	fraction = (uint32_t)((value - 1.0f) * 1024.0f + 0.5f);
+	if (fraction == 1024u) {
+		fraction = 0;
+		exponent++;
 	}
-	return (uint16_t)half;
+	return (uint16_t)(((uint32_t)(exponent + 15) << 10) | fraction);
 }
 
 void imu_board_setup(void)
@@ -87,7 +85,7 @@ void imu_board_setup(void)
 	}
 
 	if (id.board_revision <= HWID_LAST_BLEND) {
-		half = to_half(0.05f);
+		half = half_float(0.05f);   /* 0x2A66 */
 		lo = (uint8_t)(half & 0xFFu);
 		hi = (uint8_t)(half >> 8);
 		ret = lsm6dsv16x_ln_pg_write(imu_ctx(), ALPHA_BLEND_LO, &lo, 1);
