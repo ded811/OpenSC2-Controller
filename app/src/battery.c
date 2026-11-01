@@ -203,20 +203,23 @@ static void battery_thread(void *p1, void *p2, void *p3)
 	charger_start();
 	k_msleep(250);
 	for (;;) {
+		/* Once a second from the start of one step to the next, however long a step takes. */
+		k_timepoint_t next = sys_timepoint_calc(K_MSEC(PERIOD_MS));
 		bool usb = usb_power();
 		enum opensc2_charger_status status = charger_status(usb);
+		bool charging = status == OPENSC2_CHARGER_PRECHARGE ||
+				status == OPENSC2_CHARGER_FAST_CHARGE;
 		uint8_t state = opensc2_charger_gauge_state(&charger, status);
 		struct opensc2_battery b = { 0 };
 		uint8_t n;
 		int err = 0;
 
-		if ((state == OPENSC2_CHARGE_CHARGING) !=
-		    (gauge.charge_state == OPENSC2_CHARGE_CHARGING)) {
+		if (charging != gauge.charger_charging) {
 			k_msleep(250);   /* charging starts or stops: the readings jump, let them settle */
 		}
-		/* 40 readings in a row after a start or such a change, then one a second; none
-		 * while the charge is done. */
-		n = opensc2_gauge_begin(&gauge, state);
+		/* 40 readings in a row after a start or such a change (the charger's own, also while
+		 * the charge is done), then one a second; none while the charge is done. */
+		n = opensc2_gauge_begin_charger(&gauge, state, charging);
 		for (uint8_t i = 0; i < n && err == 0; i++) {
 			uint16_t mv;
 
@@ -236,7 +239,7 @@ static void battery_thread(void *p1, void *p2, void *p3)
 		b.system_mv = 3300;
 		b.input_mv = usb ? 5000 : 0;
 		(void)opensc2_set_battery(&b);
-		k_msleep(PERIOD_MS);
+		k_sleep(sys_timepoint_timeout(next));
 	}
 }
 
