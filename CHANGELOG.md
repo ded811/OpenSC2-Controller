@@ -186,7 +186,8 @@ controller is listed in docs/protocol.md's gaps.
   (`opensc2_dock_set_board()`), a wire of its own (`opensc2_dock_session_start()`,
   `opensc2_dock_frame()`, `opensc2_dock_answer_sent()`), the dock's status, and the docked stick
   offsets (`opensc2_dock_set_stick_offsets()`, none by default), which follow the docked states as
-  on the real controller and move the library's stick calibration while docked.
+  on the real controller and move the library's stick calibration while docked. Without the
+  system state machine, `opensc2_power_source()` on `AUTO` follows the dock's supply rule too.
 - `tools/fake_puck.py`, the puck's end of the dock link through the firmware emulator, a board's
   test hooks or a USB-UART adapter (untested).
 
