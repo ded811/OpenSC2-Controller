@@ -185,27 +185,30 @@ static void decode(const struct sensor_decoder_api *dec, const uint8_t *buf)
 	}
 }
 
-/* The stored gyro bias (rad/s, the chip's axes) as the fusion block's starting bias. False when the
- * stored bias is refused (2^31 or more in magnitude): the real controller then does not start its
- * stream at boot. */
+/* The stored gyro bias (rad/s, the chip's axes) as the fusion block's starting bias, zeros when none
+ * is stored (the real controller programs its empty copy too). False, and the stream is not started
+ * at boot, as on the real controller, when the stored bias is refused (2^31 or more in magnitude)
+ * or the driver cannot program it (the stock driver can whenever streaming is built). */
 static bool program_bias(void)
 {
 	struct sensor_value v[3];
-	float b[3];
+	float b[3] = { 0.0f, 0.0f, 0.0f };
 	int err = opensc2_cal_gyro_bias(b);
 
 	if (err == -ERANGE) {
 		LOG_WRN("One of the gyro bias values is out of range: the IMU stream is not started");
 		return false;
 	}
-	if (err != 0) {
-		return true;   /* none stored */
-	}
 	for (int i = 0; i < 3; i++) {
+		if (err != 0) {
+			b[i] = 0.0f;   /* none stored */
+		}
 		(void)sensor_value_from_float(&v[i], b[i]);
 	}
-	if (sensor_attr_set(imu, SENSOR_CHAN_GBIAS_XYZ, SENSOR_ATTR_OFFSET, v) != 0) {
-		LOG_WRN("The stored gyro bias could not be programmed");
+	err = sensor_attr_set(imu, SENSOR_CHAN_GBIAS_XYZ, SENSOR_ATTR_OFFSET, v);
+	if (err != 0) {
+		LOG_WRN("The gyro bias could not be programmed (%d): the IMU stream is not started", err);
+		return false;
 	}
 	return true;
 }

@@ -275,6 +275,9 @@ controller is listed in docs/protocol.md's gaps.
   library's IMU for a board that set its IMU up). Such a board's reports carry all IMU fields 0, the
   quaternion's W included, until its first sample, as the real controller's do (they started with
   the identity); a board without an IMU keeps the identity.
+- `app/imu-stream.conf` programs the gyro bias at boot also when none is stored (zeros), and leaves
+  the stream off when the driver cannot program it, as the real controller does (it started the
+  stream without the bias).
 - Settings 48, 84 and 85 reach the IMU at every write (not only on a change); a sensor error for 85
   fails `0x87`.
 - The blank canvas: the sticks and triggers are read right before each state report and processed

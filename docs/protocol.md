@@ -660,7 +660,16 @@ open, the library does what should work with Steam and the puck, and says so her
       controller docks or leaves the dock, as the real controller does;
     - not reproduced, being Valve's hardware: the scaling of the capacitive words without
       external power and the trackpad chip's electrode processing (an application gives positions,
-      a signal level or the words).
+      a signal level or the words);
+    - left as they are, being timing inside one frame or a failure path no host sees: the real
+      controller's set-up of its sticks and triggers (a key load, setting 68, the dock) runs in its
+      sampling loop and can cost that loop one state report when it coincides with a slot, where
+      the library sets them up between two reports; its buttons, once one is down, are looked at
+      every 2 ms, so a release is seen up to 2 ms later than with the button helper
+      (`opensc2_button_hold_*()`), which takes each change as it comes; it stops (`k_panic`) when a
+      button port's interrupts cannot be switched, which the library leaves to the board's
+      driver; a pad set-up asked for by a setting that changes and changes back between two
+      frames still happens there, while the library compares the settings at each frame.
     The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
     calibration commands (its safety rule S5): calibration is tested by the host tests only.
 32. **The pad rules.** A pad fed by trackpad frames (`<opensc2/trackpad.h>`) is processed as the real
@@ -692,10 +701,13 @@ open, the library does what should work with Steam and the puck, and says so her
     runs the chip at the real controller's 250 Hz high-accuracy rate and takes the stored gyro bias
     as the real controller does: a NaN goes in as 0, and a value of 2^31 or more in magnitude (an
     infinity included) is refused, so the stream does not start at boot and waits for a host to
-    write setting 48. A bias the IMU's driver cannot program is left out and the stream starts
-    without it. Not done there: the fusion block's alpha-blend that the real controller writes on
-    its early boards, and the chip's own free-fall detector in the stream (the stock driver has
-    none; the library's software detector stands in).
+    write setting 48; so does a bias the IMU's driver cannot program (with none stored it programs
+    zeros, as the real controller programs its empty copy). When the stream fails, the real
+    controller submits it again 500 ms later even if a host turned it off within those 500 ms; the
+    blank canvas submits it again only while setting 48 wants it. Not done there: the fusion
+    block's alpha-blend that the real controller writes on its early boards, and the chip's own
+    free-fall detector in the stream (the stock driver has none; the library's software detector
+    stands in).
 34. **The system state machine** (power, chords, the status LED and cues; built, not yet tested on
     hardware). OpenSC2 follows the documented machine ([in brief](#overview-power-chords-and-the-status-led);
     [api.md](api.md#power-and-the-system-state-machine)), with these differences and choices:
