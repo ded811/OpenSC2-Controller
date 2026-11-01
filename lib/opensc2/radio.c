@@ -707,7 +707,9 @@ static void push_answer(uint8_t type, const uint8_t *data, uint8_t len)
  * there. Every other report has its own length, as on USB. */
 static void output_record(const struct rx_item *it, const struct opensc2_record *rec)
 {
-	uint8_t report[sizeof(it->data) + 1u];
+	/* static, as rx_it: the radio thread alone calls this, and its stack is kept for the
+	 * dispatch below (the application's callbacks, the haptics synthesiser's feed) */
+	static uint8_t report[sizeof(it->data) + 1u];
 	size_t at = (size_t)(rec->data - it->data) + rec->len;
 
 	if (rec->data[0] != 0x87 && rec->data[0] != 0x89) {
