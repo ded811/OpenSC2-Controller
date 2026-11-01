@@ -220,6 +220,14 @@ OPENSC2_TEST(dock_probe_record_once_per_boot)
 	stub_reset();
 	build = osc2.identity.build_time;
 	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	/* before opensc2_init() (the application's own wire): the identity as it is, nothing taken */
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build);
+	osc2.identity.build_time = build + 5;
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build + 5);
+	osc2.identity.build_time = build;
+	osc2.initialised = true;
 	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
 	memcpy(first, dk_ans, sizeof(first));
 	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build);
@@ -242,6 +250,7 @@ OPENSC2_TEST(dock_probe_record_once_per_boot)
 	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
 	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build + 2);
 	osc2.identity.build_time = build;
+	osc2.initialised = false;
 	osc2_dock_reset();
 }
 
