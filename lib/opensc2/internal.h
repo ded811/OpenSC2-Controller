@@ -86,6 +86,10 @@ static inline bool osc2_wired(void)
 }
 
 /* core.c */
+/* Held by everything that changes the configured or the stored identity and works out the one in
+ * use from them (opensc2_identity_set(), _store(), _clear(), the by-name identity keys), so that a
+ * board's identity_set() and a host's write never mix their halves. */
+extern struct k_mutex osc2_id_lock;
 void osc2_identity_refresh(void);
 /* Store the fields in `fields` (OSC2_ID_*) of `value` on the board, whatever their values: unlike
  * opensc2_identity_store(), a 0 or an empty string is stored too (the shell sets one field at a

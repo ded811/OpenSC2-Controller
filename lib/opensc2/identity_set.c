@@ -27,13 +27,15 @@ int opensc2_identity_set(const struct opensc2_identity *identity)
 	if (!identity) {
 		return -EINVAL;
 	}
-	key = k_spin_lock(&osc2.lock);
+	/* One change at a time, also against a host writing a stored field: the identity in use is
+	 * worked out from both. */
+	(void)k_mutex_lock(&osc2_id_lock, K_FOREVER);
 	next = osc2.base;
-	k_spin_unlock(&osc2.lock, key);
 	/* As opensc2_init() reads its identity: empty and zero fields keep what is there. */
 	osc2_id_copy(&next, identity, osc2_id_fields_set(identity));
 	problems = opensc2_identity_check(&next);
 	if (problems != 0) {
+		(void)k_mutex_unlock(&osc2_id_lock);
 		LOG_ERR("opensc2_identity_set(): invalid identity (problems 0x%x)",
 			(unsigned int)problems);
 		return -EINVAL;
@@ -42,5 +44,6 @@ int opensc2_identity_set(const struct opensc2_identity *identity)
 	osc2.base = next;
 	k_spin_unlock(&osc2.lock, key);
 	osc2_identity_refresh();   /* a stored identity's fields still win */
+	(void)k_mutex_unlock(&osc2_id_lock);
 	return 0;
 }

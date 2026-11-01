@@ -109,6 +109,8 @@ static void kconfig_identity(struct opensc2_identity *id)
 #endif
 }
 
+K_MUTEX_DEFINE(osc2_id_lock);
+
 void osc2_identity_refresh(void)
 {
 	struct opensc2_identity id = osc2.base;
@@ -139,17 +141,24 @@ void opensc2_identity_get(struct opensc2_identity *identity)
 
 int osc2_identity_store_fields(uint8_t fields, const struct opensc2_identity *value)
 {
-	struct osc2_id_override next = osc2.stored;
-	struct opensc2_identity check = osc2.base;
+	struct osc2_id_override next;
+	struct opensc2_identity check;
+	int err;
 
+	(void)k_mutex_lock(&osc2_id_lock, K_FOREVER);
+	next = osc2.stored;
+	check = osc2.base;
 	osc2_id_override_set(&next, fields, value);
 	osc2_id_apply(&check, &next);
 	if (opensc2_identity_check(&check) != 0) {
+		(void)k_mutex_unlock(&osc2_id_lock);
 		return -EINVAL;
 	}
 	osc2.stored = next;
 	osc2_identity_refresh();
-	return osc2_storage_save_identity();
+	err = osc2_storage_save_identity();
+	(void)k_mutex_unlock(&osc2_id_lock);
+	return err;
 }
 
 int opensc2_identity_store(const struct opensc2_identity *identity)
@@ -160,9 +169,14 @@ int opensc2_identity_store(const struct opensc2_identity *identity)
 
 int opensc2_identity_clear(void)
 {
+	int err;
+
+	(void)k_mutex_lock(&osc2_id_lock, K_FOREVER);
 	memset(&osc2.stored, 0, sizeof(osc2.stored));
 	osc2_identity_refresh();
-	return osc2_storage_save_identity();
+	err = osc2_storage_save_identity();
+	(void)k_mutex_unlock(&osc2_id_lock);
+	return err;
 }
 
 /* ---- settings, LED, chime -------------------------------------------------------------------- */
