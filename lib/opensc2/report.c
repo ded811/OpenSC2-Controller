@@ -211,11 +211,15 @@ void osc2_lizard_buttons_changed(void)
 }
 
 /* In each frame (lizard_lock held): who brings the buttons, and a wake-up for the thread when a
- * change waited or the buttons are to be adopted afresh (lizard mode's resync). */
+ * change waited, the buttons are to be adopted afresh (lizard mode's resync), or the frames have
+ * just handed the buttons over to it (the hooks' guard ended: a change the thread passed over
+ * while the frames brought the buttons is compared with the last frame's buttons, not lost). */
 static void lizard_keys_frame(void)
 {
+	bool handover = !lizard.driver;
+
 	lizard.driver = keys_at_once();
-	if (lizard.driver && (keys_deferred || lizard.buttons_sync)) {
+	if (lizard.driver && (handover || keys_deferred || lizard.buttons_sync)) {
 		keys_deferred = false;
 		k_sem_give(&keys_sem);
 	}
