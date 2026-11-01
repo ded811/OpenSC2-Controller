@@ -52,6 +52,8 @@ config OPENSC2_DOCK_THREAD_STACK_SIZE
 	help
 	  The thread runs vendor commands, flash writes included (a pairing over the dock saves the
 	  bond), as the USB stack's thread does on the cable (the blank canvas gives that one 2048
-	  bytes for the same reason).
+	  bytes for the same reason), and, while the dock is the only link, builds the state report
+	  for GET input: the application's sample callback runs on this stack then. Raise it for a
+	  sample callback that needs more.
 
 endif # OPENSC2_DOCK
