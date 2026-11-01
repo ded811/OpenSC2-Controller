@@ -412,7 +412,9 @@ int opensc2_usb_info(struct opensc2_usb_info *info);
 int opensc2_set_state(const struct opensc2_state *state);
 void opensc2_get_state(struct opensc2_state *state);
 
-/* Change the bits in `mask` to `value` (other bits stay). */
+/* Change the bits in `mask` to `value` (other bits stay). Call it when a button changes (debounced;
+ * an interrupt is fine): lizard mode's keyboard reports the change at once, as the real
+ * controller's does (CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE). */
 int opensc2_set_buttons(uint32_t mask, uint32_t value);
 int opensc2_set_stick(enum opensc2_side side, int16_t x, int16_t y);
 /* 0..32767. Unless CONFIG_OPENSC2_TRIGGER_CLICK_AUTO is off, the trigger's digital bit follows
