@@ -760,7 +760,15 @@ The keys by name (`0xEE`, RAM only, exactly their size, `-EINVAL` otherwise; `0x
 
 `opensc2_imu_free_fall()` is the sensor's free-fall detector: the drop sounds play 250 ms later
 (with `CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS`), and further falls count again 5 s after; the stream
-going off within those 5 s keeps them from counting until the next boot, as on the real controller.
+going off within those 5 s drops a sound still due and keeps further falls from counting until the
+next boot, as on the real controller (`opensc2_haptics_free_fall_cancel()`, which the library
+calls).
+
+A board that set its IMU up (`opensc2_imu_set_mounting()` or a handler) sends all IMU fields 0, the
+quaternion's W included, until its first sample reaches the reports, as the real controller does
+(its state starts empty; seen when its stream does not start at boot, a stored gyro bias it
+refuses for example). Without that set-up the library takes the board for one without an IMU and
+sends the identity for "none".
 `opensc2_imu_config_get(&c)` reads all of it. The blank canvas feeds its IMU this way
 (`app/src/imu.c`, `app/src/imu_fifo.c`), with the [fusion helper](#the-imu-fusion-helper)'s
 quaternion and an optional bias estimate for an IMU without its own.
@@ -1347,6 +1355,7 @@ in OpenSC2. The synthesiser has sounds of its own instead:
 | `opensc2_haptics_stop(channels)` | stop everything on the channels: how many it queued |
 | `opensc2_haptics_play_clip(channel, data, samples, format, dB)` | a recording of your own in a stream format (0..11); `data` stays valid until it has played |
 | `opensc2_haptics_free_fall()` | a free fall: maybe a drop sound. From any context, an IMU's free-fall interrupt included: it notes the time, the rest runs on the system work queue |
+| `opensc2_haptics_free_fall_cancel()` | the IMU's stream went off: a drop sound still due is dropped, and after a fall none counts again until the next boot. The library's IMU calls it ([The IMU](#the-imu)) |
 | `opensc2_haptics_info(&info)` | what plays, blocks, underruns, lost commands, stream fill |
 | `opensc2_haptics_block_level(path, block, frames)`, `opensc2_freefall_init(&ff)`, `opensc2_freefall_update(&ff, accel, ms)` | pure helpers, with or without the synthesiser |
 

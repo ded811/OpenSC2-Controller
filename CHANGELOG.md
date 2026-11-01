@@ -270,6 +270,11 @@ controller is listed in docs/protocol.md's gaps.
   saves the records as they are (format 0 after a boot); records are written whatever their format
   and reach RAM from the write; a stick or trigger recording loads every stored `cal/` key again
   (a RAM-only `0xEE` change of another key goes back); a side is saved when the board has it.
+- The IMU's stream going off (setting 48 = 0, or the key `mode`) now also drops a drop sound still
+  waiting its 250 ms, as on the real controller (`opensc2_haptics_free_fall_cancel()`, called by the
+  library's IMU for a board that set its IMU up). Such a board's reports carry all IMU fields 0, the
+  quaternion's W included, until its first sample, as the real controller's do (they started with
+  the identity); a board without an IMU keeps the identity.
 - Settings 48, 84 and 85 reach the IMU at every write (not only on a change); a sensor error for 85
   fails `0x87`.
 - The blank canvas: the sticks and triggers are read right before each state report and processed

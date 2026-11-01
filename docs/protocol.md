@@ -406,7 +406,9 @@ open, the library does what should work with Steam and the puck, and says so her
    while the stream is off. The library sends the application's quaternion, and its "none" (all
    four 0, the state of a board without an IMU or without an orientation) as the identity; the
    library's IMU (`<opensc2/imu.h>`) keeps the last sample while the stream is off, as October
-   does, and the blank canvas feeds its IMU through it. (0.2.0 sent all four 0 without an IMU; the
+   does, and the blank canvas feeds its IMU through it. October's state starts empty: until its
+   IMU's first sample (only seen when its stream does not start at boot) it sends all 0, W
+   included, and so does the library for a board that set its IMU up. (0.2.0 sent all four 0 without an IMU; the
    parity work's blank canvas sent "none" while setting 48 was 0.)
 8. **Payload limit**: the controller's payloads are "within 127 bytes", the puck accepts 128; the
    library stays at 127.
@@ -683,8 +685,8 @@ open, the library does what should work with Steam and the puck, and says so her
     Setting 85 and the key `gyro_threshold` go to the application's sensor (its handler): the real
     controller hands it to its IMU's fusion block, where its role is not known; the blank canvas's
     LSM6DSV16X stream option takes it and does not apply it (the stock driver has no such
-    attribute). A drop sound already waiting its 250 ms still plays when the stream goes off (the
-    real controller cancels that one too). OpenSC2's rest-based gyro-bias estimate
+    attribute). The stream going off also drops a drop sound still waiting its 250 ms, as on the
+    real controller. OpenSC2's rest-based gyro-bias estimate
     (`<opensc2/sensor_helpers.h>`, for IMUs without one of their own) takes setting 85 as its rest
     threshold in report units. The blank canvas's LSM6DSV16X stream option (`app/imu-stream.conf`)
     runs the chip at the real controller's 250 Hz high-accuracy rate and takes the stored gyro bias
