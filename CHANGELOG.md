@@ -168,8 +168,9 @@ controller is listed in docs/protocol.md's gaps.
 
 - The controller's end of Valve's puck's charging pads: the 73-byte frames with their CRC-16/KERMIT
   (`<opensc2/dock.h>`); the dock link (`CONFIG_OPENSC2_DOCK_LINK`, on with the test hooks): sessions
-  that a failed frame ends, the identity record for the probe, Steam's vendor commands on a stored
-  request of the dock's own (`0x81` and `0x85` acknowledged and ignored there), each answer built
+  that a failed frame ends, the identity record for the probe (taken once per boot, at the end of
+  `opensc2_init()`), Steam's vendor commands on a stored request of the dock's own (`0x81` and
+  `0x85` acknowledged and ignored there), each answer built
   over the previous one as the real controller builds it (a probe keeps the previous type and
   result, a SET the previous payload, an unknown type repeats the previous answer), GET input from
   the copy of the latest state report (with the dock alone the report the previous request built,
