@@ -358,7 +358,9 @@ static ssize_t write_feature(struct bt_conn *conn, const struct bt_gatt_attr *at
 static ssize_t read_feature(struct bt_conn *conn, const struct bt_gatt_attr *attr, void *buf,
 			    uint16_t len, uint16_t offset)
 {
-	uint8_t request[FEATURE_CMD_LEN], answer[FEATURE_CMD_LEN], out[OSC2_BLE_FEATURE_LEN];
+	/* Static, off the host's receive thread's stack (vendor commands run deep there); only that
+	 * thread reads the characteristics, one request at a time. */
+	static uint8_t request[FEATURE_CMD_LEN], answer[FEATURE_CMD_LEN], out[OSC2_BLE_FEATURE_LEN];
 	uint8_t request_len = osc2_command_stored(OSC2_LINK_BLE, request);
 	size_t n;
 	int rc;
