@@ -2101,8 +2101,11 @@ for (;;) {
 }
 ```
 
-Without `CONFIG_OPENSC2_DOCK_LINK` the frame, session, board and status calls return `-ENOTSUP`;
-the stick offsets work in every build.
+Without `CONFIG_OPENSC2_DOCK_LINK` the frame, session, pilot-check and status calls return
+`-ENOTSUP`; `opensc2_dock_set_board()` (its `changed` callback then hears of the stick offsets
+only) and the stick offsets work in every build. Readers given before `opensc2_init()` take part in
+the power-on decision; readers given later are used from the next poll on (the supply rule makes its
+first decision once it has a pilot to read).
 
 ### The docked stick offsets
 
