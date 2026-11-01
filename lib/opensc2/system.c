@@ -1015,6 +1015,16 @@ enum opensc2_power_source opensc2_power_source(void)
 	if (app_source != OPENSC2_POWER_SOURCE_AUTO) {
 		return (enum opensc2_power_source)app_source;
 	}
+	/* The dock's supply rule first, as with the machine: a supply that appeared with the pilot
+	 * is the dock's, any other USB power. */
+	switch (osc2_dock_supply()) {
+	case OSC2_DOCK_SUPPLY_DOCK:
+		return OPENSC2_POWER_SOURCE_DOCK;
+	case OSC2_DOCK_SUPPLY_USB:
+		return OPENSC2_POWER_SOURCE_USB;
+	default:
+		break;
+	}
 	return osc2_usb_power() ? OPENSC2_POWER_SOURCE_USB : OPENSC2_POWER_SOURCE_BATTERY;
 }
 

@@ -145,8 +145,8 @@ bool opensc2_dock_stick_offsets_active(void);
  * controller rests on the dock, and the offsets follow: 0. With the machine they follow its docked
  * states, and this returns -EPERM. */
 int opensc2_dock_set_resting(bool on);
-/* Move a stored stick calibration by the side's offsets while they are in effect; a calibration
- * whose format is not usable (2 or 0x81) is left alone. */
+/* Move a stored stick calibration by the side's offsets while they are in effect; only a usable
+ * calibration (format 2 or 0x81) is moved, any other is left alone. */
 void opensc2_dock_stick_adjust(enum opensc2_side side, struct opensc2_cal_stick *cal);
 /* The same, pure: `offsets` added to `cal`, each value clamped to 0..65535. */
 void opensc2_dock_stick_offsets_apply(const struct opensc2_dock_stick_offsets *offsets,

@@ -220,9 +220,12 @@ enum opensc2_power_request {
 
 /* What powers the board. */
 enum opensc2_power_source {
-	OPENSC2_POWER_SOURCE_AUTO = 0,    /* the library's own view: USB power (the chip's VBUS
-					   * detection), else a battery with CONFIG_OPENSC2_BATTERY, else
-					   * an external supply (treated as USB power) */
+	OPENSC2_POWER_SOURCE_AUTO = 0,    /* the library's own view: the dock's supply rule where the
+					   * board has a pilot to read (<opensc2/docking.h>: a supply that
+					   * appears with the pilot is the dock's), else USB power (the
+					   * chip's VBUS detection), else a battery with
+					   * CONFIG_OPENSC2_BATTERY, else an external supply (treated as
+					   * USB power) */
 	OPENSC2_POWER_SOURCE_BATTERY,     /* no input power: running on the battery */
 	OPENSC2_POWER_SOURCE_USB,         /* USB power, or another supply that is not the dock */
 	OPENSC2_POWER_SOURCE_DOCK,        /* the puck's dock contacts */
