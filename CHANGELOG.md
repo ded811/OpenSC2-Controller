@@ -263,6 +263,12 @@ controller is listed in docs/protocol.md's gaps.
   while setting 80 is not 1; a pad click counts only while its pad is touched; the ticks and clicks
   run while setting 9 is on and 70 is exactly 1, forget the touch but keep the click state while
   stopped, and compare the steps with setting 14 in every touched frame.
+- Lizard mode's keyboard hears the buttons the moment the application changes them, as the real
+  controller's keyboard listens to its button driver (`CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE`, on by
+  default, a thread of its own): the key report goes out then instead of with the next state
+  report, and a change made while no link runs goes nowhere instead of being sent by the first
+  frame after the gap. While the hardware test hooks are armed the frames bring the buttons, as
+  before.
 - Without an IMU (the application's quaternion all 0, "none") the state reports carry the identity
   quaternion, W = 32767, as the real controller's always do; 0.2.0 sent all four words 0.
 - Report `0x81` swaps the two pads only for the exact targets 0 and 1, as the real controller does:

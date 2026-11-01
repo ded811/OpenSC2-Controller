@@ -523,11 +523,20 @@ application hands over; the application supplies nothing else for it
   button repeats, a glide keeps moving), then one all-zero report. Each byte is the low eight bits
   of its count, without clamping.
 - **Keyboard** `0x41`: A is Enter, B and VIEW are Escape, the D-pad the arrows, MENU is Tab. The
-  keyboard follows the 20 digital buttons in every frame, also while it is stopped, the way a
-  button driver reports them: a change of one of those eight buttons from the frame before, while
-  it runs, sends a report in which every held button in bit order takes the next key slot (its
-  key, or 0), and more than six held buttons give the roll-over code in every slot. A button held
-  while lizard mode comes back on is reported at its next change.
+  keyboard follows the 20 digital buttons, also while it is stopped, the way a button driver
+  reports them: a change of one of those eight buttons, while it runs, sends a report in which
+  every held button in bit order takes the next key slot (its key, or 0), and more than six held
+  buttons give the roll-over code in every slot. A button held while lizard mode comes back on is
+  reported at its next change. With `CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE` (default on) the keyboard
+  hears a change the moment the application makes it (`opensc2_set_buttons()`,
+  `opensc2_set_state()`, the `sample` callback), in a thread of the library's
+  (`CONFIG_OPENSC2_LIZARD_KEYS_STACK_SIZE`, 1536; `CONFIG_OPENSC2_LIZARD_KEYS_PRIORITY`, 8), and
+  the report goes out then, as on the real controller, not with the next state report. A change
+  made while no link runs (or only the dock) is sent into nothing, as on the real controller: the
+  first frames after the gap do not send it again. Through the puck a change waits while lizard
+  mode's reports wait for room. With the option off the keyboard hears the buttons once per frame
+  (up to one state report later). While the hardware test hooks are armed the frames bring the
+  buttons either way.
 - **The motion**, as the real controller works it out, once per frame (each state report), each part
   an option (all on by default):
   - the touch stabilisers (`CONFIG_OPENSC2_LIZARD_STABILISER`): a new touch does not move until the
@@ -560,7 +569,8 @@ application hands over; the application supplies nothing else for it
   dropped (`CONFIG_OPENSC2_REPORT_WAIT_DEPTH`, 8 beyond the queue's 6), and lizard mode waits with
   its next frame while they do; the next frame takes up the motion. A dropped link does not start
   the trackers over, as on the real controller: no frames run meanwhile, and the first frame after
-  the gap compares the pads (and the buttons) with the frame before it.
+  the gap compares the pads with the frame before it (and the buttons too, with
+  `CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE` off).
 
 `opensc2_lizard_status(&st)` tells the application what lizard mode is doing, from any thread (it
 takes lizard mode's lock; not from an interrupt). `-ENOTSUP` without `CONFIG_OPENSC2_LIZARD_MODE`
@@ -579,7 +589,10 @@ takes lizard mode's lock; not from an interrupt). `-ENOTSUP` without `CONFIG_OPE
 #### What a board supplies to lizard mode
 
 Nothing beyond its inputs, at any time, through the usual setters: the 20 digital buttons
-(`opensc2_set_buttons()`; A, B, VIEW, MENU and the D-pad are the keyboard), the triggers' digital
+(`opensc2_set_buttons()`; A, B, VIEW, MENU and the D-pad are the keyboard; call it when a button
+changes, debounced, from a thread or an interrupt: that call is the button driver the keyboard
+listens to, so a board that only updates its buttons in the `sample` callback gets its key
+reports at the frames), the triggers' digital
 bits (set by the library from `opensc2_set_trigger()` with `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO`, or
 the application's own), the trackpads (`opensc2_set_trackpad()`: position, touch and click, or a
 pressure the library turns into a click, see
