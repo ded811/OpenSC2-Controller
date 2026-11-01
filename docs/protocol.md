@@ -425,9 +425,10 @@ open, the library does what should work with Steam and the puck, and says so her
     off by events that they take up in the real controller's order once the command that posted
     them is done, so `0x85` while the keyboard runs leaves an "on" pending and the next switch-off
     sends the empty `0x41` twice and leaves the keyboard typing with setting 9 at 0 until the
-    switch-off after that; the keyboard hears the buttons when the application changes them, also while it is stopped and
-    while no link runs (its report then goes nowhere); the travel a glide needs adds exact lengths, and the flick speed and the glide's
-    factor are single precision, with setting 12 read in every frame; setting 82 drops a pad's
+    switch-off after that; the keyboard hears the buttons when the application changes them, also
+    while it is stopped and while no link runs (its report then goes nowhere); the travel a glide
+    needs adds exact lengths, and the flick speed and the glide's factor are single precision,
+    with setting 12 read in every frame; setting 82 drops a pad's
     motion after the division (the remainders keep their part); a mouse report goes out while one
     of its bytes is not zero; the right pad's stabiliser is left as it is while setting 80 is not
     1; a pad click counts only while its pad is touched; the ticks and clicks forget the touch but
@@ -439,6 +440,7 @@ open, the library does what should work with Steam and the puck, and says so her
     | When ticks and clicks are worked out | per trackpad sample | once per state report, on the pad as the report carries it: the library sees the trackpad only through the input state, and its pad processing (rotation, the setting-80 stabiliser, setting 82) runs once per report. The same on the cable and through the puck when the pad samples no faster than the reports; over Bluetooth a fast swipe across a long connection interval can count fewer steps |
     | When a key report goes out | as soon as its button driver reports the change, debounced (16 ms) and polled every 2 ms | as soon as the application reports the change (`CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE`, default on; also while no link runs, when it goes nowhere): the debouncing and polling are the board's, and a board that updates its buttons only in the `sample` callback gets them at the frames |
     | The haptic events' sound | its own click recordings on its pad actuators | the library hands over click A or B and the documented level ([api.md](api.md#outputs)); with the haptics synthesiser it plays them itself with its own click sounds, while lizard mode is on, setting 70 is exactly 1 and the current link is not the dock (gap 35). The recordings are Valve's data and stay out |
+    | A state report skipped on the cable (bus suspended, no free buffer) | the frame still runs: the motion is worked out and a glide runs down, and its reports wait for a buffer | the frame is skipped with the state report: the library's frames are its state reports. The next frame takes up the motion (a difference of positions); a glide pauses for the skipped frames |
     | Reports waiting through the puck | the reports wait for a buffer, then queue for the radio and are dropped when its queue is full | gap 30 |
 
     The key-slot rule, the scales (128 pad units per pointer count, 1024 per scroll step, pad up
