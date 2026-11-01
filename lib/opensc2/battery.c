@@ -207,6 +207,10 @@ static int average_mv(uint16_t *avg)
 			ring[count % HISTORY] = (uint16_t)CLAMP(mv, 0, UINT16_MAX);
 			count++;
 		}
+		if (r < (int)want) {
+			err = -EIO;   /* a short batch: a reading failed, the batch ends there */
+			break;
+		}
 	} while (count < HISTORY);
 	n = MIN(count, HISTORY);
 	if (err) {
