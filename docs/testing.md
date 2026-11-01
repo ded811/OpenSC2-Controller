@@ -389,7 +389,8 @@ closed.
    of 64 or more, the interval Windows granted (7500 µs asked for) and `paced by the connection
    events`, and the state reports counting up (if they are all dropped instead, a puck link lost
    earlier in this boot set the real controller's vendor `0x45` quirk: reboot, the transport is
-   stored; [protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23). Device Manager (View, Devices by connection) shows
+   stored; [protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23). Device Manager
+   (View, Devices by connection) shows
    under the Bluetooth device a HID device with three collections (a mouse, a keyboard and a vendor
    collection); its hardware IDs contain `VID&0228DE_PID&1303` (Windows may print the hex in lower
    case). The transport is now stored (`opensc2 transport`: `stored ble`): wireless boots start on
@@ -424,8 +425,8 @@ Remove device. The board keeps its own record of the bond and, as the real contr
 a new pairing on the same identity. To pair again, open the slot for a new host first: `opensc2 ble
 pair` on the console (or the pairing button, while Bluetooth is the transport) resets the slot's
 other identity, which gets a fresh address, and advertises it in pairing mode for 60 s; Windows
-then lists it as a new device. The old bond goes once the new host has encrypted the link; until then
-`opensc2 start` advertises for the old host again. A factory reset (vendor command `0x86` with its
+then lists it as a new device. The old bond goes once the new host has encrypted the link; until
+then `opensc2 start` advertises for the old host again. A factory reset (vendor command `0x86` with its
 key) deletes every Bluetooth bond and identity.
 
 What `--bluetooth` writes: like a run without it, settings in RAM (restored), and nothing in flash,
