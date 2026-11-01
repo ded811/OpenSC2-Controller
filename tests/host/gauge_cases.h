@@ -116,3 +116,32 @@ OPENSC2_TEST(gauge_level)
 	opensc2_gauge_init(&g, 200);
 	CHECK_EQ(g.level, OPENSC2_GAUGE_NO_LEVEL);
 }
+
+OPENSC2_TEST(gauge_own_curves)
+{
+	/* a board's own discharging curve: 3500 mV 0 %, 4000 mV 100 % (target 4000) */
+	static const struct opensc2_gauge_point flat[] = { { 3500, 0 }, { 4000, 1000 } };
+	static const struct opensc2_gauge_curves own = {
+		.discharging = flat,
+		.discharging_len = 2,
+		.target_mv = 4000,
+	};
+	struct opensc2_gauge g;
+
+	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
+	opensc2_gauge_set_curves(&g, &own);
+	CHECK_EQ(opensc2_gauge_step(&g, 3750, OPENSC2_CHARGE_DISCHARGING), 50);
+	/* charging keeps the built-in curve and target (none given) */
+	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
+	opensc2_gauge_set_curves(&g, &own);
+	CHECK_EQ(opensc2_gauge_step(&g, 4000, OPENSC2_CHARGE_CHARGING), 48);
+	/* back to the built-in curves */
+	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
+	opensc2_gauge_set_curves(&g, &own);
+	opensc2_gauge_set_curves(&g, NULL);
+	CHECK_EQ(opensc2_gauge_step(&g, 4000, OPENSC2_CHARGE_DISCHARGING), 81);
+	/* init forgets them */
+	opensc2_gauge_set_curves(&g, &own);
+	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
+	CHECK(g.curves == NULL);
+}

@@ -13,8 +13,9 @@
  *   - crash_cases.h: the crash record (crash_rules.c) and 0xF2 selector 1;
  *   - vectors_cases.h: the hardware test suite's shared vectors through the library's own code;
  *   - differential_cases.h: the unarmed command channel, request by request, into a transcript;
- *   - cal_cases.h, sensor_helpers_cases.h, gauge_cases.h: the calibration, sensor and battery helpers
- *     (cal.c, sensor_helpers.c, gauge.c);
+ *   - cal_cases.h, sensor_helpers_cases.h, gauge_cases.h, charger_cases.h: the calibration, sensor,
+ *     battery and charging helpers
+ *     (cal.c, sensor_helpers.c, gauge.c, charger.c);
  *   - cal_store_cases.h: the library's calibration (cal_store.c, with the stand-ins of cal_host.c);
  *   - system_cases.h: the system state machine's pure rules (the chords, the idle monitor, the
  *     machine, the cues, the status LED's pattern player);
@@ -98,6 +99,7 @@ static void register_test(const char *name, test_fn fn)
 #include "cal_cases.h"
 #include "sensor_helpers_cases.h"
 #include "gauge_cases.h"
+#include "charger_cases.h"
 #include "cal_store_cases.h"
 #include "system_cases.h"
 #include "haptics_cases.h"

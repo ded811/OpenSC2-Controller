@@ -123,6 +123,12 @@ void opensc2_gauge_init(struct opensc2_gauge *g, uint8_t kept_level)
 	g->level = kept_level <= 100 ? kept_level : OPENSC2_GAUGE_NO_LEVEL;
 	g->charge_state = OPENSC2_CHARGE_RESET;
 	g->voltage_mv = 0;
+	g->curves = NULL;
+}
+
+void opensc2_gauge_set_curves(struct opensc2_gauge *g, const struct opensc2_gauge_curves *curves)
+{
+	g->curves = curves;
 }
 
 uint8_t opensc2_gauge_begin(struct opensc2_gauge *g, uint8_t charge_state)
@@ -177,6 +183,22 @@ uint8_t opensc2_gauge_finish(struct opensc2_gauge *g)
 	curve = charging ? opensc2_gauge_lipo_charging : opensc2_gauge_lipo_discharging;
 	n = charging ? opensc2_gauge_lipo_charging_len : opensc2_gauge_lipo_discharging_len;
 	target = charging ? OPENSC2_GAUGE_TARGET_CHARGING_MV : OPENSC2_GAUGE_TARGET_MV;
+	if (g->curves) {
+		/* a board's own, where it gives one */
+		const struct opensc2_gauge_point *own = charging ? g->curves->charging :
+								   g->curves->discharging;
+		size_t own_n = charging ? g->curves->charging_len : g->curves->discharging_len;
+		uint16_t own_target = charging ? g->curves->target_charging_mv :
+						 g->curves->target_mv;
+
+		if (own && own_n) {
+			curve = own;
+			n = own_n;
+		}
+		if (own_target) {
+			target = own_target;
+		}
+	}
 	level = opensc2_gauge_stretch(opensc2_gauge_curve(curve, n,
 							  opensc2_gauge_average(&g->history)),
 				      opensc2_gauge_curve(curve, n, target));

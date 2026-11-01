@@ -72,17 +72,32 @@ uint8_t opensc2_gauge_stretch(uint16_t permille, uint16_t target_permille);
  * battery report after a cold start carries). */
 #define OPENSC2_GAUGE_NO_LEVEL 255
 
+/* A board's own curves and charge targets in place of OpenSC2's (a NULL curve or a 0 target keeps
+ * the built-in one). The level is the curve's reading stretched so that the target reads 100 %. */
+struct opensc2_gauge_curves {
+	const struct opensc2_gauge_point *discharging;
+	size_t discharging_len;
+	const struct opensc2_gauge_point *charging;
+	size_t charging_len;
+	uint16_t target_mv;            /* 0: OPENSC2_GAUGE_TARGET_MV */
+	uint16_t target_charging_mv;   /* 0: OPENSC2_GAUGE_TARGET_CHARGING_MV */
+};
+
 struct opensc2_gauge {
 	struct opensc2_gauge_history history;
 	uint8_t level;          /* percent, or OPENSC2_GAUGE_NO_LEVEL */
 	uint8_t charge_state;   /* the state of the last step (enum opensc2_charge_state) */
 	uint16_t voltage_mv;    /* the voltage to report: the average at the last step outside
 				 * "done" (0 before the first) */
+	const struct opensc2_gauge_curves *curves;   /* NULL: OpenSC2's LiPo curves */
 };
 
 /* Start from nothing, or from a level kept over a warm reboot (opensc2_battery_kept_level();
- * OPENSC2_GAUGE_NO_LEVEL: none). */
+ * OPENSC2_GAUGE_NO_LEVEL: none), with the built-in curves. */
 void opensc2_gauge_init(struct opensc2_gauge *g, uint8_t kept_level);
+/* Use a board's own curves from now on (NULL: the built-in ones again). Call it after
+ * opensc2_gauge_init(); `curves` must stay valid while the gauge is in use. */
+void opensc2_gauge_set_curves(struct opensc2_gauge *g, const struct opensc2_gauge_curves *curves);
 
 /* A step, the way the real controller's gauge takes its readings. Begin with the charge state
  * (enum opensc2_charge_state); it returns how many fresh readings to take in a row: 40 after a

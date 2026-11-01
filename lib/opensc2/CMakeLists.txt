@@ -22,6 +22,8 @@ zephyr_library_sources(
 	crash.c
 	crash_rules.c
 	gauge.c
+	# the charging rules (<opensc2/charger.h>, pure; the application drives its charger)
+	charger.c
 	hwdt.c
 	id_rules.c
 	input_rules.c
