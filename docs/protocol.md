@@ -771,7 +771,11 @@ open, the library does what should work with Steam and the puck, and says so her
 37. **GET input with the dock alone** answers the report the request before it built, as on the
     real controller (closed). OpenSC2 builds the new report while the answer goes out, in the
     thread that serves the dock (the application's `sample` runs there); the real controller wakes
-    its input thread for it.
+    its input thread for it. The zeroed state report sent while a link is dropped never reaches the
+    dock's copy, on either firmware. Not copied: when the real controller drops its links (a
+    shutdown, or USB power with the radio turned off) while a dock session is still open, its copy
+    stops filling and attribute 11 reads 0 until that session ends; a controller in those states is
+    off the dock or on USB, so a puck never sees it.
 38. **Result codes on the dock** are the real controller's numbers whatever this platform's errno
     values are: `-22` for an opcode nobody knows or a length above 61, `-95` for a GET whose
     command has nothing to read.
