@@ -422,9 +422,12 @@ open, the library does what should work with Steam and the puck, and says so her
    - the October firmware's change to the ESB driver (the processor, not the radio, starts each
      reception and acknowledgement) is not reproduced: stock nRF Connect SDK ESB is used (it would
      take a changed SDK);
-   - the radio thread builds the state report itself and sleeps until its slot, where the real
-     controller's input loop builds it while the radio thread goes on: a packet that arrives in
-     those 2 ms is handled after the report, not before it; the thread runs at priority 5
+   - one thread does the work of two: the real controller's input loop builds the state report
+     at its time while its radio thread goes on with the next turn; OpenSC2's radio thread builds
+     it while it waits for the next packet (on any channel of the walk), so packets, turns and
+     timers keep the real controller's timing, but a report that falls due while a packet is
+     being handled (a channel change's 0.5 ms wait, a command that writes flash) is built right
+     after that packet, where the real input loop would cut in; the thread runs at priority 5
      (`CONFIG_OPENSC2_THREAD_PRIORITY`), the real one at 9 below its input loop's 8;
    - the 32 MHz crystal is waited for at most 500 ms (the real controller waits without a limit;
      either way the radio stays off), and MPSL is not shut down when the link stops (gap 23);

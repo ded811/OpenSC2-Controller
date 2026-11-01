@@ -5,9 +5,9 @@
  * radio_rules.h: the rules of the puck's radio link that need no radio, as pure functions the host
  * tests build (radio.c runs them): what a control event does in each state, the connection
  * request a bond answers, the disconnect reason, the walk over the channel list, the two answers
- * that wait for the next state report, the state report's slot and its lead, and the length an
- * output record hands on. They follow the protocol documentation's description of the real
- * controller's radio link (docs/protocol.md sums it up). No kernel.
+ * that wait for the next state report, the state report's slot, its lead and when it is built,
+ * and the length an output record hands on. They follow the protocol documentation's description
+ * of the real controller's radio link (docs/protocol.md sums it up). No kernel.
  */
 #ifndef OPENSC2_RADIO_RULES_H_
 #define OPENSC2_RADIO_RULES_H_
@@ -111,6 +111,30 @@ void osc2_slot_lead_init(struct osc2_slot_lead *l, int64_t initial);
 int64_t osc2_slot_lead_wait(const struct osc2_slot_lead *l, int64_t slot, int64_t now);
 /* A report took `took` to build and send. */
 void osc2_slot_lead_done(struct osc2_slot_lead *l, int64_t took);
+
+/* ---- when the state reports are built ----------------------------------------------------------
+ * The real controller builds its state report beside the radio, which goes on handling packets
+ * meanwhile: a keep-alive's report is built at its slot less the lead, wherever the radio is then
+ * (waiting, walking the channels). A keep-alive that comes while a report still waits for its
+ * time leaves that one as it is and is followed by its own (a later keep-alive's slot replaces
+ * the follower's); the follower's build time is reckoned once the report before it is built,
+ * with the lead as it is then. radio.c keeps this schedule and builds each report when its time
+ * comes while it waits for packets. Times in any unit, the same for all. */
+struct osc2_report_sched {
+	bool due;          /* a report waits for its build time */
+	bool follows;      /* a keep-alive came meanwhile: its report follows */
+	int64_t build_at;
+	int64_t next_slot;
+};
+
+void osc2_report_sched_clear(struct osc2_report_sched *s);
+/* A keep-alive set `slot`. */
+void osc2_report_sched_add(struct osc2_report_sched *s, const struct osc2_slot_lead *l,
+			   int64_t slot);
+/* True when a report is due no later than *at, which then becomes its build time. */
+bool osc2_report_sched_first(const struct osc2_report_sched *s, int64_t *at);
+/* The due report was built (`l` holds its build time already): the follower is due next. */
+void osc2_report_sched_done(struct osc2_report_sched *s, const struct osc2_slot_lead *l);
 
 /* ---- records ----------------------------------------------------------------------------------
  * The length an output record hands to the output reports: the record's length, which counts the

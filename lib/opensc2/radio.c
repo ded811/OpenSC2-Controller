@@ -19,7 +19,9 @@
  * protocol documentation's description of the controller's radio link (not public yet;
  * docs/protocol.md sums it up). Each connected turn is the real controller's: a packet is handled,
  * then whatever is pending ("disconnecting", the version answer, the identity) is queued at once,
- * and a keep-alive's state report is queued at its slot, about 2 ms later.
+ * and the next turn begins; a keep-alive's state report is built and queued at its slot, about
+ * 2 ms later, while the thread waits for the next packet (radio_rules.h), as the real controller
+ * builds it beside its radio.
  */
 #include <errno.h>
 #include <string.h>
@@ -107,6 +109,7 @@ static struct {
 	uint8_t reason;                    /* the first disconnect reason (radio_rules.h) */
 	struct osc2_radio_answers answers;
 	struct osc2_slot_lead lead;
+	struct osc2_report_sched sched;    /* the state reports keep-alives asked for */
 } conn;
 
 /* ---- ESB ------------------------------------------------------------------------------------- */
@@ -802,10 +805,10 @@ static void queue_pending(void)
 	}
 }
 
-/* The state report for the slot a keep-alive set (ticks): built early by the lead, so it is ready
- * at the slot, then queued with the waiting answer and as many extra reports as fit. Lizard mode's
- * reports of this frame ride with the next one, as the real controller's do. */
-static void state_report(int64_t slot)
+/* The state report whose time has come (conn.sched): built now, early by the lead so that it is
+ * ready at its slot, then queued with the waiting answer and as many extra reports as fit. Lizard
+ * mode's reports of this frame ride with the next one, as the real controller's do. */
+static void state_report(void)
 {
 	struct opensc2_payload p;
 	struct opensc2_state s;
@@ -815,13 +818,8 @@ static void state_report(int64_t slot)
 	uint8_t answer[63];
 	uint8_t answer_len, answer_type;
 	uint8_t extras = 0;
-	int64_t wait = osc2_slot_lead_wait(&conn.lead, slot, k_uptime_ticks());
-	int64_t start;
+	int64_t start = k_uptime_ticks();
 
-	if (wait > 0) {
-		k_sleep(K_TICKS(wait));
-	}
-	start = k_uptime_ticks();
 	osc2_report_state(report, &s);
 	if (esb_tx_full()) {
 		/* Two payloads wait already: this report is dropped (its answer and the extra
@@ -858,20 +856,20 @@ static void state_report(int64_t slot)
 	}
 	osc2_report_lizard(&s);
 	osc2_slot_lead_done(&conn.lead, k_uptime_ticks() - start);
+	osc2_report_sched_done(&conn.sched, &conn.lead);
 }
 
-/* Handle one packet received on `*channel` (moved by 0xE4). Returns true for a keep-alive, whose
- * state report is due at *slot (ticks). */
-static bool handle_packet(const struct rx_item *it, uint8_t *channel, int64_t *slot)
+/* Handle one packet received on `*channel` (moved by 0xE4). A keep-alive asks for a state report
+ * at its slot (conn.sched). */
+static void handle_packet(const struct rx_item *it, uint8_t *channel)
 {
 	uint8_t channels[4];
-	bool keepalive = false;
 
 	info.packets++;
 	info.rssi_dbm = (int8_t)-it->rssi;
 	osc2_test_count(OSC2_TEST_CNT_RADIO_PACKETS);
 	if (it->len == 0) {
-		return false;
+		return;
 	}
 
 	switch (it->data[0]) {
@@ -879,10 +877,10 @@ static bool handle_packet(const struct rx_item *it, uint8_t *channel, int64_t *s
 		break;   /* nothing to do: the acknowledgement carries whatever is queued */
 	case OPENSC2_PKT_KEEPALIVE:
 		/* The slot counts from now, before the records run. */
-		*slot = k_uptime_ticks() + k_us_to_ticks_near64(CONFIG_OPENSC2_REPORT_DELAY_US);
+		osc2_report_sched_add(&conn.sched, &conn.lead, k_uptime_ticks() +
+				      k_us_to_ticks_near64(CONFIG_OPENSC2_REPORT_DELAY_US));
 		osc2_test_count(OSC2_TEST_CNT_RADIO_KEEPALIVES);
 		handle_records(it);
-		keepalive = true;
 		break;
 	case OPENSC2_PKT_CHANNEL_CHANGE:
 		if (opensc2_parse_channel_change(it->data, it->len, channels) > 0) {
@@ -936,14 +934,31 @@ static bool handle_packet(const struct rx_item *it, uint8_t *channel, int64_t *s
 		LOG_DBG("Unknown packet type 0x%02x (%u bytes)", it->data[0], it->len);
 		break;
 	}
-	return keepalive;
 }
 
-/* One wait of a turn: `ms` on the radio's current channel. Control events do not cut it short
- * (they are looked at when the next turn starts). */
-static bool wait_packet(struct rx_item *it, uint32_t ms)
+/* One wait of a turn, on the radio's current channel until `until` (uptime ticks). A state report
+ * whose time comes meanwhile is built then and the wait goes on; one whose time has come already
+ * is built before a packet is taken (the real controller's input loop runs ahead of its radio).
+ * Control events do not cut the wait short (they are looked at when the next turn starts). */
+static bool wait_packet(struct rx_item *it, int64_t until)
 {
-	return k_msgq_get(&osc2_rx_q, it, K_MSEC(ms)) == 0;
+	for (;;) {
+		int64_t at = until;
+		bool report = osc2_report_sched_first(&conn.sched, &at);
+		int64_t now = k_uptime_ticks();
+
+		if (report && at <= now) {
+			state_report();
+			continue;
+		}
+		if (k_msgq_get(&osc2_rx_q, it, at <= now ? K_NO_WAIT : K_TIMEOUT_ABS_TICKS(at)) == 0) {
+			return true;
+		}
+		if (!report) {
+			return false;
+		}
+		state_report();
+	}
 }
 
 static enum opensc2_link_state do_connected(uint32_t *ctrl)
@@ -964,6 +979,7 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 	conn.reason = OPENSC2_REASON_NONE;
 	osc2_radio_answers_clear(&conn.answers);
 	osc2_slot_lead_init(&conn.lead, k_us_to_ticks_near64(INITIAL_LEAD_US));
+	osc2_report_sched_clear(&conn.sched);
 	key = k_spin_lock(&extra_lock);
 	osc2_rq_purge(&extra_q);   /* the puck released whatever was held when the link dropped */
 	k_spin_unlock(&extra_lock, key);
@@ -977,7 +993,7 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 
 	for (;;) {
 		uint16_t deaf_ms = osc2_test_take_deaf();
-		int64_t lost_at, slot = 0;
+		int64_t lost_at;
 		bool got;
 
 		/* The control events, once per turn. */
@@ -1005,19 +1021,19 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 			(void)esb_start_rx();
 		}
 
-		lost_at = k_uptime_get() + LINK_LOST_MS;
+		lost_at = k_uptime_ticks() + k_ms_to_ticks_ceil64(LINK_LOST_MS);
 		channel = conn.channels[0];
 		if (prev != channel) {
 			retune(channel);   /* back to the first channel after a packet elsewhere */
 		}
-		got = wait_packet(it, PRIMARY_WINDOW_MS);
+		got = wait_packet(it, k_uptime_ticks() + k_ms_to_ticks_ceil64(PRIMARY_WINDOW_MS));
 		if (!got) {
 			/* Silence: the other entries of the list, 13 ms each, until the turn's 500 ms
 			 * are over. */
 			uint8_t on = channel;
 			int index = 0;
 
-			while (k_uptime_get() < lost_at) {
+			while (k_uptime_ticks() < lost_at) {
 				index = osc2_radio_walk_next(conn.channels, index);
 				if (index < 0) {
 					index = 0;   /* (the first entry is always a channel) */
@@ -1026,7 +1042,8 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 				if (on != channel) {
 					retune(channel);
 				}
-				if (wait_packet(it, ALTERNATE_WINDOW_MS)) {
+				if (wait_packet(it, k_uptime_ticks() +
+						    k_ms_to_ticks_ceil64(ALTERNATE_WINDOW_MS))) {
 					got = true;
 					break;
 				}
@@ -1041,12 +1058,8 @@ static enum opensc2_link_state do_connected(uint32_t *ctrl)
 			break;
 		}
 
-		if (handle_packet(it, &channel, &slot)) {
-			queue_pending();
-			state_report(slot);
-		} else {
-			queue_pending();
-		}
+		handle_packet(it, &channel);
+		queue_pending();
 		prev = channel;
 	}
 

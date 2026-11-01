@@ -1758,9 +1758,10 @@ The functions for the settings and the other state Steam sets:
   acknowledgement of the puck's next packet. As on the real controller, only a keep-alive gets a
   state report: its slot is `CONFIG_OPENSC2_REPORT_DELAY_US` (2075 µs) after the keep-alive is
   handled, and the report is built earlier than the slot by the longest time building one took
-  over the last 65 (until 65 are timed: 2472 µs, so at once). Whatever else is pending
-  ("disconnecting", the version answer, the identity) is queued as soon as a packet is handled,
-  each as its own payload.
+  over the last 65 (until 65 are timed: 2472 µs, so at once). The radio thread builds it when that
+  time comes while it waits for the next packet, so the next turn starts as soon as a packet is
+  handled. Whatever else is pending ("disconnecting", the version answer, the identity) is queued
+  as soon as a packet is handled, each as its own payload.
 - Link loss: each turn waits 10 ms on the first channel of the list, then 13 ms on each other
   entry in turn (the first one included, round the list) until 500 ms have passed since the turn
   began.

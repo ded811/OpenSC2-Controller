@@ -157,6 +157,41 @@ void osc2_slot_lead_done(struct osc2_slot_lead *l, int64_t took)
 	}
 }
 
+void osc2_report_sched_clear(struct osc2_report_sched *s)
+{
+	memset(s, 0, sizeof(*s));
+}
+
+void osc2_report_sched_add(struct osc2_report_sched *s, const struct osc2_slot_lead *l,
+			   int64_t slot)
+{
+	if (s->due) {
+		s->follows = true;
+		s->next_slot = slot;
+		return;
+	}
+	s->due = true;
+	s->build_at = osc2_slot_lead_wait(l, slot, 0);   /* the slot less the lead */
+}
+
+bool osc2_report_sched_first(const struct osc2_report_sched *s, int64_t *at)
+{
+	if (!s->due || s->build_at > *at) {
+		return false;
+	}
+	*at = s->build_at;
+	return true;
+}
+
+void osc2_report_sched_done(struct osc2_report_sched *s, const struct osc2_slot_lead *l)
+{
+	s->due = s->follows;
+	s->follows = false;
+	if (s->due) {
+		s->build_at = osc2_slot_lead_wait(l, s->next_slot, 0);
+	}
+}
+
 size_t osc2_radio_output_record(const uint8_t *pkt, size_t pkt_len, const struct opensc2_record *rec,
 				uint8_t out[OPENSC2_PAYLOAD_MAX + 1])
 {

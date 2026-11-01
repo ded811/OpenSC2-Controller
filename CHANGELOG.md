@@ -264,7 +264,8 @@ controller is listed in docs/protocol.md's gaps.
   report (a hello, a channel change or the PC-asleep packet no longer do, so the sequence number no
   longer moves on for them); its slot is 2075 µs after the keep-alive is handled and the report is
   built early by the longest build of the last 65 (`CONFIG_OPENSC2_REPORT_DELAY_US`, was 2000 µs
-  from its arrival); "disconnecting" (every turn), the version answer and the identity are queued
+  from its arrival), while the radio thread already waits for the next packet, so the next turn's
+  windows start right after the keep-alive, as on the real controller; "disconnecting" (every turn), the version answer and the identity are queued
   at once, each its own payload, and keep-alives still get state reports while disconnecting; one
   GET answer and one SET result wait, one each, the GET answer first (was one queue of 4); lizard
   mode's reports of a frame ride with the next state report; up to 5 other reports wait

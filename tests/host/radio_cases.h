@@ -168,6 +168,53 @@ OPENSC2_TEST(radio_slot_lead)
 	CHECK_EQ(osc2_slot_lead_wait(&l, 1000 + 68, 1000), 68 - 12);
 }
 
+OPENSC2_TEST(radio_report_schedule)
+{
+	struct osc2_slot_lead l;
+	struct osc2_report_sched s;
+	int64_t at;
+
+	osc2_slot_lead_init(&l, 81);
+	osc2_report_sched_clear(&s);
+	at = 5000;
+	CHECK(!osc2_report_sched_first(&s, &at));
+	CHECK_EQ(at, 5000);
+	/* A keep-alive at 1000: slot 1068, built at the slot less the lead (81: already due). */
+	osc2_report_sched_add(&s, &l, 1068);
+	at = 1000;
+	CHECK(osc2_report_sched_first(&s, &at));
+	CHECK_EQ(at, 1068 - 81);
+	/* After 65 reports of 9 the lead is 9: built at 1059, so a wait until 1050 ends first. */
+	for (int i = 0; i < OSC2_SLOT_LEAD_FRAMES; i++) {
+		osc2_slot_lead_done(&l, 9);
+	}
+	osc2_report_sched_done(&s, &l);
+	CHECK(!s.due);
+	osc2_report_sched_add(&s, &l, 1068);
+	at = 1050;
+	CHECK(!osc2_report_sched_first(&s, &at));
+	CHECK_EQ(at, 1050);
+	at = 1328;
+	CHECK(osc2_report_sched_first(&s, &at));
+	CHECK_EQ(at, 1059);
+	/* Two more keep-alives before it is built: the first keeps its time, the latest slot follows
+	 * it (the one between is not built), reckoned with the lead after the first build. */
+	osc2_report_sched_add(&s, &l, 1100);
+	osc2_report_sched_add(&s, &l, 1200);
+	at = 2000;
+	CHECK(osc2_report_sched_first(&s, &at));
+	CHECK_EQ(at, 1059);
+	osc2_slot_lead_done(&l, 20);   /* a longer build: the lead grows to 20 */
+	osc2_report_sched_done(&s, &l);
+	at = 2000;
+	CHECK(osc2_report_sched_first(&s, &at));
+	CHECK_EQ(at, 1200 - 20);
+	osc2_slot_lead_done(&l, 5);
+	osc2_report_sched_done(&s, &l);
+	at = 2000;
+	CHECK(!osc2_report_sched_first(&s, &at));
+}
+
 OPENSC2_TEST(radio_output_record_length)
 {
 	/* A keep-alive {0xE3, record {len 3, type 5, 0x80 a b}, record {len 1, type 3, x}}. */
