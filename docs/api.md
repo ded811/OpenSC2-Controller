@@ -550,10 +550,11 @@ What the gauge does, as the real controller's:
   `0xBE`'s byte 13 is 1 exactly in state 2.
 - **The charge target**: `CONFIG_OPENSC2_CHARGE_TARGET_MV` (4120) and
   `CONFIG_OPENSC2_CHARGE_HYSTERESIS_MV` (40); `opensc2_battery_set_charge_target(mV)` (3400..4400,
-  0 for the configured one) changes it and starts the machine over, as does every load or `0xEE`
-  of the charge window `mte/charge_level` ([Settings by name](#settings-by-name)): a valid window
-  sets its upper end, none (both 0) or an invalid one goes back to the configured target. A
-  deleted window leaves the charger as it is until the next boot. The supply check's numbers are
+  0 for the configured one) changes it and starts the machine over, as does every load, `0xEE`
+  (a refused size too: the window then stays as it was) and `0xF0` of the charge window
+  `mte/charge_level` ([Settings by name](#settings-by-name)): a valid window sets its upper end,
+  none (both 0, as after `0xF0`) or an invalid one goes back to the configured target. Only the
+  factory reset's delete leaves the charger as it is until the next boot. The supply check's numbers are
   `CONFIG_OPENSC2_SUPPLY_CHECK_START_MV`, `_STEP_MV`, `_MIN_MV`, `_STEP_S` and `_REST_S`.
 - **The cut-off**: `opensc2_battery_cutoff()` calls `battery_cutoff` only without input power; with
   it, it logs that the battery stays connected and returns `-EBUSY`. The library calls it before

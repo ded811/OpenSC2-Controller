@@ -252,7 +252,7 @@ static int key_delete(const struct osc2_key_info *info)
 	enum named_key key = (enum named_key)info->id;
 
 	if (info->kind == OSC2_KEYK_BLOB) {
-		return osc2_keys_delete(info->id);
+		return osc2_keys_delete_cmd(info->id);
 	}
 	switch (key) {
 	case KEY_BOND_1:

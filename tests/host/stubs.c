@@ -142,6 +142,17 @@ int osc2_keys_delete(uint8_t id)
 	return 0;
 }
 
+/* 0xF0's delete: as osc2_keys_delete(), noted apart (the charge window counts it as a load) */
+int osc2_keys_delete_cmd(uint8_t id)
+{
+	int err = osc2_keys_delete(id);
+
+	if (err == 0) {
+		stub.key_cmd_deletes |= 1u << id;
+	}
+	return err;
+}
+
 int osc2_keys_get(uint8_t id, uint8_t *out, uint8_t *len)
 {
 	const uint8_t *v = blob(id) ? osc2_blob_get(&stub.blobs, id, len) : NULL;

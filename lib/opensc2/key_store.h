@@ -20,8 +20,11 @@ void osc2_keys_boot(void);
 int osc2_keys_set(uint8_t id, const uint8_t *value, uint8_t len);
 /* 0xEF: the RAM value to flash. */
 int osc2_keys_save(uint8_t id);
-/* 0xF0: deleted from flash, and the RAM value back at its default. */
+/* Deleted from flash, and the RAM value back at its default (the factory reset). */
 int osc2_keys_delete(uint8_t id);
+/* 0xF0: the same, and when it worked the key counts as loaded again (empty): the charge window's
+ * cap goes, as on the real controller. */
+int osc2_keys_delete_cmd(uint8_t id);
 /* The RAM value into `out` (OSC2_KEY_VALUE_MAX bytes of room), its size into `*len`. */
 int osc2_keys_get(uint8_t id, uint8_t *out, uint8_t *len);
 /* Set and, with `save`, store at once (the crash record at boot, after 0xF2 selector 1). */
@@ -31,8 +34,8 @@ int osc2_keys_put(uint8_t id, const uint8_t *value, uint8_t len, bool save);
 int osc2_keys_store(uint8_t id, const uint8_t *value, uint8_t len);
 /* The factory reset (0x86): every blob it deletes (OSC2_KEYF_FACTORY), in RAM and in flash. */
 int osc2_keys_factory_reset(void);
-/* How often the charge window (mte/charge_level) was loaded or set since boot: the fuel gauge
- * applies it after each change of this count. */
+/* How often the charge window (mte/charge_level) was loaded, set (a refused size included) or
+ * deleted by 0xF0 since boot: the fuel gauge applies it after each change of this count. */
 uint32_t osc2_keys_window_changes(void);
 
 #endif /* OPENSC2_KEY_STORE_H_ */

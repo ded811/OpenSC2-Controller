@@ -297,6 +297,10 @@ OPENSC2_TEST(keys_charge_window)
 	CHECK_EQ(named_set(0xEE, "mte/charge_level", v, 8), 0);
 	CHECK_EQ(named_set(0xEF, "mte/charge_level", NULL, 0), 0);
 	CHECK(stub.key_saves & (1u << OSC2_KEY_CHARGE_WINDOW));
+	/* 0xF0 deletes through the command delete, which the fuel gauge counts as a load of an empty
+	 * window (key_store.c), as the real controller loads the key again after its delete */
+	CHECK_EQ(named_set(0xF0, "mte/charge_level", NULL, 0), 0);
+	CHECK(stub.key_cmd_deletes & (1u << OSC2_KEY_CHARGE_WINDOW));
 }
 
 OPENSC2_TEST(keys_cmd_cal)

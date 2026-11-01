@@ -570,9 +570,9 @@ open, the library does what should work with Steam and the puck, and says so her
     values: set in RAM, saved and read back where the real controller has a read function, deleted
     by the factory reset where it deletes them. The system state machine acts on the keylock and the
     fully-charged LED level (gap 34); the library's fuel gauge acts on the factory charge window as
-    the real controller's does (every load or `0xEE` of it sets the charge voltage target to the
-    window's upper end, or back to the configured one; a delete changes nothing until the next
-    boot); nothing acts on the haptics settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
+    the real controller's does (every load, `0xEE` or `0xF0` of it sets the charge voltage target
+    to the window's upper end, or back to the configured one; the factory reset's delete changes
+    nothing until the next boot); nothing acts on the haptics settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
     valid window (both values 0, or 3400 to 4120 mV in 10 mV steps), and `0xEF` saves what `0xED`
     would read back, as the real controller saves what the key's read function gives: it fails for
     the `settings/haptics/` keys (no read function) and for an invalid charge window, and writes
