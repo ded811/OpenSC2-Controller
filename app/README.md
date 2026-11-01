@@ -503,9 +503,12 @@ nRF52840 enters System OFF. STEAM wakes it (the pin of the key with `OPENSC2_KEY
 one, any key), and so does plugging in USB. Without a STEAM button wired, only a USB cable or a
 reset brings it back. On USB power it behaves as the default build.
 
-This board measures no battery voltage, so the level stays at 100 % unless an application sets
-one, and low battery never turns it off. A charger with a status output can give report `0x43` its
-charge state (`charger-status-gpios`, [Optional parts](#optional-parts)).
+This board measures no battery voltage: the level reads 255, the real controller's "no level yet"
+(100 % with only a charger status pin), unless `CONFIG_APP_BATTERY` or an application sets one, and
+low battery never turns it off. With a charger status pin or `CONFIG_APP_BATTERY`, the charge state
+follows the real controller's charging rules (`<opensc2/charger.h>`: 1 on battery, 3 for a moment
+after plugging in, then 2 while charging and 4 when done), fed by a charger's status output when the board has one (`charger-status-gpios`,
+[Optional parts](#optional-parts)), else "charging" while USB power is present.
 
 ## The hardware test hooks
 

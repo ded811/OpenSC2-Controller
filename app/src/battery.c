@@ -16,14 +16,16 @@
  *        battery-enable-gpios = <...>;            (optional: the divider on for 5 ms around it)
  *    and otherwise from the nRF52840's own VDDH / 5 input, for a cell that feeds the chip's VDDH
  *    pin (check your board's schematic).
- *  - The charge state from an optional charger status pin: a charger module's status output
+ *  - The charge state through the real controller's charging rules (<opensc2/charger.h>), once
+ *    a second: 1 on battery, 3 for a moment after plugging in, 2 while charging, 4 when done. The
+ *    charger's status comes from an optional status pin: a charger module's status output
  *    (TP4056-style "CHRG", active while it charges) on a pin named in zephyr,user,
  *        charger-status-gpios = <&gpio0 x (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
- *    gives without USB power 1 (on battery), with it 2 while the pin is active (charging), else
- *    4 (done, level 100), once a second (opensc2_charge_state_of()). Without the pin the charge
- *    state is "charging" while USB power is present and "discharging" otherwise. On its own (no
- *    CONFIG_APP_BATTERY) the pin only sets the charge state: the level stays the library's
- *    default, 100 %, as this board then measures no voltage.
+ *    with USB power, active means charging and inactive done. Without the pin the charger counts
+ *    as charging while USB power is present. Such a charger has no charge voltage or input limit
+ *    to set: the rules' writes are left out (a board whose charger has them writes them). On its
+ *    own (no CONFIG_APP_BATTERY) the pin only sets the charge state: the level stays the
+ *    library's default, 100 %, as this board then measures no voltage.
  */
 #include <zephyr/kernel.h>
 #include <zephyr/devicetree.h>
@@ -33,6 +35,7 @@
 #include <zephyr/logging/log.h>
 #include <hal/nrf_power.h>
 #include <opensc2/cal.h>
+#include <opensc2/charger.h>
 #include <opensc2/gauge.h>
 #include "app.h"
 
@@ -58,15 +61,37 @@ static bool usb_power(void)
 static const struct gpio_dt_spec chg = GPIO_DT_SPEC_GET(USER, charger_status_gpios);
 #endif
 
-/* The charge state: the charger's status pin when the board has one, else charging while USB
- * power is there. */
-static uint8_t charge_state(bool usb)
+static struct opensc2_charger charger;
+
+/* What the charger does: its status pin when the board has one (active: charging; inactive with
+ * USB power: done), else charging while USB power is there. */
+static enum opensc2_charger_status charger_status(bool usb)
 {
+	if (!usb) {
+		return OPENSC2_CHARGER_NOT_CHARGING;
+	}
 #if CHARGER_PIN
-	return opensc2_charge_state_of(usb, gpio_pin_get_dt(&chg) == 1);
+	return gpio_pin_get_dt(&chg) == 1 ? OPENSC2_CHARGER_FAST_CHARGE : OPENSC2_CHARGER_CHARGE_DONE;
 #else
-	return usb ? OPENSC2_CHARGE_CHARGING : OPENSC2_CHARGE_DISCHARGING;
+	return OPENSC2_CHARGER_FAST_CHARGE;
 #endif
+}
+
+/* The charging rules' step, once a second: the charge state report 0x43 carries. This board's
+ * charger has no settings, so what the step asks to write is dropped. */
+static uint8_t charger_step(bool usb, enum opensc2_charger_status status, uint16_t battery_mv)
+{
+	struct opensc2_charger_out out;
+
+	opensc2_charger_window(&charger, opensc2_charge_target_mv());
+	return opensc2_charger_step(&charger, usb, status, battery_mv, k_uptime_get_32(), &out);
+}
+
+static void charger_start(void)
+{
+	struct opensc2_charger_out out;
+
+	opensc2_charger_init(&charger, NULL, k_uptime_get_32(), &out);
 }
 
 static int charger_pin_init(void)
@@ -174,10 +199,12 @@ static void battery_thread(void *p1, void *p2, void *p3)
 	/* The level kept over a warm reset (Steam's reboot into wireless mode), as the real
 	 * controller's gauge keeps it; its first pass 250 ms after the start. */
 	opensc2_gauge_init(&gauge, opensc2_battery_kept_level());
+	charger_start();
 	k_msleep(250);
 	for (;;) {
 		bool usb = usb_power();
-		uint8_t state = charge_state(usb);
+		enum opensc2_charger_status status = charger_status(usb);
+		uint8_t state = opensc2_charger_gauge_state(&charger, status);
 		struct opensc2_battery b = { 0 };
 		uint8_t n;
 		int err = 0;
@@ -200,9 +227,9 @@ static void battery_thread(void *p1, void *p2, void *p3)
 		if (err) {
 			LOG_WRN("Battery reading failed (%d)", err);
 		}
-		b.charge_state = state;
 		b.level = opensc2_gauge_finish(&gauge);
 		b.battery_mv = opensc2_gauge_voltage(&gauge);   /* the average, held while done */
+		b.charge_state = charger_step(usb, status, b.battery_mv);
 		/* This board measures neither its supply rails nor currents nor temperature: the
 		 * values a board without those parts reports. */
 		b.system_mv = 3300;
@@ -255,16 +282,14 @@ static K_WORK_DELAYABLE_DEFINE(charger_work, charger_fn);
 static void charger_fn(struct k_work *work)
 {
 	bool power = usb_power();
-	uint8_t state = charge_state(power);
+	/* no voltage measured: "done" comes from the charger alone */
+	uint8_t state = charger_step(power, charger_status(power), 0);
 
 	ARG_UNUSED(work);
 	if (state != battery.charge_state) {
 		LOG_INF("Charge state %u", state);
 		battery.charge_state = state;
 		battery.input_mv = power ? 5000 : 0;
-		if (state == OPENSC2_CHARGE_DONE) {
-			battery.level = 100;
-		}
 		(void)opensc2_set_battery(&battery);
 	}
 	k_work_schedule(&charger_work, K_MSEC(PERIOD_MS));
@@ -278,6 +303,7 @@ int battery_init(void)
 		return err;
 	}
 	battery.charge_state = 0xFF;   /* the first look sets it */
+	charger_start();
 	k_work_schedule(&charger_work, K_NO_WAIT);
 	return 0;
 }
