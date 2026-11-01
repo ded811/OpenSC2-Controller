@@ -413,7 +413,7 @@ int osc2_hap_rt_key(struct osc2_hap_rt *rt, uint8_t key, int16_t value, uint8_t 
 			wake);
 	drain(rt, OSC2_HAP_PADS);
 	drain(rt, OSC2_HAP_GRIPS);
-	return ok ? 0 : -12;   /* -ENOMEM: a queue was full */
+	return ok ? 0 : -35;   /* -ENOMSG (Zephyr's 35): a queue was full, as the real handler returns it */
 }
 
 int8_t osc2_hap_rt_amp(struct osc2_hap_rt *rt, uint8_t path)

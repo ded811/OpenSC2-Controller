@@ -2046,7 +2046,7 @@ OPENSC2_TEST(haptics_settings_and_keys)
 	for (int i = 0; i < OSC2_HAP_QUEUE_MAX; i++) {
 		CHECK(osc2_hap_rt_queue(&hrt, &c));
 	}
-	CHECK_EQ(osc2_hap_rt_key(&hrt, OSC2_HAP_KEY_GAIN, 0, &wake), -12);
+	CHECK_EQ(osc2_hap_rt_key(&hrt, OSC2_HAP_KEY_GAIN, 0, &wake), -35);   /* -ENOMSG */
 	CHECK_EQ(hrt.engine.seq[OSC2_HAP_GRIPS].q_count, 0);         /* never reached */
 	/* the amplifier mode's other values do nothing */
 	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);

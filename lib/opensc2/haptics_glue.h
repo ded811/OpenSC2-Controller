@@ -32,7 +32,7 @@ uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint
 void osc2_haptics_setting(uint8_t number);
 
 /* settings/haptics/haptic_master_gain_db (key 0) or .../amplifier_mode (key 1) set by name
- * (0xEE): to the four channels at once, bypassing the numbered settings. 0 or -ENOMEM. */
+ * (0xEE): to the four channels at once, bypassing the numbered settings. 0 or -ENOMSG (a queue was full). */
 int osc2_haptics_key(uint8_t key, int16_t value);
 
 #else

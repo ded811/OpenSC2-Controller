@@ -129,7 +129,7 @@ uint8_t osc2_hap_rt_settings(struct osc2_hap_rt *rt, uint8_t number, int16_t s75
 
 /* The settings/haptics/... keys set by name (vendor command 0xEE), which reach the channels at
  * once, bypassing settings 75 and 76: OSC2_HAP_KEY_GAIN or _AMP with the key's 16-bit value.
- * 0, or -ENOMEM when a queue was full (the rest of the channels were not reached). `*wake` gets
+ * 0, or -ENOMSG when a queue was full (the rest of the channels were not reached). `*wake` gets
  * the paths that got commands. */
 #define OSC2_HAP_KEY_GAIN 0
 #define OSC2_HAP_KEY_AMP  1

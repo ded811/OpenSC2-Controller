@@ -1319,7 +1319,8 @@ mutex: call it from a thread, never from an interrupt.
   channel whose queue is full. They take effect like any command (before the next block while
   something plays). The keys `settings/haptics/haptic_master_gain_db` and `.../amplifier_mode` set
   by name (`0xEE`) reach the channels the same way at once, past the numbered settings (`0x89` still
-  reads the old numbers); `.../enabled` is only kept. Setting 27 applies at each rumble report.
+  reads the old numbers; a full queue fails the command with -35, `ENOMSG`, as on the real
+  controller); `.../enabled` is only kept. Setting 27 applies at each rumble report.
   Setting 70 ("haptics enabled") does not silence the synthesiser: on the real controller only
   lizard mode's pad feedback reads it.
 - Two threads, `osc2_hap_pads` and `osc2_hap_grips` (priority
