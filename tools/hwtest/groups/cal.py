@@ -26,12 +26,13 @@ RPAD_TOUCH = 1 << R.RPAD_TOUCH_BIT
 
 
 def stick_mv(counts):
-    """A stick reading in the firmware's millivolts: counts x 3300 / 4096, rounded down."""
-    return min(counts, 4095) * 3300 // 4096
+    """A stick reading in the firmware's millivolts: counts x 3300 / 4096, rounded down (a reading
+    above 4095 as it is), at most 65535."""
+    return min(counts * 3300 // 4096, 0xFFFF)
 
 
 def trigger_mv(counts):
-    return min(counts, 4095) * 1650 // 4096
+    return min(counts * 1650 // 4096, 0xFFFF)
 
 
 def _fields(report):

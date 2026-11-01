@@ -17,7 +17,10 @@ OPENSC2_TEST(cal_millivolts)
 	CHECK_EQ(opensc2_cal_counts_to_mv(2048, OPENSC2_CAL_STICK_FULL_MV), 1650);
 	CHECK_EQ(opensc2_cal_counts_to_mv(4095, OPENSC2_CAL_STICK_FULL_MV), 3299);
 	CHECK_EQ(opensc2_cal_counts_to_mv(4095, OPENSC2_CAL_TRIGGER_FULL_MV), 1649);
-	CHECK_EQ(opensc2_cal_counts_to_mv(5000, OPENSC2_CAL_STICK_FULL_MV), 3299);   /* limited */
+	CHECK_EQ(opensc2_cal_counts_to_mv(5000, OPENSC2_CAL_STICK_FULL_MV), 4028);   /* as it is */
+	/* an average below 0 V wrapped round (-3): converted as it is, as the real controller does */
+	CHECK_EQ(opensc2_cal_counts_to_mv(0xFFFD, OPENSC2_CAL_STICK_FULL_MV), 52797);
+	CHECK_EQ(opensc2_cal_counts_to_mv(0xFFFF, 0xFFFF), 0xFFFF);   /* limited to 16 bits */
 	CHECK_EQ(opensc2_cal_counts_to_mv(1, OPENSC2_CAL_STICK_FULL_MV), 0);
 	CHECK_EQ(opensc2_cal_mv_to_counts(1650, OPENSC2_CAL_STICK_FULL_MV), 2048);
 	CHECK_EQ(opensc2_cal_mv_to_counts(3299, OPENSC2_CAL_STICK_FULL_MV), 4095);
@@ -34,6 +37,8 @@ OPENSC2_TEST(cal_millivolts)
 	CHECK_EQ(out, 1649);
 	CHECK(opensc2_cal_raw_mode(2, 1234, OPENSC2_CAL_STICK_FULL_MV, &out));
 	CHECK_EQ(out, 1234);
+	CHECK(opensc2_cal_raw_mode(2, 0xFFFD, OPENSC2_CAL_STICK_FULL_MV, &out));
+	CHECK_EQ(out, 0xFFFD);   /* a wrapped average as it is (the report's -3) */
 	CHECK(!opensc2_cal_raw_mode(0, 1234, OPENSC2_CAL_STICK_FULL_MV, &out));
 	CHECK(!opensc2_cal_raw_mode(3, 1234, OPENSC2_CAL_STICK_FULL_MV, &out));
 }

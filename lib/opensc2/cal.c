@@ -35,9 +35,11 @@ static int32_t abs32(int32_t v)
 
 uint16_t opensc2_cal_counts_to_mv(uint16_t counts, uint16_t full_mv)
 {
-	uint32_t c = counts > OPENSC2_CAL_ADC_MAX ? OPENSC2_CAL_ADC_MAX : counts;
+	/* a reading above 4095 (an average below 0 wraps round to 16 bits) is converted as it is,
+	 * as the real controller converts it, and limited to 65535 */
+	uint32_t mv = (uint32_t)counts * full_mv / 4096u;
 
-	return (uint16_t)(c * full_mv / 4096u);
+	return mv > 0xFFFFu ? 0xFFFFu : (uint16_t)mv;
 }
 
 uint16_t opensc2_cal_mv_to_counts(uint32_t mv, uint16_t full_mv)
@@ -63,7 +65,7 @@ bool opensc2_cal_raw_mode(int16_t mode, uint16_t counts, uint16_t full_mv, uint1
 		return true;
 	}
 	if (mode == 2) {
-		*out = counts > OPENSC2_CAL_ADC_MAX ? OPENSC2_CAL_ADC_MAX : counts;
+		*out = counts;   /* as it is, a wrapped negative average too */
 		return true;
 	}
 	return false;

@@ -46,7 +46,9 @@ extern "C" {
 #define OPENSC2_CAL_STICK_FULL_MV   3300   /* a stick's full scale, VDD, counted as 3.3 V */
 #define OPENSC2_CAL_TRIGGER_FULL_MV 1650   /* a trigger's full scale, VDD / 2 */
 
-/* counts x full_mv / 4096, rounded down (a reading above 4095 counts as 4095). */
+/* counts x full_mv / 4096, rounded down, at most 65535. A reading above 4095 is converted as it is,
+ * as the real controller converts its own (its average of a channel below 0 V wraps round to 16
+ * bits, so it reads high). */
 uint16_t opensc2_cal_counts_to_mv(uint16_t counts, uint16_t full_mv);
 /* Back through the channel's full-scale reading, as the stored calibration is turned into counts:
  * with F = 4095 x full_mv / 4096 rounded down (the millivolts of a reading of 4095),
@@ -410,8 +412,9 @@ int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
  * with the helpers above can poll it and set up again. */
 uint32_t opensc2_cal_generation(void);
 
-/* The raw stick and trigger mode of setting 46 / 62 for a raw value: 1 the millivolts, 2 the counts
- * themselves; 0 (or any other value): calibrated. Returns whether `mode` is a raw mode. */
+/* The raw stick and trigger mode of setting 46 / 62 for a raw value: 1 the millivolts
+ * (opensc2_cal_counts_to_mv()), 2 the counts themselves, as given; 0 (or any other value):
+ * calibrated. Returns whether `mode` is a raw mode. */
 bool opensc2_cal_raw_mode(int16_t mode, uint16_t counts, uint16_t full_mv, uint16_t *out);
 
 #ifdef __cplusplus
