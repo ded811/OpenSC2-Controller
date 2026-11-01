@@ -257,8 +257,9 @@ controller is listed in docs/protocol.md's gaps.
 - The blank canvas frees each I2C bus at boot whenever it has one (`CONFIG_APP_I2C_RECOVER` is on
   by default now), as the real controller does at every start of its I2C drivers.
 - `app/expander.conf` reads its PCA9555 on the expander's INT output (P0.24, the left trigger
-  button's pin) instead of polling it every 16 ms, as the real controller reads its expander only
-  when its interrupt line says something changed.
+  button's pin) instead of polling it every 16 ms, so the bus is quiet while no button moves, as
+  on the real controller (whose expander's line stays up while a button is down, its buttons then
+  read until all are up).
 - The LED examples (app overlay comments, `app/README.md`, `samples/rgb_led`) use the real
   controller's 50 µs PWM period (20 kHz) instead of 1 ms.
 - Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does

@@ -137,8 +137,8 @@ three digits: "006" is P0.06, "111" is P1.11.
   I2C port expander, as the real controller reads most of its buttons: an NXP PCA9555 on P0.17
   (SDA) and P0.20 (SCL), which also takes the D-pad's left and right buttons from those pins, and
   its INT output on the left trigger button's pin (P0.24). The expander is read only when INT
-  says an input changed, as the real controller reads its own, and every button is debounced
-  16 ms; the overlay's header lists the expander's pins.
+  says an input changed, so the bus is quiet while no button moves, as on the real controller,
+  and every button is debounced 16 ms; the overlay's header lists the expander's pins.
 - **Stick touch and grips**: any input device that the chosen node `opensc2,touch-keys` names, its
   key codes the touch bits; the build [sensors.conf](sensors.conf) has a Microchip CAP1206
   capacitive sensor (polled, address 0x28) for all four (untested on hardware). The sensor's own
