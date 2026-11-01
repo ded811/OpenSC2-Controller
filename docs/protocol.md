@@ -437,7 +437,9 @@ open, the library does what should work with Steam and the puck, and says so her
      link: records are read within the packet and a SET record's bytes within the command
      buffer, a channel list without a valid channel (or one above 100) is ignored, a connection
      request for a channel above 100 is not taken, a short `0xE7` counts its missing bytes as 0,
-     a report sent in the moment the link drops leaks nothing, and output `0x8A` does nothing;
+     a report sent in the moment the link drops leaks nothing, output `0x8A` does nothing, and a
+     stop that arrives together with a bond write while listening stops the link (the documented
+     controller listens again and loses the stop);
    - when the link drops, the application's `rumble` callback hears a stop at once (`timeout`
      set), so a board's motors never run on without a host; the real controller's rumble runs out
      on its own;
