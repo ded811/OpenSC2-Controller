@@ -38,15 +38,35 @@ static struct {
  * each request rewrites only what it defines (dock_rules.h). Under frame_lock. */
 static uint8_t last_answer[OPENSC2_DOCK_FRAME_LEN];
 
-/* The probe's record, taken once per boot at the first probe (after opensc2_init(): the dock
- * thread waits for it), as the real controller fills it once at start-up: an identity stored
- * later reaches the dock at the next boot, as it reaches USB. Under frame_lock. */
+/* The probe's record, taken once per boot as the real controller fills it once at start-up: at
+ * the end of opensc2_init() (osc2_dock_identity_take()), or else at the first probe (the host
+ * tests). An identity stored later reaches the dock at the next boot, as it reaches USB. Under
+ * frame_lock. */
 static bool identity_taken;
 static uint8_t identity_rec[OPENSC2_IDENTITY_RECORD_LEN];
 
 /* One frame at a time, from the UART or from the test hooks: the stored request and the answer
  * of one must not mix with the other's. Taken before the command lock (commands.c). */
 static K_MUTEX_DEFINE(frame_lock);
+
+static void take_identity(void)
+{
+	struct opensc2_identity id;
+
+	if (identity_taken) {
+		return;
+	}
+	opensc2_identity_get(&id);
+	(void)opensc2_encode_identity(&id, identity_rec);
+	identity_taken = true;
+}
+
+void osc2_dock_identity_take(void)
+{
+	(void)k_mutex_lock(&frame_lock, K_FOREVER);
+	take_identity();
+	(void)k_mutex_unlock(&frame_lock);
+}
 
 /* ---- sessions -------------------------------------------------------------------------------- */
 
@@ -200,13 +220,7 @@ enum osc2_dock_supply osc2_dock_supply_step(bool usb, bool plus, bool (*pilot_ch
 static void op_identity(void *ctx, uint8_t out[OPENSC2_IDENTITY_RECORD_LEN])
 {
 	ARG_UNUSED(ctx);
-	if (!identity_taken) {
-		struct opensc2_identity id;
-
-		opensc2_identity_get(&id);
-		(void)opensc2_encode_identity(&id, identity_rec);
-		identity_taken = true;
-	}
+	take_identity();
 	memcpy(out, identity_rec, OPENSC2_IDENTITY_RECORD_LEN);
 }
 

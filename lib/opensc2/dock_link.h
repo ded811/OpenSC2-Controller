@@ -6,9 +6,9 @@
  * between the frames (dock_rules.c) and the rest of the library:
  *   - a session: while it runs, the dock is an active transport and the controller counts as
  *     docked; any frame that fails (too short, a bad CRC, a receive error) ends it;
- *   - the four requests: the probe's identity record (taken once per boot), vendor commands on a
- *     stored request of the dock's own (OSC2_LINK_DOCK; 0x81 and 0x85 do nothing there), and GET
- *     input, each answer built over the previous one;
+ *   - the four requests: the probe's identity record (taken once per boot, at opensc2_init()),
+ *     vendor commands on a stored request of the dock's own (OSC2_LINK_DOCK; 0x81 and 0x85 do
+ *     nothing there), and GET input, each answer built over the previous one;
  *   - GET input: the copy of the latest state report that report.c leaves here (with another link
  *     up the dock never takes a sequence number from that link's stream); with the dock alone each
  *     request then builds one report, which the next one answers;
@@ -100,6 +100,9 @@ void osc2_dock_pilot_seen(bool present);
 /* After an answer: GET input with the dock alone builds its report now (the next GET input
  * answers it), while the answer goes out, as on the real controller. */
 void osc2_dock_after_answer(void);
+/* core.c, at the end of opensc2_init(): the probe's identity record for this boot, as the real
+ * controller fills it once at start-up. */
+void osc2_dock_identity_take(void);
 
 /* report.c: every state report built, with its ID (kept while a session runs). */
 void osc2_dock_cache_report(const uint8_t report[OPENSC2_STATE_REPORT_LEN]);
@@ -154,6 +157,10 @@ static inline enum osc2_dock_supply osc2_dock_supply(void)
 }
 
 static inline void osc2_dock_after_answer(void)
+{
+}
+
+static inline void osc2_dock_identity_take(void)
 {
 }
 

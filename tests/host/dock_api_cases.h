@@ -204,8 +204,9 @@ OPENSC2_TEST(dock_public_wire)
 	osc2_dock_offsets_docked(false);
 }
 
-/* The probe's record is taken once per boot, at the first probe, as the real controller fills it
- * at start-up: an identity changed later shows at the next boot. */
+/* The probe's record is taken once per boot, as the real controller fills it at start-up (at the
+ * end of opensc2_init(), or at the first probe where that never ran): an identity changed later
+ * shows at the next boot. */
 OPENSC2_TEST(dock_probe_record_once_per_boot)
 {
 	uint8_t first[OPENSC2_DOCK_FRAME_LEN];
@@ -225,7 +226,18 @@ OPENSC2_TEST(dock_probe_record_once_per_boot)
 	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
 	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
 	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build + 1);
+	/* a boot whose opensc2_init() took the record: a change before the first probe is not
+	 * seen either */
+	osc2_dock_reset();
+	osc2.identity.build_time = build + 2;
+	osc2_dock_identity_take();
+	osc2.identity.build_time = build + 3;
+	osc2_dock_identity_take();   /* once per boot */
+	osc2_dock_session_start(OSC2_DOCK_BY_PILOT);
+	CHECK_EQ(dk_request(OPENSC2_DOCK_PROBE, NULL, 0), OSC2_DOCK_ANSWERED);
+	CHECK_EQ(opensc2_get_le32(&dk_ans[8 + 4]), build + 2);
 	osc2.identity.build_time = build;
+	osc2_dock_reset();
 }
 
 /* The board's change callback: sessions, the pilot's result, the supply rule's view, the offsets. */

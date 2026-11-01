@@ -1997,7 +1997,7 @@ on USB or the radio.
 
   | Type | Request | Written in the answer | Kept from the previous answer |
   | --- | --- | --- | --- |
-  | 0 | probe | the 57-byte identity record (as radio packet `0xF5`; taken once per boot, at the first probe) over the payload's first 57 bytes | the type, the result, the payload's last 6 bytes |
+  | 0 | probe | the 57-byte identity record (as radio packet `0xF5`; taken once per boot, at the end of `opensc2_init()`) over the payload's first 57 bytes | the type, the result, the payload's last 6 bytes |
   | 1 | GET | the type; the result: 63, `-95` when the command has nothing to read (after a SET of `0x87`), or the command's negative error; unless `-95`, the dock's stored request `{opcode, length, data}` over the payload, then the command's answer `{opcode, n, data}` over that | the payload after both (a stored request longer than the answer shows through after it) |
   | 2 | SET | the type; the result: 0 or a negative error (`-22` for an opcode nobody knows or a length above 61); runs `{opcode, length, data}` through the same command channel as USB and the radio | the whole payload |
   | 3 | GET input | the type, result 0, the state report `0x42` without its ID (53 bytes) | the payload's last 10 bytes |
