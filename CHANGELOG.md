@@ -134,6 +134,10 @@ controller is listed in docs/protocol.md's gaps.
   callback for amplitude-only actuators, and three built-in outputs: an I2S amplifier for the
   grips, a PWM "DAC" on nrfx for the pads, a DRV2605 in real-time playback. Integer arithmetic:
   blocks are bit for bit the same on the board and on a PC.
+- The synthesiser's timer, which paces a path without an output, keeps the real controller's
+  block times: 8.192 ms on the pads (32 samples at 256 µs each, the real pads' rate of about
+  3906 Hz), 8 ms on the grips, so a pad stream drains and its `0x44` flags come as fast as on the
+  real controller on a board without pad actuators too.
 - The synthesiser follows the real controller's arithmetic and timing, quirks included: the
   polynomial sine (peak 1.0045) with its one-cycle phase wrap (tones above the rate turn into
   clipped noise); sweeps that divide by zero (from 0 Hz, equal ends, duration 0, a 16-bit count

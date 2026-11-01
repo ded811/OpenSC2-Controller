@@ -1182,9 +1182,12 @@ much sooner); give it to match the real timing. `opensc2_haptics_set_output(path
 effect from the path's next playback; `NULL` removes it.
 
 For an actuator that only has an amplitude, `opensc2_haptics_set_level_output(path, fn, user)`
-hands over each block's loudness (`opensc2_haptics_block_level()`, 0..255) every 8 ms and 0 when
+hands over each block's loudness (`opensc2_haptics_block_level()`, 0..255) every block and 0 when
 nothing plays, as `fn(path, level, user)` (an `opensc2_haptics_level_fn`); the blocks are then
-paced by a timer. A path with neither renders anyway, paced by a timer.
+paced by a timer. A path with neither renders anyway, paced by a timer. The timer keeps the real
+controller's block times: 8 ms on the grips, 8.192 ms on the pads (their 32 samples at the real
+pads' 256 µs each, so a pad stream drains as fast as on the real controller; 8 ms with
+`CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K`).
 
 Built-in outputs, each set up from the devicetree and registered at start-up (built; not yet tested
 on hardware; `samples/haptics` has all three):

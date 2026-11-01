@@ -98,8 +98,9 @@ int opensc2_haptics_set_output(enum opensc2_haptics_path path,
 
 /* For an actuator that has only an amplitude (an ERM motor's duty cycle, a DRV2605 in real-time
  * playback): `fn` gets the level of every block of `path` (opensc2_haptics_block_level(), 0..255)
- * as it is rendered, every 8 ms while something plays, and 0 once nothing plays any more. The
- * blocks are paced by a timer, as without an output; an output set with
+ * as it is rendered, every block while something plays (8 ms on the grips, 8.192 ms on the pads,
+ * the real controller's block times), and 0 once nothing plays any more. The blocks are paced by
+ * a timer, as without an output; an output set with
  * opensc2_haptics_set_output() takes precedence. NULL removes it. Called from the path's thread. */
 typedef void (*opensc2_haptics_level_fn)(enum opensc2_haptics_path path, uint8_t level,
 					 void *user_data);

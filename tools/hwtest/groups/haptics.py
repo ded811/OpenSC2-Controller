@@ -216,6 +216,21 @@ def _run(ctx, rig):
                  [(0, H.BLOCK_FIRST)] + [(i, 0) for i in range(1, 13)] + [(13, H.BLOCK_LAST)])
             st = _quiet(rig)
             c.eq("quiet again", (st["busy"], st["running"]), (0, 0))
+            # the pads' block time: 32 samples at the real pads' 256 us each (8.192 ms), so a
+            # 1 s tone on a pad (16 frames of lead-in, then 4000 samples: blocks 0..125) ends
+            # in block 125, rendered 124 block times after the start: 1015.8 ms, where 8 ms
+            # blocks would give 992 ms. Only while the timer paces the pads (no output there).
+            if not st["outputs"] & 1:
+                start = rig.ring_next()
+                rig.output(bytes([0x83, 0, 0xFA]) + struct.pack("<HHHB", 200, 1000, 0, 0))
+                es = _wait(rig, start, H.RING_HAP_GEN, 1, 2.5, what=H.GEN_END)
+                gens = H.entries(es, H.RING_HAP_GEN, channel=H.CH_LEFT_PAD, type=H.GEN_TONE)
+                if c.eq("a 1 s pad tone: started, then ended", [g["what"] for g in gens],
+                        [H.GEN_START, H.GEN_END]):
+                    dt = _ms(gens[0], gens[1])
+                    c.true("ended %.1f ms after it started, at 8.192 ms a block (1004..1030)"
+                           % dt, 1004 <= dt <= 1030)
+                _quiet(rig)
 
     if ctx.want("haptics.rumble"):
         with ctx.check(GROUP, "haptics.rumble") as c:

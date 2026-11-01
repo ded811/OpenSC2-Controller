@@ -23,7 +23,8 @@
 #include "haptics_emu.h"
 #include "test_hooks.h"
 
-#define BLOCK_US 8000u
+/* the pads' 32 samples at the real 256 us each, the grips' 64 at 8 kHz (haptics.c) */
+#define BLOCK_US(path) ((path) == OSC2_HAP_PADS ? 8192u : 8000u)
 
 static struct osc2_hap_rt rt;
 static uint32_t random_state;
@@ -118,10 +119,10 @@ void haptics_emu_tick(uint64_t now_us)
 			seqs[p].k = 0;
 		}
 		while (seqs[p].playing) {
-			/* blocks 0 and 1 at once, then block k at t0 + (k - 1) * 8 ms: once the
+			/* blocks 0 and 1 at once, then block k at t0 + (k - 1) block times: once the
 			 * output has room for it */
 			uint64_t due = seqs[p].t0_us +
-				       (seqs[p].k <= 1 ? 0u : (uint64_t)(seqs[p].k - 1) * BLOCK_US);
+				       (seqs[p].k <= 1 ? 0u : (uint64_t)(seqs[p].k - 1) * BLOCK_US(p));
 
 			if (now_us < due) {
 				break;
@@ -131,7 +132,7 @@ void haptics_emu_tick(uint64_t now_us)
 			if (!busy) {
 				seqs[p].playing = false;
 				seqs[p].draining = true;
-				seqs[p].drain_until_us = seqs[p].t0_us + (uint64_t)seqs[p].k * BLOCK_US;
+				seqs[p].drain_until_us = seqs[p].t0_us + (uint64_t)seqs[p].k * BLOCK_US(p);
 			} else {
 				/* what was queued meanwhile, for the next block, before the wait */
 				osc2_hap_rt_apply(&rt, p);

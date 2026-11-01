@@ -32,7 +32,17 @@
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
-#define BLOCK_US 8000        /* both paths: 32 frames at 4 kHz, 64 at 8 kHz */
+/* A block's time when the timer paces a path: the grips' 64 frames at 8 kHz, and the pads' 32
+ * samples at the real controller's pad rate, 256 us a sample (about 3906 Hz: its PWM holds each
+ * sample 16 periods of 16 us), so a pad stream drains at the real speed even without an output;
+ * exactly 4 kHz with the PWM DAC's option for it. */
+#define GRIP_BLOCK_US 8000
+#if defined(CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K)
+#define PAD_BLOCK_US 8000
+#else
+#define PAD_BLOCK_US 8192
+#endif
+#define BLOCK_US(path) ((path) == OSC2_HAP_PADS ? PAD_BLOCK_US : GRIP_BLOCK_US)
 #define FLUSH_CHUNK 8
 
 static struct osc2_hap_rt rt;
@@ -191,7 +201,7 @@ static void amp_mode(struct seq *s, const struct opensc2_haptics_output *out, in
 
 /* Wait until the output can take the next block without waiting, as the real sequencer waits for
  * one of its two blocks to come back before it renders the next: with the output's ready(), or
- * without an output on the timer (block k at t0 + (k - 1) * 8 ms). */
+ * without an output on the timer (block k at t0 + (k - 1) block times). */
 static void wait_room(struct seq *s, const struct opensc2_haptics_output *out, int64_t t0,
 		      uint32_t k)
 {
@@ -200,9 +210,8 @@ static void wait_room(struct seq *s, const struct opensc2_haptics_output *out, i
 			(void)out->api->ready(out);
 		}
 	} else if (k >= 2) {
-		k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)(k - 1) * BLOCK_US));
+		k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)(k - 1) * BLOCK_US(s->path)));
 	}
-	ARG_UNUSED(s);
 }
 
 static void playback(struct seq *s, const struct opensc2_haptics_output *out,
@@ -272,7 +281,7 @@ static void playback(struct seq *s, const struct opensc2_haptics_output *out,
 			(void)out->api->stop(out, false);
 		}
 	} else {
-		k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)k * BLOCK_US));
+		k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)k * BLOCK_US(s->path)));
 		if (level_fn) {
 			level_fn((enum opensc2_haptics_path)s->path, 0, level_user);
 		}
