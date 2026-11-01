@@ -59,13 +59,12 @@ BUILD_ASSERT(OSC2_EV_START == OSC2_RCTL_START && OSC2_EV_STOP == OSC2_RCTL_STOP 
 /* ---- queues -------------------------------------------------------------------------------- */
 
 struct rx_item {
-	int64_t ticks;   /* when the packet arrived */
 	uint8_t len;
 	int8_t rssi;     /* dB below 0 dBm */
 	uint8_t data[CONFIG_ESB_MAX_PAYLOAD_LENGTH];
 };
 
-K_MSGQ_DEFINE(osc2_rx_q, sizeof(struct rx_item), CONFIG_OPENSC2_RX_QUEUE_DEPTH, 8);
+K_MSGQ_DEFINE(osc2_rx_q, sizeof(struct rx_item), CONFIG_OPENSC2_RX_QUEUE_DEPTH, 4);
 static K_EVENT_DEFINE(radio_ev);
 
 /* Extra input reports, riding behind the state reports (report_queue.h): up to
@@ -127,7 +126,6 @@ static void esb_handler(const struct esb_evt *evt)
 		return;   /* transmit events do not matter to a receiver */
 	}
 	while (esb_read_rx_payload(&isr_payload) == 0) {
-		isr_item.ticks = k_uptime_ticks();
 		isr_item.len = isr_payload.length;
 		isr_item.rssi = isr_payload.rssi;
 		memcpy(isr_item.data, isr_payload.data, isr_payload.length);
