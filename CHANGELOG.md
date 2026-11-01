@@ -279,7 +279,16 @@ controller is listed in docs/protocol.md's gaps.
   the stream off when the driver cannot program it, as the real controller does (it started the
   stream without the bias).
 - Settings 48, 84 and 85 reach the IMU at every write (not only on a change); a sensor error for 85
-  fails `0x87`.
+  fails `0x87`, and the settings before it in the same command (the LED's included) have taken
+  effect, as on the real controller.
+- Trackpad frames from a raw sensor: the centroid pushed and stretched goes into the lift-off
+  damping as it is, also past the pad's edge, and is limited to the pad only afterwards, as the real
+  controller's trackpad driver does (it was rounded and limited first).
+- Settings 46 and 62 give a raw reading above 4095 as it is (an average below 0 V wraps round to 16
+  bits on the real controller and in the blank canvas), and its millivolts unlimited up to 65535,
+  for the recordings too (both were limited to 4095 counts).
+- Docking and leaving the dock set the sticks and triggers up again (the triggers' bits clear) on a
+  board of any revision; the dock offsets still apply from revision `0x48` on.
 - The blank canvas: the sticks and triggers are read right before each state report and processed
   by the library with the stored calibration by default (`CONFIG_APP_ANALOG_SAMPLE` and
   `CONFIG_APP_ANALOG_RAW` on), so an uncalibrated input reads 0, as on the real controller

@@ -657,7 +657,8 @@ open, the library does what should work with Steam and the puck, and says so her
     - the stick offsets while docked are Valve's numbers for Valve's magnets: the library adds the
       board's own (`opensc2_cal_set_dock_offsets()`, 0 by default) on the same rule (docked, a
       board revision of `0x48` or later), and sets the sticks and triggers up again when the
-      controller docks or leaves the dock, as the real controller does;
+      controller docks or leaves the dock (on a board of any revision), as the real controller
+      does;
     - not reproduced, being Valve's hardware: the scaling of the capacitive words without
       external power and the trackpad chip's electrode processing (an application gives positions,
       a signal level or the words);
@@ -669,7 +670,11 @@ open, the library does what should work with Steam and the puck, and says so her
       (`opensc2_button_hold_*()`), which takes each change as it comes; it stops (`k_panic`) when a
       button port's interrupts cannot be switched, which the library leaves to the board's
       driver; a pad set-up asked for by a setting that changes and changes back between two
-      frames still happens there, while the library compares the settings at each frame.
+      frames still happens there, while the library compares the settings at each frame;
+    - not done: the real controller also sets its sticks and triggers up again whenever its last
+      transport goes away, so after a disconnect its triggers start with their digital bits
+      clear; the library keeps them, which shows only for a trigger held inside its 5-point
+      hysteresis band across a disconnect.
     The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
     calibration commands (its safety rule S5): calibration is tested by the host tests only.
 32. **The pad rules.** A pad fed by trackpad frames (`<opensc2/trackpad.h>`) is processed as the real
