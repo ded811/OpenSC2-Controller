@@ -438,8 +438,12 @@ open, the library does what should work with Steam and the puck, and says so her
      buffer, a channel list without a valid channel (or one above 100) is ignored, a connection
      request for a channel above 100 is not taken, a short `0xE7` counts its missing bytes as 0,
      a report sent in the moment the link drops leaks nothing, and output `0x8A` does nothing;
-   - over-the-air pairing (gap 1), run-time transport and slot switching, the test hooks and the
-     application's view (`link_changed`, `opensc2_link_info()`) are OpenSC2's own.
+   - when the link drops, the application's `rumble` callback hears a stop at once (`timeout`
+     set), so a board's motors never run on without a host; the real controller's rumble runs out
+     on its own;
+   - over-the-air pairing (gap 1), run-time transport and slot switching, the give-ups and the
+     transmit power set at run time, the test hooks and the application's view (`link_changed`,
+     `opensc2_link_info()`) are OpenSC2's own.
 10. **Board revision.** What Steam does with the hardware ID is not documented; the default is
     `0x48` (72), what a real controller reports and the value Steam has been seen working with
     ("Controller Info: HWID: 72"); `0x45` and `0x49`..`0x4B`, the other values real controllers
