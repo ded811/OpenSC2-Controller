@@ -180,7 +180,12 @@ OPENSC2_TEST(dock_public_wire)
 	CHECK_EQ(dock_stub.samples, 1);
 	CHECK_EQ(opensc2_dock_status(&st), 0);
 	CHECK(st.alone);
+	/* a link up before the answer was sent: that link's thread builds the reports, the dock's
+	 * does not build one beside it */
+	CHECK_EQ(opensc2_dock_frame(req, sizeof(req), ans), 0);
 	stub.link_active[OSC2_LINK_USB] = true;
+	opensc2_dock_answer_sent();
+	CHECK_EQ(dock_stub.samples, 1);
 	/* a short frame ends the session */
 	CHECK_EQ(opensc2_dock_frame(req, 40, ans), -EMSGSIZE);
 	CHECK_EQ(opensc2_dock_status(&st), 0);

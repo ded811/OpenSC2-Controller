@@ -272,7 +272,10 @@ void osc2_dock_after_answer(void)
 
 	dock.sample_due = false;
 	k_spin_unlock(&dock.lock, key);
-	if (due) {
+	/* Only while the dock is still alone: a link that came up since builds the reports in a
+	 * thread of its own, and the copy follows that link's stream (two threads must never build
+	 * a report at the same time). */
+	if (due && osc2_dock_alone()) {
 		uint8_t report[OPENSC2_STATE_REPORT_LEN];
 
 		osc2_dock_sample(report);   /* leaves its copy here for the next GET input */

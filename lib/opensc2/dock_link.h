@@ -98,7 +98,8 @@ enum osc2_dock_outcome osc2_dock_receive(const uint8_t *frame, size_t len,
 /* dock.c: a pilot check's result, for opensc2_dock_status(). */
 void osc2_dock_pilot_seen(bool present);
 /* After an answer: GET input with the dock alone builds its report now (the next GET input
- * answers it), while the answer goes out, as on the real controller. */
+ * answers it), while the answer goes out, as on the real controller. Skipped when another link
+ * has come up since (that link's thread builds the reports then). */
 void osc2_dock_after_answer(void);
 /* core.c, at the end of opensc2_init(): the probe's identity record for this boot, as the real
  * controller fills it once at start-up. */
