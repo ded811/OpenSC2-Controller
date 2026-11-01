@@ -322,6 +322,14 @@ controller is listed in docs/protocol.md's gaps.
   - `0xE2` with a side above 1 answers -1 (`-EPERM`; it was `-22`), the real controller's code.
   - Through the puck, output reports `0x87` and `0x89` are told the record's length, one more than
     the report's payload, as the real controller's handlers are.
+  - Over Bluetooth a feature read's answer is written over the value the host last wrote, so the
+    bytes after the request and the answer are that value's (they were zeros).
+  - `0xA1`'s "other" reset-cause flag counts Zephyr's causes from debug to temperature only; the
+    bootloader and flash-error causes set no flag, as on the real controller.
+  - Without `CONFIG_SETTINGS_RUNTIME`, `0xF0` no longer deletes another settings handler's key
+    from flash (Bluetooth's bonds included): no other handler is reached by name then.
+  - `opensc2_identity_set()`, `_store()`, `_clear()` and the by-name identity keys make one change
+    at a time, so a board's call racing a host's write cannot mix the two.
 - Host tests: 188 (25,251 checks), and 235 (28,483 checks) with the hardware test hooks built in;
   each test also checks that every mutex the library took was let go again. The runner has 281
   self-tests; its dry runs against the firmware emulator pass 233 tests and skip 26
