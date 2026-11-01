@@ -97,10 +97,16 @@ static const struct adc_channel_cfg vddh_cfg = {
 };
 #define DIVIDER_TOTAL  5
 #define DIVIDER_BOTTOM 1
+BUILD_ASSERT(!DT_NODE_EXISTS(DT_CHILD(DT_NODELABEL(adc), channel_7)),
+	     "SAADC channel 7 reads VDDH / 5 here (app/src/battery.c): number the overlay's ADC "
+	     "channels below 6, or give a \"battery\" io-channel");
 #endif
 
 /* The chip's own supply, the board's system rail: gain 1/6 of the 0.6 V reference (3.6 V). */
 #define VDD_CHANNEL 6
+BUILD_ASSERT(!DT_NODE_EXISTS(DT_CHILD(DT_NODELABEL(adc), channel_6)),
+	     "SAADC channel 6 reads the chip's VDD here (app/src/battery.c): number the overlay's "
+	     "ADC channels below 6");
 static const struct adc_channel_cfg vdd_cfg = {
 	.gain = ADC_GAIN_1_6,
 	.reference = ADC_REF_INTERNAL,
