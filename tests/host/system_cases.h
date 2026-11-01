@@ -807,7 +807,10 @@ OPENSC2_TEST(sys_requests_by_state)
 OPENSC2_TEST(sys_dock_rules)
 {
 	sys_in_reset();
+	sys_boot(false, false, OSC2_SRC_USB, 0);
+	CHECK(!sm.docked_sticks);
 	sys_boot(false, false, OSC2_SRC_DOCK, 0);
+	CHECK(sm.docked_sticks);   /* the sticks read as on the dock */
 	/* Radio off on the dock: the plain reboot and the turn-off do nothing, the warm key does. */
 	ev(OSC2_SYS_EV_REBOOT, 0, 100);
 	CHECK(!HAS(OSC2_SYS_DO_PASS));
@@ -820,8 +823,10 @@ OPENSC2_TEST(sys_dock_rules)
 	CHECK_EQ(sm.state, OSC2_SYS_DOCK_CHORD);
 	CHECK_EQ(sysout.cue, 4);
 	CHECK_EQ(sysout.led_flags, OSC2_LED_STEADY);
+	CHECK(sm.docked_sticks);   /* a chord state changes nothing */
 	ev(OSC2_SYS_EV_TIMER, 0, 5000);
 	CHECK_EQ(sm.state, OSC2_SYS_DOCK_ON);
+	CHECK(sm.docked_sticks);
 	CHECK(sysout.pairing);
 	CHECK_EQ(sysout.transport, OSC2_TRANSPORT_PUCK2);
 	CHECK_EQ(sysout.led_flags, OSC2_LED_EXTERNAL);
@@ -832,8 +837,10 @@ OPENSC2_TEST(sys_dock_rules)
 	CHECK(HAS(OSC2_SYS_DO_STOP));   /* the link selected since boot, whatever its state */
 	CHECK(!HAS(OSC2_SYS_DO_DROP));
 	/* Lifted off with the radio off: dark, 5 s, then off silently ... */
+	CHECK(sm.docked_sticks);
 	ev(OSC2_SYS_EV_POWER_NONE, 0, 7000);
 	CHECK_EQ(sm.state, OSC2_SYS_LIFTED);
+	CHECK(!sm.docked_sticks);   /* lifted: normal again */
 	CHECK_EQ(sysout.led_mode, OSC2_LED_OFF);
 	ev(OSC2_SYS_EV_TIMER, 0, 12000);
 	CHECK_EQ(sm.state, OSC2_SYS_SHUTDOWN_SILENT);
@@ -851,9 +858,14 @@ OPENSC2_TEST(sys_dock_rules)
 	CHECK_EQ(sm.state, OSC2_SYS_REBOOT);
 	/* The link on the dock, lifted off: battery operation, the link stays up. */
 	sys_boot(false, true, OSC2_SRC_DOCK, 0);
+	CHECK(sm.docked_sticks);
 	ev(OSC2_SYS_EV_POWER_NONE, 0, 100);
 	CHECK_EQ(sm.state, OSC2_SYS_BATTERY);
+	CHECK(!sm.docked_sticks);
 	CHECK(!HAS(OSC2_SYS_DO_DROP));
+	ev(OSC2_SYS_EV_POWER_DOCK, 0, 200);   /* back on the dock with the link */
+	CHECK_EQ(sm.state, OSC2_SYS_DOCK_ON);
+	CHECK(sm.docked_sticks);
 }
 
 OPENSC2_TEST(sys_sources_cues_levels)

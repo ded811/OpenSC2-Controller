@@ -523,6 +523,11 @@ int opensc2_set_power_source(enum opensc2_power_source source);
 enum opensc2_power_source opensc2_power_source(void);
 /* Is the keylock (travel lock) stored? It takes effect at a power-on on battery. */
 bool opensc2_keylock(void);
+/* Do the sticks read as on the dock? The real controller shifts its sticks' calibration while it
+ * sits on the dock (its magnets move the readings): on from the docked states on, off once lifted.
+ * A board whose sticks read differently there applies its own offsets while this is true. Always
+ * false without CONFIG_OPENSC2_SYSTEM. */
+bool opensc2_docked_sticks(void);
 
 /* The charge state for report 0x43 from a charger's status output: without input power 1 (on
  * battery); with it 2 while the charger charges, else 4 (done: report level 100). Pure. */

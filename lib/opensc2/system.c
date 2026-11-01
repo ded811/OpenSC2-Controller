@@ -268,6 +268,11 @@ bool opensc2_keylock(void)
 	return keylock_value() == KEYLOCK_VALUE;
 }
 
+bool opensc2_docked_sticks(void)
+{
+	return machine.docked_sticks;
+}
+
 static bool link_connected(void)
 {
 	return (!osc2_wired() && osc2_radio_connected()) || (bt && bt->connected && bt->connected());
@@ -1168,6 +1173,7 @@ int osc2_sys_shell(const struct shell *sh, size_t argc, char **argv)
 		    machine.chosen <= OSC2_TRANSPORT_BT2 ? "Bluetooth" : "puck",
 		    st.mode, st.external_power ? " (external power)" : "",
 		    st.steady ? " (steady)" : "");
+	shell_print(sh, "sticks:    %s", machine.docked_sticks ? "as on the dock" : "normal");
 	shell_print(sh, "battery:   level %u%s; keylock %s; fully-charged LED %u",
 		    level_told, battery_given ? "" : " (none given)",
 		    keylock_value() == KEYLOCK_VALUE ? "stored" : "none", full_level());
@@ -1192,6 +1198,11 @@ enum opensc2_power_source opensc2_power_source(void)
 }
 
 bool opensc2_keylock(void)
+{
+	return false;
+}
+
+bool opensc2_docked_sticks(void)
 {
 	return false;
 }

@@ -184,6 +184,7 @@ struct osc2_sys {
 	uint8_t updates;         /* bootloader requests that opened or restarted the window (the
 				  * LED's blink requests; wraps) */
 	bool ended;              /* power off or reboot asked for: nothing more happens */
+	bool docked_sticks;      /* the sticks read as on the dock (opensc2_docked_sticks()) */
 	uint32_t timer_at;
 	uint32_t busy_until;     /* a chord state's 500 ms pause: events wait until then */
 	bool busy;

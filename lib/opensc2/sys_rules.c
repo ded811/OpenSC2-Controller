@@ -177,12 +177,14 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 		led(o, OSC2_LED_AMBER, 0);
 		break;
 	case OSC2_SYS_DOCK_OFF:
+		m->docked_sticks = true;
 		led(o, OSC2_LED_AMBER, 0);
 		if (m->selected) {
 			o->actions |= OSC2_SYS_DO_STOP;   /* a link selected since boot is switched off */
 		}
 		break;
 	case OSC2_SYS_LIFTED:
+		m->docked_sticks = false;
 		led(o, OSC2_LED_OFF, 0);
 		timer(m, now_ms, OSC2_SYS_LIFTED_MS);
 		break;
@@ -199,6 +201,7 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 		m->busy_until = now_ms + OSC2_SYS_CHORD_PAUSE_MS;
 		break;
 	case OSC2_SYS_DOCK_ON:
+		m->docked_sticks = true;
 		led(o, transport_led(m->chosen), OSC2_LED_EXTERNAL);
 		break;
 	case OSC2_SYS_BATTERY:
@@ -498,6 +501,7 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 			cue(out, OSC2_CUE_POWER_OFF);
 			enter(m, in, OSC2_SYS_DOCK_OFF, ev, now_ms, out);
 		} else if (ev == OSC2_SYS_EV_POWER_NONE) {
+			m->docked_sticks = false;
 			enter(m, in, OSC2_SYS_BATTERY, ev, now_ms, out);   /* the link stays up */
 		}
 		break;
