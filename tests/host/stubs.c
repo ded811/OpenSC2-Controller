@@ -31,6 +31,8 @@ void opensc2_identity_get(struct opensc2_identity *identity)
 	*identity = osc2.identity;
 }
 
+K_MUTEX_DEFINE(osc2_id_lock);   /* core.c's */
+
 /* As core.c's: the configured identity, the stored fields over it. */
 void osc2_identity_refresh(void)
 {
