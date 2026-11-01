@@ -202,6 +202,13 @@ OPENSC2_TEST(fuel_level_and_model)
 	CHECK_EQ(opensc2_gauge_percent(opensc2_gauge_lipo_discharging,
 				       opensc2_gauge_lipo_discharging_len, 97, 3850), 44);
 	CHECK_EQ(opensc2_gauge_stretch(900, 954), 95);  /* s = 95 (95.4 rounded): 90 x 1.05 = 94.5 */
+	/* limited: a board's curve past 1000 still gives a scale of 100; s past 200 reads 0 */
+	{
+		static const struct opensc2_gauge_point high[] = { { 3000, 0 }, { 4200, 3000 } };
+
+		CHECK_EQ(opensc2_gauge_scale(high, 2, 4200), 100);
+		CHECK_EQ(opensc2_gauge_stretch(500, 2500), 0);
+	}
 }
 
 /* The boost of the capacitive readings without input power: x1.2 for a stick-touch word, x1.5 for

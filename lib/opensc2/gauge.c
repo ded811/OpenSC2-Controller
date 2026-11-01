@@ -114,14 +114,18 @@ uint8_t opensc2_gauge_stretch(uint16_t permille, uint16_t target_permille)
 	/* s: the reading at the target in whole percent, rounded; then
 	 * percent = permille / 10 x (200 - s) / 100, rounded */
 	int32_t s = ((int32_t)target_permille + 5) / 10;
-	int32_t pct = ((int32_t)permille * (200 - s) * 2 + 1000) / 2000;   /* s <= 100: never < 0 */
+	int32_t pct = ((int32_t)permille * (200 - s) * 2 + 1000) / 2000;
 
-	return (uint8_t)(pct > 100 ? 100 : pct);
+	return (uint8_t)(pct < 0 ? 0 : pct > 100 ? 100 : pct);   /* < 0 only for s above 200 */
 }
 
 uint8_t opensc2_gauge_scale(const struct opensc2_gauge_point *points, size_t n, uint16_t target_mv)
 {
-	return (uint8_t)((opensc2_gauge_curve(points, n, target_mv) + 5) / 10);
+	/* whole percent, limited to 100 as the real controller limits it (a board's curve may go
+	 * past 1000) */
+	uint32_t s = ((uint32_t)opensc2_gauge_curve(points, n, target_mv) + 5) / 10;
+
+	return (uint8_t)(s > 100 ? 100 : s);
 }
 
 uint8_t opensc2_gauge_percent(const struct opensc2_gauge_point *points, size_t n, uint8_t scale,
