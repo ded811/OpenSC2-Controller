@@ -1627,7 +1627,7 @@ controller), the calibration store (with `CONFIG_OPENSC2_CAL`), the application'
 (return `-ENOTSUP` to pass), and then to **any other Zephyr settings handler of the build**, as on
 the real controller: Bluetooth's `bt/...` keys in a Bluetooth build, and every handler your
 application registers (`settings_runtime_set()`, `_get()`, `settings_save_one()`,
-`settings_delete()`; needs `CONFIG_SETTINGS_RUNTIME`, which `CONFIG_OPENSC2_STORAGE` implies). A custom board
+`settings_delete()`; needs `CONFIG_SETTINGS_RUNTIME`, which `CONFIG_OPENSC2_STORAGE` implies: without it no other handler is reached, `0xED` answers length 0, `0xEE` and `0xEF` are refused and `0xF0` is acknowledged without deleting anything). A custom board
 can so expose keys of its own to Steam-style tools; keep anything a host must not change out of the
 settings handlers, or answer its names in `vendor_command`. The library's own subtree (`opensc2/`)
 is never reached this way.

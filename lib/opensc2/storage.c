@@ -268,10 +268,12 @@ int osc2_storage_factory_reset(void)
 
 /* The library's own subtree ("opensc2", "opensc2/...") is never reached this way: a host must not
  * write the board's identity, bonds or policy under their internal names. */
+#if defined(CONFIG_SETTINGS_RUNTIME)
 static bool own_subtree(const char *name)
 {
 	return settings_name_steq(name, "opensc2", NULL) != 0;
 }
+#endif
 
 int osc2_storage_named_set(const char *name, const void *value, size_t len)
 {
@@ -305,14 +307,22 @@ int osc2_storage_named_get(const char *name, void *out, size_t size)
 
 int osc2_storage_named_save(const char *name, const void *value, size_t len)
 {
+#if defined(CONFIG_SETTINGS_RUNTIME)
 	if (own_subtree(name)) {
 		return -EINVAL;
 	}
 	return settings_save_one(name, value, len);
+#else
+	ARG_UNUSED(name);
+	ARG_UNUSED(value);
+	ARG_UNUSED(len);
+	return -EINVAL;
+#endif
 }
 
 int osc2_storage_named_delete(const char *name)
 {
+#if defined(CONFIG_SETTINGS_RUNTIME)
 	int err;
 
 	if (own_subtree(name)) {
@@ -323,6 +333,13 @@ int osc2_storage_named_delete(const char *name)
 		(void)osc2_storage_named_set(name, NULL, 0);   /* its handler's "deleted" value */
 	}
 	return err;
+#else
+	/* Without SETTINGS_RUNTIME no other handler is reached by name (as 0xEE and 0xEF find
+	 * none): acknowledged, nothing deleted, so a host cannot remove another handler's keys
+	 * (Bluetooth's bonds) from flash. */
+	ARG_UNUSED(name);
+	return 0;
+#endif
 }
 
 #else /* !CONFIG_OPENSC2_STORAGE */
