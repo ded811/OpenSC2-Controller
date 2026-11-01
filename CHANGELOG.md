@@ -179,7 +179,8 @@ controller is listed in docs/protocol.md's gaps.
   supply check (4600, 4500, 4400 mV, 5 s apart), its give-up flag `0x80` and 60 s rest, the
   4120 / 4160 mV charge voltages, the charge window `mte/charge_level` as a cap, and the battery
   cut-off at power-off without input power. A board without a charger status gets the library's
-  charger model; `opensc2_battery_set_charge_target()`, `opensc2_battery_get()`.
+  charger model; `opensc2_battery_set_charge_target()`, `opensc2_battery_get()`. Built and
+  host-tested; not yet run on a battery or a charger.
 - Input power and the capacitive sensors (`<opensc2/battery.h>`): `opensc2_input_power()`, and the
   real controller's boost of its capacitive readings without input power, stick-touch words ×1.2,
   grip words ×1.5 and electrode signals ×1.25 in single precision
@@ -194,7 +195,7 @@ controller is listed in docs/protocol.md's gaps.
 - The stream build's IMU set-up as the real controller's (`app/src/imu_board.c`): both sensors at
   250 Hz in high-accuracy mode (`LSM6DSVXXX_DT_ODR_HA01_AT_250Hz`), the free-fall window (63, or 0
   on hardware ID `0x45`) and the fusion block's alpha-blending factor 0.05 on hardware IDs up to
-  `0x48` (by the hardware ID the board reports).
+  `0x48` (by the hardware ID the board reports). Built; not yet run on hardware.
 
 **The dock**
 
