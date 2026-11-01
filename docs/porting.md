@@ -103,9 +103,12 @@ that ESB also supports are untested.
     ([api.md](api.md#the-battery-and-the-charger)). A charger chip on I2C gives the rest through the
     same struct: its status and measurements from `charger_update`, its charge voltage and
     input-voltage limit through `set_charge_voltage` and `set_input_voltage_limit`, its ship mode
-    through `battery_cutoff`. A charger module with only a status pin gives the status; without any,
-    the library's charger model stands in. A gauge chip that reports a level of its own plugs in
-    through `level`. Build with `CONFIG_OPENSC2_BATTERY=y` so the board powers off on its battery.
+    through `battery_cutoff`, its input current limit through `input_changed`. A charger module
+    with only a status pin gives the status; without any, the library's charger model stands in.
+    A gauge chip that reports a level of its own plugs in through `level`. Build with
+    `CONFIG_OPENSC2_BATTERY=y` so the board powers off on its battery. Capacitive sensors read
+    weaker on battery: the library boosts stick-touch and grip words as the real controller does
+    (`CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN`; turn it off if yours do not).
 
 11. **I2C parts.** Free each bus at boot before its parts' drivers start (`i2c_recover_bus()`, as
     `app/src/i2c_recover.c` does), as the real controller does: a reset in the middle of a transfer

@@ -174,12 +174,20 @@ controller is listed in docs/protocol.md's gaps.
   `charger_update` callback at every pass). The library then runs the real controller's gauge: a
   pass once a second (the first after 250 ms), 40 fresh readings in a row at the start and when
   charging starts or stops (then 250 ms), the reported voltage as their average (frozen while the
-  charge is done), the level per direction with the stretch's scale in whole percent, kept over a
+  charge is done; a failed reading keeps the last average for that pass), the level per direction with the stretch's scale in whole percent, kept over a
   warm reboot in the retained RAM area, and the charge state machine 0 / 1 / 3 / 2 / 4 with the
   supply check (4600, 4500, 4400 mV, 5 s apart), its give-up flag `0x80` and 60 s rest, the
   4120 / 4160 mV charge voltages, the charge window `mte/charge_level` as a cap, and the battery
   cut-off at power-off without input power. A board without a charger status gets the library's
   charger model; `opensc2_battery_set_charge_target()`, `opensc2_battery_get()`.
+- Input power and the capacitive sensors (`<opensc2/battery.h>`): `opensc2_input_power()`, and the
+  real controller's boost of its capacitive readings without input power, stick-touch words ×1.2,
+  grip words ×1.5 and electrode signals ×1.25 in single precision
+  (`opensc2_cap_unpowered()`, `opensc2_cap_now()`), applied to the words of
+  `opensc2_set_touch_raw()` with `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` (on by default; only a board
+  with a battery is ever without input power). The gauge's board struct takes an `input_changed`
+  callback, called at the start and at every change of input power (looked at every 50 ms), for
+  the charger's input current limit, which the real controller raises for any supply.
 - The blank canvas's battery option (`CONFIG_APP_BATTERY`) runs the fuel gauge: the divider
   switched on once per batch of readings, the chip's VDD as the system voltage, an optional `input`
   io-channel, the charger pin as the charger's status.
