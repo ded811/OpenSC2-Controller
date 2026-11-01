@@ -837,8 +837,9 @@ why:
   it); the blank canvas wakes on STEAM and on a new USB supply, as a development board needs.
 - **The buttons**: the blank canvas's `gpio-keys` report a change once the contact has been steady
   for 5 ms (16 ms in the expander build), where the real controller counts a change at once and then
-  holds the pin for 16 ms; the expander build's PCA9555 is read on its interrupt output, as the
-  real controller reads its own expander.
+  holds the pin for 16 ms; the expander build's PCA9555 is read when its interrupt output marks a
+  change, where the real controller's expander holds its line while any button is down and its
+  buttons are read until all are up (either way the bus is quiet while no button is pressed).
 - **The dock's wire**: gap 41.
 
 ## What this library adds for development boards
