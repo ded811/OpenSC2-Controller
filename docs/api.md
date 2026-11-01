@@ -580,7 +580,7 @@ default) the library does the same:
 
 | Call | What it does |
 | --- | --- |
-| `opensc2_set_touch_raw(side, stick, grip)` | both words boosted while there is no input power, before the stick-touch and grip rules see them |
+| `opensc2_set_touch_raw(side, stick, grip)`, or `opensc2_set_raw()` with `OPENSC2_RAW_TOUCH_L` / `_R` | both words boosted while there is no input power, before the stick-touch and grip rules see them |
 | `opensc2_cap_now(kind, value)` | `value` as the library takes it now: boosted without input power, else as it is; a board that works out its trackpad signal from electrodes passes each electrode through it (`OPENSC2_CAP_ELECTRODE`) |
 | `opensc2_cap_unpowered(kind, value)` | the boost itself, pure: `OPENSC2_CAP_STICK_TOUCH` ×1.2, `OPENSC2_CAP_GRIP` ×1.5, `OPENSC2_CAP_ELECTRODE` ×1.25 |
 

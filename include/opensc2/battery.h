@@ -143,7 +143,7 @@ int opensc2_battery_cutoff(void);
  * (probably because a body that is not tied to the PC's ground couples less): every stick-touch word x1.2, every grip word x1.5 and every trackpad electrode signal
  * x1.25, each multiplied in single precision and cut toward zero, from start-up until a supply
  * is seen and again whenever it goes. The library does the same to the words a board gives with
- * opensc2_set_touch_raw() (CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN, on by default: turn it off for a
+ * opensc2_set_touch_raw() or opensc2_set_raw() (CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN, on by default: turn it off for a
  * sensor whose readings do not drop on battery). A board that works out its own trackpad signal
  * from electrodes passes each one through opensc2_cap_now(OPENSC2_CAP_ELECTRODE, ...) first. */
 bool opensc2_input_power(void);

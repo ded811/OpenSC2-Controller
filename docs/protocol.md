@@ -658,8 +658,8 @@ open, the library does what should work with Steam and the puck, and says so her
     - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
       does, so an empty request reads the report's zero padding;
     - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
-    - without input power the stick-touch and grip words given with `opensc2_set_touch_raw()`
-      are boosted ×1.2 and ×1.5 before the rules see them, as the real controller boosts its own
+    - without input power the stick-touch and grip words given with `opensc2_set_touch_raw()` or
+      `opensc2_set_raw()` are boosted ×1.2 and ×1.5 before the rules see them, as the real controller boosts its own
       (`CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN`, on by default; a board passes its own electrode
       signals through `opensc2_cap_now()` for the real controller's ×1.25);
     - not reproduced, being Valve's hardware: the stick offsets while docked, the trackpad chip's

@@ -184,7 +184,7 @@ controller is listed in docs/protocol.md's gaps.
   real controller's boost of its capacitive readings without input power, stick-touch words ×1.2,
   grip words ×1.5 and electrode signals ×1.25 in single precision
   (`opensc2_cap_unpowered()`, `opensc2_cap_now()`), applied to the words of
-  `opensc2_set_touch_raw()` with `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` (on by default; only a board
+  `opensc2_set_touch_raw()` and `opensc2_set_raw()` with `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` (on by default; only a board
   with a battery is ever without input power). The gauge's board struct takes an `input_changed`
   callback, called at the start and at every change of input power (looked at every 50 ms), for
   the charger's input current limit, which the real controller raises for any supply.
