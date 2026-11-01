@@ -159,6 +159,86 @@ static void lizard_send(const struct opensc2_lizard_out *out)
 		(void)osc2_input_send(out->report[i], out->len[i], false);
 	}
 }
+
+/* ---- the keyboard hears the buttons when they change ---- */
+
+#if defined(CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE)
+/* As the real controller's keyboard listens to its button driver, the application's setters wake
+ * this thread on every change of the buttons, and the keyboard takes the change up at once (its
+ * report goes nowhere while no link runs). While the hardware test hooks are armed the frames
+ * bring the buttons instead (the injected ones included), as they do without this option. */
+static K_SEM_DEFINE(keys_sem, 0, 1);
+static atomic_t keys_ready;
+static bool keys_deferred;   /* a change waits for room in the radio's queue (lizard_lock) */
+
+static bool keys_at_once(void)
+{
+	return !osc2_test_lizard_frames_only();
+}
+
+static void keys_thread_fn(void *p1, void *p2, void *p3)
+{
+	struct opensc2_lizard_out out;
+
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+	for (;;) {
+		(void)k_sem_take(&keys_sem, K_FOREVER);
+		if (!atomic_get(&keys_ready)) {
+			continue;   /* before the library starts: its first frame adopts the buttons */
+		}
+		k_mutex_lock(&lizard_lock, K_FOREVER);
+		lizard.driver = keys_at_once();
+		if (!lizard.driver) {
+			/* the frames bring the buttons */
+		} else if (osc2_mode_link() == OSC2_LINK_RADIO && osc2_radio_backlog()) {
+			keys_deferred = true;   /* the first frame that runs wakes this thread again */
+		} else {
+			(void)opensc2_lizard_buttons(&lizard, osc2_sys_app_buttons(), &out);
+			lizard_send(&out);
+		}
+		k_mutex_unlock(&lizard_lock);
+	}
+}
+
+K_THREAD_DEFINE(osc2_lizard_keys_tid, CONFIG_OPENSC2_LIZARD_KEYS_STACK_SIZE, keys_thread_fn, NULL,
+		NULL, NULL, K_PRIO_PREEMPT(CONFIG_OPENSC2_LIZARD_KEYS_PRIORITY), 0, 0);
+
+void osc2_lizard_buttons_changed(void)
+{
+	k_sem_give(&keys_sem);
+}
+
+/* In each frame (lizard_lock held): who brings the buttons, and a wake-up for the thread when a
+ * change waited or the buttons are to be adopted afresh (lizard mode's resync). */
+static void lizard_keys_frame(void)
+{
+	lizard.driver = keys_at_once();
+	if (lizard.driver && (keys_deferred || lizard.buttons_sync)) {
+		keys_deferred = false;
+		k_sem_give(&keys_sem);
+	}
+}
+
+static void lizard_keys_start(void)
+{
+	atomic_set(&keys_ready, 1);
+	k_sem_give(&keys_sem);
+}
+#else
+void osc2_lizard_buttons_changed(void)
+{
+}
+
+static inline void lizard_keys_frame(void)
+{
+}
+
+static inline void lizard_keys_start(void)
+{
+}
+#endif
 #endif
 
 void osc2_report_lizard(const struct opensc2_state *s)
@@ -184,6 +264,7 @@ void osc2_report_lizard(const struct opensc2_state *s)
 		k_mutex_unlock(&lizard_lock);
 		return;
 	}
+	lizard_keys_frame();
 	made = opensc2_lizard_step(&lizard, s, osc2.settings, osc2_rules(), &out);
 	lizard_send(&out);
 	n_haptics = opensc2_lizard_haptics(made, haptics);
@@ -326,6 +407,9 @@ void osc2_report_init(void)
 {
 	opensc2_lizard_reset(&lizard);
 	osc2_input_rules_reset(&input_rules);
+#if defined(CONFIG_OPENSC2_LIZARD_MODE)
+	lizard_keys_start();
+#endif
 #if CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS > 0
 	k_work_schedule(&battery_work, K_NO_WAIT);   /* the first one is usually lost: no link yet */
 #endif

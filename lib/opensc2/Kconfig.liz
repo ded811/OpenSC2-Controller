@@ -77,6 +77,33 @@ config OPENSC2_LIZARD_TICKS
 	  still gets them, so do not play them again on the synthesiser's actuators. Nothing plays
 	  once Steam has turned lizard mode off. Built; not yet tested on hardware.
 
+config OPENSC2_LIZARD_KEYS_AT_ONCE
+	bool "Lizard mode: a key report the moment the buttons change"
+	default y
+	depends on OPENSC2_LIZARD_MODE
+	help
+	  As on the real controller, whose keyboard listens to its button driver: a change of a
+	  mapped button that the application reports (opensc2_set_buttons(), opensc2_set_state(),
+	  the sample callback) wakes a thread of the library's, and the keyboard report goes out
+	  then, not with the next state report. A change while no link runs (or only the dock) goes
+	  nowhere, as on the real controller: the first frames after the gap do not send it. Through
+	  the puck a change waits while reports wait for room. While the hardware test hooks are
+	  armed the frames bring the buttons either way. Off: the keyboard hears the buttons once per
+	  state report (up to one frame later), and the thread's stack is saved. Built; not yet
+	  tested on hardware.
+
+config OPENSC2_LIZARD_KEYS_STACK_SIZE
+	int "Lizard mode: the keyboard thread's stack size"
+	default 1536
+	depends on OPENSC2_LIZARD_KEYS_AT_ONCE
+
+config OPENSC2_LIZARD_KEYS_PRIORITY
+	int "Lizard mode: the keyboard thread's priority (preemptible)"
+	default 8
+	depends on OPENSC2_LIZARD_KEYS_AT_ONCE
+	help
+	  The real controller's keyboard thread runs at 8, below its links' threads.
+
 config OPENSC2_REPORT_WAIT_DEPTH
 	int "Radio: lizard and application reports that wait when the report queue is full"
 	default 8

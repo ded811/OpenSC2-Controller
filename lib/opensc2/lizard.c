@@ -309,6 +309,27 @@ uint32_t opensc2_lizard_release(struct opensc2_lizard *lz, struct opensc2_lizard
 	return keyboard_report(out, no_keys) | mouse_report(out, no_mouse);
 }
 
+/* The buttons, as a button driver reports them: a change of a mapped one reaches the keyboard
+ * while it runs, with the whole word (all 20 buttons) of that moment. */
+static void hear_buttons(struct opensc2_lizard *lz, uint32_t word)
+{
+	if (lz->buttons_sync) {
+		lz->buttons_sync = false;
+	} else if (((word ^ lz->buttons) & MAPPED_BUTTONS) && lz->kb_on) {
+		lz->kb_word = word;
+		lz->kb_events |= EV_KEYS;
+	}
+	lz->buttons = word;
+}
+
+uint32_t opensc2_lizard_buttons(struct opensc2_lizard *lz, uint32_t buttons,
+				struct opensc2_lizard_out *out)
+{
+	out->n = 0;
+	hear_buttons(lz, buttons & DIGITAL_BUTTONS);
+	return take_up(lz, out);
+}
+
 /* ---- the frame -------------------------------------------------------------------------------- */
 
 /* The movement history: filled from the start, then a ring whose oldest entry is at `head`. */
@@ -547,15 +568,11 @@ uint32_t opensc2_lizard_step(struct opensc2_lizard *lz, const struct opensc2_sta
 
 	out->n = 0;
 
-	/* The buttons, as a button driver reports them: a change of a mapped one reaches the
-	 * keyboard while it runs. */
-	if (lz->buttons_sync) {
-		lz->buttons_sync = false;
-	} else if (((word ^ lz->buttons) & MAPPED_BUTTONS) && lz->kb_on) {
-		lz->kb_word = word;
-		lz->kb_events |= EV_KEYS;
+	/* The buttons as the frame carries them: a change that opensc2_lizard_buttons() has not
+	 * already brought (the application's sample callback, the test hooks' injection). */
+	if (!lz->driver) {
+		hear_buttons(lz, word);
 	}
-	lz->buttons = word;
 	made |= take_up(lz, out);
 
 	/* The pads, as the trackpad hands them over: setting 82 blanks a pad whose stick is

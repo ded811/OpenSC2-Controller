@@ -93,7 +93,9 @@ struct opensc2_lizard {
 	bool kb_held;           /* its last report had a key in it */
 	/* The buttons as a button driver sees them: the last frame's, compared with the next. */
 	uint32_t buttons;
-	bool buttons_sync;      /* take the next frame's buttons as they are, without a change */
+	bool buttons_sync;      /* take the next buttons as they are, without a change */
+	bool driver;            /* the buttons come from opensc2_lizard_buttons() alone: a frame
+				 * does not look at its buttons */
 	/* The mouse. */
 	bool ms_switch;         /* the mouse-button switch */
 	bool ms_on;             /* running: a frame per state report */
@@ -132,6 +134,14 @@ void opensc2_lizard_resync(struct opensc2_lizard *lz);
  * the empty keyboard report and the all-zero mouse report that release it (keyboard first); what
  * was held is forgotten. Returns the flags, 0 when there is nothing to release. */
 uint32_t opensc2_lizard_release(struct opensc2_lizard *lz, struct opensc2_lizard_out *out);
+
+/* The application's button driver changed the 20 digital buttons to `buttons` (the bits above 19
+ * are ignored), at the moment it happened: the keyboard hears of a change of a mapped button
+ * while it runs and sends its report at once, as the real controller's keyboard does whatever the
+ * frames are doing (with no link it goes nowhere). A frame that carries the same buttons later
+ * sees no change. Returns the OPENSC2_LIZARD_KEYBOARD flag when `out` holds a report. */
+uint32_t opensc2_lizard_buttons(struct opensc2_lizard *lz, uint32_t buttons,
+				struct opensc2_lizard_out *out);
 
 /* One frame on the state of one report (after the input rules), on a link lizard mode runs on
  * (USB, Bluetooth, the puck; not the dock): the keyboard hears of a change of a mapped button (it

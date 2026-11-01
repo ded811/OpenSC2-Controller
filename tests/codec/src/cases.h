@@ -939,6 +939,70 @@ OPENSC2_TEST(lizard_transitions)
 	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
 }
 
+/* The keyboard as the button driver reports to it (opensc2_lizard_buttons(); report.c sets
+ * `driver` while CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE runs it): a key report at the change, and
+ * the frames' buttons left alone. */
+static uint32_t lz_buttons(struct opensc2_lizard *lz, uint32_t buttons, uint8_t kb[9])
+{
+	struct opensc2_lizard_out out;
+	uint8_t mouse[6];
+
+	return lz_copy(&out, opensc2_lizard_buttons(lz, buttons, &out), kb, mouse);
+}
+
+OPENSC2_TEST(lizard_keys_at_once)
+{
+	struct opensc2_lizard lz;
+	struct opensc2_state s;
+	uint8_t kb[9], mouse[6];
+
+	opensc2_lizard_reset(&lz);
+	memset(&s, 0, sizeof(s));
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);   /* adopts the buttons of boot */
+	lz.driver = true;
+
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A, kb), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[0], 0x41);
+	CHECK_EQ(kb[3], 0x28);
+	/* A frame that still carries the buttons before the change sends nothing. */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	s.buttons = OPENSC2_BTN_A;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A, kb), 0);   /* no change */
+	/* An unmapped button alone, and the bits above the 20 buttons, change nothing. */
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A | OPENSC2_BTN_X, kb), 0);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A | OPENSC2_BTN_X | OPENSC2_CLICK_RIGHT_TRIGGER, kb), 0);
+	/* The next mapped change carries every held button: A, X (no key), B. */
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A | OPENSC2_BTN_X | OPENSC2_BTN_B, kb),
+		 OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x28);
+	CHECK_EQ(kb[4], 0x29);
+	CHECK_EQ(kb[5], 0x00);
+
+	/* Stopped, the keyboard follows the buttons without a report; started again, a button held
+	 * since before waits for the next mapped change. */
+	(void)lz_setting(&lz, false, kb, mouse);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_DPAD_UP, kb), 0);
+	(void)lz_setting(&lz, true, kb, mouse);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_DPAD_UP, kb), 0);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_DPAD_UP | OPENSC2_BTN_MENU, kb),
+		 OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x52);
+	CHECK_EQ(kb[4], 0x2B);
+
+	/* After a resync the next buttons are adopted silently. */
+	opensc2_lizard_resync(&lz);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A, kb), 0);
+	CHECK_EQ(lz_buttons(&lz, 0, kb), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0);
+
+	/* Without `driver` the frames bring the buttons again. */
+	lz.driver = false;
+	s.buttons = OPENSC2_BTN_B;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x29);
+}
+
 OPENSC2_TEST(settings_defaults)
 {
 	CHECK_EQ(opensc2_setting_default(OPENSC2_SETTING_LIZARD_MODE), 1);

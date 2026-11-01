@@ -224,6 +224,15 @@ void osc2_rules_set(uint32_t rules);
  * switches change. */
 void osc2_lizard_set(bool on);
 void osc2_lizard_switches(bool up);
+/* The application changed its buttons (the setters call it; safe in interrupts): lizard mode's
+ * keyboard takes the change up now (CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE), not at the next frame. */
+#if defined(CONFIG_OPENSC2_LIZARD_MODE)
+void osc2_lizard_buttons_changed(void);
+#else
+static inline void osc2_lizard_buttons_changed(void)
+{
+}
+#endif
 /* Lizard mode takes the inputs it sees next as its starting point (opensc2_lizard_resync()). */
 void osc2_lizard_resync(void);
 /* While lizard mode holds a key or button towards the host: release it (an empty keyboard report,

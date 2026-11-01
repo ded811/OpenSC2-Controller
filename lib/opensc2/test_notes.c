@@ -50,6 +50,11 @@ bool osc2_test_skip_lizard(void)
 	return osc2_test_core_skip_lizard(CORE);
 }
 
+bool osc2_test_lizard_frames_only(void)
+{
+	return osc2_test_core_armed(CORE) || CORE->guard != 0;
+}
+
 void osc2_test_battery(struct opensc2_battery *b)
 {
 	if (osc2_test_core_armed(CORE)) {
