@@ -145,6 +145,9 @@ controller is listed in docs/protocol.md's gaps.
   giving up at 4300 and trying again 60 s later), the factory window's cap and the ship-mode rule.
   The blank canvas's charge state follows these rules (charger status pin or USB power).
 - `opensc2_gauge_set_curves()`: a board's own voltage curves and charge targets for the gauge.
+- `opensc2_gauge_begin_charger()`: the gauge's history starts over whenever the charger itself
+  starts or stops charging, also while the charge is done (a top-up), as on the real controller;
+  the blank canvas uses it and keeps its battery step at once a second from start to start.
 - `opensc2_docked_sticks()`: whether the sticks read as on the dock, as the real controller counts
   it (from the first docked state until the board is lifted off), for a board that applies its own
   docked stick offsets; `opensc2 power` shows it.

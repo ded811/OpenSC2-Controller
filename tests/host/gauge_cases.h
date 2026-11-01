@@ -67,6 +67,10 @@ OPENSC2_TEST(gauge_curves)
 	CHECK_EQ(opensc2_gauge_stretch(950, 950), 100);   /* 95 % at the target reads 100 */
 	CHECK_EQ(opensc2_gauge_stretch(0, 500), 0);
 	CHECK_EQ(opensc2_gauge_stretch(1000, 900), 100);  /* limited */
+	/* s is the target's reading in whole percent: 97.4 % counts as 97 (x 1.03), 97.5 % as 98 */
+	CHECK_EQ(opensc2_gauge_stretch(500, 974), 52);
+	CHECK_EQ(opensc2_gauge_stretch(500, 975), 51);
+	CHECK_EQ(opensc2_gauge_stretch(500, 1100), 50);   /* s at most 100 */
 }
 
 OPENSC2_TEST(gauge_level)
@@ -115,6 +119,40 @@ OPENSC2_TEST(gauge_level)
 	CHECK_EQ(opensc2_gauge_step(&g, 4000, OPENSC2_CHARGE_DISCHARGING), 55);
 	opensc2_gauge_init(&g, 200);
 	CHECK_EQ(g.level, OPENSC2_GAUGE_NO_LEVEL);
+}
+
+OPENSC2_TEST(gauge_charger_tops_up)
+{
+	struct opensc2_gauge g;
+
+	/* Done without the charger charging again: the readings from before it stay, on battery
+	 * one fresh reading a step. */
+	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
+	CHECK_EQ(opensc2_gauge_begin_charger(&g, OPENSC2_CHARGE_DISCHARGING, false), 40);
+	for (int i = 0; i < 40; i++) {
+		opensc2_gauge_add(&g, 4100);
+	}
+	(void)opensc2_gauge_finish(&g);
+	CHECK_EQ(opensc2_gauge_begin_charger(&g, OPENSC2_CHARGE_DONE, false), 0);
+	CHECK_EQ(opensc2_gauge_finish(&g), 100);
+	CHECK_EQ(opensc2_gauge_begin_charger(&g, OPENSC2_CHARGE_DISCHARGING, false), 1);
+	/* The charger tops the battery up while the state stays "done": the history starts over
+	 * (no reading yet), so the first step on battery takes 40 fresh ones. */
+	opensc2_gauge_init(&g, OPENSC2_GAUGE_NO_LEVEL);
+	CHECK_EQ(opensc2_gauge_begin_charger(&g, OPENSC2_CHARGE_DISCHARGING, false), 40);
+	for (int i = 0; i < 40; i++) {
+		opensc2_gauge_add(&g, 4100);
+	}
+	(void)opensc2_gauge_finish(&g);
+	CHECK_EQ(opensc2_gauge_begin_charger(&g, OPENSC2_CHARGE_DONE, true), 0);
+	CHECK_EQ(g.history.count, 0);
+	CHECK_EQ(opensc2_gauge_finish(&g), 100);
+	CHECK_EQ(opensc2_gauge_voltage(&g), 4100);   /* held */
+	CHECK_EQ(opensc2_gauge_begin_charger(&g, OPENSC2_CHARGE_DONE, false), 0);
+	CHECK_EQ(opensc2_gauge_begin_charger(&g, OPENSC2_CHARGE_DISCHARGING, false), 40);
+	/* opensc2_gauge_begin() takes "charging" from the state */
+	CHECK_EQ(opensc2_gauge_begin(&g, OPENSC2_CHARGE_CHARGING), 40);
+	CHECK(g.charger_charging);
 }
 
 OPENSC2_TEST(gauge_own_curves)

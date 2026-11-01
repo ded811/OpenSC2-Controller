@@ -88,7 +88,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_encode_state()`, `opensc2_decode_output()`, ... | every wire format as a pure function (`<opensc2/codec.h>`) | [Pure helpers](#pure-helpers) |
 | `opensc2_stick_setup()`, `opensc2_trigger_value()`, `opensc2_pressure_sample()`, ... | the calibration's arithmetic as pure functions (`<opensc2/cal.h>`) | [Calibration helpers](#calibration-helpers) |
 | `opensc2_cap_sample()`, `opensc2_pad_rotate()`, `opensc2_stabiliser_step()`, `opensc2_imu_mount()`, ... | sensor processing as pure functions (`<opensc2/sensor_helpers.h>`) | [Sensor helpers](#sensor-helpers) |
-| `opensc2_gauge_begin()`, `_add()`, `_finish()`, `_step()`, `_voltage()`, `_set_curves()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
+| `opensc2_gauge_begin()`, `_begin_charger()`, `_add()`, `_finish()`, `_step()`, `_voltage()`, `_set_curves()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
 | `opensc2_charger_init()`, `_step()`, `_window()`, `_gauge_state()`, `_state()`, `_ship_mode_ok()` | the real controller's charging rules: the charge state, the charge voltage, the input-voltage search (`<opensc2/charger.h>`) | [Charging helpers](#charging-helpers) |
 | `opensc2_haptics_set_output(path, &out)`, `opensc2_haptics_play_cue(cue, level)`, ... | with `CONFIG_OPENSC2_HAPTICS_SYNTH`: the haptics synthesiser's outputs and its own sounds (`<opensc2/haptics.h>`) | [The haptics synthesiser](#the-haptics-synthesiser) |
 | `opensc2_dock_crc16()`, `opensc2_dock_frame_check()`, `opensc2_dock_frame_seal()`, `opensc2_dock_build_request()` | the dock's 73-byte frames (`<opensc2/dock.h>`, pure) | [The dock](#the-frame-functions) |
@@ -2308,15 +2308,17 @@ battery.
 | `opensc2_gauge_divider_mv(pin_mv, total_ohm, bottom_ohm, offset_mv)` | the battery's millivolts from the ADC pin's: pin × total / bottom + the offset (`cal/volt_offset`), rounded (VDDH / 5: total 5, bottom 1) |
 | `opensc2_gauge_history_reset(&h)`, `opensc2_gauge_history_add(&h, mv)`, `opensc2_gauge_latest(&h)`, `opensc2_gauge_average(&h)`, `opensc2_gauge_max(&h)` | the last 40 readings (`OPENSC2_GAUGE_HISTORY`), over those since the last reset: the latest, their average rounded down, their maximum |
 | `opensc2_gauge_curve(points, n, mv)` | a curve's charge in tenths of a percent (linear between points, 0 below the first, 1000 above the last); OpenSC2's single-cell LiPo curves are `opensc2_gauge_lipo_discharging` and `opensc2_gauge_lipo_charging` (with `_len`) |
-| `opensc2_gauge_stretch(permille, target_permille)` | the stretch towards the charge target (`OPENSC2_GAUGE_TARGET_MV`, 4120, or `OPENSC2_GAUGE_TARGET_CHARGING_MV`, 4160, during a charge cycle): the charge times (200 − s) / 100, s the curve's reading at the target, in percent, 0..100 |
+| `opensc2_gauge_stretch(permille, target_permille)` | the stretch towards the charge target (`OPENSC2_GAUGE_TARGET_MV`, 4120, or `OPENSC2_GAUGE_TARGET_CHARGING_MV`, 4160, during a charge cycle): the charge times (200 − s) / 100, s the curve's reading at the target rounded to a whole percent (at most 100); the result rounded, 0..100 |
 | `opensc2_gauge_init(&g, kept_level)` | start: `OPENSC2_GAUGE_NO_LEVEL` (255) until the first reading, or the level kept over a warm reset (`opensc2_battery_kept_level()`) |
 | `n = opensc2_gauge_begin(&g, charge_state)`, `opensc2_gauge_add(&g, mv)` (n times), `level = opensc2_gauge_finish(&g)` | a step the way the real controller's gauge takes its readings, once a second: `n` is 40 after the start and whenever charging starts or stops (the history starts over; let the voltage settle 250 ms first, as the real controller does), else 1, and 0 while the charge is done (the level reads 100, nothing is read). Charging uses the charging curve and only rises, anything else the discharging curve and only falls |
+| `n = opensc2_gauge_begin_charger(&g, charge_state, charger_charging)` | `opensc2_gauge_begin()` for a board that runs the [charging rules](#charging-helpers): the history starts over whenever the charger itself starts or stops charging (its status pre-charge or fast charge), also while the charge state stays "done" and the charger tops the battery up, as on the real controller (`opensc2_gauge_begin()` takes it from the state) |
 | `opensc2_gauge_step(&g, mv, charge_state)` | the three with one reading (the history then grows by one reading a step) |
 | `opensc2_gauge_voltage(&g)` | the battery voltage for report `0x43`, as the real controller's gauge gives it: the average at the last step outside "done", held while the charge is done |
 | `opensc2_gauge_set_curves(&g, &curves)` | a board's own curves and charge targets (`struct opensc2_gauge_curves`: `discharging`, `charging` with their lengths, `target_mv`, `target_charging_mv`; a NULL curve or a 0 target keeps OpenSC2's); call it after `opensc2_gauge_init()`, which goes back to OpenSC2's; NULL: OpenSC2's again |
 
 Pass the charge state of the [charging rules](#charging-helpers) for the step
-(`opensc2_charger_gauge_state()`), as the real controller's gauge does: "done" while the rules are
+(`opensc2_charger_gauge_state()`) and whether the charger charges to
+`opensc2_gauge_begin_charger()`, as the real controller's gauge does: "done" while the rules are
 done, else charging while the charger says it charges.
 
 ### Charging helpers
@@ -2335,7 +2337,7 @@ still gets the charge state (it ignores the writes). Untested on a charger.
 | `state = opensc2_charger_step(&c, input_power, status, battery_mv, now_ms, &out)` | the rules' step, once a second; `status` is an `enum opensc2_charger_status` (`OPENSC2_CHARGER_NOT_CHARGING`, `_PRECHARGE`, `_FAST_CHARGE`, `_CHARGE_DONE`) and `battery_mv` the gauge's averaged voltage (`opensc2_gauge_voltage()`); returns the charge state for `struct opensc2_battery` |
 | `opensc2_charger_state(&c)` | the charge state as the last step left it, `OPENSC2_CHARGE_GAVE_UP` included |
 | `opensc2_charger_window(&c, opensc2_charge_target_mv())` | the factory charge window's cap (0: the configured target); a change starts the rules over |
-| `opensc2_charger_gauge_state(&c, status)` | the charge state for `opensc2_gauge_begin()`, before the step |
+| `opensc2_charger_gauge_state(&c, status)` | the charge state for `opensc2_gauge_begin_charger()`, before the step |
 | `opensc2_charger_ship_mode_ok(input_power)` | whether a power-off may cut the battery off (ship mode): only without a supply |
 
 `out.set_charge` asks for `out.charge_mv`, `out.set_vin_limit` for `out.vin_limit_mv`. The rules:

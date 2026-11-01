@@ -108,10 +108,13 @@ uint16_t opensc2_gauge_curve(const struct opensc2_gauge_point *points, size_t n,
 
 uint8_t opensc2_gauge_stretch(uint16_t permille, uint16_t target_permille)
 {
-	/* percent = permille / 10 x (200 - target / 10) / 100, rounded */
-	int32_t factor = 2000 - (int32_t)target_permille;
-	int32_t pct = ((int32_t)permille * factor + 5000) / 10000;
+	/* s = the target's reading in whole percent (rounded, at most 100), then
+	 * percent = permille / 10 x (200 - s) / 100, rounded */
+	int32_t s = ((int32_t)target_permille + 5) / 10;
+	int32_t pct;
 
+	s = s > 100 ? 100 : s;
+	pct = ((int32_t)permille * (200 - s) + 500) / 1000;
 	return (uint8_t)(pct < 0 ? 0 : pct > 100 ? 100 : pct);
 }
 
@@ -122,6 +125,7 @@ void opensc2_gauge_init(struct opensc2_gauge *g, uint8_t kept_level)
 	opensc2_gauge_history_reset(&g->history);
 	g->level = kept_level <= 100 ? kept_level : OPENSC2_GAUGE_NO_LEVEL;
 	g->charge_state = OPENSC2_CHARGE_RESET;
+	g->charger_charging = false;
 	g->voltage_mv = 0;
 	g->curves = NULL;
 }
@@ -133,11 +137,17 @@ void opensc2_gauge_set_curves(struct opensc2_gauge *g, const struct opensc2_gaug
 
 uint8_t opensc2_gauge_begin(struct opensc2_gauge *g, uint8_t charge_state)
 {
-	bool charging = charge_state == OPENSC2_CHARGE_CHARGING;
+	return opensc2_gauge_begin_charger(g, charge_state,
+					   charge_state == OPENSC2_CHARGE_CHARGING);
+}
 
-	if (charging != (g->charge_state == OPENSC2_CHARGE_CHARGING)) {
+uint8_t opensc2_gauge_begin_charger(struct opensc2_gauge *g, uint8_t charge_state,
+				    bool charger_charging)
+{
+	if (charger_charging != g->charger_charging) {
 		opensc2_gauge_history_reset(&g->history);   /* the readings jump: start over */
 	}
+	g->charger_charging = charger_charging;
 	g->charge_state = charge_state;
 	if (charge_state == OPENSC2_CHARGE_DONE) {
 		return 0;
