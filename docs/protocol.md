@@ -798,6 +798,49 @@ open, the library does what should work with Steam and the puck, and says so her
     open-drain TX, RX without a pull, the pilot on an analog pin), built and never run; nothing may
     be connected to Valve's puck's pads without the owner's go-ahead.
 
+## The board's own parts
+
+The real controller runs part of its behaviour on its own chips: a charger with a fuel gauge, a
+trackpad controller, an IMU with a fusion block, a button expander, an analog window on the dock's
+pilot. The library does what those parts' drivers do with values the board supplies
+([api.md, The battery and the charger](api.md#the-battery-and-the-charger)), and the blank canvas's
+optional builds set their parts up as the real controller sets its own. What stays different, and
+why:
+
+- **The charger chip itself**: its registers, its supply-type detection (the current each supply
+  type allows), its initial configuration and its ship mode are Valve's part. The library runs the
+  charge state machine, the gauge and the cut-off on the board's callbacks (`set_charge_voltage`,
+  `set_input_voltage_limit`, `input_changed`, `battery_cutoff`), and only a board with a charger it
+  can program gets those writes; a board whose charger tells no status gets the library's model.
+  Input power is the library's view (`opensc2_power_source()`, gap 34), where the real controller
+  takes its charger's supply detection.
+- **The level's curves** are OpenSC2's own single-cell LiPo curves; the real controller's are
+  Valve's data for Valve's cell. The rules on them (the 40 readings, the stretch, the direction,
+  "done" is 100, the level kept over a warm reboot) are the real controller's.
+- **The trackpad chip**: its frame protocol, its register tables and its firmware updater belong to
+  Valve's chip and its firmware, which are not reproduced; an application gives frames or positions
+  (gaps 31 and 32). The boost of the capacitive readings without input power is the library's
+  ([api.md](api.md#input-power-and-the-capacitive-sensors)).
+- **The hardware-ID check** (an unknown board revision blinks red and reboots into Valve's
+  bootloader) and the factory identity in UICR: there is no such bootloader or record here; the
+  reported board revision is a setting (`0x48` by default). What the real controller changes by
+  revision is done by the same number: the IMU's free-fall window (0 on `0x45`) and fusion
+  alpha-blend (up to `0x48`) in the stream build, the docked stick offsets (gap 31).
+- **The analog inputs**: the sticks use the real controller's scale (gain 1/4 of VDD/4) but a
+  10 µs acquisition time instead of 3 µs, because the blank canvas holds unwired pins at mid-scale
+  with the converter's own high-value resistors, which a 3 µs sample does not settle on.
+- **The SoC set-up**: the default app is built without the hardware FPU, so its single-precision
+  arithmetic matches the host tests bit for bit (OpenSC2's code is not Valve's compiled code, so an
+  FPU would not make it identical either); MPU stack guards are on, as on the real controller; MPU
+  null-pointer detection is off; the log is a USB console instead of RTT.
+- **Power-off**: the real controller sets no wake-up source for System OFF (its own hardware wakes
+  it); the blank canvas wakes on STEAM and on a new USB supply, as a development board needs.
+- **The buttons**: the blank canvas's `gpio-keys` report a change once the contact has been steady
+  for 5 ms (16 ms in the expander build), where the real controller counts a change at once and then
+  holds the pin for 16 ms; the expander build's PCA9555 is read on its interrupt output, as the
+  real controller reads its own expander.
+- **The dock's wire**: gap 41.
+
 ## What this library adds for development boards
 
 These have no counterpart on the real controller, and are there because a development board has no
