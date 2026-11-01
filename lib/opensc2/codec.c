@@ -123,19 +123,12 @@ void opensc2_decode_state(const uint8_t in[OPENSC2_STATE_REPORT_LEN], struct ope
 
 /* ---- battery and haptic status -------------------------------------------------------------- */
 
-/* The level as sent: 0..100, or 255 (no reading yet, as the real controller's first report after
- * a cold start); anything else is taken as 100. */
-static uint8_t osc2_report_level(uint8_t level)
-{
-	return level <= 100 || level == 255 ? level : 100;
-}
-
 size_t opensc2_encode_battery(const struct opensc2_battery *b,
 			      uint8_t out[OPENSC2_BATTERY_REPORT_LEN])
 {
 	out[0] = OPENSC2_RPT_BATTERY;
 	out[1] = b->charge_state;
-	out[2] = osc2_report_level(b->level);
+	out[2] = b->level;   /* as given: 255 is the real controller's "no level yet" */
 	opensc2_put_le16(&out[3], b->battery_mv);
 	opensc2_put_le16(&out[5], b->system_mv);
 	opensc2_put_le16(&out[7], b->input_mv);
@@ -160,7 +153,7 @@ size_t opensc2_encode_battery_data(const struct opensc2_battery *b,
 	opensc2_put_le16(&out[6], b->input_mv);
 	opensc2_put_le16(&out[8], (uint16_t)b->current_ma);
 	opensc2_put_le16(&out[10], b->input_current_ma);
-	out[12] = osc2_report_level(b->level);
+	out[12] = b->level;
 	out[13] = state == OPENSC2_CHARGE_CHARGING ? 1 : 0;   /* 1 while charging */
 	out[14] = state;
 	return OPENSC2_BATTERY_DATA_LEN;

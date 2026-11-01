@@ -243,8 +243,8 @@ controller is listed in docs/protocol.md's gaps.
 
 ### Changed
 
-- Reports `0x43` and `0xBE` send a level of 255 as it is (the real controller's "no reading yet");
-  other levels over 100 still go out as 100. With the fuel gauge, the first `0x43` after a cold
+- Reports `0x43` and `0xBE` send the level as given, as the real controller sends its gauge's
+  value (255 is its "no reading yet"; nothing is clamped to 100 any more). With the fuel gauge, the first `0x43` after a cold
   start carries level 255, charge state 0 and zeros, as the real controller's does.
 - The blank canvas frees each I2C bus at boot whenever it has one (`CONFIG_APP_I2C_RECOVER` is on
   by default now), as the real controller does at every start of its I2C drivers.

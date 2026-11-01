@@ -436,7 +436,7 @@ from boot on whatever link is up (dropped while there is none), and answered to 
 | Field | Unit | Note |
 | --- | --- | --- |
 | `charge_state` | `OPENSC2_CHARGE_DISCHARGING` (1), `_CHARGING` (2), `_DONE` (4), `_RESET` (0), `_SRC_VALIDATE` (3) | SDL's `EChargeState`, the numbering the real controller uses; SDL shows 1 as on battery, 2 charging, 4 charged |
-| `level` | percent | the battery level Steam shows; 255 is sent as it is (no reading yet: the real controller's first report after a cold start), any other value over 100 as 100 |
+| `level` | percent | the battery level Steam shows; sent as given, as the real controller sends its gauge's value: 0..100, or 255 (no reading yet: the real controller's first report after a cold start) |
 | `battery_mv`, `system_mv`, `input_mv` | mV | |
 | `current_ma`, `input_current_ma` | mA | sent as given; the real controller sends the battery current as a magnitude (the charge current while charging, the draw otherwise) |
 | `temperature` | thousandths of a °C | the real controller's unit: its charger's thermistor reading worked out in degrees, ×1000, rounded up (25 °C is 25000) |
