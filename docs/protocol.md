@@ -760,8 +760,8 @@ open, the library does what should work with Steam and the puck, and says so her
 36. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
     not write as it was: a probe's type and result, a SET's payload, the bytes after a GET's answer
     (the rest of the SET that selected the command, then its previous answer), and the whole frame
-    for a request type it does not know. OpenSC2 writes zeros there (a USB GET shows the request's
-    bytes after the answer after 0.2.0, as the real controller does), answers a probe with type 0
+    for a request type it does not know. OpenSC2 writes zeros there (a USB or Bluetooth GET shows the
+    request's bytes after the answer after 0.2.0, as the real controller does), answers a probe with type 0
     and result 0, and an unknown type with its type and `-22`.
     The puck checks only an answer's length and CRC and reads the result only of a GET feature, so
     it cannot tell; but it forwards a positive GET's 63 bytes to the PC, so a host reading a

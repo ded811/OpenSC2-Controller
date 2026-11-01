@@ -100,6 +100,30 @@ OPENSC2_TEST(channel_reply_and_stored_request)
 	CHECK_EQ(reply[2], 0);
 }
 
+/* Bluetooth: the GET is written over the buffer the caller hands over (the value the host last
+ * wrote), so its bytes after the request and the answer stay, as on the real controller. */
+OPENSC2_TEST(channel_ble_reply_over_written_value)
+{
+	uint8_t value[63], out[63];
+
+	stub_reset();
+	osc2.mode = OPENSC2_MODE_WIRELESS;
+	memset(value, 0x5A, sizeof(value));
+	value[0] = 0x89;
+	value[1] = 2;
+	value[2] = 45;
+	value[3] = 0xA1;
+	CHECK_EQ(osc2_command_set(OSC2_LINK_BLE, value, sizeof(value)), 0);
+	memcpy(out, value, sizeof(out));
+	CHECK_EQ(osc2_command_get_strict(OSC2_LINK_BLE, out), 63);
+	CHECK_EQ(out[0], 0x89);
+	CHECK_EQ(out[1], 3);
+	CHECK_EQ(out[2], 45);
+	CHECK_EQ(opensc2_get_le16(&out[3]), 50);
+	CHECK_EQ(out[5], 0x5A);    /* the written value's bytes after the answer */
+	CHECK_EQ(out[62], 0x5A);
+}
+
 OPENSC2_TEST(channel_result_codes)
 {
 	uint8_t rec[63] = { 0 };

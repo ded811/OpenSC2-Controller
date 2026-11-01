@@ -192,9 +192,10 @@ uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63]);
  * stored command has nothing to read, -EINVAL for an opcode nobody knows), for the dock, which
  * answers it. */
 uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc);
-/* A link whose transport can refuse a read (Bluetooth): the stored request's GET as 63 bytes
- * {opcode, length, data, zeros}; returns 63, or a negative errno for a command without an answer
- * or a failed GET (an ATT error there, the counterpart of a STALL on USB). */
+/* A link whose transport can refuse a read (Bluetooth): the stored request's GET written over the
+ * 63 bytes `out` holds (the link's buffer: the bytes after the request and its answer stay);
+ * returns 63, or a negative errno for a command without an answer or a failed GET (an ATT error
+ * there, the counterpart of a STALL on USB). */
 int osc2_command_get_strict(enum osc2_link link, uint8_t out[63]);
 /* USB: the 64-byte data stage of SET_REPORT(Feature 1). 0, or a negative errno (STALL). */
 int osc2_usb_feature_set(const uint8_t *data, uint16_t len);

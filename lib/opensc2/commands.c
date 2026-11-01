@@ -18,7 +18,8 @@
  *   - a GET writes the stored request's length + 2 bytes over the start of its reply buffer, then
  *     the answer over them: the bytes after the answer are the request's, then the buffer's (on
  *     USB the rest of the last SET_REPORT the board received, as the USB stack's buffer is
- *     reused; zeros on the other links). A command reads its parameters there, so 0xED's name
+ *     reused; over Bluetooth the rest of the value last written; zeros on the other links). A
+ *     command reads its parameters there, so 0xED's name
  *     sent without its NUL runs on into those bytes;
  *   - an opcode nobody knows is -EINVAL (a STALL on USB), a GET of a command that only acts
  *     -EOPNOTSUPP, the errors a handler gives otherwise its own.
@@ -966,10 +967,12 @@ uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
 
 int osc2_command_get_strict(enum osc2_link link, uint8_t out[63])
 {
-	int rc;
+	/* `out` holds the link's buffer as it is (Bluetooth: the value last written), so the bytes
+	 * after the request and its answer are that buffer's, as on the real controller. */
+	int rc = get_into(link, out);
 
-	(void)osc2_command_get_rc(link, out, &rc);
 	if (rc) {
+		LOG_DBG("GET 0x%02x failed (%d)", out[0], rc);
 		return rc < 0 ? rc : -EIO;
 	}
 	return 63;

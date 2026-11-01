@@ -1552,8 +1552,9 @@ The rules every command follows, the real controller's:
   controller's; a host build of the library has its platform's.)
 - **A GET's reply** starts as the stored request (its length + 2 bytes) with the answer written
   over it, so the bytes after the answer are the request's, then the reply buffer's: on USB the
-  rest of the last `SET_REPORT` the board received (the USB stack reuses that buffer), elsewhere
-  zeros. A command reads its parameters in the reply too: a `0xED` name sent without its NUL runs
+  rest of the last `SET_REPORT` the board received (the USB stack reuses that buffer), over
+  Bluetooth the rest of the value the host last wrote (the answer is written over a copy of it),
+  through the puck and the dock zeros. A command reads its parameters in the reply too: a `0xED` name sent without its NUL runs
   on into those bytes (Steam's zero padding ends it).
 - **The USB reply length** is the device form's: 63 bytes in the October form (the default: the
   61st byte of a 61-byte answer is not sent; no answer of the real controller is that long), 64 in
