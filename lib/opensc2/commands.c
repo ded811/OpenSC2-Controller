@@ -423,6 +423,9 @@ static int set_settings(const uint8_t *payload, uint8_t len)
 		 * the command, as on the real controller */
 		rc = osc2_imu_setting(number, value);
 		if (rc) {
+			if (led) {
+				osc2_notify_led();   /* the LED settings before it took effect */
+			}
 			return rc;
 		}
 		write_setting(number, value, &led);

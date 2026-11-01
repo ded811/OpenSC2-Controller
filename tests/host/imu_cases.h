@@ -140,6 +140,13 @@ OPENSC2_TEST(imu_stream_and_settings)
 	imu_threshold_answer = -5;
 	CHECK(cal_set(0x87, (const uint8_t[]){ 85, 9, 0, 45, 20, 0 }, 6) != 0);
 	CHECK_EQ(osc2.settings[45], opensc2_setting_default(45));
+	/* a setting before the failing 85 took effect, the LED's too (the real controller applies
+	 * each one as it comes) */
+	stub.led_notified = 0;
+	CHECK(cal_set(0x87, (const uint8_t[]){ 45, 20, 0, 85, 9, 0 }, 6) != 0);
+	CHECK_EQ(osc2.settings[45], 20);
+	CHECK_EQ(osc2.led.brightness, 20);
+	CHECK(stub.led_notified > 0);
 	imu_threshold_answer = 0;
 	opensc2_imu_config_get(&cfg);
 	CHECK(cfg.gyro_threshold_given);
