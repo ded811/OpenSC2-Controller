@@ -17,6 +17,17 @@ config OPENSC2_BATTERY_GAUGE
 	  application sets the battery's fields itself (opensc2_set_battery()). Built; not yet tested
 	  on hardware.
 
+config OPENSC2_TOUCH_UNPOWERED_GAIN
+	bool "Boost the capacitive readings without input power, as the real controller does"
+	default y
+	help
+	  Without input power (USB or the dock) the real controller multiplies every stick-touch
+	  word by 1.2, every grip word by 1.5 and every trackpad electrode signal by 1.25 before it
+	  uses them. With this option the library does the same to the words given with
+	  opensc2_set_touch_raw(), and opensc2_cap_now() boosts a board's own electrode signals.
+	  Only a board with a battery is ever without input power. Turn it off for a sensor whose
+	  readings do not drop on battery.
+
 if OPENSC2_BATTERY_GAUGE
 
 config OPENSC2_BATTERY_GAUGE_PRIORITY

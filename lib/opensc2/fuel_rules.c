@@ -5,8 +5,10 @@
  * fuel_rules.c: the fuel gauge's decisions (fuel_rules.h), following the protocol documentation's
  * description of the real controller's charge state machine. Each state has an entry (when it is
  * entered) and a run (once a pass, the one in effect); an entry may ask for a charge voltage.
+ * Also the boost of the capacitive readings without input power (<opensc2/battery.h>).
  */
 #include <string.h>
+#include <opensc2/battery.h>
 #include "fuel_rules.h"
 
 static void enter(struct osc2_fuel *f, uint8_t state, int64_t now_ms, struct osc2_fuel_out *out)
@@ -154,4 +156,34 @@ int32_t osc2_fuel_window_cap(uint32_t lo_mv, uint32_t hi_mv)
 		return -1;
 	}
 	return (int32_t)hi_mv;
+}
+
+/* ---- the capacitive readings without input power (<opensc2/battery.h>) ---------------------- */
+
+int32_t opensc2_cap_unpowered(enum opensc2_cap_kind kind, int32_t value)
+{
+	/* single precision, cut toward zero, as the real controller does; a word is stored back in
+	 * 16 bits */
+	switch (kind) {
+	case OPENSC2_CAP_STICK_TOUCH:
+		return (int16_t)(int32_t)((float)(int16_t)value * 1.2f);
+	case OPENSC2_CAP_GRIP:
+		return (int16_t)(int32_t)((float)(int16_t)value * 1.5f);
+	case OPENSC2_CAP_ELECTRODE:
+		return (int32_t)((float)value * 1.25f);
+	default:
+		return value;
+	}
+}
+
+int32_t opensc2_cap_now(enum opensc2_cap_kind kind, int32_t value)
+{
+#if defined(CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN)
+	if (!opensc2_input_power()) {
+		return opensc2_cap_unpowered(kind, value);
+	}
+#else
+	(void)kind;
+#endif
+	return value;
 }

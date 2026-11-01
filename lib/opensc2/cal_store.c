@@ -22,6 +22,7 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <opensc2/battery.h>
 #include <opensc2/sensor_helpers.h>
 #include "internal.h"
 #include "cal_store.h"
@@ -403,8 +404,9 @@ int opensc2_set_touch_raw(enum opensc2_side side, int16_t stick_word, int16_t gr
 		return -EINVAL;
 	}
 	in.present = (uint8_t)(OPENSC2_RAW_TOUCH_L << side);
-	in.stick_touch[side] = stick_word;
-	in.grip[side] = grip_word;
+	/* boosted without input power, as the real controller does (<opensc2/battery.h>) */
+	in.stick_touch[side] = (int16_t)opensc2_cap_now(OPENSC2_CAP_STICK_TOUCH, stick_word);
+	in.grip[side] = (int16_t)opensc2_cap_now(OPENSC2_CAP_GRIP, grip_word);
 	return opensc2_set_raw(&in);
 }
 

@@ -518,6 +518,7 @@ What the board must or may supply:
 | Charge voltage | `set_charge_voltage(mV)` | the board's charger keeps its own |
 | Input-voltage limit | `set_input_voltage_limit(mV)` | the supply check still runs and reports state 3, but limits nothing |
 | Ship mode | `battery_cutoff()` | an off board keeps its battery connected |
+| Input current | `input_changed(present)`: at the start, then at every change of input power (looked at every 50 ms): raise the charger's input current limit for a supply, lower it without one | the board's charger keeps its own limit |
 | Level | `level(average_mV, charging)` for a gauge chip or a curve of the board's own; or `charging` / `discharging` curves in `<opensc2/gauge.h>`'s format | OpenSC2's single-cell LiPo curves |
 
 What the gauge does, as the real controller's:
@@ -562,6 +563,28 @@ What the gauge does, as the real controller's:
 `opensc2_charger_set_status()` sets the application's battery's charge state (1 without input
 power; 2 while precharging or charging; 4, level 100, otherwise) and `opensc2_charger_set_values()`
 its five values, so a board can also update single fields that way.
+
+#### Input power and the capacitive sensors
+
+`opensc2_input_power()` says whether USB or the dock powers the board (`opensc2_power_source()`
+other than `OPENSC2_POWER_SOURCE_BATTERY`; always true in a build without
+`CONFIG_OPENSC2_BATTERY`). The real controller's charger, fuel gauge and trackpad chip driver all
+follow it.
+
+Without input power the real controller boosts its capacitive readings before it uses them:
+every stick-touch word ×1.2, every grip word ×1.5 and every trackpad electrode signal ×1.25, each
+multiplied in single precision and cut toward zero (a word is kept in 16 bits), from start-up until
+a supply is seen and again whenever it goes. With `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` (on by
+default) the library does the same:
+
+| Call | What it does |
+| --- | --- |
+| `opensc2_set_touch_raw(side, stick, grip)` | both words boosted while there is no input power, before the stick-touch and grip rules see them |
+| `opensc2_cap_now(kind, value)` | `value` as the library takes it now: boosted without input power, else as it is; a board that works out its trackpad signal from electrodes passes each electrode through it (`OPENSC2_CAP_ELECTRODE`) |
+| `opensc2_cap_unpowered(kind, value)` | the boost itself, pure: `OPENSC2_CAP_STICK_TOUCH` ×1.2, `OPENSC2_CAP_GRIP` ×1.5, `OPENSC2_CAP_ELECTRODE` ×1.25 |
+
+Turn the option off for a sensor whose readings do not drop on battery (it changes nothing on a
+board without a battery).
 
 ### Other input reports
 
@@ -1781,6 +1804,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_BATTERY_GAUGE_PRIORITY`, `_STACK_SIZE` | 9, 1536 | its thread (the board's callbacks run on it) |
 | `CONFIG_OPENSC2_CHARGE_TARGET_MV`, `CONFIG_OPENSC2_CHARGE_HYSTERESIS_MV` | 4120, 40 | the charge voltage target, and what the supply check and a charge add |
 | `CONFIG_OPENSC2_SUPPLY_CHECK_START_MV`, `_STEP_MV`, `_MIN_MV`, `_STEP_S`, `_REST_S` | 4600, 100, 4300, 5, 60 | the supply check's input-voltage limits, its step time and its rest after giving up |
+| `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` | y | stick-touch and grip words ×1.2 and ×1.5 without input power, as the real controller ([Input power and the capacitive sensors](#input-power-and-the-capacitive-sensors)) |
 | `CONFIG_OPENSC2_PAIRING_TIMEOUT_S` | 60 | |
 | `CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS` | 500 | |
 | `CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS` | 3500 | 0: never |
@@ -1859,7 +1883,8 @@ The functions for the settings and the other state Steam sets:
   wait there for another thread that sends a command. The real controller has no such lock.
 - With the fuel gauge started (`opensc2_battery_start()`), one gauge thread (`opensc2_gauge`,
   `CONFIG_OPENSC2_BATTERY_GAUGE_PRIORITY`, 9) runs a pass once a second; the board's battery
-  callbacks run in it ([The battery and the charger](#the-battery-and-the-charger)).
+  callbacks run in it ([The battery and the charger](#the-battery-and-the-charger)), except
+  `input_changed`, which runs on the system work queue (looked at every 50 ms).
 - With `CONFIG_OPENSC2_DOCK`, one dock thread (`osc2_dock_tid`, priority
   `CONFIG_OPENSC2_DOCK_THREAD_PRIORITY`, 9) checks the pilot and serves the dock's requests; it runs
   the dock's vendor commands itself.

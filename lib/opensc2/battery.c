@@ -30,9 +30,16 @@ static const struct opensc2_battery_board *board;
 static uint8_t charger_status = OPENSC2_CHARGER_UNKNOWN;
 static struct opensc2_charger_values charger_values;
 
+bool opensc2_input_power(void)
+{
+	/* a board without a battery runs on a supply */
+	return !IS_ENABLED(CONFIG_OPENSC2_BATTERY) ||
+	       opensc2_power_source() != OPENSC2_POWER_SOURCE_BATTERY;
+}
+
 static bool input_power(void)
 {
-	return opensc2_power_source() != OPENSC2_POWER_SOURCE_BATTERY;
+	return opensc2_input_power();
 }
 
 void opensc2_battery_get(struct opensc2_battery *battery)
@@ -108,6 +115,8 @@ int opensc2_charger_set_values(const struct opensc2_charger_values *values)
 #define PASS_MS        1000
 #define SETTLE_MS      250                     /* after charging started or stopped */
 
+#define INPUT_POLL_MS  50                      /* the supply looked at, for input_changed */
+
 static struct osc2_fuel fuel;                  /* under `lock` */
 static uint8_t scale_charging, scale_discharging;
 static uint32_t window_seen;
@@ -173,7 +182,10 @@ static void write_charger(const struct osc2_fuel_out *out)
 	}
 }
 
-/* The history's average: 40 fresh readings in a row after it started over, else one more. */
+/* The history's average: 40 fresh readings in a row after it started over, else one more. A
+ * failed reading ends the batch and leaves *avg as it was (the readings before it stay in the
+ * history and the next pass goes on filling it), as the real controller's sampler does: the level
+ * of that pass then comes from the last average. */
 static int average_mv(uint16_t *avg)
 {
 	int16_t offset = opensc2_cal_volt_offset();
@@ -197,8 +209,8 @@ static int average_mv(uint16_t *avg)
 		}
 	} while (count < HISTORY);
 	n = MIN(count, HISTORY);
-	if (n == 0) {
-		return err ? err : -EIO;
+	if (err) {
+		return err;
 	}
 	for (uint32_t i = 0; i < n; i++) {
 		sum += ring[i];
@@ -310,6 +322,30 @@ static void pass(void)
 	publish();
 }
 
+/* The board's input_changed: at the start, then at every change of input power, looked at every
+ * 50 ms as the real controller looks at its supply. */
+static void input_fn(struct k_work *work);
+static K_WORK_DELAYABLE_DEFINE(input_work, input_fn);
+static int8_t input_told = -1;                 /* the last state told (-1: none yet) */
+
+static void input_fn(struct k_work *work)
+{
+	bool present = input_power();
+
+	ARG_UNUSED(work);
+	if (input_told != (int8_t)present) {
+		int err;
+
+		input_told = (int8_t)present;
+		err = board->input_changed(board->user, present);
+		if (err) {
+			LOG_ERR("Battery: the charger's input %s not set (%d)",
+				present ? "with a supply" : "without a supply", err);
+		}
+	}
+	k_work_reschedule(&input_work, K_MSEC(INPUT_POLL_MS));
+}
+
 static void gauge_thread(void *p1, void *p2, void *p3)
 {
 	ARG_UNUSED(p1);
@@ -368,6 +404,9 @@ int opensc2_battery_start(const struct opensc2_battery_board *b)
 						opensc2_gauge_lipo_discharging_len, cfg.target_mv);
 	write_charger(&out);
 	publish();   /* state 0, the kept level or 255, zeros: the real controller's first report */
+	if (b->input_changed) {
+		k_work_reschedule(&input_work, K_NO_WAIT);
+	}
 	k_thread_name_set(osc2_gauge_tid, "opensc2_gauge");
 	k_thread_start(osc2_gauge_tid);
 	return 0;

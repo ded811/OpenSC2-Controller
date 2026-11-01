@@ -101,6 +101,11 @@ struct opensc2_battery_board {
 	size_t discharging_len;
 	const struct opensc2_gauge_point *charging;
 	size_t charging_len;
+	/* Optional: input power came or went (opensc2_input_power()). Called once when the gauge
+	 * starts and then at every change, looked at every 50 ms, from the system work queue: the
+	 * real controller raises its charger's input current limit for any supply and lowers it
+	 * again without one, at once. A charger that sets its own limit needs none. */
+	int (*input_changed)(void *user, bool present);
 	void *user;
 };
 
@@ -128,6 +133,34 @@ void opensc2_battery_get(struct opensc2_battery *battery);
  * through the board's battery_cutoff. -ENOTSUP without one. The library calls it before
  * sys_poweroff() itself; an application that powers off on its own calls it last. */
 int opensc2_battery_cutoff(void);
+
+/* ---- Input power and the capacitive sensors ---------------------------------------------------
+ * Input power is USB or the dock (opensc2_power_source() other than OPENSC2_POWER_SOURCE_BATTERY);
+ * a build without CONFIG_OPENSC2_BATTERY always has it. The real controller's charger, fuel gauge
+ * and trackpad chip driver all follow it.
+ *
+ * Without input power the real controller boosts its capacitive readings before it uses them
+ * (probably because a body that is not tied to the PC's ground couples less): every stick-touch word x1.2, every grip word x1.5 and every trackpad electrode signal
+ * x1.25, each multiplied in single precision and cut toward zero, from start-up until a supply
+ * is seen and again whenever it goes. The library does the same to the words a board gives with
+ * opensc2_set_touch_raw() (CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN, on by default: turn it off for a
+ * sensor whose readings do not drop on battery). A board that works out its own trackpad signal
+ * from electrodes passes each one through opensc2_cap_now(OPENSC2_CAP_ELECTRODE, ...) first. */
+bool opensc2_input_power(void);
+
+enum opensc2_cap_kind {
+	OPENSC2_CAP_STICK_TOUCH = 0,   /* x1.2 */
+	OPENSC2_CAP_GRIP = 1,          /* x1.5 */
+	OPENSC2_CAP_ELECTRODE = 2,     /* x1.25 */
+};
+
+/* `value` boosted as the real controller boosts it without input power. Pure. A stick-touch or
+ * grip result is a 16-bit word, wrapped as the real controller stores it (only values beyond
+ * about +-21800 wrap). */
+int32_t opensc2_cap_unpowered(enum opensc2_cap_kind kind, int32_t value);
+/* `value` as the library takes it now: opensc2_cap_unpowered() without input power (with
+ * CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN), else as it is. */
+int32_t opensc2_cap_now(enum opensc2_cap_kind kind, int32_t value);
 
 #ifdef __cplusplus
 }

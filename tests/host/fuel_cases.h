@@ -8,6 +8,7 @@
  * cap; and the gauge's scale and stretch (gauge.c). Expected values worked out from the protocol
  * documentation's description, not from this code.
  */
+#include <opensc2/battery.h>
 #include <opensc2/gauge.h>
 #include "fuel_rules.h"
 
@@ -201,4 +202,28 @@ OPENSC2_TEST(fuel_level_and_model)
 	CHECK_EQ(opensc2_gauge_percent(opensc2_gauge_lipo_discharging,
 				       opensc2_gauge_lipo_discharging_len, 97, 3850), 44);
 	CHECK_EQ(opensc2_gauge_stretch(900, 954), 95);  /* s = 95 (95.4 rounded): 90 x 1.05 = 94.5 */
+}
+
+/* The boost of the capacitive readings without input power: x1.2 for a stick-touch word, x1.5 for
+ * a grip word, x1.25 for an electrode signal, each in single precision and cut toward zero, the
+ * words kept in 16 bits. The host build has no CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN: "now" passes
+ * the value on as it is. */
+OPENSC2_TEST(cap_unpowered_gain)
+{
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_STICK_TOUCH, 500), 600);
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_STICK_TOUCH, 7), 8);       /* 8.4 */
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_STICK_TOUCH, -7), -8);     /* toward zero */
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_STICK_TOUCH, 0), 0);
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_GRIP, 1125), 1687);        /* 1687.5 */
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_GRIP, 900), 1350);
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_GRIP, -3), -4);            /* -4.5 */
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_ELECTRODE, 100), 125);
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_ELECTRODE, 3), 3);         /* 3.75 */
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_ELECTRODE, -3), -3);
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_ELECTRODE, 40000), 50000); /* not a word */
+	/* a word past 16 bits wraps, as the real controller stores it */
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_STICK_TOUCH, 30000), 36000 - 65536);
+	CHECK_EQ(opensc2_cap_unpowered(OPENSC2_CAP_GRIP, 22000), 33000 - 65536);
+	CHECK_EQ(opensc2_cap_unpowered((enum opensc2_cap_kind)7, 123), 123);
+	CHECK_EQ(opensc2_cap_now(OPENSC2_CAP_GRIP, 1125), 1125);
 }
