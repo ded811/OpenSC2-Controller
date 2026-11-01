@@ -875,3 +875,46 @@ OPENSC2_TEST(cal_store_pad_rules)
 	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 12500);   /* held at the new touch point */
 	osc2.settings[OPENSC2_SETTING_PAD_STABILIZER] = 1;
 }
+
+OPENSC2_TEST(cal_store_dock_offsets)
+{
+	static const int16_t none[4] = { 0, 0, 0, 0 };
+	static const int16_t up[4] = { 0, 0, 500, 500 };   /* the rest band 500 mV higher */
+	struct opensc2_state s;
+	int16_t undocked;
+	uint32_t setups;
+
+	stub_reset();
+	CHECK_EQ(cal_named(0xEE, "cal/joy_l", cal_joy_bytes, 18), 0);
+	CHECK_EQ(opensc2_cal_set_dock_offsets(OPENSC2_LEFT, up, none), 0);
+	CHECK_EQ(opensc2_cal_set_dock_offsets(2, up, none), -EINVAL);
+	opensc2_set_stick_raw(OPENSC2_LEFT, 2049, 2000);
+	cal_frame_state(&s);
+	undocked = s.stick[OPENSC2_LEFT].x;
+	CHECK_EQ(undocked, 21);
+	/* docked on a board of revision 0x48: the centre moves up, the same reading reads lower */
+	cal_host.power_source = OPENSC2_POWER_SOURCE_DOCK;
+	setups = osc2_cal_setups();
+	cal_frame_state(&s);
+	CHECK(osc2_cal_setups() != setups);
+	CHECK(s.stick[OPENSC2_LEFT].x < -5000);
+	/* off the dock: as before */
+	cal_host.power_source = OPENSC2_POWER_SOURCE_USB;
+	cal_frame_state(&s);
+	CHECK_EQ(s.stick[OPENSC2_LEFT].x, undocked);
+	/* an earlier board revision: no offsets, but docking and leaving still set the sticks and
+	 * triggers up again (the triggers' digital bits clear), as on the real controller */
+	osc2.identity.board_revision = 0x45;
+	setups = osc2_cal_setups();
+	cal_host.power_source = OPENSC2_POWER_SOURCE_DOCK;
+	cal_frame_state(&s);
+	CHECK_EQ(s.stick[OPENSC2_LEFT].x, undocked);
+	CHECK(osc2_cal_setups() != setups);
+	setups = osc2_cal_setups();
+	cal_host.power_source = OPENSC2_POWER_SOURCE_USB;
+	cal_frame_state(&s);
+	CHECK(osc2_cal_setups() != setups);
+	setups = osc2_cal_setups();
+	cal_frame_state(&s);
+	CHECK_EQ(osc2_cal_setups(), setups);   /* nothing changed: no set-up */
+}

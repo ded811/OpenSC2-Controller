@@ -401,7 +401,8 @@ int opensc2_cal_key_get(const char *name, void *out, size_t max);
  * sits on the dock (the power source is OPENSC2_POWER_SOURCE_DOCK) on a board of revision 0x48 or
  * later, as the real controller does for the pull of the dock's magnets on its sticks. Every side
  * starts at 0 (a board whose sticks the dock does not move). A change, and docking or leaving the
- * dock, sets the sticks and triggers up again (the triggers' digital bits clear). Any time, any
+ * dock (on a board of any revision), sets the sticks and triggers up again (the triggers' digital
+ * bits clear). Any time, any
  * thread. -EINVAL for a bad side or a NULL. */
 int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
 				 const int16_t y_mv[4]);

@@ -400,7 +400,7 @@ static struct {
 	uint32_t pressure_applied[2];   /* the pressure key loads the pads' set-ups come from */
 	bool set_up;
 	int16_t level68;       /* setting 68 at the triggers' set-up */
-	bool docked;           /* the dock offsets were in the set-up */
+	bool docked;           /* the set-up was made on the dock */
 	uint32_t setups;       /* set-ups of the sticks and triggers so far */
 	uint8_t trigger_decided;        /* raw triggers of the last frame: bit per side */
 	uint16_t trigger_value[2];      /* their values */
@@ -520,12 +520,12 @@ static void pad_start_over(int side)
 	p->click_setting = INT16_MIN;
 }
 
-/* The dock offsets in effect: docked (the power source is the dock) on a board of revision 0x48 or
- * later, as on the real controller. */
-static bool dock_offsets_now(void)
+/* On the dock (the power source is the dock). Coming onto it or leaving it sets the sticks and
+ * triggers up again on any board, as on the real controller; the dock offsets go into that set-up
+ * only on a board of revision 0x48 or later. */
+static bool on_dock_now(void)
 {
-	return opensc2_power_source() == OPENSC2_POWER_SOURCE_DOCK &&
-	       osc2.identity.board_revision >= 0x48;
+	return opensc2_power_source() == OPENSC2_POWER_SOURCE_DOCK;
 }
 
 /* A stored millivolt value with a dock offset added, limited to 0..65535. */
@@ -554,14 +554,14 @@ static void stick_with_offsets(int side, struct opensc2_cal_stick *c)
 
 /* Set the processing up again from the RAM keys when they changed, as the real controller does:
  * both sticks and both triggers after a load of any of their keys, a change of setting 68 and
- * when the dock offsets come or go (each set-up clears the triggers' digital bits); a pad (and its
- * start-over) only after a load of its own pressure key. */
+ * when the controller docks or leaves the dock, on any board (each set-up clears the triggers'
+ * digital bits); a pad (and its start-over) only after a load of its own pressure key. */
 static void apply_calibration(void)
 {
 	uint8_t joy[2][OPENSC2_CAL_STICK_LEN], trg[2][OPENSC2_CAL_TRIGGER_LEN];
 	uint8_t prs[2][OPENSC2_CAL_PRESSURE_LEN];
 	int16_t level68 = opensc2_setting_get(OPENSC2_SETTING_TRIGGER_THRESHOLD);
-	bool docked = dock_offsets_now();
+	bool docked = on_dock_now();
 	bool analog_again;
 	uint32_t loads, prs_loads[2];
 	k_spinlock_key_t lk = k_spin_lock(&lock);
@@ -591,7 +591,7 @@ static void apply_calibration(void)
 			opensc2_cal_trigger_unpack(trg[side], &t);
 			opensc2_trigger_setup_level(&proc.trigger[side], &t, level68);
 			opensc2_cal_stick_unpack(joy[side], &st);
-			if (docked) {
+			if (docked && osc2.identity.board_revision >= 0x48) {
 				stick_with_offsets(side, &st);
 			}
 			proc.stick[side].dead_zone = STICK_DEAD_ZONE;
