@@ -1817,7 +1817,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE` | n | identity through `0xEE` |
 | `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` | y | `0x44 {channel, 0x02}` after every stop, as the real controller ([Other input reports](#other-input-reports)) |
 | `CONFIG_OPENSC2_CRASH_RECORD` | y (n with `CONFIG_RESET_ON_FATAL_ERROR`) | the fatal-error handler: a crash record, then a reset ([Crash records](#crash-records)) |
-| `CONFIG_OPENSC2_WATCHDOG` | y (with a `watchdog0` alias) | the real controller's hardware watchdog with its warning crash ([The hardware watchdog](#the-hardware-watchdog)); turn it off only for a board without one |
+| `CONFIG_OPENSC2_WATCHDOG` | y (with a `watchdog0` alias; n in a build for a UF2 bootloader) | the real controller's hardware watchdog with its warning crash ([The hardware watchdog](#the-hardware-watchdog)); turn it off only for a board without one |
 | `CONFIG_OPENSC2_STORAGE_RECOVERY` | y with NVS settings | erase a settings partition with every sector occupied ([The settings partition](#the-settings-partition)) |
 | `CONFIG_OPENSC2_RX_QUEUE_DEPTH`, `_REPORT_QUEUE_DEPTH`, `_REPORT_WAIT_DEPTH` | 8, 6, 8 | the radio's queues; lizard and application reports wait for room in the last 8 instead of being dropped |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_AUTO` / `_WIRELESS` | auto | the mode policy until one is stored |
@@ -1923,7 +1923,7 @@ default).
 ### The hardware watchdog
 
 `CONFIG_OPENSC2_WATCHDOG` (on by default, as on the real controller, wherever the devicetree has
-the alias `watchdog0`) runs the real controller's watchdog: the hardware watchdog (the devicetree alias `watchdog0`)
+the alias `watchdog0`, except in a build for a UF2 bootloader, see below) runs the real controller's watchdog: the hardware watchdog (the devicetree alias `watchdog0`)
 resets the chip 5 s after the last feed and pauses while a debugger halts the CPU; a work queue at
 the lowest application priority (`opensc2_wdt`) feeds it every 2.5 s, and each feed re-arms a 4.5 s
 warning on the system work queue. When the feeds stop (a thread keeps the CPU busy at the
@@ -1935,10 +1935,13 @@ causes. With a debugger attached the warning only logs. `opensc2_init()` starts 
 
 > [!WARNING]
 > Not yet tried on hardware with this firmware. The nRF52's watchdog cannot be stopped once it runs
-> and keeps running through a soft reset, so it also runs in the UF2 bootloader after the shell's
-> `uf2` or Steam's bootloader request: the bootloader has to feed it, as the Adafruit UF2
-> bootloader is expected to. If a `.uf2` copy is ever cut short: a power cycle stops the watchdog;
-> unplug the board, plug it back in and right away short RST to GND twice quickly.
+> and keeps running through a soft reset, so it also runs in a bootloader after the shell's `uf2`
+> or Steam's bootloader request: the bootloader has to feed it (MCUboot does). Whether the
+> Adafruit UF2 bootloader does has not been tried, and one that does not cuts every `.uf2` copy
+> short after 5 s, so a build for a UF2 bootloader (`CONFIG_BUILD_OUTPUT_UF2`, the SuperMini
+> builds) leaves the watchdog off unless it is turned on on purpose (`app/watchdog.conf`). If a
+> `.uf2` copy is ever cut short: a power cycle stops the watchdog; unplug the board, plug it back
+> in and right away short RST to GND twice quickly.
 
 ### The settings partition
 

@@ -595,10 +595,12 @@ open, the library does what should work with Steam and the puck, and says so her
 28. **The hardware watchdog** follows the documented timings (5 s, a feed every 2.5 s from the
     lowest priority, the 4.5 s warning that raises a kernel oops, only a log with a debugger
     attached) and is on by default, as on the real controller (`CONFIG_OPENSC2_WATCHDOG`, wherever
-    the devicetree has a `watchdog0` alias). The feeder is a work queue of its own at the lowest
+    the devicetree has a `watchdog0` alias), except in a build for a UF2 bootloader such as the
+    SuperMini's, where it stays off until it is turned on on purpose (`app/watchdog.conf`). The feeder is a work queue of its own at the lowest
     application priority, where the real controller shares its background queue with the battery
     report and the idle monitor. Not yet tried on hardware with this firmware: the watchdog keeps
-    running into the UF2 bootloader, which has to feed it ([api.md](api.md#the-hardware-watchdog)).
+    running into a bootloader, which has to feed it, and whether the UF2 bootloader does has not
+    been tried ([api.md](api.md#the-hardware-watchdog)).
 29. **The rules on every state report** are the documented ones
     ([pad processing](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#pad-processing),
     [raw output](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#raw-output-settings-46-and-62)),

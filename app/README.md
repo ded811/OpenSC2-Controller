@@ -445,7 +445,7 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
 | `CONFIG_OPENSC2_HAPTICS_SYNTH=y` | the [haptics build](#haptics-build-the-synthesiser) (`haptics.conf`): the library renders the haptic reports itself |
 | `CONFIG_OPENSC2_BLE=y` | **not here**: in the [Bluetooth build](#test-build-bluetooth-le) (`ble.conf`), which needs the Bluetooth stack's lines too |
-| `CONFIG_OPENSC2_WATCHDOG=n` | without the real controller's hardware watchdog, which is on by default (not yet tried on hardware with this firmware; `watchdog.conf`'s notes say how to flash the board again if a `.uf2` copy is ever cut short) |
+| `CONFIG_OPENSC2_WATCHDOG=y` | with the real controller's hardware watchdog, which is on by default but off in a build for the UF2 bootloader such as this one (`watchdog.conf`; not yet tried on hardware with this firmware, and its notes say how to flash the board again if a `.uf2` copy is ever cut short) |
 | `CONFIG_OPENSC2_DOCK=y` | **not here**: in the [dock build](#the-dock-build-untested) (`dock.conf`), which moves four pins |
 
 Every fragment of this folder is a build of its own on top of `prj.conf`

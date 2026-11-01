@@ -35,9 +35,10 @@ controller is listed in docs/protocol.md's gaps.
   A crash at every boot writes flash once.
 - The settings partition's recovery (`CONFIG_OPENSC2_STORAGE_RECOVERY`, on with NVS settings): a
   partition with every sector occupied is erased at boot, as on the real controller.
-- The real controller's hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`, on by default as there): 5 s,
-  fed every 2.5 s from the lowest priority, and a 4.5 s warning that crashes on purpose so a hang
-  leaves a crash record. Not yet tried with the UF2 bootloader.
+- The real controller's hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`, on by default as there,
+  except in a build for a UF2 bootloader, such as the SuperMini's): 5 s, fed every 2.5 s from the
+  lowest priority, and a 4.5 s warning that crashes on purpose so a hang leaves a crash record. Not
+  yet tried with the UF2 bootloader (`app/watchdog.conf` turns it on there).
 
 **Inputs and lizard mode**
 
@@ -309,7 +310,9 @@ controller is listed in docs/protocol.md's gaps.
   in every build, as on the real controller: on USB power a board that finds no puck switches
   wireless off (amber; STEAM then reboots it wired).
 - The hardware watchdog (`CONFIG_OPENSC2_WATCHDOG`) is on by default, as on the real controller
-  (not yet tried on hardware with this firmware); `app/watchdog.conf` is no longer needed.
+  (not yet tried on hardware with this firmware), except in a build for a UF2 bootloader
+  (`CONFIG_BUILD_OUTPUT_UF2`): whether that bootloader feeds a watchdog left running has not been
+  tried, so the SuperMini builds still need `app/watchdog.conf` for it.
 - Reports `0x43` and `0xBE` send the level as given (it was capped at 100), so 255, the real
   controller's "no level yet", goes out as such. A battery build reports what the real controller's
   first report carries until the application gives a battery (the kept level or 255, charge state

@@ -37,7 +37,7 @@ config OPENSC2_CRASH_RECORD
 
 config OPENSC2_WATCHDOG
 	bool "The hardware watchdog, with a crash record first, as on the real controller"
-	default y
+	default y if !BUILD_OUTPUT_UF2
 	depends on OPENSC2_CRASH_RECORD
 	depends on $(dt_alias_enabled,watchdog0)
 	select WATCHDOG
@@ -52,12 +52,14 @@ config OPENSC2_WATCHDOG
 	  in a plain watchdog reset. With a debugger attached the warning only logs. Started by
 	  opensc2_init(). Turn it off only for a board without a watchdog of its own.
 
-	  The nRF52's watchdog cannot be stopped once it runs and keeps running through a soft
-	  reset, into a bootloader too: the bootloader must feed it (MCUboot does; the Adafruit UF2
-	  bootloader is expected to, which has not been tried with this firmware). If a .uf2 copy
-	  is ever cut short: a power cycle stops the watchdog; unplug
-	  the board, plug it back in and right away short RST to GND twice, so the bootloader opens
-	  its drive before the firmware starts the watchdog again.
+	  On by default, except in a build for a UF2 bootloader (BUILD_OUTPUT_UF2, the SuperMini
+	  builds): the nRF52's watchdog cannot be stopped once it runs and keeps running through a
+	  soft reset, into a bootloader too, so the bootloader must feed it (MCUboot does); whether
+	  the Adafruit UF2 bootloader does has not been tried with this firmware, and a bootloader
+	  that does not would cut every .uf2 copy short after 5 s. Turn it on there on purpose
+	  (app/watchdog.conf). If a .uf2 copy is ever cut short: a power cycle stops the watchdog;
+	  unplug the board, plug it back in and right away short RST to GND twice, so the
+	  bootloader opens its drive before the firmware starts the watchdog again.
 
 config OPENSC2_STORAGE_RECOVERY
 	bool "Erase the settings partition when every sector is occupied, as the real controller"
