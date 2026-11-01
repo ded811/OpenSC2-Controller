@@ -122,6 +122,9 @@ static int key_set(const struct osc2_key_info *info, const uint8_t *value, uint8
 {
 	enum named_key key = (enum named_key)info->id;
 
+	if (len == 0) {
+		return -EINVAL;   /* no value: refused before any key hears of it */
+	}
 	if (info->kind == OSC2_KEYK_BLOB) {
 		return osc2_keys_set(info->id, value, len);
 	}

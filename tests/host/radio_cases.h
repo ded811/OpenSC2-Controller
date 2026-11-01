@@ -265,6 +265,10 @@ OPENSC2_TEST(radio_bond_keys)
 	CHECK_EQ(usb_set(0xEE, key_and_bond, sizeof(key_and_bond) - 1), -EINVAL);
 	CHECK(stub.radio_events & OSC2_EV_BOND);
 	CHECK_EQ(osc2.bonds[0].puck_id, 0x01020304u);
+	/* No value at all is refused before the key is looked at: the radio hears nothing. */
+	stub.radio_events = 0;
+	CHECK_EQ(usb_set(0xEE, key_bond, sizeof(key_bond)), -EINVAL);
+	CHECK_EQ(stub.radio_events, 0);
 
 	/* 0xF0: deleted first; only then is the RAM bond emptied (and the radio told). */
 	bond.controller_id = 0x0A0B0C0D;
