@@ -661,7 +661,7 @@ acknowledgements keep up with the puck.
 | --- | --- | --- |
 | `link_changed(info)` | every state change of the wireless link, the puck's radio or Bluetooth | `struct opensc2_link_info` (`transport` says which) |
 | `sample(state)` | before each state report | the state, to update in place (it is kept) |
-| `rumble(r)` | output report `0x80` | `left_speed`, `right_speed` 0..65535 (0 stops), `intensity`, `left/right_gain_db`, `type`; `timeout` set when the library stops a rumble the host did not repeat (`CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS`, 500) or the link dropped |
+| `rumble(r)` | output report `0x80` | `left_speed`, `right_speed` 0..65535 (0 stops), `intensity`, `left/right_gain_db`, `type`; `timeout` set when the library stops a rumble the host did not repeat (`CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS`, 500) or the link dropped (a wireless link lost, the cable pulled; a host that deconfigures the USB device leaves the rumble to its 500 ms, as on the real controller) |
 | `haptic(h)` | output reports `0x81`..`0x89`; lizard mode's ticks and pad clicks | `kind`, `channels`, raw `target`, and the decoded fields below; `report_id` is the output report's ID, or 0 for an event of the library's own |
 | `output_report(report, len)` | any output report, raw | ID first |
 | `led(led)` | vendor command `0xC5`, settings 37 and 45 | `red`, `green`, `blue`, `white` percent; `override` (setting 37: show this instead of the status pattern); `brightness` (setting 45, 0..100, default 50) |

@@ -317,6 +317,8 @@ controller is listed in docs/protocol.md's gaps.
     subtree. `user/wireless_transport` takes any byte into RAM and changes nothing at once (it
     switched the puck slot at once and refused values above 3); `0xF0` of it no longer resets the
     slot.
+  - A host that deconfigures the USB device no longer cuts a running rumble: it runs out by
+    itself (500 ms), as on the real controller.
   - `0xE2` with a side above 1 answers -1 (`-EPERM`; it was `-22`), the real controller's code.
   - Through the puck, output reports `0x87` and `0x89` are told the record's length, one more than
     the report's payload, as the real controller's handlers are.

@@ -388,8 +388,9 @@ static void on_iface_ready(const struct device *dev, const bool ready)
 			 * the application's "no host" rules, until the host configures it again. */
 			usb_state = OPENSC2_USB_ATTACHED;
 		}
+		/* Nothing else, as on the real controller: a rumble the host started runs out by
+		 * itself (its 500 ms), the outputs are not cut here. */
 		osc2_usblog("deconfigured");
-		osc2_output_link_down();
 	}
 	notify();
 }
