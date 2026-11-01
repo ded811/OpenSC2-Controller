@@ -826,11 +826,37 @@ static void new_host_check(void)
 	set_state(OPENSC2_LINK_CONNECTED, OPENSC2_REASON_PAIRED);   /* the "paired" moment */
 }
 
-/* The stack on: the radio first (ESB off), then the stack, its stored bonds and identities, five
- * identities, the name. */
-static int stack_up(void)
+/* The identity's part of what hosts see. The name: set at the first start of a boot (stored only
+ * when it changed), as the real controller sets it once at boot, so a name an encrypted host writes
+ * over GAP stays until the next boot (the settings loaded at a later enable bring it back); again
+ * only when the identity's serial has changed since (OpenSC2's identity can change at run time).
+ * The device information at every start of Bluetooth. */
+static void identity_apply(void)
 {
 	struct opensc2_identity id;
+
+	opensc2_identity_get(&id);
+	if (strcmp(named_serial, id.unit_serial) != 0) {
+		char name[OSC2_BLE_NAME_MAX + 1];
+		int err;
+
+		osc2_ble_name(CONFIG_OPENSC2_BLE_NAME_PREFIX, id.unit_serial, name, sizeof(name));
+		err = bt_set_name(name);
+		if (err) {
+			LOG_WRN("Bluetooth name not set (%d)", err);
+		} else {
+			memcpy(named_serial, id.unit_serial, sizeof(named_serial));
+		}
+	}
+	name_refresh();
+	memcpy(dis_serial, id.unit_serial, OPENSC2_SERIAL_LEN);
+	osc2_ble_hex32(id.build_time, dis_revision);
+}
+
+/* The stack on: the radio first (ESB off), then the stack, its stored bonds and identities, five
+ * identities. */
+static int stack_up(void)
+{
 	size_t count = 0;
 	int err;
 
@@ -868,26 +894,6 @@ static int stack_up(void)
 	}
 	ble.identities = (uint8_t)count;
 	bonds_refresh();
-	bonds_log();
-	/* The name: set at the first start of a boot (stored only when it changed), as the real
-	 * controller sets it once at boot, so a name an encrypted host writes over GAP stays until
-	 * the next boot (the settings just loaded bring it back at a later start); again only when
-	 * the identity's serial has changed since. The device information at every start. */
-	opensc2_identity_get(&id);
-	if (strcmp(named_serial, id.unit_serial) != 0) {
-		char name[OSC2_BLE_NAME_MAX + 1];
-
-		osc2_ble_name(CONFIG_OPENSC2_BLE_NAME_PREFIX, id.unit_serial, name, sizeof(name));
-		err = bt_set_name(name);
-		if (err) {
-			LOG_WRN("Bluetooth name not set (%d)", err);
-		} else {
-			memcpy(named_serial, id.unit_serial, sizeof(named_serial));
-		}
-	}
-	name_refresh();
-	memcpy(dis_serial, id.unit_serial, OPENSC2_SERIAL_LEN);
-	osc2_ble_hex32(id.build_time, dis_revision);
 	ble.tx_power = read_tx_power();
 	return 0;
 }
@@ -1663,6 +1669,10 @@ static void do_start(uint8_t transport, bool pair)
 		set_state(OPENSC2_LINK_OFF, OPENSC2_REASON_NONE);
 		return;
 	}
+	if (!was_on) {
+		bonds_log();   /* as the real controller logs them at every start */
+	}
+	identity_apply();   /* a serial stored since the last start applies now */
 	(void)k_work_cancel_delayable(&readvertise_work);
 	if (ble.conn) {
 		if (slot == ble.slot && !pair) {
