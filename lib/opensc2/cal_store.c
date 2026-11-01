@@ -732,7 +732,7 @@ int osc2_cal_command(uint8_t opcode, const uint8_t *payload, uint8_t len, size_t
 
 		if (side > 1) {
 			LOG_WRN("0xE2: side %u is neither 0 nor 1", side);
-			return -EINVAL;
+			return -EPERM;   /* -1, the real controller's answer (a STALL on USB) */
 		}
 		save |= (mask & 1) ? BIT(K_TRG_L + side) : 0;
 		save |= (mask & 2) ? BIT(K_JOY_L + side) : 0;

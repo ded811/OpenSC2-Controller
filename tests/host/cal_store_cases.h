@@ -407,7 +407,7 @@ OPENSC2_TEST(cal_store_persist)
 	uint8_t value[18], len;
 
 	stub_reset();
-	CHECK(cal_set(0xE2, (const uint8_t[]){ 2, 7 }, 2) < 0);   /* side above 1 */
+	CHECK_EQ(cal_set(0xE2, (const uint8_t[]){ 2, 7 }, 2), -EPERM);   /* side above 1: -1 */
 	CHECK_EQ(cal_set(0xE2, (const uint8_t[]){ 0, 7 }, 2), 0);  /* nothing in RAM: nothing */
 	osc2_cal_flush();
 	CHECK_EQ(cal_host.writes, 0);

@@ -21,6 +21,7 @@ from .proto import reports as R
 from .proto import testproto as T
 
 ENOTSUP, EINVAL, ENOENT, EMSGSIZE, EBADMSG, E2BIG = -134, -22, -2, -122, -74, -7
+EPERM = -1
 EOPNOTSUPP, ENODEV = -95, -19
 KEY_FACTORY_RESET, KEY_BOOTLOADER = 0xEFC1A917, 0xECAABAC0
 KEY_KEEP_LINK, KEY_TURN_OFF = 0xA427AF52, 0xABDF9710
@@ -391,9 +392,9 @@ class SimBoard:
             if p[0] == 1:
                 self.world.chime = p[1]
             return 0
-        if opcode == 0xE2:
-            if payload and payload[0] > 1:
-                return EINVAL
+        if opcode == 0xE2:      # the side byte read whatever n says; above 1 is -1
+            if (bytes(avail[:1]) + bytes(1))[0] > 1:
+                return EPERM
             return 0
         if opcode in (0xEE, 0xEF, 0xF0):
             key, value = self._named(payload)
