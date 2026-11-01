@@ -707,10 +707,10 @@ static void push_answer(uint8_t type, const uint8_t *data, uint8_t len)
  * there. Every other report has its own length, as on USB. */
 static void output_record(const struct rx_item *it, const struct opensc2_record *rec)
 {
-	uint8_t report[64];
+	uint8_t report[sizeof(it->data) + 1u];
 	size_t at = (size_t)(rec->data - it->data) + rec->len;
 
-	if ((rec->data[0] != 0x87 && rec->data[0] != 0x89) || rec->len >= sizeof(report)) {
+	if (rec->data[0] != 0x87 && rec->data[0] != 0x89) {
 		(void)osc2_output_dispatch(OSC2_LINK_RADIO, rec->data, rec->len);
 		return;
 	}
