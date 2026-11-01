@@ -95,6 +95,27 @@ OPENSC2_TEST(fuel_supply_check_gives_up)
 	CHECK_EQ(osc2_fuel_charge_state(&f), 1);
 }
 
+/* A configuration whose step is larger than the first limit: the limit stops at 0 (which is at or
+ * under any minimum) instead of wrapping, so the check still gives up. */
+OPENSC2_TEST(fuel_supply_check_small_start)
+{
+	static const struct osc2_fuel_cfg cfg = {
+		.target_mv = 4120, .hysteresis_mv = 40, .vin_start_mv = 50, .vin_step_mv = 100,
+		.vin_min_mv = 0, .step_ms = 5000, .rest_ms = 60000,
+	};
+	struct osc2_fuel f;
+	struct osc2_fuel_out out;
+
+	osc2_fuel_init(&f, &cfg, &out);
+	f.voltage_mv = 3900;
+	fuel_pass(&f, 0, true, 0, &out);
+	fuel_pass(&f, 1000, true, 0, &out);
+	CHECK_EQ(f.state, OSC2_FUEL_SUPPLY);
+	fuel_pass(&f, 6000, true, 0, &out);
+	CHECK_EQ(out.vin_limit_mv, 50);
+	CHECK_EQ(osc2_fuel_charge_state(&f), 0x81);
+}
+
 OPENSC2_TEST(fuel_charge_and_done)
 {
 	struct osc2_fuel f;

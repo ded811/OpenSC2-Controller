@@ -104,7 +104,8 @@ void osc2_fuel_run(struct osc2_fuel *f, int64_t now_ms, bool input, uint8_t star
 			if (f->charger == 0) {
 				/* writes the limit in effect, then lowers it for the next step */
 				out->vin_limit_mv = f->vin_limit_mv;
-				f->vin_limit_mv = (uint16_t)(f->vin_limit_mv - f->cfg.vin_step_mv);
+				f->vin_limit_mv = f->vin_limit_mv > f->cfg.vin_step_mv ?
+					(uint16_t)(f->vin_limit_mv - f->cfg.vin_step_mv) : 0;
 			}
 			f->timer_ms = now_ms + f->cfg.step_ms;
 		}

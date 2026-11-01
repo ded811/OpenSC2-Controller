@@ -58,6 +58,7 @@ config OPENSC2_CHARGE_HYSTERESIS_MV
 config OPENSC2_SUPPLY_CHECK_START_MV
 	int "Supply check: the first input-voltage limit, mV"
 	default 4600
+	range 0 65535
 
 config OPENSC2_SUPPLY_CHECK_STEP_MV
 	int "Supply check: the limit is lowered by this, mV"
@@ -67,6 +68,7 @@ config OPENSC2_SUPPLY_CHECK_STEP_MV
 config OPENSC2_SUPPLY_CHECK_MIN_MV
 	int "Supply check: gives up when the limit reaches this, mV"
 	default 4300
+	range 0 65535
 
 config OPENSC2_SUPPLY_CHECK_STEP_S
 	int "Supply check: seconds per step"
