@@ -169,9 +169,12 @@ OPENSC2_TEST(proto_reset_flags)
 	CHECK_EQ(osc2_reset_flags(1u << 0), OSC2_RESET_PIN);
 	CHECK_EQ(osc2_reset_flags(1u << 4), OSC2_RESET_WATCHDOG);
 	CHECK_EQ(osc2_reset_flags(1u << 1), OSC2_RESET_SOFTWARE);
-	for (int bit = 5; bit <= 16; bit++) {
+	for (int bit = 5; bit <= 14; bit++) {
 		CHECK_EQ(osc2_reset_flags(1u << bit), OSC2_RESET_OTHER);
 	}
+	/* The bootloader (15) and a flash error (16) are not counted, as on the real controller. */
+	CHECK_EQ(osc2_reset_flags(1u << 15), 0);
+	CHECK_EQ(osc2_reset_flags(1u << 16), 0);
 	/* They add up: a pin reset, then two reboots, then a watchdog, before a power-on. */
 	CHECK_EQ(osc2_reset_flags((1u << 0) | (1u << 1) | (1u << 4)), 0x70);
 	CHECK_EQ(osc2_reset_flags(0x1FFFF), 0x7B);
