@@ -138,6 +138,12 @@ The sample is built to do the following; none of it has run on hardware yet.
 - **An LRA** (a linear resonant actuator) needs a driver chip. The DRV2605L can take a PWM input,
   but it must be switched to that mode over I2C first; Zephyr also has a driver for it
   (`ti,drv2605`, Zephyr's haptics API). This sample does neither.
+- **The library's haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`) is on by default, as the
+  real controller always has its sequencers: it answers the PCM streams' flow control (`0x44`)
+  even though this sample gives it no output, and the callbacks are called as before. To drive
+  the motor from what it renders instead (the louder path's level every block), give it
+  `opensc2_haptics_set_level_output()` ([docs/api.md](../../docs/api.md#the-haptics-synthesiser));
+  to save its RAM on a board that never needs the flow control, set it to `n`.
 - **Your own project**: start from [template/](../../template)
   ([docs/integration.md](../../docs/integration.md)).
 
