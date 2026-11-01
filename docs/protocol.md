@@ -505,7 +505,9 @@ open, the library does what should work with Steam and the puck, and says so her
     older than the controller firmware Steam ships makes Steam offer one
     ([troubleshooting](troubleshooting.md#steam-asks-to-update-the-controller)). The product string
     is the identity's product name, the real "Steam Controller" unless a name is stored on the
-    board; a stored one makes the wired device differ from the real controller.
+    board; a stored one makes the wired device differ from the real controller. The real
+    controller reads its values from its own chip at every start; a board supplies its own in
+    `opensc2_init()`, or later with `opensc2_identity_set()` (RAM only), or stores them.
 21. **The cable pulled while wired.** The real controller shuts down. The library waits 0.2 s for
     USB power to come back (a shorter dip changes nothing); then the system state machine runs the
     shutdown (the power-off cue, 0.5 s, off: a power-off in a battery build, a reboot otherwise,

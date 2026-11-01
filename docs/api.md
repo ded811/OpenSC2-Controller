@@ -71,7 +71,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_send_report(report, len)`, `opensc2_send_haptic_status(channel, flags)` | any other input report | [Other input reports](#other-input-reports) |
 | `opensc2_bond_get(slot, &bond)`, `opensc2_bond_set(slot, &bond)` | read or store a pairing | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_select_slot(slot)`, `opensc2_selected_slot()` | the pairing slot in use (0 or 1) | [Bonds and pairing](#bonds-and-pairing) |
-| `opensc2_identity_get(&id)`, `opensc2_identity_store(&id)`, `opensc2_identity_clear()` | who the controller says it is | [Identity](#identity) |
+| `opensc2_identity_get(&id)`, `opensc2_identity_set(&id)`, `opensc2_identity_store(&id)`, `opensc2_identity_clear()` | who the controller says it is | [Identity](#identity) |
 | `opensc2_setting_get(n)`, `opensc2_lizard_mode()`, `opensc2_led_get(&led)`, `opensc2_chime_level()` | the controller settings and the other state Steam sets | [Controller settings](#controller-settings) |
 | `opensc2_setting_set(n, v)`, `opensc2_led_set_color(r, g, b, w)`, `opensc2_chime_level_set(l)` | the same changes from the board, as Steam's `0x87`, `0xC5`, `0xDC` make them | [Controller settings](#controller-settings) |
 | `opensc2_setting_default(n)`, `opensc2_setting_clamp(n, v)` | a setting's default and range (pure) | [Controller settings](#controller-settings) |
@@ -621,7 +621,7 @@ sends them):
 | `0xD8` | `[1]` the step (`[0]` is not read) | stick calibration from the raw sticks: 1 records the rest band, 2 full circles, 3 saves `cal/joy_l` and `cal/joy_r` at the next frame, 0 ends without saving |
 | `0xC0` | `[0]` the step | triggers: 1 released, 2 pulled, 3 saves both (each keeps the direction whose A and B lie further apart), 0 ends |
 | `0xC3` | `[0]` the step | pad pressure: 1 start, 2 the firmest press, 3 saves both at once, 0 pauses |
-| `0xE2` | side, mask | saves one side's RAM values (mask bit 0 the trigger, 1 the stick, 2 the pressure); a side above 1 is refused |
+| `0xE2` | side, mask | saves one side's RAM values (mask bit 0 the trigger, 1 the stick, 2 the pressure); a side above 1 is refused with -1 (`-EPERM`), the real controller's code |
 | `0xFE` | the 32-bit key `0xC6674885` | deletes every `cal/` key from flash; the RAM copies stay in use until the next boot; any other key is refused |
 | `0xED`, `0xEE`, `0xEF`, `0xF0` | a `cal/` key | read, set in RAM (exactly the key's size), save, delete, as in [Vendor commands](#vendor-commands) |
 
@@ -1306,7 +1306,13 @@ Three ways to set it, later ones winning field by field:
    strings in `lib/opensc2/CMakeLists.txt`, characters and length): a value that breaks one stops
    the build, since `opensc2_init()` would refuse it at boot.
 2. **At run time**: `config.identity` in `opensc2_init()`. Empty strings and zero numbers keep the
-   Kconfig value. An invalid identity makes `opensc2_init()` return `-EINVAL`.
+   Kconfig value. An invalid identity makes `opensc2_init()` return `-EINVAL`. A board that learns
+   a value only later (a hardware revision read from straps or an EEPROM, its own bootloader's build
+   time) hands it over with `opensc2_identity_set(&id)` at any time after `opensc2_init()`: read
+   the same way, kept in RAM only (nothing is stored, so the board supplies it again at every
+   boot, as the real controller reads its own from its chip), answered at once by `0x83`, `0xAE`
+   and `0xF2` on every link and by the radio's identity record at its next connection; the USB
+   strings, set when the device attaches, take it at the next boot. A stored field (3) still wins.
 3. **On a built board, without rebuilding**: `opensc2_identity_store(&id)` (fields left empty or
    zero keep what they are), the shell (`opensc2 id set <field> <value>`, `opensc2 id clear`), or, if
    `CONFIG_OPENSC2_IDENTITY_VENDOR_WRITE` is on, vendor command `0xEE` with the setting names
@@ -1330,6 +1336,7 @@ Three ways to set it, later ones winning field by field:
 | Function | Does |
 | --- | --- |
 | `opensc2_identity_get(&id)` | the identity in use: Kconfig, then `config.identity`, then what is stored, field by field |
+| `opensc2_identity_set(&id)` | change the configured identity in RAM, nothing stored (fields left empty or zero keep their value; stored fields still win); validated first (`-EINVAL`, nothing changes), `-EACCES` before `opensc2_init()`; the command channel and new connections use it at once, the USB strings from the next boot |
 | `opensc2_identity_store(&id)` | store fields on the board (empty or zero fields are not stored and keep their value); validated first (`-EINVAL`); new connections use it at once, the USB strings from the next boot |
 | `opensc2_identity_clear()` | forget the stored identity, the product name too (the settings keys `opensc2/id` and `opensc2/name`): back to the `opensc2_init()` and Kconfig values. Returns 0 or the settings subsystem's negative errno |
 | `opensc2_identity_check(&id)` | pure: 0 for a valid identity, or a mask of `OPENSC2_ID_BAD_*` problems |
@@ -1570,7 +1577,7 @@ The library answers these itself:
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x87` takes length ÷ 3 triplets, ignoring bytes after the last whole one; `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate); from the dock acknowledged and ignored |
 | `0xED` / `0xEE` / `0xEF` / `0xF0` | get / set / save / delete by name | [below](#settings-by-name) |
-| `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 |
+| `0xE2` | set | persist calibration: side 0 or 1 (read whatever the length says), mask bit 0 the trigger, 1 the stick, 2 the pressure key of that side saved from RAM (with `CONFIG_OPENSC2_CAL`), then `vendor_command`, which may do something with it; refused above 1 (-1, as on the real controller) |
 | `0xD8`, `0xC0`, `0xC3`, `0xFE` | set | with `CONFIG_OPENSC2_CAL`: the stick, trigger and pressure recordings and the calibration erase ([Calibration and raw inputs](#calibration-and-raw-inputs)) |
 | `0xA2` | set | the bond of the first slot (API slot 0, shell slot 1), exactly 24 bytes, stored for the next boot (an ID of zero deletes the stored one); the bond in use, and `0xED esb/bond`, stay as they are until then, as on the real controller. Steam pairs with `0xEE` and `0xEF` instead |
 | `0x86` | set | factory reset, only with its key `0xEFC1A917` (another is acknowledged and ignored): 10 ms later the bonds, the transport choice, the chime level, the kept keys of the `user`, `mte` and `debug` groups and the Bluetooth keys are deleted from flash (calibration, the identity and the mode policy stay), then `power_request(OPENSC2_POWER_FACTORY_RESET)` 100 ms later. The values in RAM stay as they are until that reboot |

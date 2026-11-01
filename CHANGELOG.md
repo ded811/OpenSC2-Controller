@@ -216,6 +216,12 @@ controller is listed in docs/protocol.md's gaps.
   runner clears one after an unplanned reset; a failure line never prints serial or chip ID bytes
   or a bare Bluetooth address; a reboot the board makes by itself gets a window to leave that
   covers it.
+- What a custom board supplies or changes itself on the command channel, with the side effects the
+  host's commands have: `opensc2_setting_set()` (one setting, as one triplet of `0x87`),
+  `opensc2_led_set_color()` (as `0xC5`), `opensc2_chime_level_set()` (as `0xDC` type 1), and
+  `opensc2_identity_set()`, the configured identity changed in RAM at any time after
+  `opensc2_init()` (a hardware revision read later, its own bootloader's build time), answered at
+  once by `0x83`, `0xAE` and `0xF2`.
 
 ### Changed
 
@@ -311,6 +317,7 @@ controller is listed in docs/protocol.md's gaps.
     subtree. `user/wireless_transport` takes any byte into RAM and changes nothing at once (it
     switched the puck slot at once and refused values above 3); `0xF0` of it no longer resets the
     slot.
+  - `0xE2` with a side above 1 answers -1 (`-EPERM`; it was `-22`), the real controller's code.
   - Through the puck, output reports `0x87` and `0x89` are told the record's length, one more than
     the report's payload, as the real controller's handlers are.
 - Host tests: 188 (25,251 checks), and 235 (28,483 checks) with the hardware test hooks built in;
