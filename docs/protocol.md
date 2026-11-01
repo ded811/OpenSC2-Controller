@@ -739,7 +739,7 @@ open, the library does what should work with Steam and the puck, and says so her
       1), which the real controller never shows, flashes like Bluetooth's pairing mode. None of the
       patterns has been compared with a real controller's LED.
 
-35. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, in the app; built, not yet
+35. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; built, not yet
     tested on hardware). Re-implemented from the protocol documentation's description of the real
     controller's sequencers, generators, scripts, cues, streams and rumble emulation, rule for
     rule, the accidents of its arithmetic included, in integers, so blocks are bit for bit the same

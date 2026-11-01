@@ -122,8 +122,9 @@ controller is listed in docs/protocol.md's gaps.
 
 **The haptics synthesiser**
 
-- `CONFIG_OPENSC2_HAPTICS_SYNTH` (off by default; `app/haptics.conf` builds the blank canvas with
-  it): the library renders the haptic output reports into sample blocks as the real controller's
+- `CONFIG_OPENSC2_HAPTICS_SYNTH` (on by default, as on the real controller, whose sequencers are
+  always there: a host gets the same `0x44` flow control from a board without actuators; turn it
+  off only on a board that needs its RAM): the library renders the haptic output reports into sample blocks as the real controller's
   two sequencers do (the pads at 4 kHz, the grips at 8 kHz, one thread each): `0x81`'s pulse trains
   and special cases, clicks, tones with an LFO, exponential sweeps, the October rumble emulation
   with settings 27, 75 and 76, scripts (one per channel), PCM streams with their rings, s16le, s8

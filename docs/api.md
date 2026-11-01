@@ -86,7 +86,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_stick_setup()`, `opensc2_trigger_value()`, `opensc2_pressure_sample()`, ... | the calibration's arithmetic as pure functions (`<opensc2/cal.h>`) | [Calibration helpers](#calibration-helpers) |
 | `opensc2_cap_sample()`, `opensc2_pad_rotate()`, `opensc2_stabiliser_step()`, `opensc2_imu_mount()`, ... | sensor processing as pure functions (`<opensc2/sensor_helpers.h>`) | [Sensor helpers](#sensor-helpers) |
 | `opensc2_gauge_step()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
-| `opensc2_haptics_set_output(path, &out)`, `opensc2_haptics_play_cue(cue, level)`, ... | with `CONFIG_OPENSC2_HAPTICS_SYNTH`: the haptics synthesiser's outputs and its own sounds (`<opensc2/haptics.h>`) | [The haptics synthesiser](#the-haptics-synthesiser) |
+| `opensc2_haptics_set_output(path, &out)`, `opensc2_haptics_play_cue(cue, level)`, ... | with `CONFIG_OPENSC2_HAPTICS_SYNTH` (on by default): the haptics synthesiser's outputs and its own sounds (`<opensc2/haptics.h>`) | [The haptics synthesiser](#the-haptics-synthesiser) |
 | `opensc2_dock_crc16()`, `opensc2_dock_frame_check()`, `opensc2_dock_frame_seal()`, `opensc2_dock_build_request()` | the dock's 73-byte frames (`<opensc2/dock.h>`, pure) | [The dock](#the-frame-functions) |
 
 The callbacks your application can register are in [Outputs](#outputs).
@@ -1031,8 +1031,8 @@ dark, the searching and fully-charged displays from the colour shown last.
 
 ## The haptics synthesiser
 
-`CONFIG_OPENSC2_HAPTICS_SYNTH` (off by default in the library, on in the blank canvas `app/`)
-makes the library play the haptic output reports itself, as the real controller's two sequencers
+`CONFIG_OPENSC2_HAPTICS_SYNTH` (on by default, as the real controller always has it; turn it off
+only on a board that drives no actuator from the reports and needs its RAM) makes the library play the haptic output reports itself, as the real controller's two sequencers
 do, rule for rule and with the accidents of its arithmetic: it renders them into sample blocks for
 the controller's four haptic channels and hands the blocks to outputs the application provides, or
 to built-in ones. It also plays the built-in sounds (the scripts of report `0x85`, the cues, the
@@ -1772,7 +1772,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_CAL_STICK_DEAD_ZONE` | 0 | a centre dead zone of raw sticks, report units (the real controller has none) |
 | `CONFIG_OPENSC2_CAL_STICK_GROW_RANGE` | n | July 2026's run-time stick range |
 | `CONFIG_OPENSC2_PAD_RULES` | y | the pad rotation (settings 2, 24) and stabiliser (setting 80 = 2) |
-| `CONFIG_OPENSC2_HAPTICS_SYNTH` | n | the [haptics synthesiser](#the-haptics-synthesiser) |
+| `CONFIG_OPENSC2_HAPTICS_SYNTH` | y | the [haptics synthesiser](#the-haptics-synthesiser) |
 | `CONFIG_OPENSC2_HAPTICS_THREAD_PRIORITY`, `_THREAD_STACK_SIZE`, `_QUEUE_DEPTH` | 6, 1536, 20 | its two threads and their command queues |
 | `CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS` | y with the synthesiser | the drop sounds after `opensc2_haptics_free_fall()` |
 | `CONFIG_OPENSC2_HAPTICS_OUT_I2S`, `_OUT_PWM_DAC`, `_OUT_DRV2605` | n | its built-in outputs, each with its devicetree node (untested on hardware) |

@@ -9,6 +9,7 @@ DT_CHOSEN_OPENSC2_HAPTICS_DRV2605 := opensc2,haptics-drv2605
 
 menuconfig OPENSC2_HAPTICS_SYNTH
 	bool "Haptics synthesiser: the output reports rendered for actuators"
+	default y
 	help
 	  Render what Steam plays on the controller's four haptic actuators (rumble 0x80, pulse
 	  trains, clicks, tones, sweeps, scripts and PCM streams 0x81..0x89) into sample blocks, as
@@ -24,8 +25,13 @@ menuconfig OPENSC2_HAPTICS_SYNTH
 	  pad clicks and the system state machine's cues. Settings 76 (master gain) and 75
 	  (amplifier mode) reach the four channels as configure commands at the end of start-up
 	  and whenever they change, as on the real controller; setting 27 feeds the rumble
-	  emulation. The application's rumble and haptic callbacks are still called. About 10 KB of RAM (two thread stacks, four 512-byte stream rings,
-	  the generators and queues) and 15 KB of flash. Built; not yet tested on hardware.
+	  emulation. The application's rumble and haptic callbacks are still called. On by
+	  default, as the real controller always has it: a host sees its 0x44 flow control and
+	  timing even on a board with no actuator (the blocks then go nowhere, paced by a timer).
+	  Turn it off only for a board that drives no actuator from the reports and needs the RAM:
+	  then the reports reach only the callbacks and the stops' 0x02 replies come from
+	  OPENSC2_HAPTIC_STOP_STATUS. About 10 KB of RAM (two thread stacks, four 512-byte stream
+	  rings, the generators and queues) and 15 KB of flash. Built; not yet tested on hardware.
 
 if OPENSC2_HAPTICS_SYNTH
 
