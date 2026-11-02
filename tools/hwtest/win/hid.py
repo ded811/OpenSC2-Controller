@@ -322,6 +322,11 @@ class BoardHid:
 
     def feature_get(self, request=None):
         req = request if request is not None else bytes([C.FEATURE_ID]) + bytes(C.FEATURE_LEN - 1)
+        if self._ble_expect is not None and len(req) == C.FEATURE_LEN:
+            # over Bluetooth the characteristic holds 64 bytes, one more than the report map
+            # declares (as on the real controller), and Windows refuses a buffer that cannot
+            # take them all (error 122): read 65, hand on the 64 the callers know
+            return self._ioctl(C.IOCTL_HID_GET_FEATURE, bytes(req) + b"\0")[:C.FEATURE_LEN]
         return self._ioctl(C.IOCTL_HID_GET_FEATURE, req)
 
     def feature_raw(self, report_id, buf=None):
