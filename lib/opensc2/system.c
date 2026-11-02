@@ -31,6 +31,7 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/atomic.h>
 #include "internal.h"
+#include <opensc2/docking.h>
 #include "dock_link.h"
 #include "key_store.h"
 #include "mode_rules.h"
@@ -229,9 +230,15 @@ static uint8_t detect_source(void)
 	default:
 		break;
 	}
-	/* The dock's supply rule (dock.c): its + sensed, with the pilot when the supply appeared. */
-	if (osc2_dock_supply() == OSC2_DOCK_SUPPLY_DOCK) {
+	/* The dock's supply rule (dock.c): a supply that appeared with the pilot is the dock's, any
+	 * other is USB power (the dock's + without the pilot included, as on the real controller). */
+	switch (osc2_dock_supply()) {
+	case OSC2_DOCK_SUPPLY_DOCK:
 		return OSC2_SRC_DOCK;
+	case OSC2_DOCK_SUPPLY_USB:
+		return OSC2_SRC_USB;
+	default:
+		break;
 	}
 	if (osc2_usb_power()) {
 		return OSC2_SRC_USB;
@@ -578,6 +585,8 @@ static void pass(uint8_t ev)
 static void apply(const struct osc2_sys_out *o)
 {
 	if (o->actions & OSC2_SYS_DO_STATE) {
+		/* the docked stick offsets follow the machine's docked states */
+		osc2_dock_offsets_docked(machine.docked_sticks);
 		LOG_INF("System: %s -> %s (%s)", osc2_sys_state_name(o->from),
 			osc2_sys_state_name(o->to), osc2_sys_event_name(o->cause));
 		osc2_usblog("system: %s -> %s (%s)", osc2_sys_state_name(o->from),
@@ -1196,6 +1205,16 @@ enum opensc2_power_source opensc2_power_source(void)
 	if (app_source != OPENSC2_POWER_SOURCE_AUTO) {
 		return (enum opensc2_power_source)app_source;
 	}
+	/* The dock's supply rule first, as with the machine: a supply that appeared with the pilot
+	 * is the dock's, any other USB power. */
+	switch (osc2_dock_supply()) {
+	case OSC2_DOCK_SUPPLY_DOCK:
+		return OPENSC2_POWER_SOURCE_DOCK;
+	case OSC2_DOCK_SUPPLY_USB:
+		return OPENSC2_POWER_SOURCE_USB;
+	default:
+		break;
+	}
 	return osc2_usb_power() ? OPENSC2_POWER_SOURCE_USB : OPENSC2_POWER_SOURCE_BATTERY;
 }
 
@@ -1206,7 +1225,7 @@ bool opensc2_keylock(void)
 
 bool opensc2_docked_sticks(void)
 {
-	return false;
+	return opensc2_dock_stick_offsets_active();   /* opensc2_dock_set_resting() decides */
 }
 
 void opensc2_led_status(struct opensc2_led_status *st)

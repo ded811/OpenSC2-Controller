@@ -15,6 +15,7 @@
 #include <errno.h>
 #include <string.h>
 #include "internal.h"
+#include "dock_link.h"
 #include "chord_rules.h"
 #include "key_store.h"
 #include "idle_rules.h"
@@ -156,6 +157,7 @@ static void end(const struct osc2_sys_out *o)
 static void apply(const struct osc2_sys_out *o)
 {
 	if (o->actions & OSC2_SYS_DO_STATE) {
+		osc2_dock_offsets_follow(o->from, o->to);   /* as system.c */
 		osc2_test_sys_note_state(o->from, o->to, o->cause, machine.chosen, source);
 	}
 	if (o->actions & OSC2_SYS_DO_IR_OFF) {

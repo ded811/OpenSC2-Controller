@@ -998,6 +998,37 @@ uint8_t osc2_command_get_rc(enum osc2_link link, uint8_t out[63], int *rc)
 	return (uint8_t)(2 + out[1]);
 }
 
+int osc2_command_get_in_place(enum osc2_link link, uint8_t out[63])
+{
+	uint8_t req[CMD_LEN];
+	uint8_t before[CMD_LEN];
+	bool locked = stored[link][0] != OSC2_TEST_OPCODE;   /* the test channel's held answer */
+	uint8_t n = 0;
+	uint8_t ctx;
+	int rc;
+
+	if (locked) {
+		(void)k_mutex_lock(&command_lock, K_FOREVER);
+	}
+	ctx = osc2_test_ctx_enter(link);
+	memcpy(req, stored[link], sizeof(req));
+	memcpy(before, out, sizeof(before));
+	/* The stored request over the previous answer, then the command's answer over that. */
+	memcpy(out, req, (size_t)req[1] + 2);
+	rc = run_get(link, req[0], req[1], &out[2], &n);
+	note_get(link, req, rc, rc ? 0 : n);
+	osc2_test_ctx_leave(ctx);
+	if (locked) {
+		(void)k_mutex_unlock(&command_lock);
+	}
+	if (rc == -EOPNOTSUPP || rc == -ENOTSUP) {
+		memcpy(out, before, sizeof(before));   /* nothing to read: nothing was copied */
+	} else if (rc == 0) {
+		out[1] = n;
+	}
+	return rc;
+}
+
 uint8_t osc2_command_get(enum osc2_link link, uint8_t out[63])
 {
 	int rc;

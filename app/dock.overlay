@@ -13,6 +13,10 @@
  *                 alone otherwise, so it never holds the pilot at 3.3 V   (was RT, digital)
  *   P1.02         the dock UART's RX, no pull                          (was R3)
  *
+ * The dock's + pad is not wired: as on the real controller VBUS stands for it, so USB power that
+ * appears while the pilot reads inside its window counts as the dock's power. Tie P0.31 to ground
+ * through a resistor when nothing is attached, or a floating pin can make a USB boot a docked one.
+ *
  * How these meet the puck's P pad (the pilot and the UART share it on the puck's side, inferred)
  * is not known: the pad's idle voltage and load have not been measured. A front end with series
  * resistors and clamps comes first, tried against a USB-UART adapter acting as the puck

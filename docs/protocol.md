@@ -347,14 +347,19 @@ controller is there, and (inferred) the line of a half-duplex serial link too.
   inside 2000 to 3300 mV at its pin), then serves one request at a time with no time limit for the
   first byte; a 64 ms silence inside a frame, a bad length or CRC, or a receive error ends the
   session and it checks the pilot again. It arms its receiver only after its answer has left.
+- **Answers**: each is built over the previous one; a request writes only what it defines (a
+  probe its record, not its type or result; a SET its type and result, not the payload; an unknown
+  type nothing at all).
 - **Input over the dock**: with another link up, the dock gets a copy of that link's latest state
-  report; with the dock alone, each GET input takes one sample. Nothing else goes to the dock (no
-  lizard mode, no `0x43` or `0x44`), and nothing comes back but vendor commands: no output reports.
-- **Dock power**: the controller tells the dock from USB power by the pilot at the moment the supply
-  appears; its state machine then has docked states: with the radio off (charging; a transport
-  chord or STEAM starts the link), with the link up (turn-off goes back to radio-off with the
-  power-off chime), and lifted off (5 s, then off). A warm reboot on the dock starts the stored
-  link again.
+  report; with the dock alone, each GET input takes one sample, which the next GET input answers.
+  Nothing else goes to the dock (no lizard mode, no `0x43` or `0x44`), and nothing comes back but
+  vendor commands: no output reports.
+- **Dock power**: the controller tells the dock from USB power by a fresh pilot check at the moment
+  its supply input (the dock's `+` and the USB-C port share it) changes; its state machine then has
+  docked states: with the radio off (charging; a transport chord or STEAM starts the link), with
+  the link up (turn-off goes back to radio-off with the power-off chime), and lifted off (5 s, then
+  off). A warm reboot on the dock starts the stored link again. While it rests on the dock, its
+  sticks' calibration is moved by fixed offsets (the dock's magnets).
 
 What OpenSC2 does with it, and what it leaves out: [api.md, The dock](api.md#the-dock) and gaps 36
 to 41 below.
@@ -739,9 +744,10 @@ open, the library does what should work with Steam and the puck, and says so her
     - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
       does, so an empty request reads the report's zero padding;
     - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
-    - the stick offsets while docked are Valve's numbers for Valve's magnets: the library adds the
-      board's own (`opensc2_cal_set_dock_offsets()`, 0 by default) on the same rule (docked, a
-      board revision of `0x48` or later; `opensc2_docked_sticks()` says when), and sets the sticks and triggers up again when the
+    - the stick offsets while docked follow the docked states as on the real controller, with the
+      board's own values (`opensc2_dock_set_stick_offsets()` or `opensc2_cal_set_dock_offsets()`,
+      [api.md](api.md#the-docked-stick-offsets); none by default, Valve's being its hardware's), on
+      a board revision of `0x48` or later; the sticks and triggers are set up again when the
       controller docks or leaves the dock (on a board of any revision), as the real controller
       does;
     - not reproduced, being Valve's hardware: the scaling of the capacitive words without
@@ -832,8 +838,7 @@ open, the library does what should work with Steam and the puck, and says so her
       transport`) becomes the machine's choice, as a chord's would: the LED shows its colour, the
       battery wait's timer starts it, and `opensc2 power` reports it.
     - **The power source**: the dock is a power source an application names, or the one the dock's
-      supply rule gives in a UART build with a sense input for `+` (gap 40); the SuperMini builds
-      have none, so they never count as docked.
+      supply rule gives whenever the board has a pilot to read (gap 40).
     - **The bootloader**: requests that take the real controller into its own bootloader
       reach the application (`OPENSC2_POWER_BOOTLOADER`), whose bootloader cannot take Steam's
       update; after the update window the library reboots if the application did not.
@@ -887,19 +892,19 @@ open, the library does what should work with Steam and the puck, and says so her
     | Still different | an output report shorter than its fields is refused (the real handlers read past its end into whatever the link's receive buffer holds, which cannot be reproduced); the pad frame's word order inside OpenSC2's output API is left first (the real device's first word is the right pad: only which pin carries which pad, the board's choice); integer arithmetic where the real one has floats: values within a count of the real ones at first; the real phases are floats that gather rounding as they run, so after seconds a tone is some tens of counts away (78 after 5 s of 1 kHz on a grip), a sweep within a few tens of counts (its phase summed sample by sample, each step taken half a sample on so the sum stays with the real closed form; over sweeps of several seconds it drifts by up to a few hundredths of a cycle), a tone far above the rate saturating at 65536 where the real values grow without end, the constant of a wrapped falling sweep exact where the real one is rounded away (for very long or very flat ones the real float phase has no correct digits left); the free-fall detector above |
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
 
-36. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
-    not write as it was: a probe's type and result, a SET's payload, the bytes after a GET's answer
-    (the rest of the SET that selected the command, then its previous answer), and the whole frame
-    for a request type it does not know. OpenSC2 writes zeros there (a USB or Bluetooth GET shows the
-    request's bytes after the answer after 0.2.0, as the real controller does), answers a probe with type 0
-    and result 0, and an unknown type with its type and `-22`.
-    The puck checks only an answer's length and CRC and reads the result only of a GET feature, so
-    it cannot tell; but it forwards a positive GET's 63 bytes to the PC, so a host reading a
-    command's answer through the puck's dock interface sees zeros after the answer where the real
-    controller's bytes come from the selecting SET and its previous answer.
-37. **GET input with the dock alone** answers with the report built for that request. The real
-    controller (inferred from its thread priorities) answers with the one its previous request
-    built, one poll old (about 90 ms).
+36. **The dock's answers** are built as the real controller builds them, over the previous answer
+    (closed). What stays different: after a boot the bytes no request has written yet are zeros
+    (the real controller's are leftover stack contents), and the bytes a GET's command handler
+    leaves after its answer are OpenSC2's handler's (some of them clear the rest of their answer,
+    where the real one may not).
+37. **GET input with the dock alone** answers the report the request before it built, as on the
+    real controller (closed). OpenSC2 builds the new report while the answer goes out, in the
+    thread that serves the dock (the application's `sample` runs there); the real controller wakes
+    its input thread for it. The zeroed state report sent while a link is dropped never reaches the
+    dock's copy, on either firmware. Not copied: when the real controller drops its links (a
+    shutdown, or USB power with the radio turned off) while a dock session is still open, its copy
+    stops filling and attribute 11 reads 0 until that session ends; a controller in those states is
+    off the dock or on USB, so a puck never sees it.
 38. **Result codes on the dock** are the real controller's numbers whatever this platform's errno
     values are: `-22` for an opcode nobody knows or a length above 61, `-95` for a GET whose
     command has nothing to read. Through the puck the library's codes are the real controller's
@@ -911,14 +916,20 @@ open, the library does what should work with Steam and the puck, and says so her
     link can delay another link's command by its length. A host sees no other difference. This
     stays: the commands share the settings, bonds and identity, and the library's own state has
     no per-field locks the real firmware's can do without.
-40. **Dock power and the docked states.** On the real controller the dock's `+` reaches the chip's
-    USB supply input; on OpenSC2 it must not (a board would boot wired on the dock), so the supply
-    rule takes `+` on a sense input of its own (in the UART build), and the dock and USB at once
-    count as the dock, as on the real controller. The rule gives the system state machine its power
-    source, and the docked states are the machine's ([api.md](api.md#the-docks-rules)). The
-    SuperMini dock build has no `+` input, so it never counts as powered by the dock. Without the
-    machine (`CONFIG_OPENSC2_SYSTEM=n`) a cold boot on the dock starts the radio when the
-    application asks, where the real controller charges with the radio off.
+40. **Dock power and the docked states.** The supply rule is the real controller's (closed): "a
+    supply is present" is VBUS, or the dock's `+` on a sense input of the board's own for a board
+    whose `+` must not reach VBUS; a fresh pilot check whenever that changes makes a supply that
+    appears with the pilot the dock's power and any other USB power, so the dock and USB at once
+    count as the dock and `+` without a valid pilot as USB power. The docked stick offsets follow
+    the docked states as on the real controller, with the board's own values (none by default:
+    they are a property of the hardware). What stays different: the dock's `+` alone (no VBUS)
+    without a valid pilot at a power-on boots wireless on USB power, where the real controller
+    enables USB and waits for a host (OpenSC2's wired-or-wireless decision needs VBUS); the dock
+    thread serves only once `opensc2_init()` has run (the real one from boot; the puck probes a
+    second after switching `+` on); a board without a pilot to read (the default image, which has
+    the dock link only through the test hooks) never counts as docked. Without the machine
+    (`CONFIG_OPENSC2_SYSTEM=n`) a cold boot on the dock starts the radio when the application asks,
+    where the real controller charges with the radio off.
 41. **The dock's wire is untried.** The pilot's window is at the controller's pin with no divider;
     how the pilot and the serial link share the `P` pad, the pad's idle level and its load are not
     known. The SuperMini dock build (`app/dock.conf`) is a guess at the controller's side (an

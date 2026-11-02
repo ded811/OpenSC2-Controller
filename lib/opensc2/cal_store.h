@@ -52,6 +52,9 @@ int osc2_cal_load(const char *key, const void *value, size_t len);
 void osc2_cal_flush(void);
 /* Back to boot (the host tests). */
 void osc2_cal_reset(void);
+/* Set the sticks and triggers up again from the RAM keys at the next frame, as after a key change
+ * (opensc2_cal_generation() changes): the docked stick offsets went on or off. */
+void osc2_cal_reapply(void);
 
 struct shell;
 /* "opensc2 cal ..." (cal_shell.c). */
@@ -68,6 +71,10 @@ int osc2_cal_flash_delete(const char *name);
 void osc2_cal_flash_reload(void);
 
 #else /* !CONFIG_OPENSC2_CAL */
+
+static inline void osc2_cal_reapply(void)
+{
+}
 
 static inline int osc2_cal_by_name(uint8_t opcode, const uint8_t *payload, uint8_t len)
 {

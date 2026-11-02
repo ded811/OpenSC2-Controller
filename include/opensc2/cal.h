@@ -398,12 +398,12 @@ int opensc2_cal_key_get(const char *name, void *out, size_t max);
 
 /* The stick offsets while docked: millivolts added to a side's stored stick calibration (X and
  * Y, each { min, max, rest low, rest high }; the sum limited to 0..65535) while the controller
- * sits on the dock (the power source is OPENSC2_POWER_SOURCE_DOCK) on a board of revision 0x48 or
+ * rests on the dock (the docked states, <opensc2/docking.h>) on a board of revision 0x48 or
  * later, as the real controller does for the pull of the dock's magnets on its sticks. Every side
- * starts at 0 (a board whose sticks the dock does not move). A change, and docking or leaving the
- * dock (on a board of any revision), sets the sticks and triggers up again (the triggers' digital
- * bits clear). Any time, any
- * thread. -EINVAL for a bad side or a NULL. */
+ * starts at 0 (a board whose sticks the dock does not move). A change while docked, and docking or
+ * leaving the dock (on a board of any revision), sets the sticks and triggers up again (the
+ * triggers' digital bits clear). The same store as opensc2_dock_set_stick_offsets(), as two
+ * arrays. Any time, any thread. -EINVAL for a bad side or a NULL. */
 int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
 				 const int16_t y_mv[4]);
 

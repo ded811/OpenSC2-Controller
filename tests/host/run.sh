@@ -34,7 +34,7 @@ compile() {
 		"$lib/test_sys.c" "$lib/haptics_dsp.c" "$lib/haptics_tables.c" \
 		"$lib/haptics_core.c" "$lib/haptics_rules.c" "$lib/haptics_sounds.c" \
 		"$lib/haptics_run.c" "$lib/haptics_help.c" \
-		"$lib/dock_codec.c" "$lib/dock_rules.c" "$lib/dock_link.c" "$here/dock_stub.c" "$@" -lm
+		"$lib/dock_codec.c" "$lib/dock_rules.c" "$lib/dock_link.c" "$lib/dock_api.c" "$here/dock_stub.c" "$@" -lm
 }
 
 compile "$here/run_tests.c" -o "$out/opensc2_host_tests_plain"

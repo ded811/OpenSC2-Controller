@@ -18,6 +18,7 @@
 #endif
 #include "internal.h"
 #include "crash.h"
+#include "dock_link.h"
 #include "hwdt.h"
 #include "key_store.h"
 #include "system.h"
@@ -682,6 +683,7 @@ int opensc2_init(const struct opensc2_config *config)
 		opensc2_bond_valid(&osc2.bonds[osc2.slot]) ? "" : " (empty: pair first)",
 		osc2_wired() ? "wired" : "wireless", osc2_transport_name(osc2_transport_running()));
 
+	osc2_dock_identity_take();   /* the dock's probe record for this boot (dock_link.h) */
 	osc2.initialised = true;
 	/* The radio starts the puck link at once for a puck transport; with the system state
 	 * machine, the machine starts the link (either transport) when its rules say so. */

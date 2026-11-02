@@ -100,7 +100,7 @@ build each variant and what it costs in flash and RAM:
 | A [battery build](app/README.md#a-battery-build) (`app/battery.conf`) that turns itself off and wakes on STEAM or USB power; an RGBW status LED and an IR LED; a charger status pin. | Built; not yet tested on hardware (needs real parts) |
 | The haptics synthesiser (in the default app, [the haptics build](app/README.md#haptics-build-the-synthesiser)): rumble, pulses, clicks, tones, sweeps, scripts and PCM streams rendered as the real controller's sequencers do, the accidents of its arithmetic and timing included, sounds of OpenSC2's own (scripts, cues, drop sounds) or the board's, which it plays for lizard mode's clicks and the cues itself, the streams' flow control and the replies to stops, outputs for an I2S amplifier, a PWM DAC and a DRV2605 (`samples/haptics`). | Built; not yet tested on hardware |
 | Bluetooth LE (an opt-in build, [`app/ble.conf`](app/README.md#test-build-bluetooth-le); pairing with Windows: [docs/testing.md](docs/testing.md#bluetooth)): the board as a HID-over-GATT Steam Controller 2 (`28DE:1303`) that a PC or phone pairs without the puck, with the real controller's name, its three forms of advertising and the 60 s window, two identities per slot and its bond rules, "wireless off" when the host leaves, the report map, the vendor commands on feature report 1, output reports, Valve's vendor GATT service (for SDL on Android and Apple platforms), the battery service, lizard mode, a state report per connection event, and switching between the puck and Bluetooth (with the power rules: the B + bumper chords). | Built; not yet tested on hardware |
-| The dock's protocol (the controller's end of the puck's charging pads): the 73-byte frames, sessions, the identity probe, Steam's commands and the state report over the dock, and its rules (the pilot, dock or USB power, the docked states); with a sense input for the dock's `+`, dock power becomes the power rules' power source. | Built; not yet tested on hardware |
+| The dock's protocol (the controller's end of the puck's charging pads): the 73-byte frames, answers built over each other as the real controller builds them, sessions, the identity probe, Steam's commands and the state report over the dock, and its rules (the pilot, dock or USB power by the real controller's rule, the docked states, the docked stick offsets); `<opensc2/docking.h>` for a board's own pilot, `+`, wire and stick offsets. | Built; not yet tested on hardware |
 | The dock's UART and pilot sense ([`app/dock.conf`](app/README.md#the-dock-build-untested), a SuperMini variant), and `tools/fake_puck.py` for a USB-UART adapter. Nothing may be connected to Valve's puck's pads without the owner's go-ahead ([docs/testing.md](docs/testing.md#the-dock)). | Built; not yet tested on hardware |
 | A test build with Bluetooth, the synthesiser, the dock link and the watchdog together ([`app/all.conf`](app/README.md#test-build-everything-without-parts)). | Built; not yet tested on hardware |
 | The hardware test suite's new groups (`cal`, `system`, `haptics`, `ble` on its Bluetooth path `--bluetooth`, `dock` with `--dock`) and its new tests in the old groups ([docs/testing.md](docs/testing.md#what-it-covers)): run against the firmware emulator and the simulator only. | Built; not yet run on hardware |
@@ -266,10 +266,10 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 188 host tests (25,251 checks); 235 (28,483 checks) with the hardware
+- **Host tests**, no hardware: 193 host tests (25,482 checks); 240 (28,797 checks) with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 281 self-tests; its dry runs against the library's own code in a firmware emulator (233
-  tests pass, 26 skipped; with `--flash` 241 pass, 18 skipped); 6 self-tests of `tools/fake_puck.py`
+  runner's 282 self-tests; its dry runs against the library's own code in a firmware emulator (234
+  tests pass, 26 skipped; with `--flash` 242 pass, 18 skipped); 6 self-tests of `tools/fake_puck.py`
   and 9 of `tools/match_steam_version.py`. Run
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc on
   PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
@@ -366,7 +366,8 @@ include/opensc2/        public headers: opensc2.h (the API), types.h, codec.h (w
                         descriptors), settings.h, led.h (the status LED), cal.h (calibration and
                         raw inputs), trackpad.h (trackpads frame by frame), imu.h (the IMU),
                         sensor_helpers.h and gauge.h (sensor and battery helpers), fusion.h,
-                        haptics.h (the haptics synthesiser), dock.h (the dock's frames)
+                        haptics.h (the haptics synthesiser), dock.h (the dock's frames),
+                        docking.h (the dock at run time)
 include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
 dts/bindings/           the devicetree bindings of the dock's UART and pilot (opensc2,dock) and of
                         the synthesiser's I2S and PWM DAC outputs (haptics/)

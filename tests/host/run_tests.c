@@ -114,6 +114,7 @@ static void register_test(const char *name, test_fn fn)
 #include "system_hooks_cases.h"
 #endif
 #include "dock_cases.h"   /* after hooks_cases.h: its hooks part uses those helpers */
+#include "dock_api_cases.h"
 
 int main(int argc, char **argv)
 {

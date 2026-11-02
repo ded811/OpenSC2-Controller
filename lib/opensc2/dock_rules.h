@@ -23,22 +23,26 @@
 
 /* ---- one frame in, one answer out --------------------------------------------------------------
  * A GET of a command that has nothing to read answers -95 (EOPNOTSUPP, the value the real
- * controller sends; a wire value, not this platform's errno), an unknown request type -22. */
+ * controller sends; a wire value, not this platform's errno); an opcode nobody knows, or a length
+ * above 61, -22. */
 #define OSC2_DOCK_RESULT_GET_OK            63
 #define OSC2_DOCK_RESULT_NOTHING_TO_READ   (-95)
 #define OSC2_DOCK_RESULT_INVALID           (-22)
 
-/* What the answer needs from the rest of the library. */
+/* What the answer needs from the rest of the library. Each op writes over the previous answer's
+ * bytes in place and leaves the rest as they are. */
 struct osc2_dock_ops {
-	/* The 57-byte identity record (the probe's answer). */
+	/* The 57-byte identity record (the probe's answer), over the payload's first 57 bytes. */
 	void (*identity)(void *ctx, uint8_t out[OPENSC2_IDENTITY_RECORD_LEN]);
 	/* Run the SET {opcode, length, data} (all 63 payload bytes): 0, or a negative error as the
-	 * dock answers it. */
+	 * dock answers it. The answer's payload stays the previous answer's. */
 	int32_t (*set)(void *ctx, const uint8_t rec[OPENSC2_DOCK_PAYLOAD_LEN]);
-	/* Answer the dock's stored request into `out`: {opcode, length, data}, zero padded. Returns
-	 * the result: OSC2_DOCK_RESULT_GET_OK, or a negative error. */
+	/* Answer the dock's stored request in `out`, which holds the previous answer's payload: the
+	 * stored request {opcode, length, data} over its start, then the command's answer {opcode,
+	 * n, data} over that; nothing else changes. Returns the result: OSC2_DOCK_RESULT_GET_OK, or
+	 * a negative error (OSC2_DOCK_RESULT_NOTHING_TO_READ leaves `out` as it was). */
 	int32_t (*get)(void *ctx, uint8_t out[OPENSC2_DOCK_PAYLOAD_LEN]);
-	/* The state report 0x42 without its ID: 53 bytes. */
+	/* The state report 0x42 without its ID: 53 bytes over the payload's first 53. */
 	void (*input)(void *ctx, uint8_t out[OPENSC2_STATE_REPORT_LEN - 1]);
 };
 
@@ -48,13 +52,16 @@ enum osc2_dock_outcome {
 	OSC2_DOCK_BAD_CRC = 2,    /* the session ends */
 };
 
-/* Handle one received frame of `len` bytes and build the answer in `ans` (when the outcome is
- * OSC2_DOCK_ANSWERED). The answer is always a whole frame: start byte 0xAC, the request's type,
- * the result, the payload zero padded, the CRC. The real controller leaves every byte it does not
- * write as it was in its previous answer (the probe's type and result, a SET's payload, the bytes
- * after a shorter answer, the whole frame for an unknown type); nothing can tell, since the puck
- * reads only what each answer defines, so OpenSC2 writes zeros there and answers an unknown type
- * with its type and -22. */
+/* Handle one received frame of `len` bytes and build the answer in `ans`, as the real controller
+ * does: in place, over its previous answer (`ans` holds it on entry; zeros after a boot). Only
+ * what the request defines is written, then the start byte 0xAC and the CRC:
+ *   - a probe: the identity record over the payload's first 57 bytes; the type, the result and
+ *     the payload's last 6 bytes stay the previous answer's;
+ *   - a GET: the type, the result and the payload as the `get` op leaves it;
+ *   - a SET: the type and the result; the payload stays the previous answer's;
+ *   - GET input: the type, result 0 and the report's 53 bytes; the last 10 stay;
+ *   - any other type: nothing, so the previous answer goes out again byte for byte.
+ * Bytes 2 and 3 are never written. A bad size or CRC leaves `ans` alone (no answer goes out). */
 enum osc2_dock_outcome osc2_dock_answer(const uint8_t *req, size_t len,
 					uint8_t ans[OPENSC2_DOCK_FRAME_LEN],
 					const struct osc2_dock_ops *ops, void *ctx);
@@ -78,11 +85,12 @@ bool osc2_dock_pilot_in_window(int32_t mv);
 bool osc2_dock_pilot_present(const int32_t mv[OSC2_DOCK_PILOT_READS], uint8_t *inside);
 
 /* ---- the supply rule ---------------------------------------------------------------------------
- * On the real controller the dock's + reaches the same supply input as the USB-C port, and the
- * pilot tells the two apart at the moment a supply appears. On OpenSC2 the + rail must stay off the
- * chip's VBUS pin, so the board sees USB power and the dock's + on two inputs; the rule is the
- * same. An event is posted for the first reading and whenever "a supply is present" changes, so a
- * change between USB and the dock with power present all along posts nothing. */
+ * The real controller has one supply input, which the dock's + and the USB-C port share, and a
+ * fresh pilot check tells the two apart at the moment that input changes: a supply that appears
+ * with the pilot inside its window is the dock, any other is USB. An event is posted for the first
+ * reading and whenever "a supply is present" changes, so a change between USB and the dock with
+ * power present all along posts nothing. A board may have the + on the chip's VBUS (as the real
+ * controller) or on a sense input of its own: "a supply is present" is either. */
 enum osc2_dock_supply {
 	OSC2_DOCK_SUPPLY_NONE = 0,   /* also the real controller's event numbers 0, 1, 2 */
 	OSC2_DOCK_SUPPLY_USB = 1,
@@ -90,9 +98,9 @@ enum osc2_dock_supply {
 };
 
 struct osc2_dock_power_in {
-	bool usb;     /* USB power on the board's USB input */
-	bool plus;    /* the dock's + on its own sense input */
-	bool pilot;   /* the pilot check passes now */
+	bool usb;     /* power on the board's USB input (VBUS) */
+	bool plus;    /* the dock's + on a sense input of its own (false where it reaches VBUS) */
+	bool pilot;   /* a pilot check made now passes (needed only when the reading posts) */
 };
 
 struct osc2_dock_power_rule {
@@ -101,10 +109,12 @@ struct osc2_dock_power_rule {
 	enum osc2_dock_supply kind;    /* decided when the supply appeared */
 };
 
-/* The kind of the supply in `in`: the dock when the + is there and the pilot passes, USB for any
- * other supply. Both at once is the dock, as on the real controller (whose USB and dock supplies
- * are one input). */
+/* The kind of the supply in `in`: none without power; with power the dock when the pilot passes,
+ * else USB (both at once is the dock, as on the real controller). */
 enum osc2_dock_supply osc2_dock_supply_kind(const struct osc2_dock_power_in *in);
+/* Will this reading post (the first one, or "a supply is present" changed)? Only then does the
+ * pilot need checking: the caller checks it, then steps. */
+bool osc2_dock_power_posts(const struct osc2_dock_power_rule *rule, bool usb, bool plus);
 /* A new reading: the event to post (OSC2_DOCK_SUPPLY_*), or -1 for none. */
 int osc2_dock_power_step(struct osc2_dock_power_rule *rule, const struct osc2_dock_power_in *in);
 
@@ -177,6 +187,9 @@ enum osc2_dock_entry {
 #define OSC2_DOCK_DO_LED_COLOUR     (1u << 17)  /* LED: the chord's transport colour, steady */
 #define OSC2_DOCK_DO_LED_OFF        (1u << 18)
 #define OSC2_DOCK_DO_KEYLOCK_CLEAR  (1u << 19)  /* a power-on on the dock deletes the keylock */
+#define OSC2_DOCK_DO_OFFSETS_ON     (1u << 20)  /* the docked stick offsets on (entering radio-off
+						 * or link-up) */
+#define OSC2_DOCK_DO_OFFSETS_OFF    (1u << 21)  /* ... off (lifted off) */
 
 struct osc2_dock_sm {
 	enum osc2_dock_state state;

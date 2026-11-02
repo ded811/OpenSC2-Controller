@@ -456,6 +456,7 @@ void stub_reset(void)
 	osc2_cal_reset();
 	osc2_imu_reset();
 	osc2_dock_reset();
+	osc2_dock_offsets_reset();
 	memset(&dock_stub, 0, sizeof(dock_stub));
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	hooks_reset();

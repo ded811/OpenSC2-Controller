@@ -276,7 +276,9 @@ class FakePuck:
         crc_ok = self.link.last_crc_ok if self.link.masked else a["crc_ok"]
         if not crc_ok:
             problems.append("a bad CRC")
-        if a["type"] != frame[D.TYPE_OFF]:
+        # a probe's answer keeps the previous answer's type (the real puck reads neither); the
+        # others carry their own
+        if frame[D.TYPE_OFF] != D.PROBE and a["type"] != frame[D.TYPE_OFF]:
             problems.append("type %d, not %d" % (a["type"], frame[D.TYPE_OFF]))
         if us > ANSWER_WAIT_MS * 1000 and not self.link.masked:
             problems.append("%d us, longer than the puck waits" % us)
@@ -460,14 +462,15 @@ def main(argv=None):
 # ---- self-tests -----------------------------------------------------------------------------
 
 class _LoopPort:
-    """A board on a wire, in memory: answers each request as OpenSC2 does, after the echo of the
-    request when the wire is shared."""
+    """A board on a wire, in memory: answers each request as OpenSC2 does (over its previous
+    answer), after the echo of the request when the wire is shared."""
 
     def __init__(self, shared=True, slow_ms=0):
         self.shared = shared
         self.slow_ms = slow_ms
         self.rx = []
         self.lines = []
+        self.model = D.AnswerModel()
 
     def write(self, data):
         data = bytes(data)
@@ -479,14 +482,16 @@ class _LoopPort:
         if t == D.PROBE:
             ident = {"pid": 0x1302, "build": 0x6AD6E287, "blbuild": 0, "rev": 0x48,
                      "unit": "OSC0123456789", "board": "OSB0123456789", "git": "osc2-0.2.0"}
-            self.rx.append(D.answer(D.PROBE, 0, D.identity_record(ident)))
+            self.rx.append(self.model.probe(D.identity_record(ident)))
         elif t == D.INPUT:
-            self.rx.append(D.answer(D.INPUT, 0, bytes([len(self.lines) & 0xFF]) + bytes(52)))
+            self.rx.append(self.model.input(bytes([len(self.lines) & 0xFF]) + bytes(52)))
             self.lines.append("input")
         elif t == D.SET:
-            self.rx.append(D.answer(D.SET, 0))
+            self.rx.append(self.model.set(0))
         elif t == D.GET:
-            self.rx.append(D.answer(D.GET, 63, bytes([0x89, 3, 45, 50, 0])))
+            self.rx.append(self.model.get(63, bytes([0x89, 1, 45]), bytes([0x89, 3, 45, 50, 0])))
+        else:
+            self.rx.append(self.model.other())
 
     def read(self, count, first_ms, gap_ms):
         if self.slow_ms > first_ms:

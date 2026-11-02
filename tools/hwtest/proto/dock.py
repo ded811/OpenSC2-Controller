@@ -89,14 +89,76 @@ def parse_answer(frame):
 
 
 def answer(type_, result=0, payload=b""):
-    """An answer as OpenSC2 builds it: 0xAC, the type, zeros, the result, the payload zero padded,
-    the CRC (the bytes the real controller leaves from its previous answer are zero here)."""
+    """An answer frame over zeros: 0xAC, the type, zeros, the result, the payload zero padded, the
+    CRC. The board builds each answer over its previous one (AnswerModel); this is one whose every
+    other byte happens to be zero."""
     f = bytearray(FRAME_LEN)
     f[TYPE_OFF] = type_ & 0xFF
     struct.pack_into("<i", f, RESULT_OFF, result)
     payload = bytes(payload)[:PAYLOAD_LEN]
     f[PAYLOAD_OFF:PAYLOAD_OFF + len(payload)] = payload
     return seal(f, START_CONTROLLER)
+
+
+class AnswerModel:
+    """The board's answers as the real controller builds them, and OpenSC2 with it: each over the
+    previous answer (zeros after a boot), writing only what the request defines (dock_rules.h):
+    a probe the record over the payload's first 57 bytes (type and result stay); a SET its type
+    and result (the payload stays); a GET its type and result and, unless there was nothing to
+    read, the stored request {opcode, length, data} and then the answer {opcode, n, data} over the
+    payload; GET input its type, result 0 and 53 bytes; any other type nothing."""
+
+    def __init__(self, last=None):
+        self.last = bytearray(last if last is not None else bytes(FRAME_LEN))
+
+    def _out(self):
+        self.last[:] = seal(self.last, START_CONTROLLER)
+        return bytes(self.last)
+
+    def _head(self, type_, result):
+        self.last[TYPE_OFF] = type_ & 0xFF
+        struct.pack_into("<i", self.last, RESULT_OFF, result)
+
+    def _over(self, data):
+        data = bytes(data)[:PAYLOAD_LEN]
+        self.last[PAYLOAD_OFF:PAYLOAD_OFF + len(data)] = data
+
+    def probe(self, record):
+        self._over(bytes(record)[:57])
+        return self._out()
+
+    def set(self, result=0):
+        self._head(SET, result)
+        return self._out()
+
+    def get(self, result, stored=b"", answer_rec=b""):
+        self._head(GET, result)
+        if result != RESULT_NOTHING_TO_READ:
+            self._over(stored)
+            self._over(answer_rec)
+        return self._out()
+
+    def input(self, body):
+        self._head(INPUT, 0)
+        self._over(bytes(body)[:53])
+        return self._out()
+
+    def other(self):
+        return self._out()
+
+    def request(self, frame, record=b"", get=(RESULT_GET_OK, b"", b""), set_result=0,
+                body=b""):
+        """The answer to `frame` (a request), with what the board would supply for it."""
+        t = bytes(frame)[TYPE_OFF]
+        if t == PROBE:
+            return self.probe(record)
+        if t == SET:
+            return self.set(set_result)
+        if t == GET:
+            return self.get(*get)
+        if t == INPUT:
+            return self.input(body)
+        return self.other()
 
 
 def identity_record(ident):
@@ -120,7 +182,7 @@ ANS_CRC_OK, ANS_MASKED = 0x01, 0x02
 READ_MAX = 55
 CTRL_STATUS, CTRL_END, CTRL_PILOT, CTRL_SUPPLY, CTRL_EVENT, CTRL_RESET = 0, 1, 2, 3, 4, 5
 ST_ACTIVE, ST_ALONE, ST_TEST, ST_UART = 0x01, 0x02, 0x04, 0x08
-SESSION_STARTERS = {0: "pilot", 1: "test"}
+SESSION_STARTERS = {0: "pilot", 1: "test", 2: "application"}
 SESSION_ENDS = {0: "none", 1: "bad size", 2: "bad CRC", 3: "receive error", 4: "arm failed",
                 5: "stopped"}
 
@@ -162,7 +224,10 @@ def parse_status(result):
             "frames": struct.unpack_from("<I", r, 6)[0],
             "errors": struct.unpack_from("<I", r, 10)[0],
             "slowest_us": struct.unpack_from("<I", r, 14)[0], "sm_state": r[18],
-            "supply": r[19], "stored": r[20], "cache_valid": bool(r[21])}
+            "supply": r[19], "stored": r[20], "cache_valid": bool(r[21]),
+            # byte 22 (later firmware): the docked stick offsets in effect, the supply rule's view
+            "offsets": bool(r[22] & 1) if len(r) > 22 else None,
+            "rule_supply": (r[22] >> 1) & 3 if len(r) > 22 else None}
 
 
 def encode_status(d):
@@ -172,7 +237,8 @@ def encode_status(d):
             struct.pack("<IIII", d.get("sessions", 0), d.get("frames", 0), d.get("errors", 0),
                         d.get("slowest_us", 0)) +
             bytes([d.get("sm_state", 0), d.get("supply", 0), d.get("stored", 0x83),
-                   1 if d.get("cache_valid") else 0]))
+                   1 if d.get("cache_valid") else 0,
+                   (1 if d.get("offsets") else 0) | ((d.get("rule_supply") or 0) << 1)]))
 
 
 def pilot_args(mv):
@@ -186,13 +252,16 @@ def mask(frame, masked):
     return bytes(0 if i in masked else b for i, b in enumerate(bytes(frame)))
 
 
-def masked_bytes(frame, masked_get):
-    """The positions the board masks in an answer: a probe's serials, or (`masked_get`, a GET of
-    a bond, a serial or the chip ID) the data of a GET's answer."""
+def masked_bytes(frame, masked_get, req_type=None):
+    """The positions an answer to a request of `req_type` (by default the answer's own type) adds
+    to what the board masks: a probe's serials, or (`masked_get`, a GET of a bond, a serial or the
+    chip ID) the data of a GET's answer. The board keeps a masked byte masked in later answers
+    until a request writes it again (they are built over each other)."""
     frame = bytes(frame)
-    if frame[TYPE_OFF] == PROBE:
+    t = frame[TYPE_OFF] if req_type is None else req_type
+    if t == PROBE:
         return set(range(SERIALS_OFF, SERIALS_OFF + SERIALS_LEN))
-    if frame[TYPE_OFF] == GET and masked_get and \
+    if t == GET and masked_get and \
             struct.unpack_from("<i", frame, RESULT_OFF)[0] == RESULT_GET_OK:
         n = frame[PAYLOAD_OFF + 1]
         return set(range(GET_DATA_OFF, GET_DATA_OFF + n))
@@ -221,9 +290,11 @@ SUPPLY_NONE, SUPPLY_USB, SUPPLY_DOCK = 0, 1, 2
 
 
 def supply_kind(usb, plus, pilot):
-    if plus and pilot:
-        return SUPPLY_DOCK
-    return SUPPLY_USB if (usb or plus) else SUPPLY_NONE
+    """A supply (VBUS or the + on its own input) that appears with the pilot is the dock's, any
+    other USB power (the real controller's + and USB-C port share one input)."""
+    if not (usb or plus):
+        return SUPPLY_NONE
+    return SUPPLY_DOCK if pilot else SUPPLY_USB
 
 
 def power_step(rule, usb, plus, pilot):
@@ -244,7 +315,7 @@ ENTRIES = ["POWER_ON", "BATTERY_WAIT", "ON_BATTERY"]
 ACTIONS = ["STOP_LINK", "START_LINK", "PAIRING", "SELECT", "CUE", "CHIME_OFF", "TIMER_4S",
            "TIMER_5S", "TIMER_STOP", "PAUSE", "REBOOT", "SHUTDOWN", "UPDATE_WINDOW",
            "TO_BATTERY", "TO_CHORD", "LED_CHARGING", "LED_TRANSPORT", "LED_COLOUR", "LED_OFF",
-           "KEYLOCK_CLEAR"]
+           "KEYLOCK_CLEAR", "OFFSETS_ON", "OFFSETS_OFF"]
 A = {name: 1 << i for i, name in enumerate(ACTIONS)}
 AWAY, RADIO_OFF, LIFTED, CHORD, LINK_UP = range(5)
 
@@ -267,13 +338,14 @@ class DockStates:
         elif self.state == LIFTED:
             actions |= A["TIMER_STOP"]
         if to == RADIO_OFF:
-            actions |= A["LED_CHARGING"] | (A["STOP_LINK"] if self.selected else 0)
+            actions |= A["LED_CHARGING"] | A["OFFSETS_ON"] | (
+                A["STOP_LINK"] if self.selected else 0)
         elif to == LIFTED:
-            actions |= A["LED_OFF"] | A["TIMER_5S"]
+            actions |= A["LED_OFF"] | A["OFFSETS_OFF"] | A["TIMER_5S"]
         elif to == CHORD:
             actions |= A["SELECT"] | A["CUE"] | A["LED_COLOUR"] | A["TIMER_4S"] | A["PAUSE"]
         elif to == LINK_UP:
-            actions |= A["LED_TRANSPORT"]
+            actions |= A["LED_TRANSPORT"] | A["OFFSETS_ON"]
         if actions & (A["START_LINK"] | A["SELECT"]):
             self.selected = True
         frm, self.state = self.state, to
@@ -325,5 +397,5 @@ class DockStates:
             if ev in (6, 7, 8):
                 return self._go(RADIO_OFF, A["CHIME_OFF"])
             if ev == 0:
-                return self._go(AWAY, A["TO_BATTERY"])
+                return self._go(AWAY, A["TO_BATTERY"] | A["OFFSETS_OFF"])
         return nothing

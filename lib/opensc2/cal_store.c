@@ -22,6 +22,7 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <opensc2/docking.h>
 #include <opensc2/sensor_helpers.h>
 #include "internal.h"
 #include "cal_store.h"
@@ -114,9 +115,6 @@ static bool pending_erase;
 static uint32_t pending_records;     /* keys */
 static uint8_t pending_values[K_COUNT][KEY_MAX];
 static bool pending_reload;
-/* The stick offsets while docked (opensc2_cal_set_dock_offsets()), mV: [side][axis][min, max,
- * rest low, rest high]. */
-static int16_t dock_offsets[2][2][4];
 
 static int find(const uint8_t *payload, uint8_t len, uint8_t *name_len)
 {
@@ -520,36 +518,13 @@ static void pad_start_over(int side)
 	p->click_setting = INT16_MIN;
 }
 
-/* On the dock (the power source is the dock). Coming onto it or leaving it sets the sticks and
- * triggers up again on any board, as on the real controller; the dock offsets go into that set-up
- * only on a board of revision 0x48 or later. */
+/* Resting on the dock: the docked states (the system state machine's dock-off and dock-on until
+ * the controller is lifted, or opensc2_dock_set_resting() without the machine; <opensc2/docking.h>).
+ * Coming onto it or leaving it sets the sticks and triggers up again on any board, as on the real
+ * controller; the dock offsets go into that set-up only on a board of revision 0x48 or later. */
 static bool on_dock_now(void)
 {
-	return opensc2_power_source() == OPENSC2_POWER_SOURCE_DOCK;
-}
-
-/* A stored millivolt value with a dock offset added, limited to 0..65535. */
-static uint16_t dock_adjust(uint16_t mv, int16_t offset)
-{
-	int32_t v = (int32_t)mv + offset;
-
-	return v <= 0 ? 0 : v > 0xFFFE ? 0xFFFF : (uint16_t)v;
-}
-
-static void stick_with_offsets(int side, struct opensc2_cal_stick *c)
-{
-	struct opensc2_cal_axis *axes[2] = { &c->x, &c->y };
-	k_spinlock_key_t lk = k_spin_lock(&lock);
-
-	for (int a = 0; a < 2; a++) {
-		const int16_t *o = dock_offsets[side][a];
-
-		axes[a]->min = dock_adjust(axes[a]->min, o[0]);
-		axes[a]->max = dock_adjust(axes[a]->max, o[1]);
-		axes[a]->rest_low = dock_adjust(axes[a]->rest_low, o[2]);
-		axes[a]->rest_high = dock_adjust(axes[a]->rest_high, o[3]);
-	}
-	k_spin_unlock(&lock, lk);
+	return opensc2_dock_stick_offsets_active();
 }
 
 /* Set the processing up again from the RAM keys when they changed, as the real controller does:
@@ -591,8 +566,10 @@ static void apply_calibration(void)
 			opensc2_cal_trigger_unpack(trg[side], &t);
 			opensc2_trigger_setup_level(&proc.trigger[side], &t, level68);
 			opensc2_cal_stick_unpack(joy[side], &st);
-			if (docked && osc2.identity.board_revision >= 0x48) {
-				stick_with_offsets(side, &st);
+			if (docked) {
+				/* the board's docked stick offsets (<opensc2/docking.h>; a board of
+				 * revision 0x48 or later) */
+				opensc2_dock_stick_adjust((enum opensc2_side)side, &st);
 			}
 			proc.stick[side].dead_zone = STICK_DEAD_ZONE;
 			proc.stick[side].grow_range = STICK_GROW_RANGE;
@@ -641,22 +618,6 @@ uint32_t osc2_cal_pressure_key(int side, struct opensc2_cal_pressure *out)
 	k_spin_unlock(&lock, lk);
 	opensc2_cal_pressure_unpack(v, out);
 	return loads;
-}
-
-int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
-				 const int16_t y_mv[4])
-{
-	k_spinlock_key_t lk;
-
-	if (side > OPENSC2_RIGHT || !x_mv || !y_mv) {
-		return -EINVAL;
-	}
-	lk = k_spin_lock(&lock);
-	memcpy(dock_offsets[side][0], x_mv, sizeof(dock_offsets[side][0]));
-	memcpy(dock_offsets[side][1], y_mv, sizeof(dock_offsets[side][1]));
-	analog_loads++;   /* set up again at the next frame */
-	k_spin_unlock(&lock, lk);
-	return 0;
 }
 
 /* The settings whose change makes both pads start over. */
@@ -1171,6 +1132,15 @@ uint32_t opensc2_cal_generation(void)
 	return g;
 }
 
+void osc2_cal_reapply(void)
+{
+	k_spinlock_key_t lk = k_spin_lock(&lock);
+
+	generation++;
+	analog_loads++;   /* the sticks and triggers set up again at the next frame */
+	k_spin_unlock(&lock, lk);
+}
+
 void osc2_cal_reset(void)
 {
 	k_spinlock_key_t lk = k_spin_lock(&lock);
@@ -1185,7 +1155,6 @@ void osc2_cal_reset(void)
 	pending_erase = false;
 	pending_records = 0;
 	pending_reload = false;
-	memset(dock_offsets, 0, sizeof(dock_offsets));
 	k_spin_unlock(&lock, lk);
 	lk = k_spin_lock(&raw_lock);
 	memset(&raw, 0, sizeof(raw));
@@ -1286,15 +1255,6 @@ int opensc2_cal_gyro_bias(float bias[3])
 uint32_t opensc2_cal_generation(void)
 {
 	return 0;
-}
-
-int opensc2_cal_set_dock_offsets(enum opensc2_side side, const int16_t x_mv[4],
-				 const int16_t y_mv[4])
-{
-	ARG_UNUSED(side);
-	ARG_UNUSED(x_mv);
-	ARG_UNUSED(y_mv);
-	return -ENOTSUP;
 }
 
 int opensc2_cal_key_set(const char *name, const void *value, size_t len, bool save)

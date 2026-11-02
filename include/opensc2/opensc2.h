@@ -226,9 +226,12 @@ enum opensc2_power_request {
 
 /* What powers the board. */
 enum opensc2_power_source {
-	OPENSC2_POWER_SOURCE_AUTO = 0,    /* the library's own view: USB power (the chip's VBUS
-					   * detection), else a battery with CONFIG_OPENSC2_BATTERY, else
-					   * an external supply (treated as USB power) */
+	OPENSC2_POWER_SOURCE_AUTO = 0,    /* the library's own view: the dock's supply rule where the
+					   * board has a pilot to read (<opensc2/docking.h>: a supply that
+					   * appears with the pilot is the dock's), else USB power (the
+					   * chip's VBUS detection), else a battery with
+					   * CONFIG_OPENSC2_BATTERY, else an external supply (treated as
+					   * USB power) */
 	OPENSC2_POWER_SOURCE_BATTERY,     /* no input power: running on the battery */
 	OPENSC2_POWER_SOURCE_USB,         /* USB power, or another supply that is not the dock */
 	OPENSC2_POWER_SOURCE_DOCK,        /* the puck's dock contacts */
@@ -523,7 +526,8 @@ void opensc2_identity_get(struct opensc2_identity *identity);
 /* Store an identity on the board (Zephyr settings). Empty / zero fields are not stored and keep
  * their configured value (the shell's `opensc2 id set` stores one field as given, 0 included).
  * Validated first (-EINVAL). Takes effect at once for new connections (on USB: at the next boot,
- * since the strings are set when the device attaches). */
+ * since the strings are set when the device attaches; on the dock too, whose probe record is
+ * taken once per boot, as on the real controller). */
 int opensc2_identity_store(const struct opensc2_identity *identity);
 /* Forget the stored identity: back to the opensc2_init() / Kconfig values. */
 int opensc2_identity_clear(void);
@@ -582,7 +586,9 @@ int opensc2_chime_level_set(uint8_t level);
  * OPENSC2_POWER_SOURCE_AUTO for its own view. Call it before opensc2_init() for the power-on
  * decision (the dock: a boot that is not wired), and again whenever it changes. */
 int opensc2_set_power_source(enum opensc2_power_source source);
-/* The power source in effect. */
+/* The power source in effect. With a pilot to read (<opensc2/docking.h>) it may make the dock's
+ * pilot check (about 9 ms, sleeping) for a supply that has just appeared: call it from a thread,
+ * not from an interrupt. */
 enum opensc2_power_source opensc2_power_source(void);
 /* Is the keylock (travel lock) stored? It takes effect at a power-on on battery. */
 bool opensc2_keylock(void);

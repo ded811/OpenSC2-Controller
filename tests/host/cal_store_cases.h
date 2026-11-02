@@ -13,6 +13,7 @@
 #include <math.h>
 #include <string.h>
 #include <opensc2/cal.h>
+#include <opensc2/docking.h>
 #include "internal.h"
 #include "cal_store.h"
 #include "cal_host.h"
@@ -894,25 +895,25 @@ OPENSC2_TEST(cal_store_dock_offsets)
 	undocked = s.stick[OPENSC2_LEFT].x;
 	CHECK_EQ(undocked, 21);
 	/* docked on a board of revision 0x48: the centre moves up, the same reading reads lower */
-	cal_host.power_source = OPENSC2_POWER_SOURCE_DOCK;
+	CHECK_EQ(opensc2_dock_set_resting(true), 0);
 	setups = osc2_cal_setups();
 	cal_frame_state(&s);
 	CHECK(osc2_cal_setups() != setups);
 	CHECK(s.stick[OPENSC2_LEFT].x < -5000);
 	/* off the dock: as before */
-	cal_host.power_source = OPENSC2_POWER_SOURCE_USB;
+	CHECK_EQ(opensc2_dock_set_resting(false), 0);
 	cal_frame_state(&s);
 	CHECK_EQ(s.stick[OPENSC2_LEFT].x, undocked);
 	/* an earlier board revision: no offsets, but docking and leaving still set the sticks and
 	 * triggers up again (the triggers' digital bits clear), as on the real controller */
 	osc2.identity.board_revision = 0x45;
 	setups = osc2_cal_setups();
-	cal_host.power_source = OPENSC2_POWER_SOURCE_DOCK;
+	CHECK_EQ(opensc2_dock_set_resting(true), 0);
 	cal_frame_state(&s);
 	CHECK_EQ(s.stick[OPENSC2_LEFT].x, undocked);
 	CHECK(osc2_cal_setups() != setups);
 	setups = osc2_cal_setups();
-	cal_host.power_source = OPENSC2_POWER_SOURCE_USB;
+	CHECK_EQ(opensc2_dock_set_resting(false), 0);
 	cal_frame_state(&s);
 	CHECK(osc2_cal_setups() != setups);
 	setups = osc2_cal_setups();
