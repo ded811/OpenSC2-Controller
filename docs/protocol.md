@@ -24,19 +24,19 @@ say which, and which of them the documentation has now.
 | The controller's end of the radio link: set-up, listening, connecting, keep-alives, records, link loss, channels, bonds, the identity packet, protocol version, turn-off | [The radio link](#overview-the-radio-link) | [docs/controller/04-radio.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/04-radio.md) |
 | The puck's end: slots, pairing window, connecting, channel choice, suspend | [The puck's end](#overview-the-pucks-end) | [docs/puck/04-radio.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/04-radio.md) |
 | The wired USB device: descriptors, strings, report timing | [The cable](#overview-the-cable), [api.md, Wired mode](api.md#wired-mode) | [docs/controller/03-usb-and-hid.md, The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device) |
-| The report descriptor and its collections | [The cable](#overview-the-cable), [gap 13](#where-this-library-had-to-fill-gaps) | [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
+| The report descriptor and its collections | [The cable](#overview-the-cable) | [The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor) |
 | Report `0x42`, the button bits, the vendor commands | [Reports and outputs](#overview-reports-and-outputs), [The vendor commands](#overview-the-vendor-commands), [api.md, Inputs](api.md#inputs) | [docs/controller/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md) |
-| The inputs from sensor to report: sticks, triggers, trackpads, stick touch and grips, the IMU; the calibration keys and commands | [gaps 29, 31 to 33](#where-this-library-had-to-fill-gaps), [api.md, Calibration and raw inputs](api.md#calibration-and-raw-inputs) | [docs/controller/07-input-and-sensors.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md) |
+| The inputs from sensor to report: sticks, triggers, trackpads, stick touch and grips, the IMU; the calibration keys and commands | [gaps 15, 16 to 18](#where-this-library-had-to-fill-gaps), [api.md, Calibration and raw inputs](api.md#calibration-and-raw-inputs) | [docs/controller/07-input-and-sensors.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md) |
 | The controller settings | [The vendor commands](#overview-the-vendor-commands), [api.md, Controller settings](api.md#controller-settings) | [Controller settings](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#controller-settings) |
 | Lizard mode | [Lizard mode](#overview-lizard-mode) | [Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode) |
 | Steam's wired session | [The cable](#overview-the-cable), [The vendor commands](#overview-the-vendor-commands) | [The wired session as Steam runs it](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it) |
 | Pairing over the cable, and the reboot into wireless mode | [The cable](#overview-the-cable) | [Pairing a controller with a puck over the cable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable), [Reboot into wireless mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#reboot-into-wireless-mode) |
-| The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
+| The July and October 2026 forms of the USB device | [gap 8](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
 | Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
-| The battery voltage and charge level, the charge states, what erases the stored settings | [api.md, The battery and the charger](api.md#the-battery-and-the-charger), [api.md, Battery helpers](api.md#battery-helpers), [gaps 3 and 31](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
-| Power, the chords, the keylock, the idle timeout, low battery, shutdown, the status LED's modes and patterns, the cues | [Power, chords and the status LED](#overview-power-chords-and-the-status-led), [api.md, Power and the system state machine](api.md#power-and-the-system-state-machine), [api.md, Status LED](api.md#status-led), [gap 34](#where-this-library-had-to-fill-gaps) | [docs/controller/09-system.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md) |
+| The battery voltage and charge level, the charge states, what erases the stored settings | [api.md, The battery and the charger](api.md#the-battery-and-the-charger), [api.md, Battery helpers](api.md#battery-helpers), [gaps 2 and 16](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
+| Power, the chords, the keylock, the idle timeout, low battery, shutdown, the status LED's modes and patterns, the cues | [Power, chords and the status LED](#overview-power-chords-and-the-status-led), [api.md, Power and the system state machine](api.md#power-and-the-system-state-machine), [api.md, Status LED](api.md#status-led), [gap 19](#where-this-library-had-to-fill-gaps) | [docs/controller/09-system.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md) |
 | Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
-| Bluetooth LE: advertising, pairing, the HID service, the gate, reports, the transport choice (an opt-in build here) | [Bluetooth LE](#overview-bluetooth-le), [api.md, Wireless transports](api.md#wireless-transports-and-bluetooth-le) | [docs/controller/05-bluetooth.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/05-bluetooth.md) |
+| Bluetooth LE: advertising, pairing, the HID service, the gate, reports, the transport choice (in the blank canvas's default build) | [Bluetooth LE](#overview-bluetooth-le), [api.md, Wireless transports](api.md#wireless-transports-and-bluetooth-le) | [docs/controller/05-bluetooth.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/05-bluetooth.md) |
 | The dock: the frames over the puck's charging pads, the pilot, dock power, the docked states (the protocol here; its UART build has never run on hardware) | [The dock](#overview-the-dock), [api.md, The dock](api.md#the-dock) | [docs/controller/06-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/06-dock.md), [docs/puck/05-dock.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/05-dock.md) |
 | What the puck shows Steam (feature report pass-through, attribute cache) | [The puck's end](#overview-the-pucks-end) | [docs/puck/03-usb-and-hid.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/puck/03-usb-and-hid.md) |
 
@@ -219,7 +219,7 @@ usable without Steam. OpenSC2 does the same, on every link:
 - **The motion** as the real controller's: a new touch is held still until the thumb really
   moves, the motion is averaged over 8 frames, a flick keeps gliding (settings 11 and 12), and
   moving across a pad makes haptic ticks (setting 14), which the library hands to the application
-  as haptic events. What stays different, and why: [gap 11](#where-this-library-had-to-fill-gaps).
+  as haptic events. What stays different, and why: [gap 7](#where-this-library-had-to-fill-gaps).
   Every rule, with its scales: [api.md](api.md#lizard-mode).
 
 ## Overview: reports and outputs
@@ -241,7 +241,7 @@ usable without Steam. OpenSC2 does the same, on every link:
   library decodes each one for the application ([api.md](api.md#outputs)) and, with its haptics
   synthesiser (in the app), also plays them as the real controller's two sequencers do: sample
   blocks for the four channels, outputs the application provides, the streams' flow control and
-  the replies to stops, `0x44` ([api.md](api.md#the-haptics-synthesiser); gap 35).
+  the replies to stops, `0x44` ([api.md](api.md#the-haptics-synthesiser); gap 20).
 - **The LED**: Steam sets its brightness (setting 45) and can override its colour (`0xC5`, shown
   while setting 37 is on); the library hands both to the application. The real controller's
   status LED shows its mode by colour: green while wired, white with a little blue on the puck's
@@ -283,8 +283,8 @@ rule, state and timing is in [api.md](api.md#power-and-the-system-state-machine)
 ## Overview: Bluetooth LE
 
 The controller can also connect straight to a PC, phone or console over Bluetooth LE, without the
-puck. OpenSC2 has it as an opt-in build (`CONFIG_OPENSC2_BLE`), built and **not yet tested on
-hardware**; [api.md](api.md#the-bluetooth-build) has every detail and what is not built yet.
+puck. OpenSC2 has it (`CONFIG_OPENSC2_BLE`, in the blank canvas's default build), built and **not
+yet tested on hardware with this firmware**; [api.md](api.md#the-bluetooth-build) has every detail and what is not built yet.
 
 - **One transport at a time**: the stored `user/wireless_transport` decides (0 and 1 Bluetooth slots
   1 and 2, 2 and 3 the puck with bond 1 or 2); October saves a new choice only once its link is up.
@@ -361,13 +361,28 @@ controller is there, and (inferred) the line of a half-duplex serial link too.
   off). A warm reboot on the dock starts the stored link again. While it rests on the dock, its
   sticks' calibration is moved by fixed offsets (the dock's magnets).
 
-What OpenSC2 does with it, and what it leaves out: [api.md, The dock](api.md#the-dock) and gaps 36
-to 41 below.
+What OpenSC2 does with it, and what it leaves out: [api.md, The dock](api.md#the-dock) and gaps 21
+to 25 below.
 
 ## Where this library had to fill gaps
 
-The research documentation describes one real controller firmware. Where it leaves something
-open, the library does what should work with Steam and the puck, and says so here:
+The research documentation describes one real controller firmware, and the library follows it:
+a host sees the real controller's behaviour except where an entry below says otherwise, and each
+entry says why (Valve's data or hardware, a defect not copied, a choice where the documentation is
+silent, or OpenSC2's own additions).
+
+Closed since 0.2.0, now as on the real controller (the entries below say where a detail stays
+different): the rumble report's layout; the controller settings' defaults and ranges, and `0x89`'s
+answers for settings 48, 84 and 85; the payload limit; a bond written with `0xA2`; all 372 bytes of
+the report descriptor (also the Bluetooth report map); the standard USB requests; a suspended bus
+and full IN buffers; STEAM while waiting for a host; the haptic stream status after a stop; the
+cable pulled while wired (with the system state machine); `user/wireless_transport`; `0xC5` and
+`0xE9`; `0xBE`'s bytes 13 and 14; reports waiting through the puck; the result codes on every link.
+The library's own additions to the transport key: without Bluetooth, 0 and 1 run the main puck; a
+board that stored only `opensc2/slot` (older firmware) starts on that puck slot; the application
+can choose the puck's slot for one boot (`opensc2_config.bond_slot`).
+
+What stays different, or where the library had to choose:
 
 1. **Over-the-air pairing.** Pairing over the air (the puck's pairing window) is implemented but
    untested with Steam. Steam pairs controllers over a wired connection, and pairing over the USB-C
@@ -381,10 +396,7 @@ open, the library does what should work with Steam and the puck, and says so her
    if the puck repeats its offer). A wireless board answers an open window when its pairing button
    is pressed; with [Counterpuck](https://github.com/ded811/Counterpuck) as the puck, its shell
    command `pair 0` opens a window without Steam (also untested with OpenSC2).
-2. **Rumble report `0x80`** (closed). The research documentation and SDL's `MsgHapticRumble` agree:
-   `[0]` the type, `[1..2]` the level, `[3..4]` the left speed, `[6..7]` the right speed. The
-   library also decodes the gain bytes `[5]` and `[8]`, which the July 2026 firmware used.
-3. **Report `0x43` charge state** (closed for a board that runs the library's fuel gauge). The
+2. **Report `0x43`'s charge state and level.** The
    charge state is the index of the real controller's charge state machine, in SDL's
    `EChargeState` numbering (SDL reads 1 as on battery, 2 as charging, 4 as charged): 0 starting
    over, 1 not charging, 3 checking the supply, 2 charging, 4 done, with the flag bit `0x80` while
@@ -402,29 +414,11 @@ open, the library does what should work with Steam and the puck, and says so her
    controller's "no level yet"); before the application gives a battery, a battery build sends what
    the real controller's first report after start-up carries (the level kept over a warm reset, else
    255, charge state 0, zeros), and a build without a battery a full one.
-4. **Answer layouts not given byte for byte**: `0xF2` selector 2 (uptime u32, then the reason as a
-   u32) and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for the
-   puck). `0xA1` follows the documentation byte for byte (18 bytes; the real controller's flag
-   encoding of Zephyr's reset causes); whether the UF2 bootloader, which runs before the
-   application at every reset, leaves the chip's reset-reason register alone has not been
-   checked.
-5. **Which commands Steam sends through the puck** is not fully documented. The library answers the
-   identity, settings, LED, user-store and settings-by-name commands and passes the rest to the
-   application. On the cable the commands Steam sends are known
-   ([the vendor commands](#overview-the-vendor-commands);
-   [Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it)),
-   and each gets the real answer or the real STALL (Steam's `0xC1` is stalled, as by the real
-   controller).
-6. **Controller settings** follow the documentation: every one of the 86 has its documented default
-   and range, and `0x87` clamps each value to its range ([api.md](api.md#controller-settings)),
-   also for the 49 settings nothing reads (0.2.0 knew nine ranges and stored the rest as sent, with
-   0 as the default where it knew none; seven of those nine, the ranges of settings 9, 11, 12, 14,
-   45, 70 and 71, first came from the same authors' study of the controller's firmware, and the
-   documentation has them now). Settings 48, 84 and 85 are stored as sent, for the
-   application (the real controller hands them to its IMU unclamped), and `0x89` answers their
-   defaults, as on the real controller. Whether Steam reads them back is not known. `0x89` of a
-   number above 85 reads 0, as on the real controller (0.2.0 stalled it).
-7. **The quaternion** (offsets 45 to 52): the real controller never sends W = 0. July sent the
+3. **Reset causes behind a bootloader.** `0xA1` follows the documentation byte for byte (18 bytes;
+   the real controller's flag encoding of Zephyr's reset causes); whether the UF2 bootloader, which
+   runs before the application at every reset, leaves the chip's reset-reason register alone has
+   not been checked.
+4. **The quaternion** (offsets 45 to 52): once its IMU has delivered a sample, the real controller never sends W = 0. July sent the
    identity (W 32767, X = Y = Z = 0); October sends its fused rotation and keeps the last sample
    while the stream is off. The library sends the application's quaternion, and its "none" (all
    four 0, the state of a board without an IMU or without an orientation) as the identity; the
@@ -433,9 +427,7 @@ open, the library does what should work with Steam and the puck, and says so her
    IMU's first sample (only seen when its stream does not start at boot) it sends all 0, W
    included, and so does the library for a board that set its IMU up. (0.2.0 sent all four 0 without an IMU; the
    parity work's blank canvas sent "none" while setting 48 was 0.)
-8. **Payload limit**: the controller's payloads are "within 127 bytes", the puck accepts 128; the
-   library stays at 127.
-9. **The radio link: what stays different.** The link follows the documented controller turn by
+5. **The radio link: what stays different.** The link follows the documented controller turn by
    turn (the states, timers, replies and their order, the answers, the queues, the reasons, the
    bonds and the transport key). What stays different, none of it seen by the puck, Steam or SDL:
    - the October firmware's change to the ESB driver (the processor, not the radio, starts each
@@ -449,9 +441,9 @@ open, the library does what should work with Steam and the puck, and says so her
      after that packet, where the real input loop would cut in; the thread runs at priority 5
      (`CONFIG_OPENSC2_THREAD_PRIORITY`), the real one at 9 below its input loop's 8;
    - the 32 MHz crystal is waited for at most 500 ms (the real controller waits without a limit;
-     either way the radio stays off), and MPSL is not shut down when the link stops (gap 23);
+     either way the radio stays off), and MPSL is not shut down when the link stops (gap 11);
    - "wireless off" reaches the system state machine only for the give-ups, the puck's turn-off
-     and a refused version, not after a stop of the board's own (gap 34): the states that stop
+     and a refused version, not after a stop of the board's own (gap 19): the states that stop
      the link themselves ignore it either way;
    - the identity packet `0xF5` carries the identity in use when it is sent (the real controller
      fills it once at start-up; only OpenSC2 can change an identity at run time);
@@ -468,104 +460,64 @@ open, the library does what should work with Steam and the puck, and says so her
    - over-the-air pairing (gap 1), run-time transport and slot switching, the give-ups and the
      transmit power set at run time, the test hooks and the application's view (`link_changed`,
      `opensc2_link_info()`) are OpenSC2's own.
-10. **Board revision.** What Steam does with the hardware ID is not documented; the default is
-    `0x48` (72), what a real controller reports and the value Steam has been seen working with
-    ("Controller Info: HWID: 72"); `0x45` and `0x49`..`0x4B`, the other values real controllers
-    accept, stay selectable.
-11. **Lizard mode** follows the documented key map and mouse mapping, the release reports when it
-    turns off, the 10 s Steam watchdog, and the documented motion: the touch stabilisers, the
-    8-frame average, the glide after a flick (settings 11 and 12) and the haptic ticks and clicks
-    (14, 52, 53, 70)
-    ([Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode),
-    [the touch stabiliser](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#the-touch-stabiliser),
-    [haptics in lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md#haptics-in-lizard-mode)).
-    The library follows it to the detail, quirks included: the keyboard and the mouse turn on and
-    off by events that they take up in the real controller's order once the command that posted
-    them is done, so `0x85` while the keyboard runs leaves an "on" pending and the next switch-off
-    sends the empty `0x41` twice and leaves the keyboard typing with setting 9 at 0 until the
-    switch-off after that; the keyboard hears the buttons when the application changes them, also
-    while it is stopped and while no link runs (its report then goes nowhere); the travel a glide
-    needs adds exact lengths, and the flick speed and the glide's factor are single precision,
-    with setting 12 read in every frame; setting 82 drops a pad's
-    motion after the division (the remainders keep their part); a mouse report goes out while one
-    of its bytes is not zero; the right pad's stabiliser is left as it is while setting 80 is not
-    1; a pad click counts only while its pad is touched; the ticks and clicks forget the touch but
-    not the click while setting 9 or 70 stops them, and compare the steps with setting 14 in every
-    touched frame. What stays different, and why:
+6. **Board revision.** What Steam does with the hardware ID is not documented; the default is
+   `0x48` (72), what a real controller reports and the value Steam has been seen working with
+   ("Controller Info: HWID: 72"); `0x45` and `0x49`..`0x4B`, the other values real controllers
+   accept, stay selectable.
+7. **Lizard mode** follows the documented key map and mouse mapping, the release reports when it
+   turns off, the 10 s Steam watchdog, and the documented motion: the touch stabilisers, the
+   8-frame average, the glide after a flick (settings 11 and 12) and the haptic ticks and clicks
+   (14, 52, 53, 70)
+   ([Lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#lizard-mode),
+   [the touch stabiliser](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#the-touch-stabiliser),
+   [haptics in lizard mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md#haptics-in-lizard-mode)).
+   The library follows it to the detail, quirks included: the keyboard and the mouse turn on and
+   off by events that they take up in the real controller's order once the command that posted
+   them is done, so `0x85` while the keyboard runs leaves an "on" pending and the next switch-off
+   sends the empty `0x41` twice and leaves the keyboard typing with setting 9 at 0 until the
+   switch-off after that; the keyboard hears the buttons when the application changes them, also
+   while it is stopped and while no link runs (its report then goes nowhere); the travel a glide
+   needs adds exact lengths, and the flick speed and the glide's factor are single precision,
+   with setting 12 read in every frame; setting 82 drops a pad's
+   motion after the division (the remainders keep their part); a mouse report goes out while one
+   of its bytes is not zero; the right pad's stabiliser is left as it is while setting 80 is not
+   1; a pad click counts only while its pad is touched; the ticks and clicks forget the touch but
+   not the click while setting 9 or 70 stops them, and compare the steps with setting 14 in every
+   touched frame. What stays different, and why:
 
-    | Detail | The real controller | The library |
-    | --- | --- | --- |
-    | When ticks and clicks are worked out | per trackpad sample | once per state report, on the pad as the report carries it: the library sees the trackpad only through the input state, and its pad processing (rotation, the setting-80 stabiliser, setting 82) runs once per report. The same on the cable and through the puck when the pad samples no faster than the reports; over Bluetooth a fast swipe across a long connection interval can count fewer steps |
-    | When a key report goes out | as soon as its button driver reports the change, debounced (16 ms) and polled every 2 ms | as soon as the application reports the change (`CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE`, default on; also while no link runs, when it goes nowhere): the debouncing and polling are the board's, and a board that updates its buttons only in the `sample` callback gets them at the frames |
-    | The haptic events' sound | its own click recordings on its pad actuators | the library hands over click A or B and the documented level ([api.md](api.md#outputs)); with the haptics synthesiser it plays them itself with its own click sounds, while lizard mode is on, setting 70 is exactly 1 and the current link is not the dock (gap 35). The recordings are Valve's data and stay out |
-    | A state report skipped on the cable (bus suspended, no free buffer) | the frame still runs: the motion is worked out and a glide runs down, and its reports wait for a buffer | the frame is skipped with the state report: the library's frames are its state reports. The next frame takes up the motion (a difference of positions); a glide pauses for the skipped frames |
-    | Reports waiting through the puck | the reports wait for a buffer, then queue for the radio and are dropped when its queue is full | gap 30 |
+   | Detail | The real controller | The library |
+   | --- | --- | --- |
+   | When ticks and clicks are worked out | per trackpad sample | once per state report, on the pad as the report carries it: lizard mode sees the trackpad only through the input state. A board that gives [trackpad frames](api.md#trackpads-frame-by-frame) has its pad processing (the filter, rotation, the setting-80 stabiliser, setting 82) run per frame; lizard mode still takes the result once per report. The same on the cable and through the puck when the pad samples no faster than the reports; over Bluetooth a fast swipe across a long connection interval can count fewer steps |
+   | When a key report goes out | as soon as its button driver reports the change, debounced (16 ms) and polled every 2 ms | as soon as the application reports the change (`CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE`, default on; also while no link runs, when it goes nowhere): the debouncing and polling are the board's, and a board that updates its buttons only in the `sample` callback gets them at the frames |
+   | The haptic events' sound | its own click recordings on its pad actuators | the library hands over click A or B and the documented level ([api.md](api.md#outputs)); with the haptics synthesiser it plays them itself with its own click sounds, while lizard mode is on, setting 70 is exactly 1 and the current link is not the dock (gap 20). The recordings are Valve's data and stay out |
+   | A state report skipped on the cable (bus suspended, no free buffer) | the frame still runs: the motion is worked out and a glide runs down, and its reports wait for a buffer | the frame is skipped with the state report: the library's frames are its state reports. The next frame takes up the motion (a difference of positions); a glide pauses for the skipped frames |
 
-    The key-slot rule, the scales (128 pad units per pointer count, 1024 per scroll step, pad up
-    scrolls with a negative wheel value) and the rule that a mouse report goes out every frame
-    while anything is non-zero first came from the same authors' study of the controller's
-    firmware; the documentation has them now too (the ranges of the settings: gap 6). All of this
-    is built and tested on the host (the library against the runner's model, and in the firmware
-    emulator); it is not yet tested on hardware, and its feel needs a trackpad, which no test has
-    had.
-12. **A bond written with `0xA2`** (closed): as on the documented controller, it is written to
-    flash from a work item after the answer (an invalid one, an ID of 0, deletes the stored bond)
-    and counts from the next boot; the bond in RAM and the radio are not touched.
-13. **The report descriptor's bytes** (closed). All 372 bytes are the real controller's, the items of
-    the mouse and keyboard collections in its order too (0.2.0 had 20 of their bytes in another
-    order); the same bytes are the Bluetooth report map. The collections, every report's ID,
-    direction and size and the vendor items' rule are in the research documentation
-    ([The report descriptor](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-report-descriptor));
-    the mouse and keyboard items' order and the vendor reports' order come from the same authors'
-    study of the controller's firmware.
-14. **Two forms of the device.** The library has both:
-    `CONFIG_OPENSC2_USB_PROFILE_OCTOBER` (the default after 0.2.0), the October 2026 firmware's
-    form: USB 2.01 with a USB 2.0 extension BOS descriptor, class `00/00/00`, release 4.04, 63-byte
-    GET replies; and `CONFIG_OPENSC2_USB_PROFILE_JULY`, the July 2026 controller firmware's form:
-    USB 2.00, class `EF/02/01`, release 3.07, each GET answered with 64 bytes (both described
-    in the research documentation:
-    [The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device),
-    [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july)).
-    The July form is the one Steam was seen pairing over the cable with a real controller, and the
-    one tested with OpenSC2 0.2.0; the October form has not been run on hardware with this library
-    yet. A GET of the hardware test channel's own opcode (answered only while the test hooks are
-    armed) is 64 bytes in both forms.
-15. **Standard requests** are answered by Zephyr's USB stack and HID class (`SET_IDLE` stored, then
-    stalled; `SET_PROTOCOL` and `GET_PROTOCOL` stalled), the stack the October 2026 firmware is built
-    on too. `SET_REPORT` of an output report on the control endpoint and feature report 2 stall, as
-    with the October firmware.
-16. **Suspend and full buffers** (closed). As on the October firmware, nothing reacts to a suspended
-    bus: reports go on being built and wait in the eight IN buffers, so a host first reads up to
-    eight older ones after a resume. A report that finds all eight in use is lost, a state report
-    with the sequence number it was built with (0.2.0 skipped it before building it, and let
-    lizard mode's and the application's reports wait). July's STEAM-press remote wakeup is an
-    option (`CONFIG_OPENSC2_USB_REMOTE_WAKEUP`).
-17. **USB power that appears later.** The real controller reacts to its charger's power events. The
-    library checks the chip's own USB power detection at boot and, in wireless mode, every 100 ms
-    (in a battery build the system state machine does, every 50 ms, in its battery state); with the
-    link down, or STEAM held, it asks the application to reboot, which brings the board back wired
-    (only while the policy is auto). In the 1 s battery wait at power-on a battery build turns wired
-    in place, as the real controller does.
-18. **STEAM while waiting for a host** (closed). As on the real controller, a wired boot with
-    STEAM held goes on the bus once STEAM is released, and a STEAM press of 20 ms or more before a
-    host configures the device, one that began before the boot included, sets the warm-restart
-    mark and reboots: the board comes back wireless on USB power. The system state machine's wired
-    start runs this rule; without `CONFIG_OPENSC2_SYSTEM` the USB layer keeps the device off the
-    bus while STEAM is held and counts a press only after it has seen STEAM released. The library
-    sees STEAM held at the start when the application reported it before `opensc2_init()` (the
-    blank canvas does). The power-on chime is the system state machine's (gap 34).
-19. **Haptic stream status after a stop** (closed). The real controller answers each pair of
-    Steam's zero pulses with two `0x44` reports (right pad, then left pad, flag `0x02`)
-    ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it));
-    the documentation of its haptics explains them: every stop-all stops the channel's stream,
-    which reports `0x02`, whether or not anything was streaming. The library sends the same
-    replies for the same stops, in the documented order. With the haptics synthesiser (in the
-    app) its sequencers send them as the real ones do, when each takes the stop: within about a
-    millisecond while idle, up to one 8 ms block later while something plays, and not at all for a
-    stop that a full queue lost. Without it, `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` (on by default;
-    [api.md](api.md#other-input-reports)) sends them as soon as the output is decoded. Steam does
-    not appear to need them.
-20. **Identity on the cable.** The USB strings are the real ones by default and the serial string is
+   The key-slot rule, the scales (128 pad units per pointer count, 1024 per scroll step, pad up
+   scrolls with a negative wheel value) and the rule that a mouse report goes out every frame
+   while anything is non-zero first came from the same authors' study of the controller's
+   firmware; the documentation has them now too, and the ranges of the settings. All of this
+   is built and tested on the host (the library against the runner's model, and in the firmware
+   emulator); it is not yet tested on hardware, and its feel needs a trackpad, which no test has
+   had.
+8. **Two forms of the device.** The library has both:
+   `CONFIG_OPENSC2_USB_PROFILE_OCTOBER` (the default after 0.2.0), the October 2026 firmware's
+   form: USB 2.01 with a USB 2.0 extension BOS descriptor, class `00/00/00`, release 4.04, 63-byte
+   GET replies; and `CONFIG_OPENSC2_USB_PROFILE_JULY`, the July 2026 controller firmware's form:
+   USB 2.00, class `EF/02/01`, release 3.07, each GET answered with 64 bytes (both described
+   in the research documentation:
+   [The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device),
+   [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july)).
+   The July form is the one Steam was seen pairing over the cable with a real controller, and the
+   one tested with OpenSC2 0.2.0; the October form has not been run on hardware with this library
+   yet. A GET of the hardware test channel's own opcode (answered only while the test hooks are
+   armed) is 64 bytes in both forms.
+9. **USB power that appears later.** The real controller reacts to its charger's power events. The
+   library checks the chip's own USB power detection at boot and, in wireless mode, every 100 ms
+   (in a battery build the system state machine does, every 50 ms, in its battery state); with the
+   link down, or STEAM held, it asks the application to reboot, which brings the board back wired
+   (only while the policy is auto). In the 1 s battery wait at power-on a battery build turns wired
+   in place, as the real controller does.
+10. **Identity on the cable.** The USB strings are the real ones by default and the serial string is
     the identity's unit serial, kept equal to `0xAE` tag 1 and the radio identity record. A
     development board reports its own "OSC..." serial, which no real controller has. With the
     default identity (an "OSC..." serial, hardware ID `0x48`, no bootloader build time) Steam paired
@@ -577,24 +529,7 @@ open, the library does what should work with Steam and the puck, and says so her
     board; a stored one makes the wired device differ from the real controller. The real
     controller reads its values from its own chip at every start; a board supplies its own in
     `opensc2_init()`, or later with `opensc2_identity_set()` (RAM only), or stores them.
-21. **The cable pulled while wired.** The real controller shuts down. With the system state
-    machine the library does the same at its next look at the power source (every 50 ms, as the
-    real controller polls its supply): the power-off cue, 0.5 s, off (a power-off in a battery build,
-    a reboot otherwise, [gap 34](#where-this-library-had-to-fill-gaps)). Without it
-    (`CONFIG_OPENSC2_SYSTEM=n`) the library waits 0.2 s for USB power to come back, then asks the
-    application to power off or reboot (`OPENSC2_POWER_USB_UNPLUGGED`), and without a callback it
-    reboots, which comes back wireless on a battery. A board without a battery has lost its power
-    anyway.
-22. **The wireless transport** (`user/wireless_transport`, closed). As on the documented controller:
-    `0xEE` writes any one byte into RAM and leaves the running link alone, `0xED` reads it back,
-    `0xEF` stores it, `0xF0` deletes it (the key reads 2); at boot 0 and 1 run Bluetooth, 3 the
-    second puck and every other byte the main puck; a choice made at run time leaves the key alone
-    until its link comes up, and the running transport is then written back into the key, and
-    stored, at every connection. The library's own additions: without Bluetooth, 0 and 1 run the
-    main puck; a board that stored only `opensc2/slot` (older firmware) starts on that puck slot;
-    the application can choose the puck's slot for one boot (`opensc2_config.bond_slot`). What
-    Steam does when it reads 0 or 1 during a cable pairing is not known.
-23. **Bluetooth LE.** The bond rule, the pairing cue's replay, the kept ATT MTU, feature report
+11. **Bluetooth LE.** The bond rule, the pairing cue's replay, the kept ATT MTU, feature report
     1's reads and its stored request, the sampling margin, a refused report's log, the vendor
     `0x45` flag, the system state machine's drop and the LED's "connected" follow the documented
     controller, quirks included. Where OpenSC2 still differs, or the documentation is silent:
@@ -613,7 +548,6 @@ open, the library does what should work with Steam and the puck, and says so her
     | Buffers and threads | 5 L2CAP and 25 connection TX buffers; the report thread waits for a buffer; both threads cooperative (priority -1) | 8 ACL, 8 L2CAP and 10 ATT TX buffers; at most 8 notifications in flight, a state or battery report without room dropped (a battery report waits), the others queued; preemptible threads (`CONFIG_OPENSC2_BLE_THREAD_PRIORITY`, `_REPORT_THREAD_PRIORITY`). Seen only as latency or a drop under congestion |
     | A device name over 29 characters (with the default prefix only a host's GAP write makes one, up to 31) | pairing-mode advertising cannot start: the name does not fit the scan response (inferred from the stack) | the name is sent shortened, so a board's longer `CONFIG_OPENSC2_BLE_NAME_PREFIX` still advertises |
     | The log | Valve's lines | the same moments in OpenSC2's own words |
-    | The report map's bytes | Valve's 372 bytes | the USB report descriptor (gap 13: the same reports, 20 bytes in another item order) |
 
     Valve's Bluetooth company ID and the PnP ID `28DE:1303` are advertised for interoperability, as
     the USB IDs are, and the vendor service uses Valve's UUIDs for the same reason
@@ -630,17 +564,7 @@ open, the library does what should work with Steam and the puck, and says so her
     through the dock (a puck link, then Bluetooth chosen there); OpenSC2 also through a switch from
     the puck to Bluetooth at run time (`opensc2_select_transport()`, `opensc2 transport ble`), so a
     board that switches at run time and serves Windows may want it off.
-24. **`0xC5` and `0xE9`, copied** (closed). The real controller keeps `0xC5`'s bytes as sent (a
-    channel above 100 is brighter, up to full duty) and converts the stored colour in a way that
-    truncates before it scales, so each channel of `0xE9` reads 0 below 100, 100 from 100 to 199
-    and 200 from 200. The library does the same: the colour is kept as sent, 0..255, the
-    application gets it unchanged (`led` callback, `opensc2_led_get()`), and the system state
-    machine's LED rules render a channel above 100 at full duty at most (`opensc2_led_duty()`). (0.2.0 clamped it to 100.)
-25. **`0xBE`'s bytes 13 and 14** (closed). Byte 13 is the fuel gauge's flags: 1 exactly while its
-    charge state machine is in state 2 (charging, which never carries the give-up flag); byte 14 is
-    `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the charge
-    state the same way, which the documentation of the real controller's gauge confirms.
-26. **Settings by name.** The library knows exactly the real controller's keys
+12. **Settings by name.** The library knows exactly the real controller's keys
     ([api.md](api.md#settings-by-name)); other names go to the application, then, as on the real
     controller, to any other settings handler of the build (Bluetooth's keys, the application's;
     never the library's own subtree), with the real controller's refusals and result codes
@@ -650,8 +574,8 @@ open, the library does what should work with Steam and the puck, and says so her
     `user/fully_charged_led_intensity`, `mte/charge_level` and the `settings/haptics/` keys as plain
     values: set in RAM, saved and read back where the real controller has a read function, deleted
     by the factory reset where it deletes them. The system state machine acts on the keylock and the
-    fully-charged LED level (gap 34), and on the factory charge window: a stored window other than
-    0/0 brings the real controller's announcement at every power-on (gap 34), and
+    fully-charged LED level (gap 19), and on the factory charge window: a stored window other than
+    0/0 brings the real controller's announcement at every power-on (gap 19), and
     `opensc2_charge_target_mv()` gives its upper value to a board whose charger can stop there (the
     real controller programs its charger chip with it; a board without such a charger cannot).
     The library's fuel gauge acts on the factory charge window as the real controller's does
@@ -668,16 +592,16 @@ open, the library does what should work with Steam and the puck, and says so her
     the `settings/haptics/` keys (no read function) and for an invalid charge window, and writes
     nothing then. A choice where the documentation says nothing: a readable key that was never set
     answers its whole size in zeros (the real controller's RAM value). The calibration keys are the
-    calibration store's (gap 31); a build without `CONFIG_OPENSC2_CAL` gives them to the
+    calibration store's (gap 16); a build without `CONFIG_OPENSC2_CAL` gives them to the
     application, so without one `0xED` answers length 0 and the others are refused.
-27. **Crash records.** The record and `0xF2`'s rules follow the documentation
+13. **Crash records.** The record and `0xF2`'s rules follow the documentation
     ([api.md](api.md#crash-records)). OpenSC2's own: where the record waits for the next boot (the
     retained RAM region, with a magic word and a CRC-32 of its own), the build time and revision it
     names (the firmware's own, not a build time stored on the board for Steam), that a crash
     repeated at every boot writes flash once until a host reads it (the documentation names no
     such guard), and that `0xF2` saves the record it marked seen from the system work queue rather
     than inside the request.
-28. **The hardware watchdog** follows the documented timings (5 s, a feed every 2.5 s from the
+14. **The hardware watchdog** follows the documented timings (5 s, a feed every 2.5 s from the
     lowest priority, the 4.5 s warning that raises a kernel oops, only a log with a debugger
     attached) and is on by default, as on the real controller (`CONFIG_OPENSC2_WATCHDOG`, wherever
     the devicetree has a `watchdog0` alias), except in a build for a UF2 bootloader such as the
@@ -686,7 +610,7 @@ open, the library does what should work with Steam and the puck, and says so her
     report and the idle monitor. Not yet tried on hardware with this firmware: the watchdog keeps
     running into a bootloader, which has to feed it, and whether the UF2 bootloader does has not
     been tried ([api.md](api.md#the-hardware-watchdog)).
-29. **The rules on every state report** are the documented ones
+15. **The rules on every state report** are the documented ones
     ([pad processing](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#pad-processing),
     [raw output](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#raw-output-settings-46-and-62)).
     Inputs the library processes itself (raw sticks and triggers, raw pressure and capacitive
@@ -704,13 +628,7 @@ open, the library does what should work with Steam and the puck, and says so her
 
     The pressure of an untouched pad given finished is sent as the application reports it, where
     the real controller sends 0; raw pressure and trackpad frames send 0.
-30. **Reports waiting through the puck** (closed). As on the documented controller, up to 5 input
-    reports other than the state report wait for the next state report (lizard mode's of a frame
-    ride with the next one), and a report that finds the queue full is dropped, lizard mode's and
-    the application's included. `CONFIG_OPENSC2_REPORT_WAIT_DEPTH` (0 by default) is OpenSC2's
-    option to let lizard mode's and the application's reports wait for room instead, while lizard
-    mode waits with its next frame.
-31. **Calibration** (`CONFIG_OPENSC2_CAL`, on by default). The keys, their sizes and formats, the
+16. **Calibration** (`CONFIG_OPENSC2_CAL`, on by default). The keys, their sizes and formats, the
     commands `0xD8`, `0xC0`, `0xC3`, `0xE2` and `0xFE`, the recordings' steps and the arithmetic of
     sticks, triggers and pad pressure follow the protocol documentation
     ([input and sensors](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#calibration-keys)),
@@ -778,7 +696,7 @@ open, the library does what should work with Steam and the puck, and says so her
       hysteresis band across a disconnect.
     The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
     calibration commands (its safety rule S5): calibration is tested by the host tests only.
-32. **The pad rules.** A pad fed by trackpad frames (`<opensc2/trackpad.h>`) is processed as the real
+17. **The pad rules.** A pad fed by trackpad frames (`<opensc2/trackpad.h>`) is processed as the real
     controller processes its pads, frame by frame: the position filter of setting 65 (on by default;
     the speed from the previous input, in the real controller's single-precision rounding), the
     rotation of settings 2 and 24 with the real controller's sine table (worked out with π as
@@ -791,7 +709,7 @@ open, the library does what should work with Steam and the puck, and says so her
     the pad scale, turns Y back, applies the documented arithmetic and doubles them again, so an
     odd position loses its lowest bit while a rule is on; the position filter is then the
     application's (as a library rule it would change every board's pads).
-33. **The IMU** (`<opensc2/imu.h>`). The stream from boot and its switching by setting 48 and the key
+18. **The IMU** (`<opensc2/imu.h>`). The stream from boot and its switching by setting 48 and the key
     `mode`, the scaling (kept to 16 bits, so past full scale it wraps as on the real controller),
     the bias of setting 84 and the key `use_bias`, the mounting matrix (the board's from
     `opensc2_imu_set_mounting()`, the key `mounting_matrix` until the next boot), the dead zone of
@@ -814,12 +732,12 @@ open, the library does what should work with Steam and the puck, and says so her
     block's alpha-blend that the real controller writes on its early boards, and the chip's own
     free-fall detector in the stream (the stock driver has none; the library's software detector
     stands in).
-34. **The system state machine** (power, chords, the status LED and cues; built, not yet tested on
+19. **The system state machine** (power, chords, the status LED and cues; built, not yet tested on
     hardware). OpenSC2 follows the documented machine ([in brief](#overview-power-chords-and-the-status-led);
     [api.md](api.md#power-and-the-system-state-machine)): the power-on decision with the level the
     real controller's first battery report passes on (kept over a warm reset, else 255), the
     factory charge window's announcement before it, the wired start that attaches once STEAM is up
-    (gap 18), USB power in the battery wait turning the boot wired in place, the warm-restart mark
+    (as on the real controller), USB power in the battery wait turning the boot wired in place, the warm-restart mark
     set the moment Steam's request arrives and used up by a transport chord held at boot, the
     keylock chord's tap deleting the lock before a battery power-on decides, the chords as two
     combinations each (with STEAM and without) in the real controller's order, dropping only a link
@@ -848,7 +766,7 @@ open, the library does what should work with Steam and the puck, and says so her
       transport`) becomes the machine's choice, as a chord's would: the LED shows its colour, the
       battery wait's timer starts it, and `opensc2 power` reports it.
     - **The power source**: the dock is a power source an application names, or the one the dock's
-      supply rule gives whenever the board has a pilot to read (gap 40).
+      supply rule gives whenever the board has a pilot to read (gap 24).
     - **The bootloader**: requests that take the real controller into its own bootloader
       reach the application (`OPENSC2_POWER_BOOTLOADER`), whose bootloader cannot take Steam's
       update; after the update window the library reboots if the application did not.
@@ -859,15 +777,14 @@ open, the library does what should work with Steam and the puck, and says so her
       a remote wakeup (`CONFIG_OPENSC2_USB_REMOTE_WAKEUP`), as on the real controller's wake-up path
       (unreachable in its October firmware). OpenSC2 has none of the real scripts: the cue event
       names the real script it stands for, and the sound is OpenSC2's own, played by the haptics
-      synthesiser when it is built in (gap 35), else by the application.
+      synthesiser when it is built in (gap 20), else by the application.
     - **The keylock chord** saves the lock for the next power-on and leaves the value in RAM as it
       is, so `0xED user/keylock` reads the old value until the next boot, as documented (a quirk
       Steam could see, copied).
     - **The LED**: the documentation gives the brightness curve for setting 38 = 1 (the default) and
       a linear brightness for 0; OpenSC2 uses the curve for every value that is not 0. The blank
       canvas scales its channels by the per-unit `cal/rgbw_*` keys, as the real controller does
-      (`led-trims` in its overlay can fix them for a board instead). The over-the-air pairing (gap
-      1), which the real controller never shows, flashes like Bluetooth's pairing mode. The
+      (`led-trims` in its overlay can fix them for a board instead). The over-the-air pairing (gap 1), which the real controller never shows, flashes like Bluetooth's pairing mode. The
       application drives the LED from the library's status every 10 ms through the pattern player,
       where the real controller's LED thread drives its PWM itself. None of the patterns has been
       compared with a real controller's LED.
@@ -883,7 +800,7 @@ open, the library does what should work with Steam and the puck, and says so her
       data: OpenSC2 has curves of its own, and a board can give its own
       (`opensc2_gauge_set_curves()`).
 
-35. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; built, not yet
+20. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; built, not yet
     tested on hardware). Re-implemented from the protocol documentation's description of the real
     controller's sequencers, generators, scripts, cues, streams and rumble emulation, rule for
     rule, the accidents of its arithmetic included, in integers, so blocks are bit for bit the same
@@ -892,9 +809,9 @@ open, the library does what should work with Steam and the puck, and says so her
     | Point | OpenSC2 |
     | --- | --- |
     | As the real controller plays it | the fifth-order polynomial sine (peak about 1.0045) with its one-cycle phase wrap (a tone above the channel's rate turns into clipped noise); values that are not a number (a sweep from 0 Hz, with equal ends, of duration 0 or with its 16-bit count wrapped to 0 while rising) playing +1, full scale, over the whole channel mix, an end of 0 Hz spoiling the first sample only, a wrapped falling one growing to full scale through the fade-out's arithmetic; the sweep's 16-bit count (longer sweeps run faster and higher), its fade-out to 0 and over the whole of a sweep under 5 ms; pulse periods in 16 bits (under one sample, a constant -1 for 65,536 samples a period); a generator that ends by itself lingering 1 (pads) or 4 (grips) silent samples, which can add a silent block; dB sums in 8 bits (click A from `0x82` +122 dB, script offsets, the rumble's left gain); the real scalings and roundings; the channels rendered one after the other, the negated one first (which orders two `0x44` of one block) |
-    | Streams | the interpolated values computed ahead survive a stop and play first at the next start; a stream that runs dry with half a 16-bit sample left loses that byte, one that cannot interpolate plays its current sample once; no water mark before a format (no `0x08`; `0x01` for every write once the ring is full); a format byte of 12 and up sets the water mark and start point and keeps the last sample size and rate (s8 after mu-law; on a channel whose stream never ran, no bytes at all: a silent value without end); each write that finds enough audio queues a start until one is applied; the `0x02` replies to stops sent when the sequencer takes them (gap 19) |
+    | Streams | the interpolated values computed ahead survive a stop and play first at the next start; a stream that runs dry with half a 16-bit sample left loses that byte, one that cannot interpolate plays its current sample once; no water mark before a format (no `0x08`; `0x01` for every write once the ring is full); a format byte of 12 and up sets the water mark and start point and keeps the last sample size and rate (s8 after mu-law; on a channel whose stream never ran, no bytes at all: a silent value without end); each write that finds enough audio queues a start until one is applied; the `0x02` replies to stops sent when the sequencer takes them, as on the real controller |
     | Timing | a command is applied before the thread waits for the output to take a block, and the block rendered after the wait (an output's optional `ready()`; the built-in outputs have it): a command is heard about 4 ms after it on an idle path and 16 to 24 ms after it while something plays, and a stream's bytes are read and its flags sent when the real one does; commands arriving while a path drains wait for its next start; a path without an output is paced by a timer at the real block times, 8 ms on the grips and 8.192 ms on the pads |
-    | Settings 75 and 76 | handed to the four channels as configure commands at the end of start-up and on every change, through the queues (a command a full queue loses keeps the old value; the hand-out stops at the first channel it does not reach); the channel gains are 0, silence, until then; amplifier mode 1 raises the enable at once and holds it, 0 drops it at once, even in the middle of a sound; the keys by name act on the channels directly (gap 26). Setting 70 does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
+    | Settings 75 and 76 | handed to the four channels as configure commands at the end of start-up and on every change, through the queues (a command a full queue loses keeps the old value; the hand-out stops at the first channel it does not reach); the channel gains are 0, silence, until then; amplifier mode 1 raises the enable at once and holds it, 0 drops it at once, even in the middle of a sound; the keys by name act on the channels directly (gap 12). Setting 70 does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
     | The pads' PWM DAC | 256 steps of 16 us, each sample held 16 periods: about 3906 Hz, as the real one (`CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K` for exactly 4 kHz). One difference of the pins: the real controller hands its samples to the PWM as they are, without the polarity bit, so its pins are low for a sample's counts and high for the rest (256 - v); OpenSC2's are high for v, the same waveform inverted. Which is right depends only on what the pins drive, the board's wiring |
     | `0x87` and `0x89` through the puck | the record's length, one more than the report's, as the real controller's handlers get it: `0x87` takes one byte from beyond the report and `0x89` accepts an n one larger, the extra byte the next record's length byte or whatever the receive buffer holds there |
     | The drop sounds | reported by the application (the blank canvas: a software detector, below 0.35 g for 150 ms, where the real controller uses its IMU's own); the IMU stopping within 5 s of a fall cancels the sound and leaves the drop sounds off until a reboot (`opensc2_haptics_imu_stopped()`), as on the real controller |
@@ -902,31 +819,26 @@ open, the library does what should work with Steam and the puck, and says so her
     | Still different | an output report shorter than its fields is refused (the real handlers read past its end into whatever the link's receive buffer holds, which cannot be reproduced); the pad frame's word order inside OpenSC2's output API is left first (the real device's first word is the right pad: only which pin carries which pad, the board's choice); integer arithmetic where the real one has floats: values within a count of the real ones at first; the real phases are floats that gather rounding as they run, so after seconds a tone is some tens of counts away (78 after 5 s of 1 kHz on a grip), a sweep within a few tens of counts (its phase summed sample by sample, each step taken half a sample on so the sum stays with the real closed form; over sweeps of several seconds it drifts by up to a few hundredths of a cycle), a tone far above the rate saturating at 65536 where the real values grow without end, the constant of a wrapped falling sweep exact where the real one is rounded away (for very long or very flat ones the real float phase has no correct digits left); the free-fall detector above |
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
 
-36. **The dock's answers** are built as the real controller builds them, over the previous answer
-    (closed). What stays different: after a boot the bytes no request has written yet are zeros
+21. **The dock's answers** are built as the real controller builds them, over the previous answer
+   . What stays different: after a boot the bytes no request has written yet are zeros
     (the real controller's are leftover stack contents), and the bytes a GET's command handler
     leaves after its answer are OpenSC2's handler's (some of them clear the rest of their answer,
     where the real one may not).
-37. **GET input with the dock alone** answers the report the request before it built, as on the
-    real controller (closed). OpenSC2 builds the new report while the answer goes out, in the
+22. **GET input with the dock alone** answers the report the request before it built, as on the
+    real controller. OpenSC2 builds the new report while the answer goes out, in the
     thread that serves the dock (the application's `sample` runs there); the real controller wakes
     its input thread for it. The zeroed state report sent while a link is dropped never reaches the
     dock's copy, on either firmware. Not copied: when the real controller drops its links (a
     shutdown, or USB power with the radio turned off) while a dock session is still open, its copy
     stops filling and attribute 11 reads 0 until that session ends; a controller in those states is
     off the dock or on USB, so a puck never sees it.
-38. **Result codes on the dock** are the real controller's numbers whatever this platform's errno
-    values are: `-22` for an opcode nobody knows or a length above 61, `-95` for a GET whose
-    command has nothing to read. Through the puck the library's codes are the real controller's
-    numbers too (the nRF Connect SDK's errno values are), after 0.2.0 also for an opcode nobody
-    knows (0.2.0 gave `-134`) and for the settings by name (gap 26).
-39. **One command at a time.** The real controller runs each link's commands in that link's own
+23. **One command at a time.** The real controller runs each link's commands in that link's own
     thread, with no lock between links. OpenSC2 runs one command at a time across links, so a command
     from the dock waits for one from USB or the radio and the other way round; a flash write on one
     link can delay another link's command by its length. A host sees no other difference. This
     stays: the commands share the settings, bonds and identity, and the library's own state has
     no per-field locks the real firmware's can do without.
-40. **Dock power and the docked states.** The supply rule is the real controller's (closed): "a
+24. **Dock power and the docked states.** The supply rule is the real controller's: "a
     supply is present" is VBUS, or the dock's `+` on a sense input of the board's own for a board
     whose `+` must not reach VBUS; a fresh pilot check whenever that changes makes a supply that
     appears with the pilot the dock's power and any other USB power, so the dock and USB at once
@@ -940,7 +852,7 @@ open, the library does what should work with Steam and the puck, and says so her
     the dock link only through the test hooks) never counts as docked. Without the machine
     (`CONFIG_OPENSC2_SYSTEM=n`) a cold boot on the dock starts the radio when the application asks,
     where the real controller charges with the radio off.
-41. **The dock's wire is untried.** The pilot's window is at the controller's pin with no divider;
+25. **The dock's wire is untried.** The pilot's window is at the controller's pin with no divider;
     how the pilot and the serial link share the `P` pad, the pad's idle level and its load are not
     known. The SuperMini dock build (`app/dock.conf`) is a guess at the controller's side (an
     open-drain TX, RX without a pull, the pilot on an analog pin), built and never run; nothing may
@@ -960,20 +872,20 @@ why:
   charge state machine, the gauge and the cut-off on the board's callbacks (`set_charge_voltage`,
   `set_input_voltage_limit`, `input_changed`, `battery_cutoff`), and only a board with a charger it
   can program gets those writes; a board whose charger tells no status gets the library's model.
-  Input power is the library's view (`opensc2_power_source()`, gap 34), where the real controller
+  Input power is the library's view (`opensc2_power_source()`, gap 19), where the real controller
   takes its charger's supply detection.
 - **The level's curves** are OpenSC2's own single-cell LiPo curves; the real controller's are
   Valve's data for Valve's cell. The rules on them (the 40 readings, the stretch, the direction,
   "done" is 100, the level kept over a warm reboot) are the real controller's.
 - **The trackpad chip**: its frame protocol, its register tables and its firmware updater belong to
   Valve's chip and its firmware, which are not reproduced; an application gives frames or positions
-  (gaps 31 and 32). The boost of the capacitive readings without input power is the library's
+  (gaps 16 and 17). The boost of the capacitive readings without input power is the library's
   ([api.md](api.md#input-power-and-the-capacitive-sensors)).
 - **The hardware-ID check** (an unknown board revision blinks red and reboots into Valve's
   bootloader) and the factory identity in UICR: there is no such bootloader or record here; the
   reported board revision is a setting (`0x48` by default). What the real controller changes by
   revision is done by the same number: the IMU's free-fall window (0 on `0x45`) and fusion
-  alpha-blend (up to `0x48`) in the stream build, the docked stick offsets (gap 31).
+  alpha-blend (up to `0x48`) in the stream build, the docked stick offsets (gap 16).
 - **The analog inputs**: the sticks use the real controller's scale (gain 1/4 of VDD/4) but a
   10 µs acquisition time instead of 3 µs, because the blank canvas holds unwired pins at mid-scale
   with the converter's own high-value resistors, which a 3 µs sample does not settle on.
