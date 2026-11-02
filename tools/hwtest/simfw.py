@@ -666,20 +666,32 @@ class SimBoard:
 
     # ---- Bluetooth: feature report 1 as a characteristic (ble.c) ----
     def ble_feature_set(self, value):
-        """A write of the feature characteristic: a SET of its first 63 bytes; a refusal is an
-        ATT error."""
-        return self.command_set("ble", bytes(value[:63]))
+        """A write of the feature characteristic: kept as its value (64 bytes per connection),
+        then a SET of its first 63 bytes; a refusal is an ATT error."""
+        value = bytes(value[:64])
+        if self.ble is not None:
+            self.ble.feature[:len(value)] = value
+        return self.command_set("ble", value[:63])
 
     def ble_feature_get(self):
         """A read: the stored request's GET; a command without one, or a failed one, is an ATT
-        error. (rc, the 64 bytes Windows hands over: report ID, then the value)."""
+        error. As ble.c (osc2_ble_feature_read()): the answer over the stored request over the
+        characteristic's value, so the bytes after the answer are left-overs. (rc, the 64 bytes
+        Windows hands over: report ID, then the value's first 63). The string attribute (0xAE)
+        writes one byte more than it counts, its padding (osc2_ble_get_span())."""
+        opcode, payload = self.stored["ble"]
         rc, opcode, data = self.command_get("ble")
         if rc:
             return rc, None
-        buf = bytearray(64)
-        buf[0], buf[1], buf[2] = 1, opcode, min(len(data), 61)
-        buf[3:3 + min(len(data), 61)] = data[:61]
-        return 0, bytes(buf)
+        img = bytearray(self.ble.feature if self.ble is not None else bytes(64))
+        req = bytes([opcode, len(payload)]) + payload
+        img[:len(req)] = req
+        n = min(len(data), 61)
+        img[1] = n
+        img[2:2 + n] = data[:n]
+        if opcode == 0xAE and n == 20:
+            img[22] = 0                   # the string's padding byte past its length
+        return 0, bytes([1]) + bytes(img[:63])
 
     # ---- output reports (report.c) ----
     def output(self, link, report):

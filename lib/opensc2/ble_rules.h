@@ -108,11 +108,12 @@ uint8_t osc2_ble_other_id(uint8_t id);
 uint8_t osc2_ble_pick_id(uint8_t slot, bool first_bonded, bool second_bonded, bool pair_request,
 			 bool *reset);
 
-/* The bond rule, checked once the link is encrypted (security level 2 or more): a host that has a
- * bond on an identity which had none when its advertising started is the slot's new host. Then the
- * bond on the slot's other identity is deleted (one host per slot), the moment the real controller
- * plays its "paired" cue. */
-bool osc2_ble_new_host(bool bonded_at_start, bool bonded_now, uint8_t security_level);
+/* The bond rule, checked when the link reaches security level 2 (once per connection): a host
+ * that encrypts a link on an identity which had no bond when its advertising started is the slot's
+ * new host, whether it bonded or not, as on the real controller. Then the bonds on the slot's
+ * other identity are deleted (one host per slot), the moment the real controller plays its
+ * "paired" cue. */
+bool osc2_ble_new_host(bool bonded_at_start, uint8_t security_level);
 
 /* ---- the advertising window and disconnects ---------------------------------------------- */
 
@@ -216,6 +217,23 @@ uint8_t osc2_ble_write_check(uint16_t offset, uint16_t len, uint16_t size);
  * bytes {opcode, length, payload}. */
 #define OSC2_BLE_FEATURE_LEN 64
 
+/* A read of the feature report's value at `offset`, `len` bytes at most, as the real controller
+ * answers it: the stored value from `offset` (what the host last wrote on this connection, zero at
+ * its start), with the stored request {opcode, length, payload} (`request_len` bytes) written over
+ * its start, and the GET's answer over that ({opcode, n, data}: `answer[1]` = n, then the bytes the
+ * GET writes from `answer[2]`, osc2_ble_get_span(); `answer` holds 63 bytes). So the bytes after
+ * the answer are left-overs of the request and of the last write, and a read at any offset gets
+ * the answer at its start: the value cannot be read in parts. Into `out` (64 bytes); returns the
+ * bytes read, 0 for an offset at or past the end (the caller refuses one past it). */
+size_t osc2_ble_feature_read(const uint8_t value[OSC2_BLE_FEATURE_LEN], uint16_t offset,
+			     uint16_t len, const uint8_t *request, uint8_t request_len,
+			     const uint8_t *answer, uint8_t out[OSC2_BLE_FEATURE_LEN]);
+/* How many bytes after its length byte a GET of `opcode` that answered `n` bytes writes, as on the
+ * real controller: `n`, except the string attribute's (0xAE), which writes its tag and 20
+ * characters padded with zeros while it counts 20 bytes, so the byte after its answer is the
+ * string's padding, not a left-over. At most 61. */
+uint8_t osc2_ble_get_span(uint8_t opcode, uint8_t n);
+
 /* ---- Valve's vendor service ------------------------------------------------------------------- */
 
 /* A second GATT service mirrors the HID service's reports as plain characteristics, for hosts that
@@ -242,6 +260,16 @@ enum osc2_ble_target {
 	OSC2_BLE_TARGET_HID,
 };
 enum osc2_ble_target osc2_ble_input_target(bool vendor_subscribed, bool hid_subscribed);
+
+/* The real controller's quirk in its flags of the vendor service's subscriptions, which OpenSC2
+ * copies: the flag of input `index` 5 (report 0x45, the state) is bit 0 of the puck link's last
+ * disconnect reason (what vendor command 0xF2 selector 2 reports), not the host's subscription.
+ * The flag the vendor service has for input `index` of osc2_ble_reports, from the host's
+ * subscription there and that reason. */
+bool osc2_ble_vendor_flag(int index, bool vendor_subscribed, uint8_t radio_reason);
+/* That reason after the host turned the vendor 0x45's notifications on or off (and when the stack
+ * turns them off at a disconnect): bit 0 set or cleared. */
+uint8_t osc2_ble_vendor_state_ccc(uint8_t radio_reason, bool on);
 
 /* ---- what the link is doing ------------------------------------------------------------------ */
 
@@ -293,6 +321,26 @@ bool osc2_ble_interval_suboptimal(uint32_t interval_us);
  * In ticks of a clock with `ticks_per_s` ticks a second (rounded down). */
 int64_t osc2_ble_slot_ticks(int64_t event_ticks, uint32_t interval_us, uint32_t lead_us,
 			    uint32_t ticks_per_s);
+
+/* The sampling margin: the report thread wakes this long before the slot, so the state report is
+ * built and sent by then. As on the real controller it is the longest time a frame took (sampling,
+ * the report, lizard mode) over the current run of 65 frames and the run before it, and starts at
+ * 81 ticks of a 32,768 Hz clock (about 2.5 ms) until the first run is complete. Times in ticks of
+ * the caller's clock. */
+#define OSC2_BLE_MARGIN_FRAMES       65
+#define OSC2_BLE_MARGIN_INITIAL_32K  81     /* ticks of 32,768 Hz (2472 us) */
+struct osc2_ble_margin {
+	uint32_t peak;      /* the longest of the current run */
+	uint32_t worst;     /* the longest of the last complete run (the initial value before one) */
+	uint8_t frames;     /* frames in the current run */
+};
+void osc2_ble_margin_init(struct osc2_ble_margin *m, uint32_t initial_ticks);
+/* The initial margin in ticks of a `ticks_per_s` clock, rounded down: exactly 81 at 32,768 Hz. */
+uint32_t osc2_ble_margin_initial_ticks(uint32_t ticks_per_s);
+/* How long before the slot to wake. */
+uint32_t osc2_ble_margin(const struct osc2_ble_margin *m);
+/* One frame took `ticks`. */
+void osc2_ble_margin_add(struct osc2_ble_margin *m, uint32_t ticks);
 
 /* ---- device information --------------------------------------------------------------------- */
 

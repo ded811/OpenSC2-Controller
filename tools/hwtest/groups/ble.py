@@ -17,8 +17,9 @@ from ..proto import console as cproto
 from ..proto import reports as R
 
 GROUP = "ble"
-TESTS = [("ble.link", "B", []), ("ble.cut", "B", []), ("ble.reconnect", "B", []),
-         ("ble.wireless_off", "B", []), ("ble.window", "B", ["flash"])]
+TESTS = [("ble.link", "B", []), ("ble.cut", "B", []), ("ble.feature", "B", []),
+         ("ble.reconnect", "B", []), ("ble.wireless_off", "B", []),
+         ("ble.window", "B", ["flash"])]
 
 LINK_CONNECTED = 4
 LINK_OFF = 0
@@ -134,11 +135,33 @@ def run(ctx):
                        not any(rep[1 + C.BLE_STATE_LEN:]))
             rig.inject_off()
 
+    if ctx.want("ble.feature"):
+        with ctx.check(GROUP, "ble.feature") as c:
+            # feature report 1 over Bluetooth as the real controller answers it: the GET's answer
+            # over the stored request over the characteristic's value, so after a 0xAE request
+            # longer than its 20-byte answer (and the string's padding byte after it: the GET
+            # writes its tag and 20 characters) the request's own bytes follow, then what the SET
+            # wrote (Windows pads it with zeros); USB answers zeros there
+            filler = 0xA5
+            payload = bytes([1]) + bytes([filler]) * 40      # tag 1, then 40 bytes nobody reads
+            raw = rig.vendor_raw(C.VC_STRING_ATTR, payload)
+            c.eq("the answer: 0xAE, n = 20", (raw[1], raw[2]), (C.VC_STRING_ATTR, 20))
+            req_end = 1 + 2 + len(payload)                    # in Windows' buffer (report ID first)
+            c.eq("then the string's padding byte (23)", raw[3 + 20], 0)
+            c.eq("then the request's left-over bytes (%d to %d)" % (3 + 21, req_end - 1),
+                 list(raw[3 + 21:req_end]), [filler] * (req_end - 24))
+            c.true("then the SET's own bytes (zeros)", not any(raw[req_end:]))
+            # the stored request stays: a plain GET answers 0xAE again
+            a = rig.vendor_get()
+            c.eq("a GET alone answers the stored request again", a.opcode, C.VC_STRING_ATTR)
+
     if ctx.want("ble.reconnect"):
         with ctx.check(GROUP, "ble.reconnect") as c:
             # a lost link (a supervision timeout, reason 0x08): the same identity advertises again
             # 500 ms later, directed to its host first; Windows connects it again
             before = rig.ble_link_status() or {}
+            # a request a GET answers, stored before the drop: it outlives the link
+            rig.vendor_set(C.VC_STRING_ATTR, bytes([1]))
             start = _ring_next(rig)
             with rig.own_link_drop(grace_s=2.0):
                 a = rig.test(C.OP_BLE_DROP, bytes([HCI_CONN_TIMEOUT]), path=rig.console_path)
@@ -162,6 +185,9 @@ def run(ctx):
             if back:
                 c.true("the board streams again",
                        rig.wait_report(lambda r: r[0] == C.RPT_STATE, rig.t(5.0)) is not None)
+                a = rig.vendor_get()
+                c.eq("the stored request outlived the link: a GET alone answers 0xAE", a.opcode,
+                     C.VC_STRING_ATTR)
 
     if ctx.want("ble.wireless_off"):
         with ctx.check(GROUP, "ble.wireless_off") as c:

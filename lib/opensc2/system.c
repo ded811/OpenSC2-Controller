@@ -359,7 +359,7 @@ void osc2_sys_cue_post(uint8_t cue)
 
 /* ---- the actions ----------------------------------------------------------------------------- */
 
-static void drop_link(const char *why)
+static void drop_link(const char *why, bool dock)
 {
 	if (osc2_wired()) {
 #if defined(CONFIG_OPENSC2_USB)
@@ -367,7 +367,9 @@ static void drop_link(const char *why)
 #endif
 		return;
 	}
-	if (bt && bt->stop) {
+	if (dock && bt && bt->disable) {
+		bt->disable();   /* the dock: Bluetooth off in any state, without the zero report */
+	} else if (bt && bt->stop) {
 		bt->stop();
 	}
 	if (osc2_radio_state() != OPENSC2_LINK_OFF) {
@@ -485,7 +487,7 @@ static void apply(const struct osc2_sys_out *o)
 	}
 	if (o->actions & OSC2_SYS_DO_DROP) {
 		drop_link(o->cause == OSC2_SYS_EV_UNPLUGGED || o->cause == OSC2_SYS_EV_POWER_NONE ?
-			  "USB power gone" : "shutdown");
+			  "USB power gone" : "shutdown", o->to == OSC2_SYS_DOCK_OFF);
 	}
 	if (o->actions & OSC2_SYS_DO_CUE) {
 		play_cue(o->cue);

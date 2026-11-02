@@ -1254,6 +1254,20 @@ class Rig:
             self.vendor_set(opcode, payload, path)
             return self.vendor_get(path)
 
+    def vendor_raw(self, opcode, payload=b""):
+        """W or B: SET then GET under one lock, and the GET's whole 64-byte buffer (report ID,
+        then the value), left-overs after the answer included. Refused when either fails."""
+        if self.path == "R":
+            raise RigError("vendor_raw: feature report 1 only (W or B)")
+        with self._lock:
+            self.vendor_set(opcode, payload)
+            self.stats["usb_requests"] += 1
+            try:
+                return bytes(self._usb_get())
+            except Stall as e:
+                self.stats["usb_stalls"] += 1
+                raise Refused(-1, "get") from e
+
     def refused(self, opcode, payload=b"", get=False):
         """True when the board refuses the SET (or, with `get`, the GET after it)."""
         try:

@@ -636,7 +636,7 @@ On the console (wireless mode):
 | `opensc2 transport ble` | switch to Bluetooth slot 1 (`ble2`: slot 2); stored once a host has connected and encrypted the link |
 | `opensc2 transport ble save` | the same, stored at once (then `opensc2 reboot wireless` comes back on Bluetooth) |
 | `opensc2 ble status` | advertising (its form and the seconds left of its 60 s window), connected (security, ATT MTU, interval, the reports sent) or wireless off; the identity and its address, the bonds |
-| `opensc2 ble pair` | pairing mode: the slot's other identity, reset, is open to a new host for 60 s; the old host keeps its bond until a new one has paired (the pairing button does the same while Bluetooth is the transport) |
+| `opensc2 ble pair` | pairing mode: the slot's other identity, reset, is open to a new host for 60 s; the old host keeps its bond until a new one has encrypted the link (the pairing button does the same while Bluetooth is the transport) |
 | `opensc2 start` | advertise again after "wireless off" (STEAM instead reboots the board, which comes back wired, as on the real controller on USB power) |
 | `opensc2 transport puck` | back to the puck |
 

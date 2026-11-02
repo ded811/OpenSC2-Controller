@@ -38,7 +38,9 @@ class BleLink:
         self.connected = self.gate = self.advertising = False
         self.form = FORM_NONE
         self.wireless_off = self.pair_request = False
-        self.security, self.mtu = 0, 23
+        # the last ATT MTU heard of: kept across links, 0 until a host raises it (ble.c)
+        self.security, self.mtu = 0, 0
+        self.feature = bytearray(64)      # feature report 1's value on this connection
         self.last_reason = 0
         self.reports = self.dropped = 0
         self.window_once_ms = 0
@@ -153,6 +155,7 @@ class BleLink:
     def connect(self):
         self.adv_stop(0)
         self.connected = True
+        self.feature = bytearray(64)
         self.security, self.mtu = 2, 67
         self.reports = self.dropped = 0
         self.set_state(REASON_NONE)
@@ -197,10 +200,9 @@ class BleLink:
         self.off_why = ("bluetooth: no host within the window" if cause == 0 else
                         "bluetooth: the host left")
         self.b.timers["ble_off_power"] = self.b.now()
-        # The system state machine of the Bluetooth build answers the give-up with its drop: a
-        # stop that keeps the stack, which finds Bluetooth off already and changes nothing, so the
-        # flag and the reason stay (ble.c do_stop()).
-        self.stop(release=False)
+        # The system state machine of the Bluetooth build answers the give-up with its drop,
+        # which reaches Bluetooth only past the gate (ble.c sys_bt_stop()): the link is gone
+        # already, so nothing changes and the flag and the reason stay.
 
     def stop(self, release=True):
         already_off = (self.wireless_off and not self.connected and not self.advertising and

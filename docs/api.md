@@ -7,7 +7,8 @@ Everything a project needs from `<opensc2/opensc2.h>` (which also includes `<ope
 `<opensc2/codec.h>`, `<opensc2/settings.h>` and `<opensc2/led.h>`, the status LED), plus the
 optional `<opensc2/fusion.h>`, `<opensc2/cal.h>` (calibration and raw inputs),
 `<opensc2/sensor_helpers.h>` and `<opensc2/gauge.h>` (sensor and battery helpers),
-`<opensc2/haptics.h>` (the haptics synthesiser) and `<opensc2/dock.h>` (the dock's frames). The
+`<opensc2/haptics.h>` (the haptics synthesiser), `<opensc2/dock.h>` (the dock's frames) and
+`<opensc2/ble.h>` (Bluetooth's state). The
 library is hardware-agnostic: it has no pins. Your application reads its buttons, sensors and touch parts
 and hands the values over; it receives the outputs through callbacks and drives whatever it has.
 The same inputs and outputs work wireless (through the puck) and wired (on USB). How to bring the
@@ -90,6 +91,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_gauge_step()`, `opensc2_gauge_divider_mv()`, ... | battery voltage and state of charge (`<opensc2/gauge.h>`) | [Battery helpers](#battery-helpers) |
 | `opensc2_haptics_set_output(path, &out)`, `opensc2_haptics_play_cue(cue, level)`, ... | with `CONFIG_OPENSC2_HAPTICS_SYNTH`: the haptics synthesiser's outputs and its own sounds (`<opensc2/haptics.h>`) | [The haptics synthesiser](#the-haptics-synthesiser) |
 | `opensc2_dock_crc16()`, `opensc2_dock_frame_check()`, `opensc2_dock_frame_seal()`, `opensc2_dock_build_request()` | the dock's 73-byte frames (`<opensc2/dock.h>`, pure) | [The dock](#the-frame-functions) |
+| `opensc2_ble_status(&st)` | with `CONFIG_OPENSC2_BLE`: Bluetooth's state, bonds, MTU, interval, window (`<opensc2/ble.h>`) | [What a custom board supplies to Bluetooth](#what-a-custom-board-supplies-to-bluetooth) |
 
 The callbacks your application can register are in [Outputs](#outputs).
 
@@ -1440,7 +1442,9 @@ tested on hardware.** The blank canvas's opt-in build is `app/ble.conf`
 protocol documentation's Bluetooth page ([protocol.md](protocol.md#overview-bluetooth-le) has the
 summary and the gaps):
 
-- **Name and advertising**: "Steam Ctrl (BT) " and the unit serial (29 characters). Three forms of
+- **Name and advertising**: "Steam Ctrl (BT) " and the unit serial (29 characters), set at the first
+  start of a boot (and again after the identity's serial changed): a name an encrypted host writes
+  over GAP is what the board advertises until the next boot, as on the real controller. Three forms of
   connectable advertising, chosen at each start from the identity in use: **pairing mode** when it
   has no bond (undirected every 100 to 150 ms, anyone may connect; the flags, the gamepad
   appearance, the HID and battery service UUIDs, the TX power and the manufacturer data of company
@@ -1461,9 +1465,11 @@ summary and the gaps):
   identity (a fresh address, no keys) and advertises on it in pairing mode, so a request no host
   answers loses nothing.
 - **Pairing and bonds**: Just Works with LE Secure Connections only, bonding; every HID and vendor
-  value needs an encrypted link. A host that bonds on an identity that had no bond when advertising
-  started is the slot's new host: the bond on the slot's other identity is deleted, so each slot has
-  one host at a time and each new pairing appears to hosts as a new device. A bond the stack deletes
+  value needs an encrypted link. A host that encrypts the link on an identity that had no bond when
+  advertising started is the slot's new host, whether it bonds or not, as on the real controller:
+  the bonds on the slot's other identity are deleted (the "paired" moment: reason
+  `OPENSC2_REASON_PAIRED`, cue 7), so each slot has one host at a time and each new pairing appears
+  to hosts as a new device. A bond the stack deletes
   by any route resets its identity (only logged while that identity is in use). A host that bonds
   on a second identity loses its bond on the first (`CONFIG_BT_ID_UNPAIR_MATCHING_BONDS`); a host
   that asks to pair again on the identity it is bonded to is refused (SMP error `0x03`): it needs a
@@ -1493,19 +1499,32 @@ summary and the gaps):
   HID service's, so a SET written on one is the stored request of the other; a write shorter than
   the report is taken (SDL leaves out the last byte). An input report goes out on the vendor
   characteristic when the host enabled its notifications there, else on the HID service's.
-- **The gate**: reports flow once the link is encrypted and its ATT MTU is 64 or more; then
-  Bluetooth is the active transport (`0x81` and `0x85` act, attribute 11 of `0x83` is the connection
-  interval in µs) and the choice is stored.
-- **Reports**: one state report per connection event, built one connection interval after the event
-  less `CONFIG_OPENSC2_BLE_REPORT_LEAD_US` (500 µs) and sent as `0x45` (the first 45 bytes of
-  `0x42`); lizard mode's `0x40` and `0x41`, `0x43` (which also sets the battery service's level) and
-  `0x44` go out on their characteristics, each only where the host enabled notifications (the
-  vendor service's first).
+- **The gate**: reports flow once the link is encrypted and the last ATT MTU heard of is 64 or more;
+  then Bluetooth is the active transport (`0x81` and `0x85` act, attribute 11 of `0x83` is the
+  connection interval in µs) and the choice is stored. As on the real controller the MTU is kept
+  across links, so a later host needs only encryption (one that keeps the default MTU then gets
+  every state report refused by the stack, each logged as an error), and once open the gate stays
+  open until the link ends, also when a later MTU exchange on it gives less than 64.
+- **Reports**: one state report per connection event, due one connection interval after the event
+  less `CONFIG_OPENSC2_BLE_REPORT_LEAD_US` (500 µs), sampled ahead of that slot by the sampling
+  margin (the longest frame of the current and the last run of 65 frames, about 2.5 ms until the
+  first run is complete, as the real controller's input loop), and sent as `0x45` (the first 45
+  bytes of `0x42`); lizard mode's `0x40` and `0x41`, `0x43` (which also sets the battery service's
+  level) and `0x44` go out on their characteristics, each only where the host enabled
+  notifications (the vendor service's first). A report's value is kept (what a read returns)
+  before it is sent; one that cannot be sent is logged as an error with its ID. The vendor
+  service's `0x45` flag is the real controller's quirk: bit 0 of the puck link's last disconnect
+  reason ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23).
 - **Outputs and commands**: output reports written with or without response go to the same
   dispatcher as on every link; feature report 1 is the vendor command channel (a write is a SET, a
-  read a GET), with refusals as ATT error `0x04` and a write past 64 bytes as `0x07`. Power and
-  reboot commands act as on the other links; a reboot into wireless mode comes back on Bluetooth when
-  Bluetooth is the stored transport.
+  read a GET), with refusals as ATT error `0x04` and a write past 64 bytes as `0x07`. Its value is
+  64 bytes per connection, as on the real controller: every read runs the stored request's GET
+  again (a read blob too) and answers over the start of the value, so the bytes after the answer are
+  left-overs of the request and of the last write (except one: `0xAE` writes its tag and 20
+  characters but counts 20, so the byte after its answer is the string's padding), and a read blob
+  gets the start again. The stored request stays from one connection to the next (`0x83` until the
+  first SET after boot). Power and reboot commands act as on the other links; a reboot into wireless
+  mode comes back on Bluetooth when Bluetooth is the stored transport.
 - **Connection**: 7.5 ms, latency 0 and 420 ms asked for 5 s after connecting, every valid host
   request accepted (the stack refuses invalid ones; a longer interval is logged as suboptimal), the
   2M PHY asked for; no data-length update of its own.
@@ -1519,9 +1538,14 @@ summary and the gaps):
 
 With the [system state machine](#power-and-the-system-state-machine) (on by default) Bluetooth is
 one of its transports: B + right bumper and B + left bumper choose slot 1 and 2, held 4 s they ask
-for pairing mode ([Chords](#chords)); pairing mode's start and a new host raise cues 6 and 7, and
-advertising that runs out or a host that leaves end in "wireless off" as on the puck (the machine's
-drop that follows keeps Bluetooth's wireless-off flag and its reason for `opensc2 ble status`).
+for pairing mode ([Chords](#chords)); every start of pairing-mode advertising (the restart after a
+failed connection too) and a new host raise cues 6 and 7, and advertising that runs out or a host
+that leaves end in "wireless off" as on the puck (Bluetooth's wireless-off flag and its reason stay
+for `opensc2 ble status`). As on the real controller the machine's drop (wireless off on USB power,
+a shutdown, a reboot) reaches Bluetooth only past its gate: the zero report, 100 ms, `0x13`;
+advertising, or a host not yet past the gate, is left running (advertising until its window ends).
+On the dock the machine ends the link in any state, without the zero report. The status LED and the
+plug-in rule count a host as connected from its connection, before the gate.
 Without the machine the chords are an application's (`opensc2_select_transport()`,
 `opensc2_select_transport_pairing()`) and the cues its own, from `link_changed`. The shell's
 `opensc2 ble status` shows the link, and the hardware test suite's `--bluetooth` path checks it on a
@@ -1540,12 +1564,33 @@ What a project needs, as `app/ble.conf` sets it:
 | `CONFIG_BT_DEVICE_NAME_DYNAMIC=y`, `CONFIG_BT_DEVICE_NAME_MAX=31`, `CONFIG_BT_DEVICE_APPEARANCE=964` | the name with the unit serial; the gamepad appearance (the first two checked) |
 | `CONFIG_BT_BUF_ACL_RX_SIZE=71`, `CONFIG_BT_BUF_ACL_TX_SIZE=71`, `CONFIG_BT_L2CAP_TX_MTU=67`, `CONFIG_BT_ATT_PREPARE_COUNT=4` | an ATT MTU of 67 (64 or more checked); long writes of the 64-byte feature report at the default MTU |
 | `CONFIG_BT_PERIPHERAL_PREF_MIN_INT=6`, `_MAX_INT=6`, `_LATENCY=0`, `_TIMEOUT=42`, `CONFIG_BT_AUTO_PHY_PERIPHERAL_2M=y`, `CONFIG_BT_AUTO_DATA_LEN_UPDATE=n` | the connection parameters and the PHY |
+| `CONFIG_BT_USER_PHY_UPDATE=y` (optional) | the PHYs in the log at connection and at every change |
 | `CONFIG_BT_BAS=y` | the battery service (checked) |
 | `CONFIG_BT_RX_STACK_SIZE=3072` | vendor commands run in the host's receive thread, and some write flash |
 | `CONFIG_BT_UNINIT_MPSL_ON_DISABLE` left off | MPSL must stay initialised (checked) |
 
 The EGU whose interrupt carries the connection-event trigger is `egu3` (SWI3); a devicetree can
 choose another as `opensc2,ble-egu` (ESB uses `egu0`, MPSL `egu5`).
+
+#### What a custom board supplies to Bluetooth
+
+Bluetooth needs no part of its own beyond the nRF52's radio; everything it shows comes from what
+the application already gives the library, at any time:
+
+| What a host sees | Where it comes from |
+| --- | --- |
+| The name, the Device Information's serial and revisions | the identity (`opensc2_config.identity`, `opensc2_identity_store()`, the shell's `opensc2 id`): a new serial takes effect at Bluetooth's next start; the name's prefix is `CONFIG_OPENSC2_BLE_NAME_PREFIX` |
+| The Battery Service's level, `0x43` | the battery the application reports ([Power](#power-and-the-system-state-machine)): `0x43` sets the level whenever it changes while Bluetooth is the transport |
+| Model, manufacturer, PnP ID, company ID | `CONFIG_OPENSC2_BLE_MODEL`, `_MANUFACTURER`, `_PNP_VENDOR`, `_PNP_PRODUCT`, `_PNP_VERSION`, `_COMPANY_ID` |
+| Every input and output report | the same API as on every link: the state, lizard mode, rumble, haptics, the LED |
+| The TX power | the radio controller's Kconfig (`CONFIG_BT_CTLR_TX_PWR_PLUS_6`, as the real controller) |
+
+`opensc2_ble_status()` (`#include <opensc2/ble.h>`) gives the application Bluetooth's state at any
+time: whether it runs, advertises (and in pairing mode), is connected and past the gate, the slot,
+the identity in use and which identities hold a bond, the security level, the ATT MTU, the
+interval, the advertising window left, the last disconnect reason, the reports sent and dropped,
+the name and the address. `0`, or `-EACCES` before `opensc2_init()`; without `CONFIG_OPENSC2_BLE`
+it returns `-ENOTSUP`.
 
 ## Vendor commands
 
@@ -1796,6 +1841,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_BLE_PNP_VENDOR`, `_PNP_PRODUCT`, `_PNP_VERSION` | 0x28DE, 0x1303, 0x0100 | the Device Information Service's PnP ID (vendor ID source: the USB-IF) |
 | `CONFIG_OPENSC2_BLE_MODEL`, `_MANUFACTURER` | "Steam Controller", "" | its model number and manufacturer name |
 | `CONFIG_OPENSC2_BLE_VENDOR_SERVICE` | y | Valve's vendor GATT service, for SDL on Android and Apple platforms |
+| `CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK` | y | the vendor `0x45` subscription flag as on the real controller: bit 0 of the puck link's last disconnect reason, so after an odd one in the same boot a host that uses only the HID service (Windows) gets no state reports ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23); n: state reports go where the host subscribed |
 | `CONFIG_OPENSC2_BLE_ADV_WINDOW_S` | 60 | the advertising window, then "wireless off"; 0 to 3600, 0: advertise until a host connects |
 | `CONFIG_OPENSC2_BLE_THREAD_PRIORITY`, `_STACK_SIZE` | 6, 2048 | the Bluetooth thread |
 | `CONFIG_OPENSC2_BLE_REPORT_THREAD_PRIORITY`, `_STACK_SIZE` | 4, 1536 | the Bluetooth report thread |
