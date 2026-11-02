@@ -7,14 +7,17 @@ still change between minor versions.
 
 ## [Unreleased]
 
-Work towards behaving identically to the real controller (its October 2026 firmware), on top of
-0.2.0, with the library exposing every part as API so that a custom board can supply and change
-everything at any time (its battery and charger, every input, every output, its identity, its
-dock), the real controller's behaviour being the default. Everything here is built and checked on
-the host (the host tests, the firmware emulator and the hardware test suite's simulator); none of
-it has been tested on hardware yet. What still differs from the real controller, and why, is listed
-in docs/protocol.md ("Where this library had to fill gaps", renumbered: only what stays different
-is numbered now).
+## [0.2.0] - 2026-11-01
+
+First public release. Wired mode (Steam pairs the board with Valve's puck over a USB-C cable and
+it then connects through the puck), the puck's 2.4 GHz link, Bluetooth LE to the PC, and the real
+controller's behaviour (its October 2026 firmware) throughout, with the library exposing every part
+as API so that a custom board can supply and change everything at any time (its battery and
+charger, every input, every output, its identity, its dock). What still differs from the real
+controller, and why, is listed in docs/protocol.md ("Where this library had to fill gaps").
+
+The sections below list what this release adds and changes compared with the development snapshot
+of 2026-10-19 (never released), whose own list follows further down.
 
 ### Added
 
@@ -447,8 +450,8 @@ is numbered now).
   (it hands them to its IMU); the application still sees the values Steam wrote. A number above 85
   reads 0, also as on the real controller (it was a STALL).
 - Every controller setting has the real controller's default and range: `0x87` clamps each value to
-  its range (0.2.0 knew nine ranges and stored the rest as sent; 48, 84 and 85 still go unclamped,
-  as on the real controller), and the settings 0.2.0 had no default for start from theirs (setting
+  its range (the 2026-10-19 snapshot knew nine ranges and stored the rest as sent; 48, 84 and 85 still go unclamped,
+  as on the real controller), and the settings the 2026-10-19 snapshot had no default for start from theirs (setting
   3 reads 1200 after a boot, 28 and 29 start above their range, as there).
 - `0xE9` reads the LED colour back the way the real controller does: 0 below 100, 100 from 100 to
   199, 200 from 200. The colour itself is kept as sent, now also above 100 (it was clamped to 100):
@@ -460,18 +463,18 @@ is numbered now).
   flags in its encoding (it was Zephyr's flags as a u32), the chip ID and 8 zero bytes; any other
   selector gives 0 and 17 zero bytes (it was an empty answer).
 - `0xED` answers the `cal/` keys as the real controller does even on a board without calibration,
-  where 0.2.0 answered them all with length 0: the LED trims with their defaults (90, 35, 120, 80)
+  where the 2026-10-19 snapshot answered them all with length 0: the LED trims with their defaults (90, 35, 120, 80)
   and `cal/volt_offset` (2 bytes); the stick, trigger, pressure and touch keys with length 0 until
   one with a non-zero format word is set. `0xD8`, `0xC0`, `0xC3` and `0xFE` are answered by the
   library instead of the application's `vendor_command`, and `0xE2` reads its side and mask
   whatever its length byte says.
 - Attribute 11 of `0x83` is the current link's report interval, whichever link asks: the connection
   interval while Bluetooth is the transport, 64000 µs while the dock is the only link up, 4000 µs
-  otherwise (0.2.0 always answered 4000).
+  otherwise (the 2026-10-19 snapshot always answered 4000).
 - Output report `0x88` with more than 31 bytes a side does nothing, as on the real controller (it
   was clamped to 31).
 - Lizard mode coming back on sends its empty keyboard report `0x41` before the all-zero mouse
-  report `0x40`, the real controller's order (0.2.0 sent the mouse report first).
+  report `0x40`, the real controller's order (the 2026-10-19 snapshot sent the mouse report first).
 - Lizard mode's keyboard and mouse turn on and off by events taken up in the real controller's
   order, its quirks included: `0x85` while the keyboard runs leaves an "on" pending, so the next
   switch-off sends the empty `0x41` twice and the keyboard keeps typing with setting 9 at 0 until
@@ -493,9 +496,9 @@ is numbered now).
   frame after the gap. While the hardware test hooks are armed the frames bring the buttons, as
   before.
 - Without an IMU (the application's quaternion all 0, "none") the state reports carry the identity
-  quaternion, W = 32767, as the real controller's always do; 0.2.0 sent all four words 0.
+  quaternion, W = 32767, as the real controller's always do; the 2026-10-19 snapshot sent all four words 0.
 - Report `0x81` swaps the two pads only for the exact targets 0 and 1, as the real controller does:
-  targets `0x80` and `0x81` are the left and the right pad there too (0.2.0 swapped them as well).
+  targets `0x80` and `0x81` are the left and the right pad there too (the 2026-10-19 snapshot swapped them as well).
 - A transport or puck slot chosen at run time (`opensc2_select_slot()`, the shell's `opensc2 slot`)
   is stored once its link is up, as the October 2026 firmware does, instead of at once. It is
   stored as `opensc2/transport`, with `opensc2/slot` still written for a puck transport.
@@ -540,7 +543,7 @@ is numbered now).
   bootloader requests reach `power_request` only in the states that act on them.
 - Wireless on USB power, STEAM held 7 s, the turn-off command, a link that gave up and the puck's
   turn-off now switch wireless off (the amber LED), and a STEAM press then reboots the board, which
-  comes back wired, as on the real controller; `opensc2 start` turns wireless on again. In 0.2.0 the
+  comes back wired, as on the real controller; `opensc2 start` turns wireless on again. In the 2026-10-19 snapshot the
   blank canvas only stopped the radio, and any button started it again.
 - The blank canvas's LED shows the real controller's patterns (on its one-colour LED: on once set up
   or connected, a slow blink while it looks for the puck, two quick flashes while it pairs over the
@@ -600,7 +603,7 @@ is numbered now).
     report before leaving the bus is tried once.
   - A wired boot with STEAM held goes on the bus once STEAM is released.
   - A GET's reply carries the request's bytes after the answer, then the rest of the last
-    `SET_REPORT` (0.2.0: zeros); commands read their payload whatever the length says (a puck
+    `SET_REPORT` (the 2026-10-19 snapshot: zeros); commands read their payload whatever the length says (a puck
     record shorter than its length reads zeros: it was refused).
   - The result codes are the real controller's: `-22` for an opcode nobody knows (through the
     puck it was `-134`; the application's `vendor_command` returning `-ENOTSUP` now means "not
@@ -643,12 +646,12 @@ is numbered now).
 ### Not proven
 
 - Everything above is built and checked on the host; none of it has run on hardware yet. The
-  default image differs from 0.2.0's on the wire and on the board as the Changed section says, and
+  default image differs from the 2026-10-19 snapshot's on the wire and on the board as the Changed section says, and
   has new ops in its test hooks.
 
-## [0.2.0] - 2026-10-19
+## Development snapshot - 2026-10-19 (not released)
 
-First public release.
+Not released: the development state that 0.2.0 grew from.
 
 ### Added
 
