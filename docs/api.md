@@ -210,7 +210,7 @@ The marks live in RAM that start-up does not clear (or, with `CONFIG_OPENSC2_WAR
 in the nRF52's second retention register); a mark is set only right before the reboot and read and
 cleared first thing at the next boot, so it never outlives one reboot. A power loss clears it. Two
 differences from the real controller
-([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 34): a warm-reboot request that
+([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 19): a warm-reboot request that
 the system state machine ignores leaves no mark here, and a transport chord or STEAM held at a warm
 boot does not cancel the mark.
 
@@ -487,7 +487,7 @@ does not jump when Steam reboots the controller into wireless mode.
 `0xBE` answers 15 bytes: temperature, battery, system and input mV, current, input current, the
 level, then 1 while `charge_state` is `OPENSC2_CHARGE_CHARGING` (else 0) and `charge_state` without
 a `0x80` flag. `0x43` sends `charge_state` as given (the real controller adds `0x80` while its
-supply check has given up; [protocol.md, gap 3](protocol.md#where-this-library-had-to-fill-gaps)).
+supply check has given up; [protocol.md, gap 2](protocol.md#where-this-library-had-to-fill-gaps)).
 
 `OPENSC2_CHARGE_GAVE_UP` (`0x80`) may be added to `charge_state`: the real controller sets it while
 its charger has given up on a supply that does not charge the battery (it tries again 60 s later).
@@ -926,7 +926,7 @@ real controller. These flash writes, and those of `0xE2` and `0xFE`, run from th
 in the order they were asked for (`0xFE` drops the saves still waiting from before it; a finished
 recording still waiting goes into RAM at once and is not written); `0xEF` and `0xF0` of a `cal/` key
 wait for them, then write before they answer, so a host's "erase, then store the new calibration"
-keeps the new keys ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 31).
+keeps the new keys ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 16).
 
 **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default) act on the reported pads, raw or not,
 after the hardware test hooks' injection, so report `0x42` and lizard mode both see them: with
@@ -1565,7 +1565,7 @@ The arithmetic is the real controller's, in integers, so a block comes out bit f
 the board and on a PC (the host tests and the suite compare CRCs of blocks): the fifth-order
 polynomial sine (peak about 1.0045) with its one-cycle phase wrap, the sweeps' and pulse trains'
 16-bit counts, the real scalings and roundings. What its float arithmetic does at the edges is
-reproduced too ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 35).
+reproduced too ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 20).
 
 ### What each report plays
 
@@ -1617,8 +1617,7 @@ right pad 4) on the link in use:
 | `0x40` | for a format change while the stream plays (refused) |
 
 The replies to stops are the real controller's, timed as there: within about a millisecond on an
-idle path, up to a block later while something plays, none for a stop a full queue lost
-([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 19).
+idle path, up to a block later while something plays, none for a stop a full queue lost.
 `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` (the replies without the synthesiser) has no effect with it.
 
 ### Its outputs
@@ -1981,9 +1980,10 @@ other byte the main puck (and stays as it is in the key).
 
 ### The Bluetooth build
 
-`CONFIG_OPENSC2_BLE` (off by default) makes the board a Steam Controller 2 over Bluetooth LE: a
+`CONFIG_OPENSC2_BLE` (off by default in the library, on in the blank canvas's default build, as
+the real controller has it) makes the board a Steam Controller 2 over Bluetooth LE: a
 HID-over-GATT peripheral that Windows, phones and SDL can use without the puck. **Built; not yet
-tested on hardware.** The blank canvas's opt-in build is `app/ble.conf`
+tested on hardware with this firmware.** `app/ble.conf` explains each of its settings
 ([app/README.md](../app/README.md#test-build-bluetooth-le)). What a host sees, following the
 protocol documentation's Bluetooth page ([protocol.md](protocol.md#overview-bluetooth-le) has the
 summary and the gaps):
@@ -2060,7 +2060,7 @@ summary and the gaps):
   notifications (the vendor service's first). A report's value is kept (what a read returns)
   before it is sent; one that cannot be sent is logged as an error with its ID. The vendor
   service's `0x45` flag is the real controller's quirk: bit 0 of the puck link's last disconnect
-  reason ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23).
+  reason ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 11).
 - **Outputs and commands**: output reports written with or without response go to the same
   dispatcher as on every link; feature report 1 is the vendor command channel (a write is a SET, a
   read a GET), with refusals as ATT error `0x04` and a write past 64 bytes as `0x07`. Its value is
@@ -2185,7 +2185,7 @@ The library answers these itself:
 | `0xF2` | get | selector 0: build time, board revision, git revision (16), unit serial (16); 1: the last crash record as it is (33 bytes, zeros when there is none), after which a new record is marked seen and saved again ([Crash records](#crash-records)); 2: uptime in ms (u32) and the last disconnect reason (u32); any other: length 0 |
 | `0xA1` | get | 18 bytes. Selector 1: 1, a byte of reset-cause flags in the real controller's encoding (`0x01` power-on, `0x02` brown-out, `0x08` debug, a low-power wake, a CPU lock-up or another of Zephyr's causes up to the temperature one (not the bootloader or flash-error causes, which the real controller does not count), `0x10` the reset pin, `0x20` the watchdog, `0x40` software), the chip's device ID (`hwinfo_get_device_id()`, 16 bytes of room: 8 bytes and 8 zeros on an nRF52); any other selector: 0 and 17 zero bytes. The flags come from Zephyr's `hwinfo_get_reset_cause()`; nothing clears the chip's register, so the causes of several resets add up until a power-on, as on the real controller. A cause that cannot be read refuses the GET, as on the real controller (a chip without the function, `-ENOSYS`, reports none) |
 | `0xBE` | get | battery data, 15 bytes (from `opensc2_set_battery()`; byte 13 is 1 while charging, byte 14 the charge state without a `0x80` flag: [Battery](#battery)) |
-| `0xE9` / `0xC5` | get / set | LED colour, four percentages. `0xC5` keeps each as sent, 0..255, as the real controller does (above 100 is brighter, up to full duty: the system state machine's LED rules render it so) and calls `led`; `0xE9` reads it back as the real controller does, cut to whole hundreds: 0 below 100, 100 from 100 to 199, 200 from 200 ([protocol.md, gap 24](protocol.md#where-this-library-had-to-fill-gaps)) |
+| `0xE9` / `0xC5` | get / set | LED colour, four percentages. `0xC5` keeps each as sent, 0..255, as the real controller does (above 100 is brighter, up to full duty: the system state machine's LED rules render it so) and calls `led`; `0xE9` reads it back as the real controller does, cut to whole hundreds: 0 below 100, 100 from 100 to 199, 200 from 200 |
 | `0xDB` / `0xDC` | get / set | user store type 1: the power-on chime level. `0xDC` type 1 saves it and then uses it (a save that fails leaves the level in use as it was); other types do nothing; both are acknowledged (`opensc2_chime_level()`) |
 | `0x89` / `0x87` / `0x8E` | get / set / set | controller settings (calls `setting_changed`); `0x87` takes length ÷ 3 triplets, ignoring bytes after the last whole one; `0x89` answers the defaults of settings 48, 84 and 85, and 0 for a number above 85, as the real controller does ([Controller settings](#controller-settings)) |
 | `0x81` / `0x85` | set | lizard mode off / its keyboard and buttons back ([Lizard mode](#lizard-mode)); refused without an active link (Bluetooth counts once past its gate); from the dock acknowledged and ignored |
@@ -2394,7 +2394,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_BLE_PNP_VENDOR`, `_PNP_PRODUCT`, `_PNP_VERSION` | 0x28DE, 0x1303, 0x0100 | the Device Information Service's PnP ID (vendor ID source: the USB-IF) |
 | `CONFIG_OPENSC2_BLE_MODEL`, `_MANUFACTURER` | "Steam Controller", "" | its model number and manufacturer name |
 | `CONFIG_OPENSC2_BLE_VENDOR_SERVICE` | y | Valve's vendor GATT service, for SDL on Android and Apple platforms |
-| `CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK` | y | the vendor `0x45` subscription flag as on the real controller: bit 0 of the puck link's last disconnect reason, so after an odd one in the same boot a host that uses only the HID service (Windows) gets no state reports ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 23); n: state reports go where the host subscribed |
+| `CONFIG_OPENSC2_BLE_VENDOR_STATE_QUIRK` | y | the vendor `0x45` subscription flag as on the real controller: bit 0 of the puck link's last disconnect reason, so after an odd one in the same boot a host that uses only the HID service (Windows) gets no state reports ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 11); n: state reports go where the host subscribed |
 | `CONFIG_OPENSC2_BLE_ADV_WINDOW_S` | 60 | the advertising window, then "wireless off"; 0 to 3600, 0: advertise until a host connects |
 | `CONFIG_OPENSC2_BLE_THREAD_PRIORITY`, `_STACK_SIZE` | 6, 2048 | the Bluetooth thread |
 | `CONFIG_OPENSC2_BLE_REPORT_THREAD_PRIORITY`, `_STACK_SIZE` | 4, 1536 | the Bluetooth report thread |
@@ -2867,6 +2867,22 @@ descriptor (`opensc2_hid_report_desc`), the two profiles, the device, configurat
 descriptors they give, the check of a feature SET and the build of a feature GET reply, and a text
 for a setup packet. `<opensc2/dock.h>` has the dock's frames ([above](#the-frame-functions)). They
 need no kernel and are what the host tests exercise.
+
+| Function | Does |
+| --- | --- |
+| `opensc2_input_report_size(id)` | the bytes after the ID of an input report the puck lets through (0: unknown) |
+| `opensc2_encode_state(&s, seq, out)`, `opensc2_decode_state(in, &s, &seq)` | state report `0x42` both ways (54 bytes, the ID included) |
+| `opensc2_encode_battery(&b, out)`, `opensc2_encode_battery_data(&b, out)` | report `0x43`, and vendor command `0xBE`'s 15-byte answer |
+| `opensc2_encode_haptic_status(channel, flags, out)` | report `0x44` |
+| `opensc2_decode_output(report, len, out[2])` | output reports `0x80`..`0x8A` into one or two `struct opensc2_output`; `opensc2_target_channels(report_id, target)` the channels a haptic target selects, the real controller's way |
+| `opensc2_identity_check(&id)`, `opensc2_serial_valid()`, `opensc2_git_revision_valid()`, `opensc2_product_name_valid()` | an identity's checks (a bit mask of problems, 0 valid) |
+| `opensc2_encode_identity(&id, out)`, `opensc2_encode_attributes(&id, interval_us, out)`, `opensc2_encode_string_attribute(&id, tag, out)` | the radio's identity record, `0x83`'s attributes and `0xAE`'s strings |
+| `opensc2_bond_pack()`, `_unpack()`, `_valid()` | a puck bond's 24 bytes |
+| `opensc2_parse_connect_request()`, `opensc2_protocol_version()`, `opensc2_parse_channel_change()`, `opensc2_build_pairing()`, `opensc2_parse_pairing_offer()`, `opensc2_address_byte_ok()` | the radio's control packets |
+| `opensc2_record_next()`, `opensc2_payload_start()`, `_add_record()`, `_add_bytes()` | walking and building the radio's record payloads |
+| `opensc2_get_le16()`, `_le32()`, `opensc2_put_le16()`, `_le32()` | little-endian fields |
+| `opensc2_usb_device_descriptor(&profile, out)`, `opensc2_usb_config_descriptor(out)`, `opensc2_usb_hid_descriptor(out)` | the USB descriptors of `opensc2_usb_profile_july` or `_october` |
+| `opensc2_usb_feature_check(data, len, &rec)`, `opensc2_usb_feature_reply(opcode, answer, n, reply_len, wlength, out)`, `opensc2_usb_setup_text(setup, buf, size)` | a feature SET's check, a plain GET reply (a tool's: the library's own replies carry the request's bytes after the answer), a setup packet as text |
 
 ### The IMU fusion helper
 

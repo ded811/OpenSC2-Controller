@@ -7,10 +7,14 @@ still change between minor versions.
 
 ## [Unreleased]
 
-Work towards feature parity with the real controller's firmware, on top of 0.2.0: everything here
-is built and checked on the host (the host tests, the firmware emulator and the hardware test
-suite's simulator); none of it has been tested on hardware yet. What still differs from the real
-controller is listed in docs/protocol.md's gaps.
+Work towards behaving identically to the real controller (its October 2026 firmware), on top of
+0.2.0, with the library exposing every part as API so that a custom board can supply and change
+everything at any time (its battery and charger, every input, every output, its identity, its
+dock), the real controller's behaviour being the default. Everything here is built and checked on
+the host (the host tests, the firmware emulator and the hardware test suite's simulator); none of
+it has been tested on hardware yet. What still differs from the real controller, and why, is listed
+in docs/protocol.md ("Where this library had to fill gaps", renumbered: only what stays different
+is numbered now).
 
 ### Added
 
@@ -96,9 +100,11 @@ controller is listed in docs/protocol.md's gaps.
   LSM6DSV16X IMU with a mounting matrix (`imu-mounting-matrix`) and a rest-based gyro bias (settings
   84 and 85), the trackpad's processing (settings 65, 72, 73), stick touch and grips from a CAP1206
   capacitive sensor (any input device named by the chosen node `opensc2,touch-keys`), the battery
-  level, and I2C bus recovery at boot. `app/imu-stream.conf` streams the LSM6DSV16X's FIFO with its
+  level, and I2C bus recovery at boot (on by default whenever the board has an I2C bus, as the
+  real controller frees its buses at every start). `app/imu-stream.conf` streams the LSM6DSV16X's FIFO with its
   own fusion instead, as the real controller reads it. `app/expander.conf` adds L4, L5, R4 and R5
-  through an I2C port expander (a PCA9555) polled every 16 ms, with every button debounced 16 ms.
+  through an I2C port expander (a PCA9555) read on its INT output (P0.24) only when a button moves,
+  with every button debounced 16 ms, as on the real controller.
 - Trackpads frame by frame (`<opensc2/trackpad.h>`): `opensc2_pad_frame(side, &frame)` takes each
   frame of a pad sensor (touch, position, and the raw pressure, stick-touch and grip words it has)
   and processes it at the sensor's own rate as the real controller processes its pads: the pad
@@ -119,8 +125,9 @@ controller is listed in docs/protocol.md's gaps.
   fall; never again until the next boot when the stream goes off within those 5 s). The blank
   canvas's IMU options and samples/imu use it.
 - `opensc2_cal_set_dock_offsets()`: millivolts the board adds to its stored stick calibration while
-  docked (revision `0x48` and later), as the real controller does for its dock's magnets; 0 by
-  default. Docking and leaving the dock set the sticks and triggers up again.
+  docked (the docked states; revision `0x48` and later), as the real controller does for its dock's
+  magnets; 0 by default. The same store as `opensc2_dock_set_stick_offsets()`, as two arrays.
+  Docking and leaving the dock set the sticks and triggers up again.
 - `opensc2_norm_setup()` / `opensc2_norm_step()` (the real controller's normalising stage),
   `opensc2_trigger_setup_level()` / `opensc2_trigger_step()` (with the digital bit),
   `opensc2_pad_stretch_by()`, `opensc2_imu_quat_from_unit()`, `opensc2_cal_rec_pressure_sample()`.
@@ -142,10 +149,10 @@ controller is listed in docs/protocol.md's gaps.
   `opensc2_power_source()`, `opensc2_keylock()`); the shell's `opensc2 power`. It reads the stored
   transport as `user/wireless_transport` 0 to 3 and starts the link itself.
 - A battery build: `CONFIG_OPENSC2_BATTERY` and `app/battery.conf`. Its shutdowns end in
-  `OPENSC2_POWER_OFF` (the blank canvas: System OFF, woken by STEAM or USB power), and the radio
-  gives up as the real controller does (60 s of listening; `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S`, 10 s
-  with an empty slot, link reason `OPENSC2_REASON_NO_BOND_TIMEOUT`). Without the option a board
-  never switches itself off: every shutdown reboots.
+  `OPENSC2_POWER_OFF` (the blank canvas: System OFF, woken by STEAM or USB power). Without the
+  option a board never switches itself off: every shutdown reboots. The radio's give-ups (60 s of
+  listening; `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S`, 10 s with an empty slot, link reason
+  `OPENSC2_REASON_NO_BOND_TIMEOUT`) are in every build (Changed, below).
 - The status LED: the library selects the real controller's modes (the `led_status` callback,
   `opensc2_led_status()`, also after a transport chosen at run time), and `<opensc2/led.h>` has its
   patterns as a pure player (the steady link colour chosen again every 2 s, the breathing patterns
@@ -176,7 +183,7 @@ controller is listed in docs/protocol.md's gaps.
 - `<opensc2/gauge.h>`: a step in parts (`opensc2_gauge_begin()`, `_add()`, `_finish()`) for the
   real controller's 40 fresh readings after a start or a charging change and none while the charge
   is done, and `opensc2_gauge_voltage()`, the averaged voltage report `0x43` carries (held while
-  done). The blank canvas's battery option uses both, and starts from the kept level.
+  done), for a board that runs its own gauge; the library's fuel gauge (below) works the same way.
 - `<opensc2/charger.h>`: the real controller's charging rules for a charger the application drives
   (`opensc2_charger_init()`, `_step()`, `_window()`, `_gauge_state()`, `_state()`,
   `_ship_mode_ok()`): the charge state report `0x43` carries (0 before the first step, 1 on
@@ -184,14 +191,16 @@ controller is listed in docs/protocol.md's gaps.
   voltage (the target, raised by the hysteresis while a supply is checked and while charging), the
   input-voltage limit lowered every 5 s while the charger does not charge (4600, 4500, 4400 mV;
   giving up at 4300 and trying again 60 s later), the factory window's cap and the ship-mode rule.
-  The blank canvas's charge state follows these rules (charger status pin or USB power).
+  The library's fuel gauge runs the same rules itself; `enum opensc2_charger_status` (`OFF`,
+  `PRECHARGE`, `CHARGING`, `DONE`, and `UNKNOWN` for a board without a charger status) is shared by
+  both, and a host test checks that the two give the same states step for step.
 - `opensc2_gauge_set_curves()`: a board's own voltage curves and charge targets for the gauge.
 - `opensc2_gauge_begin_charger()`: the gauge's history starts over whenever the charger itself
-  starts or stops charging, also while the charge is done (a top-up), as on the real controller;
-  the blank canvas uses it and keeps its battery step at once a second from start to start.
+  starts or stops charging, also while the charge is done (a top-up), as on the real controller.
 - `opensc2_docked_sticks()`: whether the sticks read as on the dock, as the real controller counts
-  it (from the first docked state until the board is lifted off), for a board that applies its own
-  docked stick offsets; `opensc2 power` shows it.
+  it (from the first docked state until the board is lifted off); the library moves its stick
+  calibration by the board's docked stick offsets then (`<opensc2/docking.h>`), and
+  `opensc2 power` shows it.
 - The LED player: the update window's blink (`update_window`, `update_requests` in the status),
   Steam's colour between a breathe's two fades, the searching pattern's fade-out skipped when the
   link is up by then and its dark part looked at every 50 ms.
@@ -230,7 +239,8 @@ controller is listed in docs/protocol.md's gaps.
   `0x87` and `0x89` through the puck at the record's length; the pads' PWM DAC at the real 3906 Hz
   (`CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K` for 4 kHz); the drop sounds turned off until a
   reboot when the IMU stops in the 5 s after a fall (`opensc2_haptics_imu_stopped()`, which the
-  blank canvas calls).
+  library's IMU calls for a board that set its IMU up; a board that runs its IMU on its own calls
+  it when it stops the stream).
 - Sounds of the board's own in place of Valve's: `opensc2_haptics_set_click()` (click A or B as a
   recording) and `opensc2_haptics_set_script()` (any of the 17 scripts as steps: tones, sweeps,
   pulses, clicks and clips, a step with a fixed gain or channel of its own), so the cues and the
@@ -241,7 +251,8 @@ controller is listed in docs/protocol.md's gaps.
 
 **Bluetooth LE**
 
-- An opt-in build (`CONFIG_OPENSC2_BLE`; for the SuperMini the fragment `app/ble.conf`): the board
+- Bluetooth LE (`CONFIG_OPENSC2_BLE`, in the blank canvas's default build; `app/ble.conf` explains
+  each setting): the board
   as a HID-over-GATT Steam Controller 2 (PnP ID `28DE:1303`) with the real controller's name,
   advertising and pairing (Just Works, LE Secure Connections), the USB report map, the vendor
   commands on feature report 1 (refusals as ATT errors), output reports, the battery and device
@@ -430,15 +441,6 @@ controller is listed in docs/protocol.md's gaps.
   boot and keeps the last sample while setting 48 is 0 (it sent nothing until 48 was written, and
   zeros while 48 was 0); `CONFIG_APP_IMU_ALWAYS` is gone; `app/imu-stream.overlay` runs the
   LSM6DSV16X at the real controller's 250 Hz high-accuracy rate.
-- Reports `0x43` and `0xBE` send the level as given, as the real controller sends its gauge's
-  value (255 is its "no reading yet"; nothing is clamped to 100 any more). With the fuel gauge, the first `0x43` after a cold
-  start carries level 255, charge state 0 and zeros, as the real controller's does.
-- The blank canvas frees each I2C bus at boot whenever it has one (`CONFIG_APP_I2C_RECOVER` is on
-  by default now), as the real controller does at every start of its I2C drivers.
-- `app/expander.conf` reads its PCA9555 on the expander's INT output (P0.24, the left trigger
-  button's pin) instead of polling it every 16 ms, so the bus is quiet while no button moves, as
-  on the real controller (whose expander's line stays up while a button is down, its buttons then
-  read until all are up).
 - The LED examples (app overlay comments, `app/README.md`, `samples/rgb_led`) use the real
   controller's 50 µs PWM period (20 kHz) instead of 1 ms.
 - Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does
@@ -549,8 +551,8 @@ controller is listed in docs/protocol.md's gaps.
   tried, so the SuperMini builds still need `app/watchdog.conf` for it.
 - Reports `0x43` and `0xBE` send the level as given (it was capped at 100), so 255, the real
   controller's "no level yet", goes out as such. A battery build reports what the real controller's
-  first report carries until the application gives a battery (the kept level or 255, charge state
-  0, zeros); a build without a battery keeps reporting a full one.
+  first report carries until the application or the fuel gauge gives a battery (the kept level or
+  255, charge state 0, zeros); a build without a battery keeps reporting a full one.
 - With the system state machine the power source counts at every 50 ms poll whichever way (power
   going away waited 0.2 s), and `opensc2_reboot()` leaves Bluetooth with an all-zero report and
   100 ms first, as the real controller does before every reboot.
@@ -564,7 +566,7 @@ controller is listed in docs/protocol.md's gaps.
 - Vendor commands run one at a time across links (a mutex in the command channel), now that the dock
   and Bluetooth can run them beside USB or the radio.
 - Bluetooth behaves as the real controller where it differed on purpose before (docs/protocol.md's
-  gap 23 lists what is left): a host that encrypts the link on an identity that had no bond is the
+  gap 11 lists what is left): a host that encrypts the link on an identity that had no bond is the
   slot's new host whether it bonds or not; the pairing cue plays at every start of pairing-mode
   advertising, the restart after a failed connection too; the last ATT MTU is kept across links and
   a link past the gate stays active until it ends; feature report 1 reads 64 bytes, its GET runs at
@@ -631,11 +633,12 @@ controller is listed in docs/protocol.md's gaps.
     from flash (Bluetooth's bonds included): no other handler is reached by name then.
   - `opensc2_identity_set()`, `_store()`, `_clear()` and the by-name identity keys make one change
     at a time, so a board's call racing a host's write cannot mix the two.
-- Host tests: 188 (25,251 checks), and 235 (28,483 checks) with the hardware test hooks built in;
-  each test also checks that every mutex the library took was let go again. The runner has 281
-  self-tests; its dry runs against the firmware emulator pass 233 tests and skip 26
-  (`--lizard --dock`), and pass 241 and skip 18 with `--flash` (the flash group and
-  `system.keylock`), both run by the host tests; `tools/fake_puck.py` has 6 self-tests.
+- Host tests: 263 (496,966,241 checks, nearly all of them the haptics synthesiser's sample-exact
+  comparisons), and 310 (496,969,556 checks) with the hardware test hooks built in; each test also
+  checks that every mutex the library took was let go again. The runner has 284 self-tests; its
+  dry runs against the firmware emulator pass 237 tests and skip 26 (`--lizard --dock`), and pass
+  245 and skip 18 with `--flash` (the flash group and `system.keylock`), both run by the host
+  tests; `tools/fake_puck.py` has 6 self-tests.
 
 ### Not proven
 
