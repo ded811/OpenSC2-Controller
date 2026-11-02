@@ -7,6 +7,8 @@
 # predict every report and the FW's host tests can check the same against the library. Integer
 # division truncates toward zero, as C does (Python's // is wrong for negatives), so a c_div()
 # helper is used throughout.
+import struct
+
 from . import reports as R
 from .. import config as C
 
@@ -30,18 +32,26 @@ def clamp_trigger(v):
     return TRIGGER_MAX if v > TRIGGER_MAX else v
 
 
+def f32(x):
+    """x rounded to single precision, as the firmware's float arithmetic rounds each result."""
+    return struct.unpack("<f", struct.pack("<f", x))[0]
+
+
+def _stage_bit(v, level, hysteresis, previous):
+    """A normalising stage's digital state in single precision: on when v passes level +
+    hysteresis, off when it falls below level - hysteresis, else `previous`."""
+    if previous:
+        return not f32(level - hysteresis) > v
+    return f32(level + hysteresis) < v
+
+
 def trigger_click(value, setting68, previous):
-    """The trigger's digital bit by hysteresis (report_rules.c, osc2_trigger_click):
-    p = clamp(setting68, 40, 99); on = min(32767*(p+5)//100, 32766); off = 32767*(p-5)//100.
-    value > on sets, value < off clears, else keeps `previous`."""
-    p = 40 if setting68 < 40 else 99 if setting68 > 99 else setting68
-    on = min(TRIGGER_MAX * (p + 5) // 100, TRIGGER_MAX - 1)
-    off = TRIGGER_MAX * (p - 5) // 100
-    if value > on:
-        return True
-    if value < off:
-        return False
-    return previous
+    """The trigger's digital bit (report_rules.c, osc2_trigger_click), as the real controller's
+    trigger stage works it out in single precision: v = value / 32767, t = setting68 / 100 (the
+    setting as an unsigned number), on above t + 0.05, off below t - 0.05; from 95 on never on."""
+    t = f32(f32(setting68 & 0xFFFFFFFF) / 100.0)
+    v = f32(f32(min(value, TRIGGER_MAX)) / TRIGGER_MAX)
+    return _stage_bit(v, t, f32(5.0 / 100.0), previous)
 
 
 # ---- the input rules (input_rules.c), applied to every state report after injection -----------
@@ -93,17 +103,12 @@ def approx_len(dx, dy):
 
 
 def pad_click(pressure, setting, previous):
-    """A pad's click by pressure: on above (s + 8) %, off below (s - 8) % of 32767, where s is
-    setting 52 or 53 clamped to -1..100 and -1 counts as 100."""
-    s = -1 if setting < -1 else 100 if setting > 100 else setting
-    if s == -1:
-        s = 100
-    p = min(pressure, TRIGGER_MAX)
-    if p * 100 > (s + 8) * TRIGGER_MAX:
-        return True
-    if p * 100 < (s - 8) * TRIGGER_MAX:
-        return False
-    return previous
+    """A pad's click by pressure (input_rules.c, osc2_pad_click), as the pressure stage works it
+    out in single precision: v = pressure / 32767, t = setting / 100 (a negative setting counts as
+    100), on above t + 0.08, off below t - 0.08."""
+    t = f32(f32(setting if setting >= 0 else 100) / 100.0)
+    v = f32(f32(min(pressure, TRIGGER_MAX)) / TRIGGER_MAX)
+    return _stage_bit(v, t, f32(8.0 / 100.0), previous)
 
 
 def settings_list(settings=None):
@@ -130,6 +135,9 @@ class StateRules:
         self.trigger_bit = [False, False]
         self.pad_click = [False, False]
         self.click_setting = [None, None]
+        # setting 68 when the bits were last worked out: a change clears them (the triggers are
+        # set up again); None: as the firmware has it now
+        self.level68 = None
 
     def set_clicks(self, left, right, settings=None):
         """The pads' clicks by pressure as worked out with the current thresholds."""
@@ -165,6 +173,9 @@ class StateRules:
                 if s[60] != 1:
                     pads[side][2] = 0
                 b &= ~(_PAD_TOUCH[side] | _PAD_CLICK[side])
+        if self.level68 is not None and s[68] != self.level68:
+            self.trigger_bit = [False, False]
+        self.level68 = s[68]
         if rules & RULE_RAW_TRIGGERS and s[62] != 0:
             self.trigger_bit = [False, False]
             b &= ~(_TRIG_BIT[0] | _TRIG_BIT[1])

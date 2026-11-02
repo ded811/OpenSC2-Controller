@@ -3,13 +3,18 @@
  * SPDX-License-Identifier: MIT
  *
  * cal.c: the calibration helpers of <opensc2/cal.h>, from the rules in the protocol documentation
- * (not public yet; docs/protocol.md lists the pages). Pure logic in integers: the real controller's
- * factors (0.9, 0.98, 0.05) are applied as exact fractions, so a value that lands exactly on a
- * whole number is not off by one the way a float can be.
+ * (not public yet; docs/protocol.md lists the pages). Pure logic. The sticks, triggers and pad
+ * pressure go through the real controller's normalising stage in single-precision floating point,
+ * in the same order of operations, fused multiply-adds (fmaf()) where its build fuses them, and
+ * float-to-integer conversions as its floating-point unit does them (float_rules.h): the results
+ * are the real controller's to the last count. Built with -ffp-contract=off (CMakeLists.txt), so
+ * the compiler fuses nothing else.
  */
+#include <math.h>
 #include <string.h>
 #include <opensc2/cal.h>
 #include <opensc2/codec.h>
+#include "float_rules.h"
 
 #define STICK_MIN_HALF     200   /* counts between an extreme and its end of the rest band */
 #define TRIGGER_MIN_SPAN   100   /* counts between A and B */
@@ -30,20 +35,27 @@ static int32_t abs32(int32_t v)
 
 uint16_t opensc2_cal_counts_to_mv(uint16_t counts, uint16_t full_mv)
 {
-	uint32_t c = counts > OPENSC2_CAL_ADC_MAX ? OPENSC2_CAL_ADC_MAX : counts;
+	/* a reading above 4095 (an average below 0 wraps round to 16 bits) is converted as it is,
+	 * as the real controller converts it, and limited to 65535 */
+	uint32_t mv = (uint32_t)counts * full_mv / 4096u;
 
-	return (uint16_t)(c * full_mv / 4096u);
+	return mv > 0xFFFFu ? 0xFFFFu : (uint16_t)mv;
 }
 
 uint16_t opensc2_cal_mv_to_counts(uint32_t mv, uint16_t full_mv)
 {
-	uint64_t c;
+	/* the millivolts of a full-scale reading (4095), as the ADC driver converts it */
+	uint32_t top = (uint32_t)OPENSC2_CAL_ADC_MAX * full_mv / 4096u;
+	float c;
 
-	if (full_mv < 2) {
+	if (top == 0) {
 		return 0;
 	}
-	c = (uint64_t)mv * OPENSC2_CAL_ADC_MAX / (full_mv - 1u);
-	return (uint16_t)(c > 0xFFFFu ? 0xFFFFu : c);
+	c = (float)mv / ((float)top / (float)OPENSC2_CAL_ADC_MAX);
+	if (c <= 0.0f) {
+		return 0;
+	}
+	return c < 65535.0f ? (uint16_t)osc2_f32_to_u32(c) : 0xFFFFu;
 }
 
 bool opensc2_cal_raw_mode(int16_t mode, uint16_t counts, uint16_t full_mv, uint16_t *out)
@@ -53,7 +65,7 @@ bool opensc2_cal_raw_mode(int16_t mode, uint16_t counts, uint16_t full_mv, uint1
 		return true;
 	}
 	if (mode == 2) {
-		*out = counts > OPENSC2_CAL_ADC_MAX ? OPENSC2_CAL_ADC_MAX : counts;
+		*out = counts;   /* as it is, a wrapped negative average too */
 		return true;
 	}
 	return false;
@@ -132,11 +144,102 @@ static bool analog_format(uint16_t format)
 	return format == OPENSC2_CAL_FORMAT_ANALOG || format == OPENSC2_CAL_FORMAT_ANALOG_ALT;
 }
 
+/* ---- the normalising stage ------------------------------------------------------------------- */
+
+void opensc2_norm_setup(struct opensc2_norm *n, int32_t lo, int32_t hi, float band_pct,
+			bool outer_only, float alpha)
+{
+	n->outer_only = outer_only;
+	n->hysteresis = 10.0f;
+	n->lo = (float)lo;
+	n->hi = (float)hi;
+	n->band = band_pct;
+	n->alpha = alpha;
+	n->smooth = 0.0f;
+	n->limit = true;
+	n->threshold = 0.0f;
+	n->on = false;
+	n->grow = true;
+}
+
+float opensc2_norm_step(struct opensc2_norm *n, int32_t reading)
+{
+	float x = (float)reading;
+	float s = n->smooth;
+	float range, band, level, out, t;
+	bool on;
+
+	/* The smoothed copy: the reading itself to start with, and after a copy of exactly 0. */
+	s = s != 0.0f ? fmaf(n->alpha, x - s, s) : x;
+	if (n->hi == 0.0f) {
+		n->lo = s;   /* an end of 0 is "not set": both from the copy */
+		n->hi = s;
+	}
+	n->smooth = s;
+	if (n->grow) {
+		if (n->hi < s && !n->flip) {
+			n->hi = s;
+		}
+		if (n->lo > s && n->flip) {
+			n->lo = s;
+		}
+	}
+	range = n->hi - n->lo;
+	if (range == 0.0f) {
+		return 0.0f;
+	}
+	level = n->lo;
+	band = n->band * 0.01f * range;
+	range = n->outer_only ? range - band : fmaf(-band, 2.0f, range);
+	if (!n->outer_only || n->flip) {
+		level += band;
+	}
+	out = (x - level) / range;
+	if (n->limit) {
+		if (out > 1.0f) {
+			out = 1.0f;
+		} else if (out < 0.0f) {
+			out = 0.0f;
+		}
+	}
+	/* The digital state, from the other end when flipped. */
+	on = n->on;
+	t = n->threshold;
+	if (n->flip) {
+		t = 1.0f - t;
+		on = !on;
+	}
+	if (on) {
+		if (t - n->hysteresis > out) {
+			n->on = n->flip;
+		}
+	} else if (t + n->hysteresis < out) {
+		n->on = !n->flip;
+	}
+	return n->flip ? 1.0f - out : out;
+}
+
 /* ---- sticks ---------------------------------------------------------------------------------- */
+
+#define STICK_BAND   10.0f    /* percent, at the outer end of each half */
+#define STICK_ALPHA  0.15f    /* the halves' smoothed copies */
+
+static void stick_axis_setup(struct opensc2_stick_axis *a, const uint16_t c[4], bool grow)
+{
+	/* c: min, max, rest low, rest high in counts */
+	a->centre = (c[3] + c[2]) >> 1;
+	opensc2_norm_setup(&a->upper, a->centre, c[1], STICK_BAND, true, STICK_ALPHA);
+	a->upper.flip = false;
+	a->upper.grow = grow;
+	opensc2_norm_setup(&a->lower, c[0], a->centre, STICK_BAND, true, STICK_ALPHA);
+	a->lower.flip = true;
+	a->lower.grow = grow;
+}
 
 void opensc2_stick_setup(struct opensc2_stick_proc *p, const struct opensc2_cal_stick *cal)
 {
 	const struct opensc2_cal_axis *axes[2];
+	uint16_t c[2][4];
 
 	p->valid = false;
 	memset(p->axis, 0, sizeof(p->axis));
@@ -146,65 +249,34 @@ void opensc2_stick_setup(struct opensc2_stick_proc *p, const struct opensc2_cal_
 	axes[0] = &cal->x;
 	axes[1] = &cal->y;
 	for (int i = 0; i < 2; i++) {
-		int32_t min = opensc2_cal_mv_to_counts(axes[i]->min, OPENSC2_CAL_STICK_FULL_MV);
-		int32_t max = opensc2_cal_mv_to_counts(axes[i]->max, OPENSC2_CAL_STICK_FULL_MV);
-		int32_t low = opensc2_cal_mv_to_counts(axes[i]->rest_low, OPENSC2_CAL_STICK_FULL_MV);
-		int32_t high = opensc2_cal_mv_to_counts(axes[i]->rest_high, OPENSC2_CAL_STICK_FULL_MV);
-
-		if (abs32(max - high) < STICK_MIN_HALF || abs32(min - low) < STICK_MIN_HALF) {
-			memset(p->axis, 0, sizeof(p->axis));
+		c[i][0] = opensc2_cal_mv_to_counts(axes[i]->min, OPENSC2_CAL_STICK_FULL_MV);
+		c[i][1] = opensc2_cal_mv_to_counts(axes[i]->max, OPENSC2_CAL_STICK_FULL_MV);
+		c[i][2] = opensc2_cal_mv_to_counts(axes[i]->rest_low, OPENSC2_CAL_STICK_FULL_MV);
+		c[i][3] = opensc2_cal_mv_to_counts(axes[i]->rest_high, OPENSC2_CAL_STICK_FULL_MV);
+		if (abs32((int32_t)c[i][1] - c[i][3]) < STICK_MIN_HALF ||
+		    abs32((int32_t)c[i][2] - c[i][0]) < STICK_MIN_HALF) {
 			return;
 		}
-		p->axis[i].centre = (low + high) / 2;   /* both are positive: rounded down */
-		p->axis[i].min = min;
-		p->axis[i].max = max;
+	}
+	for (int i = 0; i < 2; i++) {
+		stick_axis_setup(&p->axis[i], c[i], p->grow_range);
 	}
 	p->valid = true;
-}
-
-/* July 2026's run-time range: a low-pass copy of the reading (factor 0.15, counts x 256) pushes a
- * half's outer end out when it goes past it. Only for an axis that is not turned over. */
-static void follow_range(struct opensc2_stick_axis *a, int32_t r)
-{
-	int32_t copy;
-
-	if (!a->follow_on) {
-		a->follow = r * 256;
-		a->follow_on = true;
-	} else {
-		a->follow += (r * 256 - a->follow) * 15 / 100;
-	}
-	copy = a->follow / 256;
-	if (a->max > a->centre && copy > a->max) {
-		a->max = copy;
-	}
-	if (a->min < a->centre && copy < a->min) {
-		a->min = copy;
-	}
 }
 
 int16_t opensc2_stick_axis_value(struct opensc2_stick_proc *p, int axis, uint16_t counts)
 {
 	struct opensc2_stick_axis *a;
-	int32_t r = counts, v;
-	int64_t num, den;
+	float f;
+	int32_t v;
 
 	if (!p->valid || axis < 0 || axis > 1) {
 		return 0;
 	}
 	a = &p->axis[axis];
-	if (p->grow_range) {
-		follow_range(a, r);
-	}
-	/* 32767 x (r - c) / (0.9 x (end - c)), each half on its own, toward zero. */
-	if (r > a->centre) {
-		num = (int64_t)AXIS_FULL * 10 * (r - a->centre);
-		den = (int64_t)9 * (a->max - a->centre);
-	} else {
-		num = -(int64_t)AXIS_FULL * 10 * (a->centre - r);
-		den = (int64_t)9 * (a->centre - a->min);
-	}
-	v = den == 0 ? 0 : clamp32(num / den, -AXIS_FULL, AXIS_FULL);
+	f = (int32_t)counts > a->centre ? opensc2_norm_step(&a->upper, counts) :
+					   -opensc2_norm_step(&a->lower, counts);
+	v = (int16_t)osc2_f32_to_s32(f * (float)AXIS_FULL);
 
 	if (p->dead_zone > 0 && p->dead_zone < AXIS_FULL) {
 		int32_t mag = abs32(v);
@@ -225,8 +297,16 @@ void opensc2_stick_value(struct opensc2_stick_proc *p, uint16_t x_counts, uint16
 
 /* ---- triggers -------------------------------------------------------------------------------- */
 
-void opensc2_trigger_setup(struct opensc2_trigger_proc *p, const struct opensc2_cal_trigger *cal)
+#define TRIGGER_BAND        5.0f    /* percent, at both ends */
+#define TRIGGER_HYSTERESIS  5.0f    /* percent */
+#define TRIGGER_EARLY       0.98f   /* the pulled end moved 2 % toward the released one */
+#define TRIGGER_LEVEL       90      /* setting 68's default */
+
+void opensc2_trigger_setup_level(struct opensc2_trigger_proc *p,
+				 const struct opensc2_cal_trigger *cal, int16_t setting68)
 {
+	float a, b;
+
 	memset(p, 0, sizeof(*p));
 	if (!cal || !analog_format(cal->format)) {
 		return;
@@ -235,39 +315,72 @@ void opensc2_trigger_setup(struct opensc2_trigger_proc *p, const struct opensc2_
 	p->b = opensc2_cal_mv_to_counts(cal->b_mv, OPENSC2_CAL_TRIGGER_FULL_MV);
 	p->falls = cal->direction != 0;
 	p->valid = abs32(p->a - p->b) >= TRIGGER_MIN_SPAN;
+	if (!p->valid) {
+		return;
+	}
+	a = (float)(uint32_t)p->a;
+	b = (float)(uint32_t)p->b;
+	if (p->falls) {
+		b = b / TRIGGER_EARLY;
+	} else {
+		a = a * TRIGGER_EARLY;
+	}
+	opensc2_norm_setup(&p->stage, osc2_f32_to_s32(b), osc2_f32_to_s32(a), TRIGGER_BAND, false,
+			   1.0f);
+	p->stage.grow = false;
+	p->stage.flip = p->falls;
+	/* setting 68 as an unsigned number, in percent */
+	p->stage.threshold = (float)(uint32_t)(int32_t)setting68 / 100.0f;
+	p->stage.hysteresis = TRIGGER_HYSTERESIS / 100.0f;
+}
+
+void opensc2_trigger_setup(struct opensc2_trigger_proc *p, const struct opensc2_cal_trigger *cal)
+{
+	opensc2_trigger_setup_level(p, cal, TRIGGER_LEVEL);
+}
+
+bool opensc2_trigger_step(struct opensc2_trigger_proc *p, uint16_t counts, uint16_t *value)
+{
+	if (!p->valid) {
+		*value = 0;
+		return false;
+	}
+	*value = (uint16_t)osc2_f32_to_u32(opensc2_norm_step(&p->stage, counts) * (float)AXIS_FULL);
+	return p->stage.on;
 }
 
 uint16_t opensc2_trigger_value(const struct opensc2_trigger_proc *p, uint16_t counts)
 {
-	int64_t num, den, out;
-	int32_t r = counts;
+	struct opensc2_trigger_proc copy = *p;
+	uint16_t v;
 
-	if (!p->valid) {
-		return 0;
-	}
-	/* d = 100 (r - B) / (98 A - 100 B) rising, 98 (A - r) / (98 A - 100 B) falling: the pulled
-	 * end moved 2 % toward the released one (A x 0.98, or B / 0.98). */
-	den = (int64_t)98 * p->a - (int64_t)100 * p->b;
-	if (den == 0) {
-		return 0;
-	}
-	num = p->falls ? (int64_t)98 * (p->a - r) : (int64_t)100 * (r - p->b);
-	/* 32767 x (d - 0.05) / 0.9 = 32767 x (20 d - 1) / 18 */
-	out = (int64_t)AXIS_FULL * (20 * num - den) / (18 * den);
-	return (uint16_t)clamp32(out, 0, OPENSC2_TRIGGER_MAX);
+	(void)opensc2_trigger_step(&copy, counts, &v);
+	return v;
 }
 
 /* ---- pad pressure ---------------------------------------------------------------------------- */
 
+#define PRESSURE_BAND        5.0f   /* percent, at both ends */
+#define PRESSURE_HYSTERESIS  8.0f   /* percent */
+#define PRESSURE_UNSET       INT16_MIN
+
+/* The stage over the calibration's range with the click level of setting 52 or 53. */
+static void pressure_stage(struct opensc2_pressure_proc *p, int16_t click_setting)
+{
+	opensc2_norm_setup(&p->stage, p->lo, p->hi, PRESSURE_BAND, false, 1.0f);
+	p->stage.threshold = (click_setting >= 0 ? (float)click_setting : 100.0f) / 100.0f;
+	p->stage.hysteresis = PRESSURE_HYSTERESIS / 100.0f;
+	p->stage.limit = false;
+	p->stage.grow = false;
+	p->click = false;
+}
+
 void opensc2_pressure_setup(struct opensc2_pressure_proc *p, const struct opensc2_cal_pressure *cal)
 {
-	int32_t lo, hi;
-
 	p->usable = false;
-	p->lo = p->range = 0;
-	p->gain = 0;
 	p->click = false;
-	p->click_setting = INT16_MIN;   /* the next sample's setting counts as a change */
+	p->last = 0;
+	p->click_setting = PRESSURE_UNSET;   /* the next sample sets the stage up */
 	if (!cal || cal->gain == 0) {
 		return;
 	}
@@ -275,71 +388,60 @@ void opensc2_pressure_setup(struct opensc2_pressure_proc *p, const struct opensc
 		if (cal->a == 0x7FFF) {
 			return;
 		}
-		lo = cal->a;
-		hi = cal->b;
+		p->lo = cal->a;
+		p->hi = cal->b;
 	} else if (cal->format == OPENSC2_CAL_FORMAT_PRESSURE_SPAN) {
-		lo = 0;
-		hi = (int32_t)cal->b - cal->a;
+		p->lo = 0;
+		p->hi = (int16_t)(uint16_t)((uint16_t)cal->b - (uint16_t)cal->a);
 	} else {
 		return;
 	}
-	if (hi == lo) {
-		return;   /* no range: OpenSC2 reads it as uncalibrated (protocol.md, gaps) */
-	}
-	p->lo = lo;
-	p->range = hi - lo;
 	p->gain = cal->gain;
+	p->scale = (float)(uint32_t)cal->gain / 2000.0f;
 	p->usable = true;
 }
 
-/* v = (p - lo - 0.05 R) / (0.9 R) = (20 (p - lo) - R) / (18 R), with a positive denominator. */
-static void pressure_fraction(const struct opensc2_pressure_proc *p, int64_t *num, int64_t *den)
+static uint16_t pressure_of(const struct opensc2_pressure_proc *p, float v)
 {
-	*num = (int64_t)20 * ((int64_t)p->filtered - p->lo) - p->range;
-	*den = (int64_t)18 * p->range;
-	if (*den < 0) {
-		*num = -*num;
-		*den = -*den;
-	}
+	return (uint16_t)clamp32(osc2_f32_to_s32(p->scale * 32767.0f * v), 0, OPENSC2_TRIGGER_MAX);
 }
 
 void opensc2_pressure_sample(struct opensc2_pressure_proc *p, int16_t raw, int16_t click_setting)
 {
-	int64_t num, den;
-	int32_t s;
-
 	if (click_setting != p->click_setting) {
-		p->click = false;
 		p->click_setting = click_setting;
+		if (p->usable) {
+			pressure_stage(p, click_setting);
+		}
+		p->click = false;
 	}
 	if (!p->usable) {
-		/* p only follows the raw word while the calibration is usable; without one it is left
-		 * as it is, so a calibration that arrives later starts from the p it had */
+		/* p only follows the raw words while the calibration is usable */
 		p->click = false;
+		p->last = 0;
 		return;
 	}
-	p->filtered = (3 * p->filtered + raw) / 4;
-	s = click_setting < 0 || click_setting > 100 ? 100 : click_setting;   /* -1 means 100 */
-	pressure_fraction(p, &num, &den);
-	/* On when v passes (s + 8) %, off below (s - 8) %. */
-	if (100 * num > (int64_t)(s + 8) * den) {
-		p->click = true;
-	} else if (100 * num < (int64_t)(s - 8) * den) {
-		p->click = false;
-	}
+	p->filtered = (int16_t)((3 * (int32_t)p->filtered + raw) / 4);
+	p->last = pressure_of(p, opensc2_norm_step(&p->stage, p->filtered));
+	p->click = p->stage.on;
 }
 
 uint16_t opensc2_pressure_value(const struct opensc2_pressure_proc *p)
 {
-	int64_t num, den;
+	struct opensc2_norm copy;
 
 	if (!p->usable) {
 		return 0;
 	}
-	pressure_fraction(p, &num, &den);
-	/* 32767 x (C / 2000) x v */
-	return (uint16_t)clamp32((int64_t)AXIS_FULL * p->gain * num / (2000 * den), 0,
-				 OPENSC2_TRIGGER_MAX);
+	copy = p->stage;
+	if (p->click_setting == PRESSURE_UNSET) {
+		/* not sampled since the set-up: the stage as the next sample would have it */
+		struct opensc2_pressure_proc q = *p;
+
+		pressure_stage(&q, 40);
+		copy = q.stage;
+	}
+	return pressure_of(p, opensc2_norm_step(&copy, p->filtered));
 }
 
 uint16_t opensc2_pressure_raw_value(int16_t raw)
@@ -391,7 +493,6 @@ static void rec_start(struct opensc2_cal_rec *r, enum opensc2_cal_rec_kind kind)
 	}
 	r->active[kind] = true;
 	r->seen[kind] = 0;
-	r->step[kind] = 1;
 }
 
 static uint32_t save_bits(enum opensc2_cal_rec_kind kind, uint8_t sides)
@@ -404,37 +505,32 @@ static uint32_t save_bits(enum opensc2_cal_rec_kind kind, uint8_t sides)
 	return ((sides & 1) ? left[kind] : 0) | ((sides & 2) ? right[kind] : 0);
 }
 
+/* The sides a finished recording saves: those the board has, or that got samples. */
+static uint32_t rec_sides(const struct opensc2_cal_rec *r, enum opensc2_cal_rec_kind kind)
+{
+	return save_bits(kind, (uint8_t)(r->seen[kind] | r->supplied[kind]));
+}
+
 uint32_t opensc2_cal_rec_step(struct opensc2_cal_rec *r, enum opensc2_cal_rec_kind kind,
 			      uint8_t step)
 {
 	if (kind > OPENSC2_CAL_REC_PRESSURE || step > 3) {
 		return 0;   /* the command still succeeds */
 	}
+	r->step[kind] = step;
 	if (step == 1) {
 		rec_start(r, kind);
 		return 0;
 	}
-	if (kind == OPENSC2_CAL_REC_PRESSURE) {
-		if (!r->active[kind]) {
-			return 0;
-		}
-		if (step == 3) {
-			/* Saved and loaded again inside the command. */
-			r->active[kind] = false;
-			r->step[kind] = 0;
-			return save_bits(kind, r->seen[kind]);
-		}
-		r->step[kind] = step;   /* 2 records, 0 pauses */
-		return 0;
-	}
-	if (step == 0) {
-		r->active[kind] = false;   /* ends without saving */
+	if (kind == OPENSC2_CAL_REC_PRESSURE && step == 3) {
+		/* Unhooked, saved and loaded again inside the command, hooked or not: the records
+		 * as they stand (zeros when no step 1 came since boot). */
+		r->active[kind] = false;
 		r->step[kind] = 0;
-		return 0;
+		return rec_sides(r, kind);
 	}
-	if (r->active[kind]) {
-		r->step[kind] = step;      /* 2, or 3: saved at the next frame */
-	}
+	/* Sticks and triggers: 2 records further, 3 saves at the next frame, 0 unhooks there. The
+	 * pressure: 2 records, 0 pauses. */
 	return 0;
 }
 
@@ -460,14 +556,41 @@ static void widen_range(struct opensc2_cal_axis *a, uint16_t mv)
 	a->max = max16(a->max, mv);
 }
 
-/* Steps 3 of sticks and triggers: the records go at the frame after the command. */
-static uint32_t rec_finish(struct opensc2_cal_rec *r, enum opensc2_cal_rec_kind kind)
+/* A hooked stick or trigger recording at a frame: 3 hands the records over and unhooks, 0
+ * unhooks. True when it is to take this frame's samples. */
+static bool rec_frame_step(struct opensc2_cal_rec *r, enum opensc2_cal_rec_kind kind,
+			   uint32_t *bits)
 {
-	uint32_t bits = save_bits(kind, r->seen[kind]);
+	uint8_t step = r->step[kind];
 
-	r->active[kind] = false;
-	r->step[kind] = 0;
-	return bits;
+	if (!r->active[kind]) {
+		return false;
+	}
+	if (step == 3) {
+		*bits |= rec_sides(r, kind);
+		r->step[kind] = 0;
+		r->active[kind] = false;
+		return false;
+	}
+	if (step == 0) {
+		r->active[kind] = false;
+		return false;
+	}
+	return true;
+}
+
+void opensc2_cal_rec_pressure_sample(struct opensc2_cal_rec *r, enum opensc2_side side, int16_t raw)
+{
+	int s = side & 1;
+
+	r->supplied[OPENSC2_CAL_REC_PRESSURE] |= (uint8_t)(1u << s);
+	if (!r->active[OPENSC2_CAL_REC_PRESSURE]) {
+		return;
+	}
+	r->seen[OPENSC2_CAL_REC_PRESSURE] |= (uint8_t)(1u << s);
+	if (r->step[OPENSC2_CAL_REC_PRESSURE] == 2 && (raw < 0 ? 0 : raw) > r->pressure[s].b) {
+		r->pressure[s].b = raw < 0 ? 0 : raw;
+	}
 }
 
 uint32_t opensc2_cal_rec_frame(struct opensc2_cal_rec *r, const uint16_t stick_mv[2][2],
@@ -477,69 +600,54 @@ uint32_t opensc2_cal_rec_frame(struct opensc2_cal_rec *r, const uint16_t stick_m
 {
 	uint32_t bits = 0;
 
-	if (r->active[OPENSC2_CAL_REC_STICKS]) {
+	r->supplied[OPENSC2_CAL_REC_STICKS] |= (uint8_t)(stick_mv ? stick_sides & 3 : 0);
+	r->supplied[OPENSC2_CAL_REC_TRIGGERS] |= (uint8_t)(trigger_mv ? trigger_sides & 3 : 0);
+
+	if (rec_frame_step(r, OPENSC2_CAL_REC_STICKS, &bits) && stick_mv) {
 		uint8_t step = r->step[OPENSC2_CAL_REC_STICKS];
 
-		if (step == 3) {
-			bits |= rec_finish(r, OPENSC2_CAL_REC_STICKS);
-		} else if (stick_mv) {
-			for (int side = 0; side < 2; side++) {
-				struct opensc2_cal_stick *s = &r->stick[side];
+		for (int side = 0; side < 2; side++) {
+			struct opensc2_cal_stick *s = &r->stick[side];
 
-				if (!(stick_sides & (1u << side))) {
-					continue;
-				}
-				if (step == 1) {
-					widen_rest(&s->x, stick_mv[side][0]);
-					widen_rest(&s->y, stick_mv[side][1]);
-				} else {
-					widen_range(&s->x, stick_mv[side][0]);
-					widen_range(&s->y, stick_mv[side][1]);
-				}
-				r->seen[OPENSC2_CAL_REC_STICKS] |= (uint8_t)(1u << side);
-			}
-		}
-	}
-
-	if (r->active[OPENSC2_CAL_REC_TRIGGERS]) {
-		uint8_t step = r->step[OPENSC2_CAL_REC_TRIGGERS];
-
-		if (step == 3) {
-			bits |= rec_finish(r, OPENSC2_CAL_REC_TRIGGERS);
-		} else if (trigger_mv) {
-			for (int side = 0; side < 2; side++) {
-				struct opensc2_cal_trigger *rise = &r->trigger[side][0];
-				struct opensc2_cal_trigger *fall = &r->trigger[side][1];
-				uint16_t mv = trigger_mv[side];
-
-				if (!(trigger_sides & (1u << side))) {
-					continue;
-				}
-				if (step == 1) {   /* released */
-					rise->b_mv = min16(rise->b_mv, mv);
-					fall->a_mv = max16(fall->a_mv, mv);
-				} else {           /* pulled */
-					rise->a_mv = max16(rise->a_mv, mv);
-					fall->b_mv = min16(fall->b_mv, mv);
-				}
-				r->seen[OPENSC2_CAL_REC_TRIGGERS] |= (uint8_t)(1u << side);
-			}
-		}
-	}
-
-	if (r->active[OPENSC2_CAL_REC_PRESSURE] && pressure_raw) {
-		uint8_t step = r->step[OPENSC2_CAL_REC_PRESSURE];
-
-		for (int side = 0; side < 2 && step != 0; side++) {
-			int16_t raw = pressure_raw[side] < 0 ? 0 : pressure_raw[side];
-
-			if (!(pressure_sides & (1u << side))) {
+			if (!(stick_sides & (1u << side))) {
 				continue;
 			}
-			if (step == 2 && raw > r->pressure[side].b) {
-				r->pressure[side].b = raw;
+			if (step == 1) {
+				widen_rest(&s->x, stick_mv[side][0]);
+				widen_rest(&s->y, stick_mv[side][1]);
+			} else {
+				widen_range(&s->x, stick_mv[side][0]);
+				widen_range(&s->y, stick_mv[side][1]);
 			}
-			r->seen[OPENSC2_CAL_REC_PRESSURE] |= (uint8_t)(1u << side);
+			r->seen[OPENSC2_CAL_REC_STICKS] |= (uint8_t)(1u << side);
+		}
+	}
+
+	if (rec_frame_step(r, OPENSC2_CAL_REC_TRIGGERS, &bits) && trigger_mv) {
+		uint8_t step = r->step[OPENSC2_CAL_REC_TRIGGERS];
+
+		for (int side = 0; side < 2; side++) {
+			struct opensc2_cal_trigger *rise = &r->trigger[side][0];
+			struct opensc2_cal_trigger *fall = &r->trigger[side][1];
+			uint16_t mv = trigger_mv[side];
+
+			if (!(trigger_sides & (1u << side))) {
+				continue;
+			}
+			if (step == 1) {   /* released */
+				rise->b_mv = min16(rise->b_mv, mv);
+				fall->a_mv = max16(fall->a_mv, mv);
+			} else {           /* pulled */
+				rise->a_mv = max16(rise->a_mv, mv);
+				fall->b_mv = min16(fall->b_mv, mv);
+			}
+			r->seen[OPENSC2_CAL_REC_TRIGGERS] |= (uint8_t)(1u << side);
+		}
+	}
+
+	for (int side = 0; pressure_raw && side < 2; side++) {
+		if (pressure_sides & (1u << side)) {
+			opensc2_cal_rec_pressure_sample(r, (enum opensc2_side)side, pressure_raw[side]);
 		}
 	}
 	return bits;
@@ -556,11 +664,11 @@ void opensc2_cal_rec_trigger(const struct opensc2_cal_rec *r, enum opensc2_side 
 {
 	const struct opensc2_cal_trigger *rise = &r->trigger[side & 1][0];
 	const struct opensc2_cal_trigger *fall = &r->trigger[side & 1][1];
-	int32_t span_rise = (int32_t)rise->a_mv - rise->b_mv;
-	int32_t span_fall = (int32_t)fall->a_mv - fall->b_mv;
+	int32_t span_rise = abs32((int32_t)rise->a_mv - rise->b_mv);
+	int32_t span_fall = abs32((int32_t)fall->a_mv - fall->b_mv);
 
 	/* The candidate whose A and B lie further apart; direction 0 on a tie. */
-	*out = span_fall > span_rise ? *fall : *rise;
+	*out = span_rise >= span_fall ? *rise : *fall;
 }
 
 void opensc2_cal_rec_pressure(const struct opensc2_cal_rec *r, enum opensc2_side side,

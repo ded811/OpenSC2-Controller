@@ -10,12 +10,12 @@ library's fusion helper for the orientation. For anyone who wants gyro controls 
 
 - `sensor_sample_fetch()` and `sensor_channel_get()` for `SENSOR_CHAN_ACCEL_XYZ` and
   `SENSOR_CHAN_GYRO_XYZ` about 250 times a second.
-- The conversion to the state report's scale: m/s² to g to `opensc2_accel_from_g()` (16384 per g),
-  rad/s to degrees per second to `opensc2_gyro_from_dps()` (32767 = 2000 deg/s).
-- The fusion helper (`CONFIG_OPENSC2_FUSION`): `opensc2_fusion_init()`,
-  `opensc2_fusion_update()` and `opensc2_fusion_quat()` for the orientation quaternion.
-- `opensc2_setting_get(OPENSC2_SETTING_IMU_MODE)`: like the real controller, the IMU streams only
-  while Steam has it on (controller setting 48); until then the IMU fields stay at zero.
+- The library's IMU ([`<opensc2/imu.h>`](../../docs/api.md#the-imu)): each sample in m/s² and rad/s
+  to `opensc2_imu_sample()`, which scales it as the real controller does (32767 = 2 g and
+  2000 deg/s); like the real controller it streams from boot until a host writes controller
+  setting 48 = 0 (`opensc2_imu_streaming()`), and the reports keep the last sample while it is off.
+- The fusion helper (`CONFIG_OPENSC2_FUSION`): `opensc2_fusion_init()` and
+  `opensc2_fusion_update()` for the orientation quaternion (`fusion.q`, W first).
 - A part powered from the board's switched VCC before its driver starts: VCC goes on in a
   `SYS_INIT` hook, since Zephyr starts the sensor driver before `main()`.
 - The pairing button with the same rules as every sample.
@@ -102,13 +102,13 @@ The pairing button (P0.31):
 
 The sample is built to do the following; none of it has run on hardware yet.
 
-- The IMU fields stay at zero until Steam switches the stream on (controller setting 48), for
-  example for gyro controls; then the acceleration, angular rate and orientation follow the
-  sensor, wired and through the puck.
+- The acceleration, angular rate and orientation follow the sensor from boot, wired and through
+  the puck, until a host writes controller setting 48 = 0 (the last sample stays) and again after
+  any other value.
 - In wireless mode the board's USB serial port has a shell
-  ([Reach the shell](../../docs/getting-started.md#reach-the-shell)). While Steam has the IMU on,
-  `opensc2 state` shows the line `imu       t <us>  a <x> <y> <z>  g <x> <y> <z>  q <w> <x> <y> <z>`;
-  lying flat and still, `a` reads about 16384 (1 g) on Z and `g` about 0. `opensc2 status` shows the IMU mode
+  ([Reach the shell](../../docs/getting-started.md#reach-the-shell)). `opensc2 state` shows the
+  line `imu       t <us>  a <x> <y> <z>  g <x> <y> <z>  q <w> <x> <y> <z>`; lying flat and still,
+  `a` reads about 16383 (1 g) on Z and `g` about 0. `opensc2 status` shows the IMU mode
   Steam set, and the board's serials: mask them before you post the output.
 - If the sensor did not start, the log says "The IMU did not start" and the controller goes on
   without IMU data.
@@ -126,9 +126,11 @@ The sample is built to do the following; none of it has run on hardware yet.
   keep the `imu` label, and set its ranges to the report's ±2 g and ±2000 deg/s where the driver
   allows it.
 - **Another mounting**: swap or negate the axes in the `for` loop of `main()` before
-  `opensc2_fusion_update()`; `app/src/imu.c` has a `to_controller_axes()` for that.
-- **Streaming without Steam** (for a test): remove the setting 48 check in `main()`.
-  `app/` has the option `CONFIG_APP_IMU_ALWAYS` for the same.
+  `opensc2_fusion_update()`; `app/src/imu.c` hands its overlay's `imu-mounting-matrix` to the
+  library's IMU (`opensc2_imu_set_mounting()`) instead.
+- **Keep streaming while a host has it off** (for a test): read and show the sensor yourself;
+  the library's IMU refuses samples while setting 48 is 0, as the real controller streams
+  nothing then.
 - **An interrupt instead of polling**: the MPU-6050 driver has a data-ready trigger
   (`int-gpios` and `CONFIG_MPU6050_TRIGGER_*`); this sample polls to stay short.
 - **Your own project**: start from [template/](../../template)

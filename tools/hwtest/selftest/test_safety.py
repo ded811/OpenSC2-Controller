@@ -277,6 +277,21 @@ class VendorDenylist(unittest.TestCase):
                 with self.assertRaises(safety.SafetyError):
                     safety.check_vendor(opcode, key + value, "usb", ctx=ctx)
 
+    def test_imu_keys(self):
+        """S5 on the IMU's keys: only 0xEE of another size and 0xEF go out; a key with its size
+        (which would change the IMU until the next boot) and 0xF0 never, whatever the tokens."""
+        ctx = safety.Context()
+        ctx.flash_allowed = True
+        for name, size in C.IMU_KEYS.items():
+            key = name.encode() + b"\x00"
+            safety.check_vendor(C.VC_BY_NAME_SET, key + bytes(size + 1), "usb", ctx=ctx)
+            safety.check_vendor(C.VC_BY_NAME_SET, key, "usb", ctx=ctx)
+            safety.check_vendor(C.VC_BY_NAME_SAVE, key, "usb", ctx=ctx)
+            for opcode, value in ((C.VC_BY_NAME_SET, bytes(size)), (C.VC_BY_NAME_DELETE, b"")):
+                ctx.add_token(opcode, name, value)
+                with self.assertRaises(safety.SafetyError):
+                    safety.check_vendor(opcode, key + value, "usb", ctx=ctx)
+
     def test_kept_keys(self):
         """The keys the library keeps (keylock, charge window, crash record, ...): 0xEE of another
         size or of the value just read back; everything else with a token only."""

@@ -55,10 +55,23 @@ struct osc2_input_rules {
 	bool trigger_bit[2];      /* the triggers' digital bits of the last report */
 	bool pad_click[2];        /* each pad's click by pressure, touched or not */
 	int16_t click_setting[2]; /* setting 52 or 53 when that click was last worked out */
+	int16_t level68;          /* setting 68 when the trigger bits were last worked out */
+	uint8_t decided;          /* this report's trigger bits the calibration decided (a side
+				   * per bit), osc2_input_rules_decide() */
+	bool decided_bit[2];
+	uint8_t pad_sides;        /* sides whose pad, stick touch and grip come from trackpad frames
+				   * (<opensc2/trackpad.h>), which applied the stick-touch fallback,
+				   * the click and setting 82 already: the rules leave them alone */
 };
 
 /* Back to boot: no trigger bit, no click. */
 void osc2_input_rules_reset(struct osc2_input_rules *r);
+/* This report's raw trigger of `side` was processed with its calibration, which decided its
+ * digital bit: the trigger rule takes that bit for this report instead of working it out. */
+void osc2_input_rules_decide(struct osc2_input_rules *r, int side, bool bit);
+/* The triggers were set up again (a calibration key, the dock): their digital bits start from off,
+ * as the real controller's set-up clears them. A change of setting 68 does the same by itself. */
+void osc2_input_rules_triggers_set_up(struct osc2_input_rules *r);
 
 /* Apply the rules in `rules` to the state of one report, in the real controller's order: the
  * stick-touch fallback, the click by pressure, the blanking of setting 82, the trigger bits.
@@ -66,9 +79,10 @@ void osc2_input_rules_reset(struct osc2_input_rules *r);
 void osc2_input_rules_apply(struct osc2_input_rules *r, uint32_t rules,
 			    const int16_t settings[OPENSC2_SETTINGS_COUNT], struct opensc2_state *s);
 
-/* A pad's click by pressure: on above the threshold (setting 52 or 53, percent, -1 counting as
- * 100, clamped to -1..100) plus 8 points, off below it minus 8, unchanged in between. `pressure`
- * 0..32767 is the whole press. */
+/* A pad's click by pressure, as the real controller's pressure stage works it out on the
+ * normalised press: with v = pressure / 32767 and t = setting / 100 (setting 52 or 53, a negative
+ * one counting as 100) in single-precision floating point, on when v passes t + 0.08, off when it
+ * falls below t - 0.08, unchanged in between. */
 bool osc2_pad_click(uint16_t pressure, int16_t setting, bool previous);
 
 /* The real controller's quick approximation of sqrt(dx * dx + dy * dy): with M the larger and m

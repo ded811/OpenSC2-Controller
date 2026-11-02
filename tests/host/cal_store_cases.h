@@ -524,6 +524,39 @@ OPENSC2_TEST(cal_store_finished_values)
 	}
 }
 
+OPENSC2_TEST(cal_store_key_api)
+{
+	struct opensc2_state s;
+	uint8_t out[OPENSC2_CAL_STICK_LEN + 2], len;
+
+	stub_reset();
+	CHECK_EQ(opensc2_cal_key_set("cal/joy_x", cal_joy_bytes, 18, false), -ENOENT);
+	CHECK_EQ(opensc2_cal_key_set("cal/joy_l", cal_joy_bytes, 17, false), -EINVAL);
+	CHECK_EQ(opensc2_cal_key_set(NULL, cal_joy_bytes, 18, false), -ENOENT);
+	/* RAM only: in use from the next report, nothing written */
+	CHECK_EQ(opensc2_cal_key_set("cal/joy_l", cal_joy_bytes, 18, false), 0);
+	CHECK(opensc2_cal_stick_ok(OPENSC2_LEFT));
+	CHECK_EQ(cal_host.writes, 0);
+	opensc2_set_stick_raw(OPENSC2_LEFT, 3723, 2047);
+	cal_frame_state(&s);
+	CHECK_EQ(s.stick[OPENSC2_LEFT].x, 32767);
+	/* read back, whatever the format word */
+	CHECK_EQ(opensc2_cal_key_get("cal/joy_l", out, sizeof(out)), 18);
+	CHECK(memcmp(out, cal_joy_bytes, 18) == 0);
+	CHECK_EQ(opensc2_cal_key_get("cal/joy_l", out, 17), -EINVAL);
+	CHECK_EQ(opensc2_cal_key_get("cal/prs_r", out, sizeof(out)), 8);   /* zeros */
+	CHECK_EQ(opensc2_cal_key_get("cal/rgbw_r", out, sizeof(out)), 1);
+	CHECK_EQ(out[0], 90);
+	/* saved: in the board's storage, kept over a boot */
+	CHECK_EQ(opensc2_cal_key_set("cal/trg_r", (const uint8_t[7]){ 2, 0, 0xDC, 5, 0xC8, 0, 0 }, 7,
+				     true), 0);
+	CHECK_EQ(cal_host_flash_get("cal/trg_r", out, &len), 0);
+	CHECK_EQ(len, 7);
+	cal_host_boot();
+	CHECK(opensc2_cal_trigger_ok(OPENSC2_RIGHT));
+	CHECK(!opensc2_cal_stick_ok(OPENSC2_LEFT));   /* the RAM-only one is gone */
+}
+
 OPENSC2_TEST(cal_store_recordings)
 {
 	struct opensc2_state s;
@@ -554,6 +587,13 @@ OPENSC2_TEST(cal_store_recordings)
 	CHECK(opensc2_cal_recording(OPENSC2_CAL_REC_STICKS));   /* until the next frame saves */
 	cal_frame_state(&s);
 	CHECK(!opensc2_cal_recording(OPENSC2_CAL_REC_STICKS));
+	/* written from the work queue, and in RAM as the load after the write gives it, with every
+	 * other stored cal/ key loaded again */
+	CHECK_EQ(cal_read("cal/joy_l", out), 0);
+	CHECK_EQ(cal_host.writes, 0);
+	osc2_cal_flush();
+	CHECK_EQ(cal_host.writes, 2);
+	CHECK_EQ(cal_host.reloads, 1);
 	CHECK_EQ(cal_read("cal/joy_l", out), 18);
 	opensc2_cal_stick_unpack(out, &st);
 	CHECK_EQ(st.format, 2);
@@ -567,10 +607,6 @@ OPENSC2_TEST(cal_store_recordings)
 	cal_frame_state(&s);
 	CHECK_EQ(s.stick[OPENSC2_LEFT].x, 0);
 	CHECK_EQ(s.stick[OPENSC2_LEFT].y, 32767);
-	/* saved from the work queue */
-	CHECK_EQ(cal_host.writes, 0);
-	osc2_cal_flush();
-	CHECK_EQ(cal_host.writes, 2);
 
 	/* triggers: the left rises when pulled, the right falls */
 	CHECK_EQ(cal_set(0xC0, (const uint8_t[]){ 1 }, 1), 0);
@@ -583,6 +619,7 @@ OPENSC2_TEST(cal_store_recordings)
 	cal_frame_state(&s);
 	CHECK_EQ(cal_set(0xC0, (const uint8_t[]){ 3 }, 1), 0);
 	cal_frame_state(&s);
+	osc2_cal_flush();
 	CHECK_EQ(cal_read("cal/trg_l", out), 7);
 	opensc2_cal_trigger_unpack(out, &tr);
 	CHECK_EQ(tr.direction, 0);
@@ -590,7 +627,11 @@ OPENSC2_TEST(cal_store_recordings)
 	CHECK_EQ(tr.b_mv, opensc2_cal_counts_to_mv(500, 1650));
 	CHECK_EQ(cal_read("cal/trg_r", out), 7);
 	opensc2_cal_trigger_unpack(out, &tr);
-	CHECK_EQ(tr.direction, 1);
+	/* both candidates lie 1289 mV apart: the tie goes to direction 0, with A and B the other
+	 * way round (A the pulled 201 mV, B the released 1490 mV), which works as well */
+	CHECK_EQ(tr.direction, 0);
+	CHECK_EQ(tr.a_mv, opensc2_cal_counts_to_mv(500, 1650));
+	CHECK_EQ(tr.b_mv, opensc2_cal_counts_to_mv(3700, 1650));
 	/* the right trigger pulled reads full, released 0 */
 	cal_frame_state(&s);
 	CHECK_EQ(s.trigger[OPENSC2_RIGHT], 32767);
@@ -608,21 +649,48 @@ OPENSC2_TEST(cal_store_recordings)
 	opensc2_set_pressure_raw(OPENSC2_LEFT, 1500);
 	cal_frame_state(&s);
 	CHECK_EQ(cal_set(0xC3, (const uint8_t[]){ 3 }, 1), 0);
+	osc2_cal_flush();
+	CHECK_EQ(cal_host.reloads, 2);   /* the pressure loads only its own keys */
 	CHECK_EQ(cal_read("cal/prs_l", out), 8);
 	opensc2_cal_pressure_unpack(out, &pr);
 	CHECK_EQ(pr.format, 1);
 	CHECK_EQ(pr.a, 0);
 	CHECK_EQ(pr.b, 2100);
 	CHECK_EQ(pr.gain, 2000);
-	CHECK_EQ(cal_read("cal/prs_r", out), 0);   /* no samples on the right: kept as it was */
+	CHECK_EQ(cal_read("cal/prs_r", out), 0);   /* no right pad on this board: kept as it was */
 	CHECK(opensc2_cal_pressure_ok(OPENSC2_LEFT));
 
-	/* a step 3 without a step 1 does nothing; neither does a step above 3 */
+	/* a step 3 without a step 1 does nothing for the sticks; neither does a step above 3 */
 	CHECK_EQ(cal_set(0xD8, (const uint8_t[]){ 0, 3 }, 2), 0);
 	CHECK_EQ(cal_set(0xD8, (const uint8_t[]){ 0, 9 }, 2), 0);
 	cal_frame_state(&s);
 	osc2_cal_flush();
 	CHECK_EQ(cal_host.writes, 5);   /* the two sticks, two triggers and the left pad only */
+
+	/* A stick or trigger recording loads every stored cal/ key again: a RAM-only change of
+	 * another stored key (an LED trim here) goes back to its stored value. */
+	CHECK_EQ(cal_named(0xEE, "cal/rgbw_g", (const uint8_t[]){ 77 }, 1), 0);
+	CHECK_EQ(cal_named(0xEF, "cal/rgbw_g", NULL, 0), 0);
+	CHECK_EQ(cal_named(0xEE, "cal/rgbw_g", (const uint8_t[]){ 12 }, 1), 0);
+	CHECK_EQ(opensc2_cal_led_trim(1), 12);
+	CHECK_EQ(cal_set(0xC0, (const uint8_t[]){ 1 }, 1), 0);
+	cal_frame_state(&s);
+	CHECK_EQ(cal_set(0xC0, (const uint8_t[]){ 3 }, 1), 0);
+	cal_frame_state(&s);
+	osc2_cal_flush();
+	CHECK_EQ(opensc2_cal_led_trim(1), 77);
+
+	/* The pressure's step 3 saves what its records hold, with or without a step 1 (the records
+	 * of the last recording; zeros, format 0, after a boot): the pad loses its pressure. */
+	cal_host_boot();
+	CHECK(opensc2_cal_pressure_ok(OPENSC2_LEFT));
+	opensc2_set_pressure_raw(OPENSC2_LEFT, 100);
+	cal_frame_state(&s);   /* the board has a left pad */
+	CHECK_EQ(cal_set(0xC3, (const uint8_t[]){ 3 }, 1), 0);
+	osc2_cal_flush();
+	CHECK(!opensc2_cal_pressure_ok(OPENSC2_LEFT));
+	CHECK_EQ(cal_read("cal/prs_l", out), 0);   /* format 0: nothing to read back */
+	CHECK_EQ(cal_host_flash_get("cal/prs_l", out, &(uint8_t){ 0 }), 0);   /* but stored */
 }
 
 OPENSC2_TEST(cal_store_raw_inputs)
@@ -766,9 +834,11 @@ OPENSC2_TEST(cal_store_pad_rules)
 	s.pad[OPENSC2_LEFT] = (struct opensc2_trackpad){ .x = 2000, .y = 0, .touched = true };
 	osc2_cal_rules(&s);
 	CHECK_EQ(s.pad[OPENSC2_RIGHT].x, 0);
-	CHECK_EQ(s.pad[OPENSC2_RIGHT].y, 2000);    /* the right pad turns counter-clockwise */
+	/* the right pad turns counter-clockwise, the left one clockwise; sin 90 is 8191 in the
+	 * real controller's table, so 1000 at half scale turns into 999 */
+	CHECK_EQ(s.pad[OPENSC2_RIGHT].y, 1998);
 	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 0);
-	CHECK_EQ(s.pad[OPENSC2_LEFT].y, -2000);    /* the left one clockwise */
+	CHECK_EQ(s.pad[OPENSC2_LEFT].y, -1998);
 	osc2.settings[OPENSC2_SETTING_PAD_ROTATION] = 0;
 	/* the stabiliser with 80 = 2: a new touch is held until the thumb moves past 4369 */
 	osc2.settings[OPENSC2_SETTING_PAD_STABILIZER] = 2;
@@ -805,4 +875,47 @@ OPENSC2_TEST(cal_store_pad_rules)
 	osc2_cal_rules(&s);
 	CHECK_EQ(s.pad[OPENSC2_LEFT].x, 12500);   /* held at the new touch point */
 	osc2.settings[OPENSC2_SETTING_PAD_STABILIZER] = 1;
+}
+
+OPENSC2_TEST(cal_store_dock_offsets)
+{
+	static const int16_t none[4] = { 0, 0, 0, 0 };
+	static const int16_t up[4] = { 0, 0, 500, 500 };   /* the rest band 500 mV higher */
+	struct opensc2_state s;
+	int16_t undocked;
+	uint32_t setups;
+
+	stub_reset();
+	CHECK_EQ(cal_named(0xEE, "cal/joy_l", cal_joy_bytes, 18), 0);
+	CHECK_EQ(opensc2_cal_set_dock_offsets(OPENSC2_LEFT, up, none), 0);
+	CHECK_EQ(opensc2_cal_set_dock_offsets(2, up, none), -EINVAL);
+	opensc2_set_stick_raw(OPENSC2_LEFT, 2049, 2000);
+	cal_frame_state(&s);
+	undocked = s.stick[OPENSC2_LEFT].x;
+	CHECK_EQ(undocked, 21);
+	/* docked on a board of revision 0x48: the centre moves up, the same reading reads lower */
+	cal_host.power_source = OPENSC2_POWER_SOURCE_DOCK;
+	setups = osc2_cal_setups();
+	cal_frame_state(&s);
+	CHECK(osc2_cal_setups() != setups);
+	CHECK(s.stick[OPENSC2_LEFT].x < -5000);
+	/* off the dock: as before */
+	cal_host.power_source = OPENSC2_POWER_SOURCE_USB;
+	cal_frame_state(&s);
+	CHECK_EQ(s.stick[OPENSC2_LEFT].x, undocked);
+	/* an earlier board revision: no offsets, but docking and leaving still set the sticks and
+	 * triggers up again (the triggers' digital bits clear), as on the real controller */
+	osc2.identity.board_revision = 0x45;
+	setups = osc2_cal_setups();
+	cal_host.power_source = OPENSC2_POWER_SOURCE_DOCK;
+	cal_frame_state(&s);
+	CHECK_EQ(s.stick[OPENSC2_LEFT].x, undocked);
+	CHECK(osc2_cal_setups() != setups);
+	setups = osc2_cal_setups();
+	cal_host.power_source = OPENSC2_POWER_SOURCE_USB;
+	cal_frame_state(&s);
+	CHECK(osc2_cal_setups() != setups);
+	setups = osc2_cal_setups();
+	cal_frame_state(&s);
+	CHECK_EQ(osc2_cal_setups(), setups);   /* nothing changed: no set-up */
 }

@@ -232,11 +232,16 @@ void osc2_report_init(void);
  * osc2_report_lizard(). */
 void osc2_report_state(uint8_t state[OPENSC2_STATE_REPORT_LEN], struct opensc2_state *s);
 /* The application's "no rotation" (all four quaternion words 0) as the state reports carry it: the
- * identity, W = 32767. No real controller sends W = 0: July sent the identity, October its fused
- * rotation (and the last one while the stream is off). Applied to the application's state before
- * the test hooks' injection, which keeps its bytes. */
+ * identity, W = 32767. July sent the identity, October its fused rotation (and the last one while
+ * the stream is off); October's state starts empty, so until its IMU's first sample it sends all 0,
+ * which the library does too for a board that set its IMU up (<opensc2/imu.h>). Applied to the
+ * application's state before the test hooks' injection, which keeps its bytes. */
+bool osc2_imu_before_first_sample(void);   /* imu.c: the board's IMU has given nothing yet */
 static inline void osc2_quat_none_to_identity(struct opensc2_state *s)
 {
+	if (osc2_imu_before_first_sample()) {
+		return;   /* the real controller's state starts empty: all 0 until the first sample */
+	}
 	if (s->imu.quat[0] == 0 && s->imu.quat[1] == 0 && s->imu.quat[2] == 0 &&
 	    s->imu.quat[3] == 0) {
 		s->imu.quat[0] = OPENSC2_QUAT_ONE;

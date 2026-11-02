@@ -26,12 +26,13 @@ RPAD_TOUCH = 1 << R.RPAD_TOUCH_BIT
 
 
 def stick_mv(counts):
-    """A stick reading in the firmware's millivolts: counts x 3300 / 4096, rounded down."""
-    return min(counts, 4095) * 3300 // 4096
+    """A stick reading in the firmware's millivolts: counts x 3300 / 4096, rounded down (a reading
+    above 4095 as it is), at most 65535."""
+    return min(counts * 3300 // 4096, 0xFFFF)
 
 
 def trigger_mv(counts):
-    return min(counts, 4095) * 1650 // 4096
+    return min(counts * 1650 // 4096, 0xFFFF)
 
 
 def _fields(report):
@@ -226,9 +227,11 @@ def run(ctx):
                 rep, _n = rig.inject_and_read(pads)
                 if c.true("a report", rep is not None):
                     f = _fields(rep)
+                    # sin 90 is 8191 in the real controller's table: 1000 at half scale
+                    # turns into 999
                     c.eq("90 degrees: the right pad counter-clockwise, the left clockwise",
                          (f["lpad_x"], f["lpad_y"], f["rpad_x"], f["rpad_y"]),
-                         (0, -2000, 0, 2000))
+                         (0, -1998, 0, 1998))
                 _settings(rig, [(2, 7)])
                 rep, _n = rig.inject_and_read(R.make_state52(buttons=RPAD_TOUCH, rpad_x=20000,
                                                              rpad_y=-10000))

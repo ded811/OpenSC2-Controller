@@ -86,6 +86,11 @@ static int on_set(const char *key, size_t len, settings_read_cb read_cb, void *c
 /* The longest name wins in Zephyr settings: opensc2/cal/... comes here, not to storage.c. */
 SETTINGS_STATIC_HANDLER_DEFINE(opensc2_cal, "opensc2/cal", NULL, on_set, NULL, NULL);
 
+void osc2_cal_flash_reload(void)
+{
+	(void)settings_load_subtree("opensc2/cal");
+}
+
 #else /* !CONFIG_OPENSC2_STORAGE */
 
 int osc2_cal_flash_write(const char *name, const void *value, size_t len)
@@ -100,6 +105,11 @@ int osc2_cal_flash_delete(const char *name)
 {
 	ARG_UNUSED(name);
 	return 0;
+}
+
+void osc2_cal_flash_reload(void)
+{
+	/* nothing stored: RAM is all there is */
 }
 
 #endif /* CONFIG_OPENSC2_STORAGE */

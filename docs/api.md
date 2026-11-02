@@ -70,6 +70,10 @@ is not documented here and has not been checked against this library.
 | `opensc2_set_battery(&battery)`, `opensc2_battery_kept_level()` | the battery report; the level kept over a warm reset | [Battery](#battery) |
 | `opensc2_set_stick_raw()`, `_trigger_raw()`, `_pressure_raw()`, `_touch_raw()`, `opensc2_set_raw(&raw)`, `opensc2_cal_raw_release(inputs)` | raw inputs, processed as the real controller does with its stored calibration | [Calibration and raw inputs](#calibration-and-raw-inputs) |
 | `opensc2_cal_stick_ok(side)`, `_trigger_ok()`, `_pressure_ok()`, `opensc2_cal_recording(kind)`, `opensc2_cal_led_trim(ch)`, `opensc2_cal_volt_offset()`, `opensc2_cal_gyro_bias(b)`, `opensc2_cal_generation()` | the stored calibration, a recording running | [Calibration and raw inputs](#calibration-and-raw-inputs) |
+| `opensc2_cal_set_dock_offsets(side, x, y)` | the sticks' offsets while docked (the board's own data; 0 by default) | [Calibration and raw inputs](#calibration-and-raw-inputs) |
+| `opensc2_cal_key_set(name, value, len, save)`, `opensc2_cal_key_get(name, out, max)` | a calibration key by its name, from the application (a board's own factory calibration) | [Calibration and raw inputs](#calibration-and-raw-inputs) |
+| `opensc2_pad_frame(side, &frame)`, `opensc2_pad_frame_release(side)`, `opensc2_pad_result(side, &r)`, `opensc2_pad_set_stretch(side, s)` | a trackpad sensor's frames, processed frame by frame as the real controller does (a raw sensor's centroid and level too) | [Trackpads frame by frame](#trackpads-frame-by-frame) |
+| `opensc2_imu_sample(&s)`, `opensc2_imu_streaming()`, `opensc2_imu_set_mounting(m)`, `opensc2_imu_set_handler(&h, user)`, `opensc2_imu_config_get(&c)`, `opensc2_imu_free_fall()` | the IMU as the real controller runs it: the stream from boot and setting 48, its scaling, bias, mounting matrix and dead zone, settings 84 and 85, its keys by name, the drop sounds' arming | [The IMU](#the-imu) |
 | `opensc2_send_report(report, len)`, `opensc2_send_haptic_status(channel, flags)` | any other input report | [Other input reports](#other-input-reports) |
 | `opensc2_bond_get(slot, &bond)`, `opensc2_bond_set(slot, &bond)` | read or store a pairing | [Bonds and pairing](#bonds-and-pairing) |
 | `opensc2_select_slot(slot)`, `opensc2_selected_slot()` | the pairing slot in use (0 or 1) | [Bonds and pairing](#bonds-and-pairing) |
@@ -377,7 +381,7 @@ links.
 | Right stick | `opensc2_set_stick(OPENSC2_RIGHT, x, y)` | same | 13, 15, s16 | right stick |
 | Left / right trackpad | `opensc2_set_trackpad(side, &pad)` | `x`, `y`: -32767 .. 32767, right and up positive; `pressure`: 0 .. 32767; `touched`, `clicked` | 17..22 (left), 23..28 (right): x, y s16, pressure u16 | two touchpads (SDL: position `x / 65536 + 0.5`, pressure `/ 32768`), pad clicks as buttons |
 | IMU timestamp | `opensc2_set_imu(&imu)`, `imu.timestamp_us` | µs, wrapping u32 | 29, u32 | sensor timestamps |
-| Acceleration | `imu.accel[3]` X, Y, Z | 16384 per g (32767 = 2 g) | 33, 35, 37, s16 | accelerometer |
+| Acceleration | `imu.accel[3]` X, Y, Z | 32767 = 2 g (about 16384 per g; the real controller's scaling gives 16383 for 1 g, [the IMU](#the-imu)) | 33, 35, 37, s16 | accelerometer |
 | Angular rate | `imu.gyro[3]` X, Y, Z | 32767 = 2000 °/s (16.384 per °/s) | 39, 41, 43, s16 | gyroscope (gyro controls) |
 | Orientation | `imu.quat[4]` W, X, Y, Z | 32767 = 1.0; all zero = none, which the reports carry as the identity (W 32767), as the real controller never sends W = 0 | 45 (W), 47, 49, 51 | not read by SDL |
 | Battery | `opensc2_set_battery(&b)` | see below | input report `0x43`, every 3.5 s | battery level and charge state (SDL power info) |
@@ -397,10 +401,14 @@ order (the hardware test hooks' injected state goes through them too). They chan
 | Rule | Kconfig (default) | What it does |
 | --- | --- | --- |
 | Stick-touch fallback | `CONFIG_OPENSC2_STICK_TOUCH_FALLBACK` (y) | a stick further than 12000 from its centre counts as touched: its stick-touch bit (20 right, 24 left) is set. The distance is the real controller's quick approximation of √(x² + y²) (about 12200 along an axis, 12340 on a diagonal); no hysteresis; never while setting 46 asks for raw sticks |
-| Click by pressure | `CONFIG_OPENSC2_PAD_CLICK_AUTO` (n) | the pads' click bits (22 right, 26 left) come from their pressure, as on the real controller, whose pads have no switch: on above setting 53 (right) or 52 (left) plus 8 points, off below it minus 8 (percent of 32767; default 40, so on above 48 % and off below 32 %; -1 counts as 100); a new threshold clears the click; the click follows the pressure while the pad is not touched, but only a touched pad reports it. It replaces the application's own click bits. Off by default: a board with a physical click keeps it, and a pressure that is not a real press would click on every touch |
+| Click by pressure | `CONFIG_OPENSC2_PAD_CLICK_AUTO` (n) | the pads' click bits (22 right, 26 left) come from their finished pressure, as on the real controller, whose pads have no switch: the pressure / 32767 against setting 53 (right) or 52 (left) as a fraction plus 0.08 (on) and minus 0.08 (off), in single precision as the real controller's pressure stage works (default 40, so on above 48 % and off below 32 %; a negative setting counts as 100); a new threshold clears the click; the click follows the pressure while the pad is not touched, but only a touched pad reports it. It replaces the application's own click bits. Off by default: a board with a physical click keeps it, and a pressure that is not a real press would click on every touch. A pad given raw pressure, or fed by [frames](#trackpads-frame-by-frame), gets its click from its calibrated pressure instead, as the real controller does |
 | Setting 82 | `CONFIG_OPENSC2_PAD_BLANK_ON_STICK` (y) | while a stick is touched (its sensor or the fallback), the pad on its side reports no touch, no click, position 0, 0 and pressure 0 (setting 60 = 1 keeps the pressure); bit 0 of setting 82 is the left side, bit 1 the right, default 3. The stick-touch and grip bits stay |
 | Trigger bits | `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO` (y) | below |
 | Raw triggers | always | while setting 62 is not 0 (raw trigger output), both trigger bits are 0, also ones the application set |
+
+A pad fed by [trackpad frames](#trackpads-frame-by-frame) had the stick-touch fallback, its click and
+setting 82 applied frame by frame, as on the real controller: the first three rules leave its side
+alone.
 
 ### The button word
 
@@ -428,11 +436,17 @@ Bit names follow SDL's `TRITON_*` flags; the bit numbers are also in
 The controller's own firmware calls bit 6 "MENU" and bit 14 "Left view"; SDL calls them VIEW and
 MENU. The names here are SDL's. SDL maps MENU to its Back button and VIEW to Start.
 
-With `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO` (default on) the trigger bits follow the trigger values as on
-the real controller: on above controller setting 68 plus 5 points (95 % by default), off below it
-minus 5 (85 %); a fully pulled trigger always counts. A digital trigger button can therefore just
-call `opensc2_set_trigger(side, pressed ? 32767 : 0)`. While setting 62 asks for raw trigger output
-both bits are 0 ([the rules](#the-rules-on-every-report)).
+With `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO` (default on) the trigger bits follow the trigger values as the
+real controller's trigger stage works them out, in single precision: with v = value / 32767 and
+t = setting 68 / 100, on when v passes t + 0.05 (95 % by default), off when it falls below t - 0.05
+(85 %). From setting 68 = 95 on, t + 0.05 is 1.0, which a full pull reaches but never passes: the
+bit never turns on, as on the real controller. A change of setting 68, and a set-up of the triggers
+(a stick or trigger calibration key changing, docking or leaving the dock), clears both bits. A
+digital trigger button can just call `opensc2_set_trigger(side, pressed ? 32767 : 0)` (with setting
+68 below 95). A trigger given raw counts gets its bit from its calibrated stage instead
+([Calibration and raw inputs](#calibration-and-raw-inputs)), where a trigger calibrated the other way
+round (direction 1) does turn it on at 95. While setting 62 asks for raw trigger output both bits are
+0 ([the rules](#the-rules-on-every-report)).
 
 ### Battery
 
@@ -618,23 +632,40 @@ commands below, or keep giving finished values until it has one (`opensc2_cal_st
 (`opensc2_cal_recording(OPENSC2_CAL_REC_STICKS)`, `_TRIGGERS`, `_PRESSURE`): a recording takes its
 samples from raw inputs only. The blank canvas's options do both. How each is processed:
 
+All of it is the real controller's single-precision arithmetic, in its order of operations and
+with its fused multiply-adds, so the values are the real controller's to the last count, quirks
+included ([calibration helpers](#calibration-helpers)):
+
 - **Sticks.** Each axis split at the middle of its rest band into two halves, each scaled so that
   full deflection comes 90 % of the way to the stored extreme, truncated toward zero; no dead zone,
   no filter. Usable with format 2 or `0x81` and each extreme at least 200 counts from its end of
-  the rest band. `CONFIG_OPENSC2_CAL_STICK_DEAD_ZONE` adds a centre dead zone of OpenSC2's own (for
-  potentiometer sticks), `CONFIG_OPENSC2_CAL_STICK_GROW_RANGE` July 2026's run-time range.
+  the rest band, either side; an extreme on the wrong side of the centre (only a hand-written
+  calibration has one) leaves its half reading 0, as does an extreme of 0 counts. While docked on a
+  board of revision `0x48` or later, the offsets of `opensc2_cal_set_dock_offsets(side, x_mv[4],
+  y_mv[4])` (min, max, rest low, rest high, in mV, 0 by default) are added to the stored values, as
+  the real controller does for the pull of the dock's magnets. `CONFIG_OPENSC2_CAL_STICK_DEAD_ZONE`
+  adds a centre dead zone of OpenSC2's own (for potentiometer sticks),
+  `CONFIG_OPENSC2_CAL_STICK_GROW_RANGE` July 2026's run-time range.
 - **Triggers.** From the released end to the pulled end moved 2 % toward it: 0 over the first 5 %,
   full from 95 % on; the direction comes from the calibration. Usable with A and B at least 100
-  counts apart.
-- **Pad pressure.** A filter (p = (3 p + raw) / 4, stepped only while the calibration is usable;
-  without one p keeps its value), a 5 % band at both ends of the calibrated range, the calibration's
-  gain; the click on above (setting 52 or 53 + 8) %, off below (that − 8) %, with −1 counting as
-  100.
+  counts apart. The digital bit is the trigger stage's own ([the button word](#the-button-word)).
+  Both sticks and both triggers are set up again whenever one of their keys is loaded, setting 68
+  changes or the controller docks or leaves the dock; a set-up clears the trigger bits.
+- **Pad pressure.** A filter (p = (3 p + raw) / 4 in whole numbers, stepped only while the
+  calibration is usable; without one p keeps its value), a 5 % band at both ends of the calibrated
+  range (a range of 0, or an end B of 0, reads 0), the calibration's gain; the click on above
+  setting 52 or 53 + 8 %, off below it − 8 %, with a negative setting counting as 100.
 - **Stick touch and grip.** The mean of the last two words against setting 30 (on, default 500)
-  and 31 (held, 400), and against (setting 34 / 2 + 12.5) % of 1800 (on, 1125) and setting 35 % of
-  that (held, 900). A change of settings 30, 31, 33, 34, 35, 52, 53, 66, 72 or 73 starts both pads
-  over (these means, the pad's click and its stabiliser of the pad rules below), and a load of a
-  pad's pressure key starts that pad over.
+  and 31 (held, 400), and against (setting 34 / 2 + 12.5) % of 1800 (on, 1125; single precision,
+  so 15 values of setting 34 give one less) and setting 35 % of that (held, 900). With the on level
+  below the held level a mean between them turns the bit off and on every other word, as on the real
+  controller. A change of settings 30, 31, 33, 34, 35, 52, 53, 66, 72 or 73 starts both pads over
+  (these means, the pad's click and its stabiliser of the pad rules below), and a load of a pad's
+  pressure key starts that pad over.
+
+These raw inputs are processed once per state report. The real controller works out its pads per
+trackpad frame, at the trackpad's own rate: a board with a pad sensor gives it
+[frames](#trackpads-frame-by-frame) instead, which also take its stick-touch and grip words.
 
 **The stored calibration** lives under `opensc2/cal/` in Zephyr settings (the storage partition,
 which a `.uf2` reflash keeps); a factory reset (`0x86`) keeps it. The keys, by the real names a host
@@ -656,6 +687,12 @@ and `_ANALOG_ALT` (`0x81`) for sticks and triggers, `_PRESSURE` (1) and `_PRESSU
 pressure; `OPENSC2_CAL_PRESSURE_GAIN_ONE` (2000) is a gain of 1, and `OPENSC2_CAL_ADC_MAX` (4095) the
 top of a 12-bit reading.
 
+A board that brings its own factory calibration (measured by a production tool, or in another
+format first converted) sets the keys itself: `opensc2_cal_key_set(name, value, len, save)` puts a
+key's value (exactly its size) into RAM, where the processing takes it from the next state report,
+and with `save` also into the board's storage, as `0xEE` and `0xEF` would; `opensc2_cal_key_get()`
+reads the RAM value back, whatever its format word.
+
 `opensc2_cal_generation()` changes whenever a stick, trigger or pressure key changes in RAM, for an
 application that processes its own inputs with the [calibration helpers](#calibration-helpers); the
 LED trims, the battery offset and the gyro bias do not change it (their functions read the RAM
@@ -673,22 +710,118 @@ sends them):
 | `0xFE` | the 32-bit key `0xC6674885` | deletes every `cal/` key from flash; the RAM copies stay in use until the next boot; any other key is refused |
 | `0xED`, `0xEE`, `0xEF`, `0xF0` | a `cal/` key | read, set in RAM (exactly the key's size), save, delete, as in [Vendor commands](#vendor-commands) |
 
-A recording takes the samples of the raw inputs, one per state report, so only while a link is up,
-and saves only the sides that gave samples. Its flash writes, and those of `0xE2` and `0xFE`, run
-from the system work queue in the order they were asked for (`0xFE` drops the saves still waiting
-from before it); `0xEF` and `0xF0` of a `cal/` key wait for them, then write before they answer, so
-a host's "erase, then store the new calibration" keeps the new keys. Steps above 3 do nothing; a
-step 2 or 3 without a step 1 does nothing (the real controller's `0xC3` step 3 saves even then,
-wiping the pads' pressure calibration:
-[protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 31).
+A recording takes the samples of the raw inputs, one per state report, so only while a link is up
+(the pressure recording also each [trackpad frame](#trackpads-frame-by-frame)'s pressure word, as the
+real controller takes it). A step 1 hooks it to the samples; for the sticks and triggers a step 0
+unhooks it at the next frame, and a 3 saves at the next frame (a 0 followed by a 3 before that frame
+still saves, as on the real controller). The pressure's step 3 saves at once whatever its records
+hold, with or without a step 1 (after a boot that is format 0, which leaves the pads without pressure
+and click, as on the real controller). Each trigger keeps the candidate whose A and B lie further
+apart, |A − B|, direction 0 on a tie. The real controller always has both sides; a side the board
+has never given samples for keeps its stored key. The records are written whatever their format and
+go into RAM as the write gives them; a stick or trigger recording then loads every stored `cal/` key
+again, so a RAM-only `0xEE` change of another stored key goes back to its stored value, as on the
+real controller. These flash writes, and those of `0xE2` and `0xFE`, run from the system work queue
+in the order they were asked for (`0xFE` drops the saves still waiting from before it; a finished
+recording still waiting goes into RAM at once and is not written); `0xEF` and `0xF0` of a `cal/` key
+wait for them, then write before they answer, so a host's "erase, then store the new calibration"
+keeps the new keys ([protocol.md](protocol.md#where-this-library-had-to-fill-gaps), gap 31).
 
 **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default) act on the reported pads, raw or not,
 after the hardware test hooks' injection, so report `0x42` and lizard mode both see them: with
 settings 2 and 24 both non-zero the pads turn by setting 2's angle (the right pad
 counter-clockwise, the left clockwise, in the real controller's angle steps), and with setting 80 =
 2 the touch stabiliser holds a new touch still until the thumb moves more than 4369 units, then
-follows it. Both are off with the default settings. The position filter (setting 65) and the pad
-touch levels (72, 73) belong to the trackpad's own processing: [sensor helpers](#sensor-helpers).
+follows it. Both are off with the default settings. A pad fed by
+[frames](#trackpads-frame-by-frame) had both, and the position filter of setting 65, applied frame by
+frame; the pad rules leave it alone.
+
+## Trackpads frame by frame
+
+`<opensc2/trackpad.h>`, with `CONFIG_OPENSC2_CAL`. The real controller's trackpad chip reports each pad
+about 250 times a second, and its firmware works out the pad for every such frame. An application
+with a pad sensor hands each of its frames to `opensc2_pad_frame(side, &frame)` (any thread, its
+input callback for example), and the library does the same at that rate:
+
+| Field of `struct opensc2_pad_frame` | Unit | The library's processing |
+| --- | --- | --- |
+| `touched`, `x`, `y` | the touch; the position in millionths of the pad (0 left / top .. 1000000 right / bottom, 500000 the centre), as an absolute input event | the pad scale ((p − 0.5) × 2 × 16383), the speed-adaptive filter while setting 65 is on (the default), the rotation of settings 2 and 24, doubled to ±32767, the stabiliser while setting 80 is 2, Y turned up; 0, 0 and the filter and stabiliser started over without a touch |
+| `pressure` (with `OPENSC2_PAD_HAS_PRESSURE`) | the raw pressure word | the pressure and its click from `cal/prs_l` / `cal/prs_r` and settings 52, 53, as for raw pressure (0 and no click uncalibrated); setting 60 sends the word itself; each word goes to the `0xC3` recording |
+| `stick_touch` (with `OPENSC2_PAD_HAS_STICK_TOUCH`) | this side's stick-touch word | the stick-touch bit (settings 30, 31) |
+| `grip` (with `OPENSC2_PAD_HAS_GRIP`) | this side's grip word | the grip bit (settings 34, 35) |
+| `level` (with `OPENSC2_PAD_HAS_LEVEL`) | a raw sensor's signal level, the units of the real controller's chip | the touch instead of `touched`, as the real controller's trackpad driver takes it: on above setting 72 (1300), held while above setting 73 (1000), and near lift-off the position held back (the damping between 73 and the running average less 200) |
+| `x`, `y` as a centroid (with `OPENSC2_PAD_HAS_CENTROID`) | a raw sensor's centroid, millionths | first the driver's edge push (beyond 0.35 from the centre, 7 × excess²) and, while setting 66 is on (the default), the stretch (p − offset) / scale of `opensc2_pad_set_stretch(side, s)` (`{ X offset, X scale, Y offset, Y scale }`; none by default; the real controller's own pads: left `{ -0.01, 0.90, 0.05, 0.91 }`, right `{ 0.11, 0.88, 0.05, 0.91 }`); with `OPENSC2_PAD_HAS_LEVEL` too, the pushed and stretched position goes into the damping as it is (also past an edge) and is limited to the pad only afterwards, as the driver does |
+
+The stick-touch bit also turns on while the last state report's stick on that side lies further
+than 12000 from its centre (not in raw stick mode, setting 46), and setting 82 then blanks the pad
+(no touch, no click, 0, 0, pressure 0; raw pressure passes). Without a touch the pad reports
+pressure 0 and no click. A change of setting 30, 31, 33, 34, 35, 52, 53, 66, 72 or 73, and a load of
+the pad's pressure key, starts the pads over. A word the board has no sensor for is left out of
+`has`: then the application's own bit stands in (a capacitive key for the stick touch or the grip, a
+click switch for the click: without a pressure word the click is the application's click bit while
+touched), read when each report is built.
+
+From the first frame the side's pad, its touch and click bits and its stick-touch and grip bits are
+the library's in every state report, until `opensc2_pad_frame_release(side)` gives them back to the
+finished values. `opensc2_pad_result(side, &r)` reads what the last frame gives now. The units of
+the words are those of the real controller's trackpad chip: scale your sensor's readings to them
+(the defaults: the stick touches above 500, the grip above 1125, the pad touches above 1300).
+The same steps are in the [sensor helpers](#sensor-helpers) for an application of its own
+(`opensc2_pad_touch_step()`, `opensc2_pad_centroid()`). The blank canvas feeds its touch devices
+this way (`app/src/trackpad.c`; a strength as the level with `CONFIG_APP_PAD_PROCESSING`).
+
+## The IMU
+
+`<opensc2/imu.h>`. The real controller streams its IMU from boot, whatever controller setting 48
+reads, and turns the stream off and on only when a host writes setting 48 (0 off, any other value
+on; every write counts) or the key `settings/sensors/imu/mode`; while it is off the state reports
+keep the last sample. An application hands its sensor's samples to `opensc2_imu_sample(&s)` (SI
+units, the sensor's axes; any thread), and the library converts them as the real controller does:
+
+| Field of `struct opensc2_imu_sample` | Unit | Becomes |
+| --- | --- | --- |
+| `accel[3]` | m/s² | ÷ 19.6133 × 32767 (32767 = 2 g), truncated and kept to 16 bits (past full scale it wraps round, as on the real controller), turned by the mounting matrix |
+| `gyro[3]`, `bias[3]` (with `has_bias`) | rad/s | the rate less the sensor's own bias estimate while use_bias is on (setting 84, default 1, or the key `use_bias`), × 180 / π × 32767 / 2000, kept to 16 bits, turned, then 0 strictly inside the dead zone (the key `gyro_dz_threshold`, 0 = off) |
+| `quat[4]` (with `has_quat`) | W, X, Y, Z, unit length | × 32767, W first, X, Y, Z turned by the mounting matrix; without one all four are 0 ("none", sent as the identity) |
+| `timestamp_ns` | ns | the report's microseconds, rounded |
+
+`opensc2_imu_sample()` answers `-EAGAIN` while the stream is off. The mounting matrix is the
+identity until the board sets its own with `opensc2_imu_set_mounting(m)` (row major, report axes =
+m × sensor axes; the real controller's board: `{ 0, 1, 0, -1, 0, 0, 0, 0, 1 }`); a host's key
+`mounting_matrix` replaces it until the next boot.
+
+The application runs its sensor through a handler (`opensc2_imu_set_handler(&h, user)`): `stream(on)`
+at every write of setting 48 or the key `mode` (stop or start reading it, or keep reading: samples
+are refused while off), and `gyro_threshold(value)` for setting 85 and the key `gyro_threshold` (the
+low byte), the threshold of the sensor's fusion block on the real controller, whose error fails the
+command as there. Settings 48, 84 and 85 are also stored for the application
+(`opensc2_setting_get()`), while `0x89` answers their defaults, as on the real controller.
+
+The keys by name (`0xEE`, RAM only, exactly their size, `-EINVAL` otherwise; `0xED` reads nothing,
+`0xEF` fails, `0xF0` changes nothing, as on the real controller):
+
+| Key | Size | Does |
+| --- | --- | --- |
+| `settings/sensors/imu/mode` | 2 | u16: 0 stream off, else on |
+| `settings/sensors/imu/mounting_matrix` | 9 | the mounting matrix, nine signed bytes, row major |
+| `settings/sensors/imu/gyro_dz_threshold` | 4 | s32: the dead zone in report units |
+| `settings/sensors/imu/use_bias` | 1 | 0: keep the bias in the rate |
+| `settings/sensors/imu/gyro_threshold` | 1 | to the sensor (the handler) |
+
+`opensc2_imu_free_fall()` is the sensor's free-fall detector: the drop sounds play 250 ms later
+(with `CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS`), and further falls count again 5 s after; the stream
+going off within those 5 s drops a sound still due and keeps further falls from counting until the
+next boot, as on the real controller (`opensc2_haptics_free_fall_cancel()`, which the library
+calls).
+
+A board that set its IMU up (`opensc2_imu_set_mounting()` or a handler) sends all IMU fields 0, the
+quaternion's W included, until its first sample reaches the reports, as the real controller does
+(its state starts empty; seen when its stream does not start at boot, a stored gyro bias it
+refuses for example). Without that set-up the library takes the board for one without an IMU and
+sends the identity for "none".
+`opensc2_imu_config_get(&c)` reads all of it. The blank canvas feeds its IMU this way
+(`app/src/imu.c`, `app/src/imu_fifo.c`), with the [fusion helper](#the-imu-fusion-helper)'s
+quaternion and an optional bias estimate for an IMU without its own.
 
 ## Outputs
 
@@ -1352,6 +1485,7 @@ in OpenSC2. The synthesiser has sounds of its own instead:
 | `opensc2_haptics_stop(channels)` | stop everything on the channels: how many it queued |
 | `opensc2_haptics_play_clip(channel, data, samples, format, dB)` | a recording of your own in a stream format (0..11); `data` stays valid until it has played |
 | `opensc2_haptics_free_fall()` | a free fall: maybe a drop sound. From any context, an IMU's free-fall interrupt included: it notes the time, the rest runs on the system work queue |
+| `opensc2_haptics_free_fall_cancel()` | the IMU's stream went off: a drop sound still due is dropped, and after a fall none counts again until the next boot. The library's IMU calls it ([The IMU](#the-imu)) |
 | `opensc2_haptics_info(&info)` | what plays, blocks, underruns, lost commands, stream fill |
 | `opensc2_haptics_block_level(path, block, frames)`, `opensc2_freefall_init(&ff)`, `opensc2_freefall_update(&ff, accel, ms)` | pure helpers, with or without the synthesiser |
 
@@ -2386,50 +2520,59 @@ static void imu_sample(const float accel_g[3], const float gyro_dps[3], float dt
 }
 ```
 
-[samples/imu](../samples/imu) does this with an MPU-6050 through Zephyr's sensor API. Like the real
-controller, which streams IMU data only while Steam has it on, the sample and `app/` send readings
-only while controller setting 48 is not 0 (`opensc2_setting_get(OPENSC2_SETTING_IMU_MODE)`); the
-library itself sends whatever the application set.
+For the real controller's scaling and stream rules, give the samples to [the IMU](#the-imu)
+instead, with the fusion helper's `f.q` as the quaternion: [samples/imu](../samples/imu) does that
+with an MPU-6050 through Zephyr's sensor API, and so does `app/`. The fusion helper's conversions
+above are OpenSC2's own (16384 per g, saturating).
 
 ### Calibration helpers
 
 `<opensc2/cal.h>`: the arithmetic behind [Calibration and raw inputs](#calibration-and-raw-inputs) as
 pure functions, for an application that processes its inputs itself (the library uses the same
-ones). Each follows the protocol documentation's rules, with its factors as exact fractions; the
-host tests check them against values worked out from those rules.
+ones). Each follows the protocol documentation's rules in the real controller's single-precision
+floating point, its order of operations and its fused multiply-adds (`fmaf()`), with
+float-to-integer conversions as the nRF52's floating-point unit does them; the library's arithmetic
+files are built with `-ffp-contract=off` so that the compiler fuses nothing else. The results are
+the real controller's to the last count, quirks included (a turned-over stick half reads 0, a range
+end of 0 counts as "not set", the trigger bit never turns on from setting 68 = 95 up for direction
+0). The host tests check them against values worked out from those rules.
 
 | Function | Does |
 | --- | --- |
 | `opensc2_cal_counts_to_mv(counts, full_mv)`, `opensc2_cal_mv_to_counts(mv, full_mv)` | the firmware's millivolts (`OPENSC2_CAL_STICK_FULL_MV` 3300, `OPENSC2_CAL_TRIGGER_FULL_MV` 1650) |
 | `opensc2_cal_raw_mode(mode, counts, full_mv, &out)` | settings 46 and 62: 1 millivolts, 2 counts |
 | `opensc2_cal_stick_pack()` / `_unpack()`, `_trigger_`, `_pressure_` | the keys' byte formats |
+| `opensc2_norm_setup(&n, lo, hi, band, outer_only, alpha)`, `opensc2_norm_step(&n, reading)` | the real controller's normalising stage, which every stick half, trigger and pressure goes through: the range, the dead band, a smoothed copy that can widen the range, the digital state with its hysteresis |
 | `opensc2_stick_setup(&p, &cal)`, `opensc2_stick_value(&p, x, y, &out)`, `opensc2_stick_axis_value()` | a stick: validity, centre, two halves, the 10 % band; options `p.dead_zone` and `p.grow_range` |
-| `opensc2_trigger_setup(&p, &cal)`, `opensc2_trigger_value(&p, counts)` | a trigger: direction, the 5 % bands, full 2 % early |
-| `opensc2_pressure_setup(&p, &cal)`, `opensc2_pressure_sample(&p, raw, setting)`, `opensc2_pressure_value(&p)`, `p.click` | a pad's pressure: the filter, the range, the gain, the click's hysteresis |
+| `opensc2_trigger_setup(&p, &cal)`, `opensc2_trigger_setup_level(&p, &cal, s68)`, `opensc2_trigger_step(&p, counts, &value)`, `opensc2_trigger_value(&p, counts)` | a trigger: direction, the 5 % bands, full 2 % early; `_step()` also returns the digital bit (setting 68 ± 5 %) |
+| `opensc2_pressure_setup(&p, &cal)`, `opensc2_pressure_sample(&p, raw, setting)`, `p.last`, `p.click`, `opensc2_pressure_value(&p)` | a pad's pressure: the filter, the range, the gain, the click's hysteresis; `p.last` is the pressure of the last sample |
 | `opensc2_pressure_raw_value(raw)` | setting 60 = 1: the raw word itself, below 0 counted as 0 |
-| `opensc2_cal_rec_init()`, `_rec_step()`, `_rec_frame()`, `_rec_stick()`, `_rec_trigger()`, `_rec_pressure()` | the factory recordings of `0xD8`, `0xC0` and `0xC3` (`OPENSC2_CAL_REC_STICKS`, `_TRIGGERS`, `_PRESSURE`); `_rec_step()` and `_rec_frame()` return the bits of the records finished (`OPENSC2_CAL_SAVE_STICK_L`, `_STICK_R`, `_TRIGGER_L`, `_TRIGGER_R`, `_PRESSURE_L`, `_PRESSURE_R`) |
+| `opensc2_cal_rec_init()`, `_rec_step()`, `_rec_frame()`, `_rec_pressure_sample()`, `_rec_stick()`, `_rec_trigger()`, `_rec_pressure()` | the factory recordings of `0xD8`, `0xC0` and `0xC3` (`OPENSC2_CAL_REC_STICKS`, `_TRIGGERS`, `_PRESSURE`); `_rec_step()` and `_rec_frame()` return the bits of the records finished (`OPENSC2_CAL_SAVE_STICK_L`, `_STICK_R`, `_TRIGGER_L`, `_TRIGGER_R`, `_PRESSURE_L`, `_PRESSURE_R`) |
 
 ### Sensor helpers
 
 `<opensc2/sensor_helpers.h>`: what the real controller does between its sensors and the report, for an
-application's own parts. The levels in the controller's units belong to Valve's sensor chip: scale
-your part's readings to them. Untested on real parts.
+application's own parts, in its single-precision arithmetic where it uses floating point (the grip
+levels, the pad's touch damping, edge push, stretch and scale, the position filter, the IMU scaling).
+The levels in the controller's units belong to Valve's sensor chip: scale your part's readings to
+them. Untested on real parts.
 
 | Function | Does |
 | --- | --- |
 | `opensc2_approx_distance(dx, dy)` | the real controller's fast length approximation (within about 3 %) |
-| `opensc2_cap_reset(&t)`, `opensc2_cap_sample(&t, word, on, off)`, `opensc2_stick_touch_on_level(s30)`, `_off_level(s31)`, `opensc2_grip_on_level(s34)`, `opensc2_grip_off_level(s34, s35)` | stick touch and grip: the two-word mean (the first word after a reset fills both), the hysteresis, the levels from the settings |
-| `opensc2_pad_touch_reset(&t)`, `opensc2_pad_touch_step(&t, level, s72, s73, &x, &y)` | a pad's touch from a signal level (settings 72, 73) with the damping near lift-off |
-| `opensc2_pad_edge(m)`, `opensc2_pad_stretch(side, axis, m)` | the edge push and setting 66's stretch (its constants fit Valve's pads only) |
+| `opensc2_cap_reset(&t)`, `opensc2_cap_sample(&t, word, on, off)`, `opensc2_stick_touch_on_level(s30)`, `_off_level(s31)`, `opensc2_grip_on_level(s34)`, `opensc2_grip_off_level(s34, s35)` | stick touch and grip: the two-word mean (the first word after a reset fills both), the hysteresis (toggling every other word when on is below off, as on the real controller), the levels from the settings |
+| `opensc2_pad_touch_reset(&t)`, `opensc2_pad_touch_step(&t, level, s72, s73, &x, &y)` | a pad's touch from a signal level (settings 72, 73) with the damping near lift-off (the running average updated with this frame's level first) |
+| `opensc2_pad_edge(m)`, `opensc2_pad_stretch(side, axis, m)`, `opensc2_pad_stretch_by(m, offset, scale)`, `opensc2_pad_centroid(&x, &y, stretch, s)` | the edge push and setting 66's stretch (the built-in constants fit Valve's pads only; `_by()` takes a pad's own; `_centroid()` does both on a raw centroid in floating point all the way) |
 | `opensc2_pad_scale(m)` | a position (millionths of the pad, `OPENSC2_PAD_CENTRE` 500000 the centre) to the pad scale (±16383) |
-| `opensc2_pad_filter_reset(&f)`, `opensc2_pad_filter_step(&f, &x, &y, rate)` | setting 65's speed-adaptive position filter (floating point; reset it while the pad is not touched) |
-| `opensc2_pad_rotate(side, s2, s24, &x, &y)`, `opensc2_pad_rotation_angle(side, s2)`, `opensc2_sin8192(deg)`, `opensc2_cos8192(deg)` | settings 2 and 24's rotation, with the real controller's angle steps; the angle a pad turns by, 0..359 |
+| `opensc2_pad_filter_reset(&f)`, `opensc2_pad_filter_step(&f, &x, &y, rate)` | setting 65's speed-adaptive position filter (the speed from the previous input; reset it while the pad is not touched; even the first sample goes through the stage's rounding, so -4321 comes out as -4320, as on the real controller) |
+| `opensc2_pad_rotate(side, s2, s24, &x, &y)`, `opensc2_pad_rotation_angle(side, s2)`, `opensc2_sin8192(deg)`, `opensc2_cos8192(deg)` | settings 2 and 24's rotation, with the real controller's angle steps and its sine table (worked out with π as 3.141592: 30° gives 4095, 90° 8191); the angle a pad turns by, 0..359 |
 | `opensc2_stabiliser_reset(&s)`, `opensc2_stabiliser_step(&s, radius, &x, &y)` | the touch stabiliser (`OPENSC2_STABILISER_FINE` 4369, `_COARSE` 8738; reset it on a sample without a touch) |
-| `opensc2_imu_accel_from_ms2(v)`, `opensc2_imu_gyro_from_rads(v)` | the real controller's IMU scaling (m/s² and rad/s, truncated) |
-| `opensc2_imu_mount(m, in, out)`, `opensc2_imu_mount_quat(m, in, out)` | a mounting matrix on acceleration, angular rate and the quaternion |
+| `opensc2_imu_accel_from_ms2(v)`, `opensc2_imu_gyro_from_rads(v)`, `opensc2_imu_quat_from_unit(q)` | the real controller's IMU scaling (m/s², rad/s, a quaternion component; truncated and kept to 16 bits, so past full scale it wraps) |
+| `opensc2_imu_mount(m, in, out)`, `opensc2_imu_mount_quat(m, in, out)` | a mounting matrix on acceleration, angular rate and the quaternion (kept to 16 bits) |
 | `opensc2_imu_dead_zone(v, t)` | the gyro dead zone after the bias |
 | `opensc2_gyro_bias_init(&b, start)`, `opensc2_gyro_bias_update(&b, gyro, threshold, settle)` | a rest-based gyro-bias estimate of OpenSC2's own, for IMUs without one (setting 85 as its threshold, subtract while setting 84 is on) |
-| `opensc2_adc_average(samples, channels, scans, out)` | an ADC burst's average per channel (the real controller converts four times) |
+| `opensc2_button_hold_init(&h, word)`, `opensc2_button_hold_step(&h, levels, now_ms)`, `opensc2_button_hold_next(&h, now_ms)` | the real controller's button debounce: a change counts at once, then the button is held `OPENSC2_BUTTON_HOLD_MS` (16) whatever its pin does; feed it the pins at every change and when `_next()` says a hold ends (the blank canvas does) |
+| `opensc2_adc_average(samples, channels, scans, out)` | an ADC burst's average per channel, kept to 16 bits as the real controller keeps it (it converts four times; a negative average wraps round) |
 
 ### Battery helpers
 

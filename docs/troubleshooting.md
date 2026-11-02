@@ -98,7 +98,10 @@ after Steam stops, it comes back. OpenSC2 does the same.
 
 So a board whose inputs are not at rest (a stick that does not centre, a button wired the wrong way
 round) types or moves the pointer whenever Steam is closed. Check the wiring with `opensc2 state`,
-which prints the inputs as the board reads them. A build can also leave lizard mode out
+which prints the inputs as the board reads them. The other way round: a stick or trigger that reads
+0 whatever you do has no stored calibration (as on the real controller, the blank canvas's analog
+inputs read 0 until one is recorded): record one with `opensc2 cal`
+([app/README.md](../app/README.md#calibration)). A build can also leave lizard mode out
 (`CONFIG_OPENSC2_LIZARD_MODE=n`), unlike the real controller: [api.md](api.md#lizard-mode).
 
 ## I cannot find the console

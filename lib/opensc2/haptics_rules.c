@@ -507,6 +507,13 @@ int32_t osc2_hap_drop_wait(const struct osc2_hap_drop *d, uint32_t now_ms)
 	return after_or_at(now_ms, due) ? 0 : (int32_t)(due - now_ms);
 }
 
+void osc2_hap_drop_cancel(struct osc2_hap_drop *d)
+{
+	if (d->state == OSC2_HAP_DROP_PENDING || d->state == OSC2_HAP_DROP_WAITING) {
+		d->state = OSC2_HAP_DROP_OFF;
+	}
+}
+
 uint8_t osc2_hap_drop_pick(uint8_t random_byte)
 {
 	if (random_byte < 48) {

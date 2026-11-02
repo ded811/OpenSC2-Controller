@@ -40,6 +40,7 @@ $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
 $libSources += @("$lib\transport_rules.c", "$lib\ble_rules.c", "$lib\radio_rules.c")
 # calibration and the sensor helpers
 $libSources += @("$lib\cal.c", "$lib\sensor_helpers.c", "$lib\gauge.c", "$lib\charger.c", "$lib\cal_store.c",
+    "$lib\pad.c", "$lib\pad_rules.c", "$lib\imu.c", "$lib\imu_rules.c",
     (Join-Path $PSScriptRoot 'cal_host.c'))
 # the system state machine: power, chords, the status LED, cues
 $libSources += @("$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c",
@@ -79,7 +80,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # Without CONFIG_OPENSC2_CAL the calibration's calls are stand-ins: those files must still compile.
 $noCal = $flags | Where-Object { $_ -notlike '-DCONFIG_OPENSC2_*' }
-foreach ($f in "$lib\commands.c", "$lib\cal_store.c", "$lib\test_core.c") {
+foreach ($f in "$lib\commands.c", "$lib\cal_store.c", "$lib\test_core.c", "$lib\pad.c") {
     & $Cc @noCal -fsyntax-only $f
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

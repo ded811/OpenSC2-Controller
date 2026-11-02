@@ -96,6 +96,37 @@ controller is listed in docs/protocol.md's gaps.
   level, and I2C bus recovery at boot. `app/imu-stream.conf` streams the LSM6DSV16X's FIFO with its
   own fusion instead, as the real controller reads it. `app/expander.conf` adds L4, L5, R4 and R5
   through an I2C port expander (a PCA9555) polled every 16 ms, with every button debounced 16 ms.
+- Trackpads frame by frame (`<opensc2/trackpad.h>`): `opensc2_pad_frame(side, &frame)` takes each
+  frame of a pad sensor (touch, position, and the raw pressure, stick-touch and grip words it has)
+  and processes it at the sensor's own rate as the real controller processes its pads: the pad
+  scale, the setting-65 position filter (on by default), the rotation, the stabiliser, the stick
+  touch with the deflection rule, the grip, the pressure and its click from `cal/prs_*`, setting 82,
+  setting 60 and the start-overs; each frame's pressure word feeds the `0xC3` recording. A board
+  without one of the words has its own bits stand in. `opensc2_pad_frame_release()` and
+  `opensc2_pad_result()` go with it. The blank canvas and samples/touchpad feed their touch
+  devices this way.
+- The IMU as the real controller runs it (`<opensc2/imu.h>`): `opensc2_imu_sample()` takes a
+  sensor's samples in SI units and the library scales them (kept to 16 bits as there), subtracts
+  the sensor's bias while setting 84 is on, turns them by the mounting matrix
+  (`opensc2_imu_set_mounting()`) and applies the dead zone; the stream runs from boot and is
+  switched by every write of setting 48; the keys `settings/sensors/imu/mode`, `mounting_matrix`,
+  `gyro_dz_threshold`, `use_bias` and `gyro_threshold` by name (`0xEE`, RAM only); setting 85 and
+  the stream go to the application's sensor through `opensc2_imu_set_handler()`;
+  `opensc2_imu_free_fall()` arms the drop sounds as the real controller does (again 5 s after a
+  fall; never again until the next boot when the stream goes off within those 5 s). The blank
+  canvas's IMU options and samples/imu use it.
+- `opensc2_cal_set_dock_offsets()`: millivolts the board adds to its stored stick calibration while
+  docked (revision `0x48` and later), as the real controller does for its dock's magnets; 0 by
+  default. Docking and leaving the dock set the sticks and triggers up again.
+- `opensc2_norm_setup()` / `opensc2_norm_step()` (the real controller's normalising stage),
+  `opensc2_trigger_setup_level()` / `opensc2_trigger_step()` (with the digital bit),
+  `opensc2_pad_stretch_by()`, `opensc2_imu_quat_from_unit()`, `opensc2_cal_rec_pressure_sample()`.
+- `CONFIG_APP_ANALOG_SELF_CENTRE` in the blank canvas: an input without a stored calibration
+  centred at boot (the earlier default behaviour) instead of reading 0.
+- The real controller's button debounce (`opensc2_button_hold_*()` in `<opensc2/sensor_helpers.h>`):
+  a change counts at once, then the button is held 16 ms. The blank canvas debounces its buttons
+  this way (gpio-keys now waits 1 ms instead of 5), so a press shows up to 4 ms sooner and a press
+  shorter than 16 ms is still reported for 16 ms, as on the real controller.
 
 **Power, chords, the status LED and cues**
 
@@ -278,6 +309,53 @@ controller is listed in docs/protocol.md's gaps.
 
 ### Changed
 
+- The calibration's and sensors' arithmetic is now the real controller's single-precision floating
+  point in its order of operations, with its fused multiply-adds and its float-to-integer
+  conversions (the library's arithmetic files build with `-ffp-contract=off`), instead of exact
+  fractions: values that differed by a count now match, and so do the real controller's quirks. A
+  turned-over stick half (an extreme on the wrong side of the centre) reads 0 instead of inverting
+  the axis; a range end of 0 counts as "not set"; a pressure range of 0 is usable but reads 0; the
+  pad rotation's table has 4095 at 30° and 8191 at 90° (worked out with π as 3.141592); the grip
+  level is one lower for 15 values of setting 34; the stick-touch and grip hysteresis toggles every
+  other word when on is below off; the lift-off damping uses the average updated with the frame;
+  the position filter takes its speed from the previous input; the IMU scaling, the mounting matrix
+  and the ADC average keep the low 16 bits (wrapping past full scale) instead of saturating.
+- The trigger bits are the real controller's trigger stage: never on from setting 68 = 95 up (a full
+  pull used to count), off below 68 % − 5 % in single precision (27851 is now off at the default
+  90), cleared by a change of 68 and by a set-up of the triggers (a stick or trigger key, the dock);
+  a raw trigger's bit is its calibrated stage's, direction included.
+- The recordings: each trigger keeps the candidate with the larger |A − B| (a tie goes to direction
+  0); a step 0 unhooks at the next frame, so a 0 and a 3 before it still save; a lone `0xC3` step 3
+  saves the records as they are (format 0 after a boot); records are written whatever their format
+  and reach RAM from the write; a stick or trigger recording loads every stored `cal/` key again
+  (a RAM-only `0xEE` change of another key goes back); a side is saved when the board has it.
+- The IMU's stream going off (setting 48 = 0, or the key `mode`) now also drops a drop sound still
+  waiting its 250 ms, as on the real controller (`opensc2_haptics_free_fall_cancel()`, called by the
+  library's IMU for a board that set its IMU up). Such a board's reports carry all IMU fields 0, the
+  quaternion's W included, until its first sample, as the real controller's do (they started with
+  the identity); a board without an IMU keeps the identity.
+- `app/imu-stream.conf` programs the gyro bias at boot also when none is stored (zeros), and leaves
+  the stream off when the driver cannot program it, as the real controller does (it started the
+  stream without the bias).
+- Settings 48, 84 and 85 reach the IMU at every write (not only on a change); a sensor error for 85
+  fails `0x87`, and the settings before it in the same command (the LED's included) have taken
+  effect, as on the real controller.
+- Trackpad frames from a raw sensor: the centroid pushed and stretched goes into the lift-off
+  damping as it is, also past the pad's edge, and is limited to the pad only afterwards, as the real
+  controller's trackpad driver does (it was rounded and limited first).
+- Settings 46 and 62 give a raw reading above 4095 as it is (an average below 0 V wraps round to 16
+  bits on the real controller and in the blank canvas), and its millivolts unlimited up to 65535,
+  for the recordings too (both were limited to 4095 counts).
+- Docking and leaving the dock set the sticks and triggers up again (the triggers' bits clear) on a
+  board of any revision; the dock offsets still apply from revision `0x48` on.
+- The blank canvas: the sticks and triggers are read right before each state report and processed
+  by the library with the stored calibration by default (`CONFIG_APP_ANALOG_SAMPLE` and
+  `CONFIG_APP_ANALOG_RAW` on), so an uncalibrated input reads 0, as on the real controller
+  (`CONFIG_APP_ANALOG_SELF_CENTRE=y` brings back the boot-time centring); a trackpad's pressure is
+  0 without a pressure calibration (it was the touch strength, or half scale); its IMU streams from
+  boot and keeps the last sample while setting 48 is 0 (it sent nothing until 48 was written, and
+  zeros while 48 was 0); `CONFIG_APP_IMU_ALWAYS` is gone; `app/imu-stream.overlay` runs the
+  LSM6DSV16X at the real controller's 250 Hz high-accuracy rate.
 - Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does
   (it hands them to its IMU); the application still sees the values Steam wrote. A number above 85
   reads 0, also as on the real controller (it was a STALL).

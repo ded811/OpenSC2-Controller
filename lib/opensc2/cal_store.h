@@ -11,6 +11,7 @@
 #define OPENSC2_CAL_STORE_H_
 
 #include <errno.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <opensc2/cal.h>
@@ -31,6 +32,16 @@ int osc2_cal_command(uint8_t opcode, const uint8_t *payload, uint8_t len, size_t
 void osc2_cal_frame(struct opensc2_state *s);
 /* Every state report, after the injection: the pad rules (rotation, the stabiliser). */
 void osc2_cal_rules(struct opensc2_state *s);
+/* A pad's pressure key as RAM has it, and the count of its loads (for the trackpad frames). */
+uint32_t osc2_cal_pressure_key(int side, struct opensc2_cal_pressure *out);
+/* A trackpad frame's raw pressure word for the factory pressure recording (0xC3). */
+void osc2_cal_rec_pressure_frame(int side, int16_t raw);
+/* How many times the sticks and triggers were set up so far (each set-up clears the triggers'
+ * digital bits: a key load, setting 68, the dock). */
+uint32_t osc2_cal_setups(void);
+/* Did this frame's raw trigger of `side` (0, 1) decide its digital bit, and is `value` still the
+ * value it gave? Then *bit is that bit. */
+bool osc2_cal_trigger_decided(int side, uint16_t value, bool *bit);
 /* The hardware test hooks' CAL_STATUS (docs/test-protocol.md); byte 6, the injection's inputs, is
  * the hooks' own. */
 void osc2_cal_status(uint8_t out[16]);
@@ -53,6 +64,8 @@ void osc2_cal_defer(void);
 void osc2_cal_flush_wait(void);
 int osc2_cal_flash_write(const char *name, const void *value, size_t len);
 int osc2_cal_flash_delete(const char *name);
+/* Load every stored cal/ key into RAM again (osc2_cal_load() for each). */
+void osc2_cal_flash_reload(void);
 
 #else /* !CONFIG_OPENSC2_CAL */
 
@@ -93,6 +106,19 @@ static inline void osc2_cal_frame(struct opensc2_state *s)
 static inline void osc2_cal_rules(struct opensc2_state *s)
 {
 	(void)s;
+}
+
+static inline uint32_t osc2_cal_setups(void)
+{
+	return 0;
+}
+
+static inline bool osc2_cal_trigger_decided(int side, uint16_t value, bool *bit)
+{
+	(void)side;
+	(void)value;
+	(void)bit;
+	return false;
 }
 
 #endif /* CONFIG_OPENSC2_CAL */

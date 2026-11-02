@@ -9,18 +9,14 @@
 
 bool osc2_trigger_click(uint16_t value, int16_t setting68, bool previous)
 {
-	int32_t percent = setting68 < 40 ? 40 : setting68 > 99 ? 99 : setting68;
-	int32_t on = OPENSC2_TRIGGER_MAX * (percent + 5) / 100;
-	int32_t off = OPENSC2_TRIGGER_MAX * (percent - 5) / 100;
+	/* the level as the stage takes it: the setting as an unsigned number, in percent */
+	float t = (float)(uint32_t)(int32_t)setting68 / 100.0f;
+	float h = 5.0f / 100.0f;
+	float v = (float)(value > OPENSC2_TRIGGER_MAX ? OPENSC2_TRIGGER_MAX : value) /
+		  (float)OPENSC2_TRIGGER_MAX;
 
-	if (on > OPENSC2_TRIGGER_MAX - 1) {
-		on = OPENSC2_TRIGGER_MAX - 1;
+	if (previous) {
+		return !(t - h > v);
 	}
-	if ((int32_t)value > on) {
-		return true;
-	}
-	if ((int32_t)value < off) {
-		return false;
-	}
-	return previous;
+	return t + h < v;
 }

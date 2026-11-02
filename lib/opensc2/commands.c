@@ -37,6 +37,7 @@
 #include "crash.h"
 #include "cmd_deferred.h"
 #include "dock_link.h"
+#include "imu_rules.h"
 #include "key_store.h"
 #include "proto_rules.h"
 #include "system.h"
@@ -386,8 +387,12 @@ static int named_other(uint8_t opcode, const uint8_t *payload, uint8_t len, size
 	char name[OPENSC2_ANSWER_MAX + 1];
 	uint8_t answer[OPENSC2_ANSWER_MAX];
 	uint8_t answer_len;
-	int rc = osc2_cal_by_name(opcode, payload, len);   /* a cal/ key? */
+	int rc = osc2_imu_by_name(opcode, payload, len, &answer_len);   /* the IMU's (set only)? */
 
+	if (rc != -ENOENT) {
+		return rc;
+	}
+	rc = osc2_cal_by_name(opcode, payload, len);   /* a cal/ key? */
 	if (rc != -ENOENT) {
 		return rc;
 	}
@@ -470,11 +475,23 @@ static int set_settings(const uint8_t *payload, uint8_t len)
 	for (uint8_t i = 0; i + 3 <= len; i += 3) {
 		uint8_t number = payload[i];
 
+		int16_t value = (int16_t)opensc2_get_le16(&payload[i + 1]);
+		int rc;
+
 		if (number >= OPENSC2_SETTINGS_COUNT) {
 			LOG_DBG("Setting %u does not exist", number);
 			continue;
 		}
-		write_setting(number, (int16_t)opensc2_get_le16(&payload[i + 1]), &led);
+		/* 48, 84 and 85 go to the IMU at every write (imu.c); the sensor's error for 85 ends
+		 * the command, as on the real controller */
+		rc = osc2_imu_setting(number, value);
+		if (rc) {
+			if (led) {
+				osc2_notify_led();   /* the LED settings before it took effect */
+			}
+			return rc;
+		}
+		write_setting(number, value, &led);
 	}
 	if (led) {
 		osc2_notify_led();
@@ -785,6 +802,9 @@ static int read_by_name(enum osc2_link link, uint8_t *data, uint8_t *n)
 	if (key) {
 		key_read(key, data, n);
 		return 0;
+	}
+	if (osc2_imu_by_name(0xED, name, (uint8_t)(name_len + 1), n) == 0) {
+		return 0;   /* the IMU's keys are set only: length 0 */
 	}
 	if (osc2_cal_read_by_name(name, (uint8_t)(name_len + 1), data, n) == 0) {
 		return 0;

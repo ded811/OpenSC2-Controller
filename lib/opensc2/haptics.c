@@ -482,6 +482,17 @@ void opensc2_haptics_free_fall(void)
 #endif
 }
 
+void opensc2_haptics_free_fall_cancel(void)
+{
+#if defined(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS)
+	(void)atomic_set(&fall_waiting, 0);   /* a fall not taken yet goes too */
+	lock();
+	osc2_hap_drop_cancel(&rt.drop);
+	schedule_locked();
+	unlock();
+#endif
+}
+
 int opensc2_haptics_info(struct opensc2_haptics_info *info)
 {
 	memset(info, 0, sizeof(*info));

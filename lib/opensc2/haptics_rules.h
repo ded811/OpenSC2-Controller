@@ -140,6 +140,7 @@ enum osc2_hap_drop_state {
 	OSC2_HAP_DROP_ARMED = 0,
 	OSC2_HAP_DROP_PENDING = 1,     /* a fall was seen: the sound is due at play_ms */
 	OSC2_HAP_DROP_WAITING = 2,     /* until the re-arm at rearm_ms */
+	OSC2_HAP_DROP_OFF = 3,         /* cancelled: no sound, no re-arm until the next init */
 };
 
 struct osc2_hap_drop {
@@ -159,6 +160,10 @@ void osc2_hap_drop_init(struct osc2_hap_drop *d);
 bool osc2_hap_drop_fall(struct osc2_hap_drop *d, uint32_t now_ms);
 enum osc2_hap_drop_poll osc2_hap_drop_poll(struct osc2_hap_drop *d, uint32_t now_ms);
 int32_t osc2_hap_drop_wait(const struct osc2_hap_drop *d, uint32_t now_ms);
+/* The IMU's stream went off: a sound still due is not played, and when a fall was taken falls never
+ * count again until the next init, as on the real controller (it cancels both pending works). Armed:
+ * nothing changes. */
+void osc2_hap_drop_cancel(struct osc2_hap_drop *d);
 /* The script a random byte picks: below 48 script 16, 48 to 127 script 17, otherwise none (0):
  * 3 in 16 and 5 in 16, about half of all drops. */
 uint8_t osc2_hap_drop_pick(uint8_t random_byte);

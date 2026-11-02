@@ -34,6 +34,11 @@ zephyr_library_sources(
 	lizard.c
 	mode.c
 	mode_rules.c
+	# the trackpads frame by frame (<opensc2/trackpad.h>), the IMU (<opensc2/imu.h>)
+	pad.c
+	pad_rules.c
+	imu.c
+	imu_rules.c
 	proto_rules.c
 	radio.c
 	radio_rules.c
@@ -57,6 +62,11 @@ zephyr_library_sources(
 )
 # the "battery" statistics group (CONFIG_OPENSC2_BATTERY_STATS, with CONFIG_STATS)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_BATTERY_STATS battery_stats.c)
+# The calibration's and the sensors' arithmetic is the real controller's single-precision floating
+# point, with a multiply and an add fused into one rounding only where its build fuses them (fmaf()
+# in the code): the compiler may fuse nothing else, or a result could differ by a count.
+set_source_files_properties(cal.c sensor_helpers.c input_rules.c report_rules.c
+	PROPERTIES COMPILE_OPTIONS -ffp-contract=off)
 zephyr_library_sources_ifdef(CONFIG_OPENSC2_USB
 	usb.c
 	usb_rules.c

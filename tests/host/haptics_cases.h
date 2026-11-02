@@ -1203,6 +1203,25 @@ OPENSC2_TEST(haptics_drop)
 	CHECK_EQ(osc2_hap_drop_poll(&d, 5999), OSC2_HAP_DROP_NOTHING);
 	CHECK_EQ(osc2_hap_drop_poll(&d, 6000), OSC2_HAP_DROP_REARMED);
 	CHECK(osc2_hap_drop_fall(&d, 6001));
+	/* the IMU's stream off while the sound is due: no sound, no re-arm until the next init */
+	osc2_hap_drop_cancel(&d);
+	CHECK_EQ(d.state, OSC2_HAP_DROP_OFF);
+	CHECK_EQ(osc2_hap_drop_wait(&d, 6100), -1);
+	CHECK_EQ(osc2_hap_drop_poll(&d, 6251), OSC2_HAP_DROP_NOTHING);
+	CHECK_EQ(osc2_hap_drop_poll(&d, 20000), OSC2_HAP_DROP_NOTHING);
+	CHECK(!osc2_hap_drop_fall(&d, 20001));
+	/* after the sound, before the re-arm: the same */
+	osc2_hap_drop_init(&d);
+	CHECK(osc2_hap_drop_fall(&d, 0));
+	CHECK_EQ(osc2_hap_drop_poll(&d, 250), OSC2_HAP_DROP_PLAY);
+	osc2_hap_drop_cancel(&d);
+	CHECK_EQ(osc2_hap_drop_poll(&d, 5000), OSC2_HAP_DROP_NOTHING);
+	CHECK(!osc2_hap_drop_fall(&d, 6000));
+	/* armed: nothing changes */
+	osc2_hap_drop_init(&d);
+	osc2_hap_drop_cancel(&d);
+	CHECK_EQ(d.state, OSC2_HAP_DROP_ARMED);
+	CHECK(osc2_hap_drop_fall(&d, 1));
 	/* the pick: 48 of 256 values script 16, 80 script 17, the rest nothing */
 	for (int r = 0; r < 256; r++) {
 		uint8_t s = osc2_hap_drop_pick((uint8_t)r);

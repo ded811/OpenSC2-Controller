@@ -6,13 +6,15 @@
  * default, untested on hardware): an ST LSM6DSV16X (imu0) whose FIFO is streamed with Zephyr's
  * sensor streaming API, its sensor-fusion block's game rotation vector and gyro-bias estimate in
  * the same buffers. One standing read from boot; for each buffer the first accelerometer,
- * gyroscope and quaternion samples (and the bias while controller setting 84 is on) become report
- * units, turned by the mounting matrix; a buffer missing one of them is dropped, and a failed
- * stream is submitted again 500 ms later. Setting 48 = 0 cancels the read (not with
- * CONFIG_APP_IMU_ALWAYS) and any other value submits it again; while it is off the report keeps
- * the last sample. The stored gyro bias (cal/sensors/gyroscope/bias) is programmed as the fusion
- * block's starting bias; one the real controller refuses (2^31 or more in magnitude) keeps the
- * stream from starting at boot, as there.
+ * gyroscope and quaternion samples (and the bias while the IMU subtracts it: setting 84) go to the
+ * library's IMU (<opensc2/imu.h>), which scales and turns them as the real controller does; a
+ * buffer missing one of them is dropped, and a failed stream is submitted again 500 ms later. The
+ * library's IMU switches the stream (setting 48 and the key mode: 0 cancels the read, any other
+ * value submits it again; while it is off the report keeps the last sample). The stored gyro bias
+ * (cal/sensors/gyroscope/bias) is programmed as the fusion block's starting bias; one the real
+ * controller refuses (2^31 or more in magnitude) keeps the stream from starting at boot, as there.
+ * Setting 85 goes to the real controller's fusion block through a driver attribute of its own; the
+ * stock driver has none, so it is taken and not applied.
  *
  * The overlay gives the IMU its interrupt (int1-gpios) and its FIFO and fusion settings
  * (app/imu-stream.overlay).
@@ -29,6 +31,7 @@
 #include <zephyr/sys/mem_blocks.h>
 #include <opensc2/cal.h>
 #include <opensc2/haptics.h>
+#include <opensc2/imu.h>
 #include <opensc2/sensor_helpers.h>
 
 LOG_MODULE_REGISTER(imu_fifo, LOG_LEVEL_INF);
@@ -49,7 +52,6 @@ static const uint32_t mounting_cells[9] = DT_PROP(USER, imu_mounting_matrix);
 #else
 static const uint32_t mounting_cells[9] = { 1, 0, 0, 0, 1, 0, 0, 0, 1 };
 #endif
-static int8_t mounting[9];
 
 /* The standing read and its id (the userdata of its completions). A cancelled read still completes
  * once more, with the next buffer, which RTIO then frees itself: until then no new read is
@@ -90,13 +92,12 @@ static void stream_start(void)
 	k_mutex_unlock(&stream_lock);
 }
 
-void imu_setting(uint8_t number, int16_t value)
+/* The library's IMU switches the stream: setting 48 and the key mode, every write. */
+static void on_stream(bool on, void *user_data)
 {
-	if (number != OPENSC2_SETTING_IMU_MODE) {
-		return;
-	}
+	ARG_UNUSED(user_data);
 	k_mutex_lock(&stream_lock, K_FOREVER);
-	wanted = value != 0 || IS_ENABLED(CONFIG_APP_IMU_ALWAYS);
+	wanted = on;
 	if (!wanted && stream != NULL) {
 		(void)rtio_sqe_cancel(stream);
 		stream = NULL;
@@ -106,15 +107,40 @@ void imu_setting(uint8_t number, int16_t value)
 	stream_start();
 }
 
+/* Setting 85: the real controller's driver takes it as an attribute of its fusion block; the
+ * stock driver has no such attribute, so it is taken and not applied. */
+static int on_gyro_threshold(uint8_t threshold, void *user_data)
+{
+	ARG_UNUSED(threshold);
+	ARG_UNUSED(user_data);
+	return 0;
+}
+
+static const struct opensc2_imu_handler handler = {
+	.stream = on_stream,
+	.gyro_threshold = on_gyro_threshold,
+};
+
+void imu_setting(uint8_t number, int16_t value)
+{
+	/* Settings 48, 84 and 85 are the library's IMU's (on_stream(), on_gyro_threshold()). */
+	ARG_UNUSED(number);
+	ARG_UNUSED(value);
+}
+
 /* One buffer: its first sample of each kind, or nothing when one is missing. */
 static void decode(const struct sensor_decoder_api *dec, const uint8_t *buf)
 {
 	struct sensor_three_axis_data accel, gyro, bias = { 0 };
 	struct sensor_game_rotation_vector_data quat;
 	uint32_t fa = 0, fg = 0, fq = 0, fb = 0;
-	bool subtract_bias = opensc2_setting_get(OPENSC2_SETTING_IMU_BIAS) != 0;
-	struct opensc2_imu out = { 0 };
-	int16_t a[3], g[3], q[4];
+	struct opensc2_imu_config cfg;
+	struct opensc2_imu_sample s = { 0 };
+	bool subtract_bias;
+	int16_t a[3];
+
+	opensc2_imu_config_get(&cfg);
+	subtract_bias = cfg.use_bias;
 
 	if (dec->decode(buf, accel_chan, &fa, 1, &accel) < 1) {
 		LOG_DBG("IMU buffer dropped: no acceleration");
@@ -133,56 +159,56 @@ static void decode(const struct sensor_decoder_api *dec, const uint8_t *buf)
 		return;
 	}
 	for (int i = 0; i < 3; i++) {
-		float rate = q31_value(gyro.readings[0].values[i], gyro.shift);
-
-		if (subtract_bias) {
-			rate -= q31_value(bias.readings[0].values[i], bias.shift);
-		}
-		a[i] = opensc2_imu_accel_from_ms2(q31_value(accel.readings[0].values[i],
-							    accel.shift));
-		g[i] = opensc2_imu_gyro_from_rads(rate);
+		s.accel[i] = q31_value(accel.readings[0].values[i], accel.shift);
+		s.gyro[i] = q31_value(gyro.readings[0].values[i], gyro.shift);
+		s.bias[i] = q31_value(bias.readings[0].values[i], bias.shift);
 	}
-	/* the quaternion: x, y, z, w from the chip, w first in the report, 32767 = 1 */
-	q[0] = (int16_t)CLAMP(q31_value(quat.readings[0].w, quat.shift) * 32767.0f, -32767, 32767);
+	s.has_bias = subtract_bias;
+	/* the quaternion: x, y, z, w from the chip, W first for the library */
+	s.quat[0] = q31_value(quat.readings[0].w, quat.shift);
 	for (int i = 0; i < 3; i++) {
-		q[1 + i] = (int16_t)CLAMP(q31_value(quat.readings[0].values[i], quat.shift) *
-					  32767.0f, -32767, 32767);
+		s.quat[1 + i] = q31_value(quat.readings[0].values[i], quat.shift);
 	}
-	opensc2_imu_mount(mounting, a, out.accel);
-	opensc2_imu_mount(mounting, g, out.gyro);
-	opensc2_imu_mount_quat(mounting, q, out.quat);
-	/* the buffer's time, nanoseconds rounded to the nearest microsecond */
-	out.timestamp_us = (uint32_t)((accel.header.base_timestamp_ns + 500) / 1000);
-	opensc2_set_imu(&out);
-	/* The haptics synthesiser's drop sounds (app/haptics.conf): every streamed sample through the
-	 * library's free-fall detector, as imu.c does for a polled IMU. */
-	if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS) &&
-	    opensc2_freefall_update(&fall, out.accel, k_uptime_get_32())) {
-		opensc2_haptics_free_fall();
+	s.has_quat = true;
+	s.timestamp_ns = accel.header.base_timestamp_ns;
+	(void)opensc2_imu_sample(&s);
+	/* The haptics synthesiser's drop sounds (app/haptics.conf): the stock driver reports no free
+	 * fall in the stream, so every sample goes through the library's free-fall detector, and a
+	 * fall to the IMU's free-fall rule. */
+	if (IS_ENABLED(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS)) {
+		for (int i = 0; i < 3; i++) {
+			a[i] = opensc2_imu_accel_from_ms2(s.accel[i]);
+		}
+		if (opensc2_freefall_update(&fall, a, k_uptime_get_32())) {
+			opensc2_imu_free_fall();
+		}
 	}
 }
 
-/* The stored gyro bias (rad/s, the chip's axes) as the fusion block's starting bias. False when the
- * stored bias is refused (2^31 or more in magnitude): the real controller then does not start its
- * stream at boot. */
+/* The stored gyro bias (rad/s, the chip's axes) as the fusion block's starting bias, zeros when none
+ * is stored (the real controller programs its empty copy too). False, and the stream is not started
+ * at boot, as on the real controller, when the stored bias is refused (2^31 or more in magnitude)
+ * or the driver cannot program it (the stock driver can whenever streaming is built). */
 static bool program_bias(void)
 {
 	struct sensor_value v[3];
-	float b[3];
+	float b[3] = { 0.0f, 0.0f, 0.0f };
 	int err = opensc2_cal_gyro_bias(b);
 
 	if (err == -ERANGE) {
 		LOG_WRN("One of the gyro bias values is out of range: the IMU stream is not started");
 		return false;
 	}
-	if (err != 0) {
-		return true;   /* none stored */
-	}
 	for (int i = 0; i < 3; i++) {
+		if (err != 0) {
+			b[i] = 0.0f;   /* none stored */
+		}
 		(void)sensor_value_from_float(&v[i], b[i]);
 	}
-	if (sensor_attr_set(imu, SENSOR_CHAN_GBIAS_XYZ, SENSOR_ATTR_OFFSET, v) != 0) {
-		LOG_WRN("The stored gyro bias could not be programmed");
+	err = sensor_attr_set(imu, SENSOR_CHAN_GBIAS_XYZ, SENSOR_ATTR_OFFSET, v);
+	if (err != 0) {
+		LOG_WRN("The gyro bias could not be programmed (%d): the IMU stream is not started", err);
+		return false;
 	}
 	return true;
 }
@@ -264,9 +290,13 @@ K_THREAD_DEFINE(imu_tid, 2048, imu_thread, NULL, NULL, NULL, 9, 0, SYS_FOREVER_M
 
 int imu_init(void)
 {
+	int8_t m[9];
+
 	for (int i = 0; i < 9; i++) {
-		mounting[i] = (int8_t)(int32_t)mounting_cells[i];
+		m[i] = (int8_t)(int32_t)mounting_cells[i];
 	}
+	(void)opensc2_imu_set_mounting(m);   /* the board's, as the real controller's sets its own */
+	(void)opensc2_imu_set_handler(&handler, NULL);
 	k_thread_start(imu_tid);
 	return 0;
 }

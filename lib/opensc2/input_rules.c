@@ -35,7 +35,25 @@ void osc2_input_rules_reset(struct osc2_input_rules *r)
 		r->trigger_bit[side] = false;
 		r->pad_click[side] = false;
 		r->click_setting[side] = CLICK_UNSET;
+		r->decided_bit[side] = false;
 	}
+	r->level68 = CLICK_UNSET;
+	r->decided = 0;
+	r->pad_sides = 0;
+}
+
+void osc2_input_rules_decide(struct osc2_input_rules *r, int side, bool bit)
+{
+	if (side == 0 || side == 1) {
+		r->decided |= (uint8_t)(1u << side);
+		r->decided_bit[side] = bit;
+	}
+}
+
+void osc2_input_rules_triggers_set_up(struct osc2_input_rules *r)
+{
+	r->trigger_bit[0] = false;
+	r->trigger_bit[1] = false;
 }
 
 int32_t osc2_approx_len(int32_t dx, int32_t dy)
@@ -54,20 +72,15 @@ int32_t osc2_approx_len(int32_t dx, int32_t dy)
 
 bool osc2_pad_click(uint16_t pressure, int16_t setting, bool previous)
 {
-	int32_t s = setting < -1 ? -1 : setting > 100 ? 100 : setting;
-	int32_t p = pressure > OPENSC2_TRIGGER_MAX ? OPENSC2_TRIGGER_MAX : pressure;
+	float t = (setting >= 0 ? (float)setting : 100.0f) / 100.0f;
+	float h = 8.0f / 100.0f;
+	float v = (float)(pressure > OPENSC2_TRIGGER_MAX ? OPENSC2_TRIGGER_MAX : pressure) /
+		  (float)OPENSC2_TRIGGER_MAX;
 
-	if (s == -1) {
-		s = 100;
+	if (previous) {
+		return !(t - h > v);
 	}
-	/* In whole numbers: pressure / 32767 against (s +- 8) %. */
-	if (p * 100 > (s + 8) * OPENSC2_TRIGGER_MAX) {
-		return true;
-	}
-	if (p * 100 < (s - 8) * OPENSC2_TRIGGER_MAX) {
-		return false;
-	}
-	return previous;
+	return t + h < v;
 }
 
 /* An eighth of the gap, rounded down (toward minus infinity), plus one unit toward the thumb. */
@@ -141,6 +154,10 @@ void osc2_input_rules_apply(struct osc2_input_rules *r, uint32_t rules,
 	for (int side = 0; side < 2; side++) {
 		struct opensc2_trackpad *pad = &s->pad[side];
 
+		if (r->pad_sides & (1u << side)) {
+			continue;   /* worked out frame by frame */
+		}
+
 		/* The stick-touch fallback reads positions: not raw stick output. */
 		if ((rules & OSC2_RULE_STICK_FALLBACK) &&
 		    settings[OPENSC2_SETTING_RAW_STICKS] == 0 &&
@@ -181,7 +198,12 @@ void osc2_input_rules_apply(struct osc2_input_rules *r, uint32_t rules,
 		}
 	}
 
-	/* The triggers' digital bits; none with raw trigger output. */
+	/* The triggers' digital bits; none with raw trigger output. A new setting 68 sets the
+	 * triggers up again, which clears their bits. */
+	if (settings[OPENSC2_SETTING_TRIGGER_THRESHOLD] != r->level68) {
+		r->level68 = settings[OPENSC2_SETTING_TRIGGER_THRESHOLD];
+		osc2_input_rules_triggers_set_up(r);
+	}
 	if ((rules & OSC2_RULE_RAW_TRIGGERS) && settings[OPENSC2_SETTING_RAW_TRIGGERS] != 0) {
 		for (int side = 0; side < 2; side++) {
 			r->trigger_bit[side] = false;
@@ -189,10 +211,15 @@ void osc2_input_rules_apply(struct osc2_input_rules *r, uint32_t rules,
 		}
 	} else if (rules & OSC2_RULE_TRIGGER_BITS) {
 		for (int side = 0; side < 2; side++) {
-			r->trigger_bit[side] = osc2_trigger_click(
-				s->trigger[side], settings[OPENSC2_SETTING_TRIGGER_THRESHOLD],
-				r->trigger_bit[side]);
+			if (r->decided & (1u << side)) {
+				r->trigger_bit[side] = r->decided_bit[side];   /* the calibration's */
+			} else {
+				r->trigger_bit[side] = osc2_trigger_click(
+					s->trigger[side], settings[OPENSC2_SETTING_TRIGGER_THRESHOLD],
+					r->trigger_bit[side]);
+			}
 			set_bit(&s->buttons, trigger_bit[side], r->trigger_bit[side]);
 		}
 	}
+	r->decided = 0;
 }

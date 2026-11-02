@@ -2,10 +2,12 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * Host tests only: the calibration helpers of <opensc2/cal.h> (lib/opensc2/cal.c) against values
- * worked out from the documented rules with exact fractions, outside this code: the millivolt
- * conversions, the keys' byte formats, the sticks' two halves and 10 % band, the triggers' bands
- * and early full output, the pads' pressure filter, gain and click, and the factory recordings.
+ * Host tests only: the calibration helpers of <opensc2/cal.h> (lib/opensc2/cal.c): the millivolt
+ * conversions, the keys' byte formats, the sticks' two halves and 10 % band, the triggers' bands,
+ * early full output and digital bits, the pads' pressure filter, gain and click, and the factory
+ * recordings. The values are the real controller's single-precision results (the documented
+ * rules, worked out in its order of operations), quirks included: a turned-over half reads 0, a
+ * range end of 0 is "not set", the trigger bit never turns on from setting 68 = 95 up.
  */
 #include <string.h>
 #include <opensc2/cal.h>
@@ -15,7 +17,10 @@ OPENSC2_TEST(cal_millivolts)
 	CHECK_EQ(opensc2_cal_counts_to_mv(2048, OPENSC2_CAL_STICK_FULL_MV), 1650);
 	CHECK_EQ(opensc2_cal_counts_to_mv(4095, OPENSC2_CAL_STICK_FULL_MV), 3299);
 	CHECK_EQ(opensc2_cal_counts_to_mv(4095, OPENSC2_CAL_TRIGGER_FULL_MV), 1649);
-	CHECK_EQ(opensc2_cal_counts_to_mv(5000, OPENSC2_CAL_STICK_FULL_MV), 3299);   /* limited */
+	CHECK_EQ(opensc2_cal_counts_to_mv(5000, OPENSC2_CAL_STICK_FULL_MV), 4028);   /* as it is */
+	/* an average below 0 V wrapped round (-3): converted as it is, as the real controller does */
+	CHECK_EQ(opensc2_cal_counts_to_mv(0xFFFD, OPENSC2_CAL_STICK_FULL_MV), 52797);
+	CHECK_EQ(opensc2_cal_counts_to_mv(0xFFFF, 0xFFFF), 0xFFFF);   /* limited to 16 bits */
 	CHECK_EQ(opensc2_cal_counts_to_mv(1, OPENSC2_CAL_STICK_FULL_MV), 0);
 	CHECK_EQ(opensc2_cal_mv_to_counts(1650, OPENSC2_CAL_STICK_FULL_MV), 2048);
 	CHECK_EQ(opensc2_cal_mv_to_counts(3299, OPENSC2_CAL_STICK_FULL_MV), 4095);
@@ -32,6 +37,8 @@ OPENSC2_TEST(cal_millivolts)
 	CHECK_EQ(out, 1649);
 	CHECK(opensc2_cal_raw_mode(2, 1234, OPENSC2_CAL_STICK_FULL_MV, &out));
 	CHECK_EQ(out, 1234);
+	CHECK(opensc2_cal_raw_mode(2, 0xFFFD, OPENSC2_CAL_STICK_FULL_MV, &out));
+	CHECK_EQ(out, 0xFFFD);   /* a wrapped average as it is (the report's -3) */
 	CHECK(!opensc2_cal_raw_mode(0, 1234, OPENSC2_CAL_STICK_FULL_MV, &out));
 	CHECK(!opensc2_cal_raw_mode(3, 1234, OPENSC2_CAL_STICK_FULL_MV, &out));
 }
@@ -103,8 +110,8 @@ OPENSC2_TEST(cal_stick_halves)
 	opensc2_stick_setup(&p, &cal_stick_ref);
 	CHECK(p.valid);
 	CHECK_EQ(p.axis[0].centre, 2048);
-	CHECK_EQ(p.axis[0].min, 372);
-	CHECK_EQ(p.axis[0].max, 3723);
+	CHECK_EQ(p.axis[0].lower.lo, 372.0f);
+	CHECK_EQ(p.axis[0].upper.hi, 3723.0f);
 	CHECK_EQ(p.axis[1].centre, 1985);
 	/* X: the centre reads 0 (no dead zone), one count above it already moves */
 	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 2048), 0);
@@ -155,15 +162,29 @@ OPENSC2_TEST(cal_stick_validity)
 	CHECK(!p.valid);
 	CHECK_EQ(opensc2_stick_axis_value(&p, 1, 3000), 0);
 
-	/* Either way round: extremes swapped turn the axis over. */
+	/* Extremes swapped (only a hand-written calibration has them) are far enough from the rest
+	 * band, so the stick is usable, but each half is turned over and reads 0: a dead axis, as on
+	 * the real controller. Y is unaffected. */
 	c = cal_stick_ref;
 	c.x.min = 3000;
 	c.x.max = 300;
 	opensc2_stick_setup(&p, &c);
 	CHECK(p.valid);
-	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 3000), -20680);
-	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 1000), 22779);
+	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 3000), 0);
+	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 1000), 0);
 	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 2048), 0);
+	CHECK_EQ(opensc2_stick_axis_value(&p, 1, 3000), 19846);
+	/* A maximum of 0 counts is "not set": the upper half takes its range from its first
+	 * reading, which leaves it empty, so it reads 0 (the lower half works). */
+	c = cal_stick_ref;
+	c.y.max = 0;
+	c.y.min = 3100;   /* 200 counts and more from the rest band either way round */
+	c.x.max = 0;
+	c.x.min = 3000;
+	opensc2_stick_setup(&p, &c);
+	CHECK(p.valid);
+	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 3500), 0);
+	CHECK_EQ(opensc2_stick_axis_value(&p, 0, 3600), 0);
 }
 
 OPENSC2_TEST(cal_stick_options)
@@ -186,8 +207,8 @@ OPENSC2_TEST(cal_stick_options)
 	for (int i = 0; i < 100; i++) {
 		(void)opensc2_stick_axis_value(&g, 0, 4095);
 	}
-	CHECK(g.axis[0].max > 3723);
-	CHECK(g.axis[0].max <= 4095);
+	CHECK(g.axis[0].upper.hi > 3723.0f);
+	CHECK(g.axis[0].upper.hi <= 4095.0f);
 	later = opensc2_stick_axis_value(&g, 0, 3000);
 	CHECK(later < first);   /* the same reading is a smaller deflection of the wider range */
 	/* October (the default) keeps the stored range */
@@ -197,7 +218,7 @@ OPENSC2_TEST(cal_stick_options)
 	for (int i = 0; i < 100; i++) {
 		(void)opensc2_stick_axis_value(&o, 0, 4095);
 	}
-	CHECK_EQ(o.axis[0].max, 3723);
+	CHECK_EQ(o.axis[0].upper.hi, 3723.0f);
 }
 
 OPENSC2_TEST(cal_trigger)
@@ -213,8 +234,8 @@ OPENSC2_TEST(cal_trigger)
 	CHECK_EQ(opensc2_trigger_value(&p, 0), 0);
 	CHECK_EQ(opensc2_trigger_value(&p, 496), 0);
 	CHECK_EQ(opensc2_trigger_value(&p, 653), 0);     /* inside the first 5 % */
-	CHECK_EQ(opensc2_trigger_value(&p, 654), 3);
-	CHECK_EQ(opensc2_trigger_value(&p, 2000), 15543);
+	CHECK_EQ(opensc2_trigger_value(&p, 654), 4);
+	CHECK_EQ(opensc2_trigger_value(&p, 2000), 15546);
 	CHECK_EQ(opensc2_trigger_value(&p, 3649), 32767);   /* 95 % of the way: full */
 	CHECK_EQ(opensc2_trigger_value(&p, 3724), 32767);
 
@@ -224,12 +245,12 @@ OPENSC2_TEST(cal_trigger)
 	CHECK(p.falls);
 	CHECK_EQ(opensc2_trigger_value(&p, 3724), 0);
 	CHECK_EQ(opensc2_trigger_value(&p, 3600), 0);
-	CHECK_EQ(opensc2_trigger_value(&p, 2000), 17685);
-	CHECK_EQ(opensc2_trigger_value(&p, 700), 32393);
+	CHECK_EQ(opensc2_trigger_value(&p, 2000), 17684);
+	CHECK_EQ(opensc2_trigger_value(&p, 700), 32392);
 	CHECK_EQ(opensc2_trigger_value(&p, 496), 32767);
 	c.direction = 7;   /* any value but 0 falls */
 	opensc2_trigger_setup(&p, &c);
-	CHECK_EQ(opensc2_trigger_value(&p, 2000), 17685);
+	CHECK_EQ(opensc2_trigger_value(&p, 2000), 17684);
 
 	/* A and B stored the other way round still work */
 	c = (struct opensc2_cal_trigger){ .format = 2, .a_mv = 200, .b_mv = 1500, .direction = 0 };
@@ -248,6 +269,42 @@ OPENSC2_TEST(cal_trigger)
 	CHECK(!p.valid);
 	opensc2_trigger_setup(&p, NULL);
 	CHECK_EQ(opensc2_trigger_value(&p, 4000), 0);
+}
+
+OPENSC2_TEST(cal_trigger_bit)
+{
+	struct opensc2_cal_trigger c = { .format = 2, .a_mv = 1500, .b_mv = 200, .direction = 0 };
+	struct opensc2_trigger_proc p;
+	uint16_t v;
+
+	/* 90 %: on above 95 % of the normalised pull, off below 85 % */
+	opensc2_trigger_setup_level(&p, &c, 90);
+	CHECK(!opensc2_trigger_step(&p, 3300, &v));
+	CHECK(opensc2_trigger_step(&p, 3600, &v));
+	CHECK_EQ(v, 32767);
+	CHECK(opensc2_trigger_step(&p, 3200, &v));    /* between: kept */
+	CHECK(!opensc2_trigger_step(&p, 3000, &v));
+	/* a set-up (any key change, setting 68, the dock) clears it */
+	CHECK(opensc2_trigger_step(&p, 3700, &v));
+	opensc2_trigger_setup_level(&p, &c, 90);
+	CHECK(!opensc2_trigger_step(&p, 3200, &v));
+	/* 95 and above: 0.95 + 0.05 is 1.0, which a full pull reaches but never passes */
+	opensc2_trigger_setup_level(&p, &c, 95);
+	CHECK(!opensc2_trigger_step(&p, 4095, &v));
+	CHECK_EQ(v, 32767);
+	opensc2_trigger_setup_level(&p, &c, 99);
+	CHECK(!opensc2_trigger_step(&p, 4095, &v));
+	/* direction 1 at 95: the levels are taken from the other end, so a full pull does count */
+	c.direction = 1;
+	opensc2_trigger_setup_level(&p, &c, 95);
+	CHECK(opensc2_trigger_step(&p, 0, &v));
+	CHECK_EQ(v, 32767);
+	CHECK(opensc2_trigger_step(&p, 700, &v));    /* 98.8 %: kept */
+	CHECK(!opensc2_trigger_step(&p, 1000, &v));  /* below 90 %: off */
+	/* uncalibrated: never */
+	opensc2_trigger_setup_level(&p, NULL, 40);
+	CHECK(!opensc2_trigger_step(&p, 4095, &v));
+	CHECK_EQ(v, 0);
 }
 
 OPENSC2_TEST(cal_pressure)
@@ -346,12 +403,11 @@ OPENSC2_TEST(cal_pressure_forms)
 	p.filtered = 100;
 	CHECK_EQ(opensc2_pressure_value(&p), 32767);
 
-	/* unusable: gain 0, A = 0x7FFF with format 1, another format, no range, no key */
+	/* unusable: gain 0, A = 0x7FFF with format 1, another format, no key */
 	static const struct opensc2_cal_pressure bad[] = {
 		{ .format = 1, .a = 100, .b = 2100, .gain = 0 },
 		{ .format = 1, .a = 0x7FFF, .b = 2100, .gain = 2000 },
 		{ .format = 2, .a = 100, .b = 2100, .gain = 2000 },
-		{ .format = 1, .a = 500, .b = 500, .gain = 2000 },
 	};
 
 	for (size_t i = 0; i < ARRAY_SIZE(bad); i++) {
@@ -371,10 +427,25 @@ OPENSC2_TEST(cal_pressure_forms)
 	CHECK_EQ(p.filtered, (3 * 100 + 2100) / 4);
 	opensc2_pressure_setup(&p, NULL);
 	CHECK(!p.usable);
-	/* 0x7FFF is uncalibrated only with format 1 */
-	c = (struct opensc2_cal_pressure){ .format = 0x80, .a = 0x7FFF, .b = 0x7FFF, .gain = 2000 };
-	opensc2_pressure_setup(&p, &c);
-	CHECK(!p.usable);   /* B - A = 0: no range */
+	/* No range (B = A): usable, and the filter follows, but the pad reads 0 and never clicks;
+	 * the same for B - A = 0 with format 0x80 (0x7FFF is uncalibrated only with format 1) and
+	 * for a range end B of 0, which the stage takes for "not set". */
+	static const struct opensc2_cal_pressure dead[] = {
+		{ .format = 1, .a = 500, .b = 500, .gain = 2000 },
+		{ .format = 0x80, .a = 0x7FFF, .b = 0x7FFF, .gain = 2000 },
+		{ .format = 1, .a = -300, .b = 0, .gain = 2000 },
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(dead); i++) {
+		opensc2_pressure_setup(&p, &dead[i]);
+		CHECK(p.usable);
+		for (int k = 0; k < 8; k++) {
+			opensc2_pressure_sample(&p, 30000, 40);
+			CHECK_EQ(p.last, 0);
+			CHECK(!p.click);
+		}
+		CHECK(p.filtered > 20000);
+	}
 }
 
 OPENSC2_TEST(cal_pressure_click_minus_one)
@@ -401,14 +472,18 @@ OPENSC2_TEST(cal_pressure_click_minus_one)
 		opensc2_pressure_sample(&p, 1500, -1);
 	}
 	CHECK(!p.click);
-	/* any other negative value, or one above 100, counts as 100 as well */
+	/* any other negative value counts as 100 as well; a value above 100 (which 0x87 never
+	 * stores) is taken as it is */
 	opensc2_pressure_setup(&p, &c);
 	p.filtered = 2140;
-	opensc2_pressure_sample(&p, 2150, 150);
+	opensc2_pressure_sample(&p, 2140, -5);
 	CHECK(!p.click);
 	p.filtered = 2150;
-	opensc2_pressure_sample(&p, 2150, 150);
+	opensc2_pressure_sample(&p, 2150, -5);
 	CHECK(p.click);
+	opensc2_pressure_setup(&p, &c);
+	opensc2_pressure_sample(&p, 2150, 150);
+	CHECK(!p.click);
 }
 
 static uint32_t rec_frames(struct opensc2_cal_rec *r, int n, uint16_t lx, uint16_t ly,
@@ -476,11 +551,22 @@ OPENSC2_TEST(cal_recording_sticks)
 	opensc2_cal_rec_stick(&r, OPENSC2_LEFT, &s);
 	CHECK_EQ(s.x.min, 300);
 
-	/* 0 ends without saving; only sides with samples are saved */
+	/* 0 unhooks at the next frame without saving; a 3 after that does nothing */
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 1), 0);
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 0), 0);
+	CHECK_EQ(rec_frames(&r, 1, 0, 0, 0, 0, 0, 0, 0, 0), 0);
+	CHECK(!r.active[OPENSC2_CAL_REC_STICKS]);
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 3), 0);
+	CHECK_EQ(rec_frames(&r, 1, 0, 0, 0, 0, 0, 0, 0, 0), 0);
+	/* but a 0 and a 3 before the next frame: the frame sees the 3 and saves, as the real
+	 * controller's recording reads only the last step */
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 1), 0);
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 0), 0);
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 3), 0);
-	CHECK_EQ(rec_frames(&r, 1, 0, 0, 0, 0, 0, 0, 0, 0), 0);
+	CHECK_EQ(rec_frames(&r, 1, 0, 0, 0, 0, 0, 0, 0, 0),
+		 OPENSC2_CAL_SAVE_STICK_L | OPENSC2_CAL_SAVE_STICK_R);
+	/* a board with one stick: only its side is saved (a fresh boot of the recordings) */
+	opensc2_cal_rec_init(&r);
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 1), 0);
 	CHECK_EQ(opensc2_cal_rec_frame(&r, one_side, 1, NULL, 0, NULL, 0), 0);
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 3), 0);
@@ -525,6 +611,17 @@ OPENSC2_TEST(cal_recording_triggers)
 	CHECK_EQ(t.direction, 0);
 	CHECK_EQ(t.a_mv, 800);
 	CHECK_EQ(t.b_mv, 800);
+
+	/* Without a step 2 the candidates' spans are measured as |A - B|: direction 0 keeps A 0 and
+	 * B the released 800 (800 apart), direction 1 A 800 and B still 0x7FFF (31967 apart). */
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_TRIGGERS, 1), 0);
+	CHECK_EQ(rec_frames(&r, 1, 0, 0, 0, 0, 800, 800, 0, 0), 0);
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_TRIGGERS, 3), 0);
+	CHECK(rec_frames(&r, 1, 0, 0, 0, 0, 0, 0, 0, 0) != 0);
+	opensc2_cal_rec_trigger(&r, OPENSC2_LEFT, &t);
+	CHECK_EQ(t.direction, 1);
+	CHECK_EQ(t.a_mv, 800);
+	CHECK_EQ(t.b_mv, 0x7FFF);
 }
 
 OPENSC2_TEST(cal_recording_pressure)
@@ -561,13 +658,26 @@ OPENSC2_TEST(cal_recording_pressure)
 	CHECK_EQ(p.b, 1200);
 	opensc2_cal_rec_pressure(&r, OPENSC2_RIGHT, &p);
 	CHECK_EQ(p.b, 1500);
-	/* ended: another 3 does nothing */
-	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_PRESSURE, 3), 0);
+	/* another 3 saves the records again (as they are), hooked or not */
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_PRESSURE, 3),
+		 OPENSC2_CAL_SAVE_PRESSURE_L | OPENSC2_CAL_SAVE_PRESSURE_R);
+	CHECK(!r.active[OPENSC2_CAL_REC_PRESSURE]);
+	/* after a boot of the recordings: zeros (format 0), for the pads the board has */
+	opensc2_cal_rec_init(&r);
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_PRESSURE, 3), 0);   /* no pads seen yet */
+	opensc2_cal_rec_pressure_sample(&r, OPENSC2_RIGHT, 50);
+	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_PRESSURE, 3), OPENSC2_CAL_SAVE_PRESSURE_R);
+	opensc2_cal_rec_pressure(&r, OPENSC2_RIGHT, &p);
+	CHECK_EQ(p.format, 0);
+	CHECK_EQ(p.gain, 0);
 	/* the recordings keep their own steps */
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_STICKS, 1), 0);
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_TRIGGERS, 1), 0);
 	CHECK_EQ(opensc2_cal_rec_step(&r, OPENSC2_CAL_REC_TRIGGERS, 0), 0);
 	CHECK_EQ(r.step[OPENSC2_CAL_REC_STICKS], 1);
+	CHECK(r.active[OPENSC2_CAL_REC_STICKS]);
+	CHECK(r.active[OPENSC2_CAL_REC_TRIGGERS]);   /* until the next frame */
+	(void)opensc2_cal_rec_frame(&r, NULL, 0, NULL, 0, NULL, 0);
 	CHECK(r.active[OPENSC2_CAL_REC_STICKS]);
 	CHECK(!r.active[OPENSC2_CAL_REC_TRIGGERS]);
 	CHECK(!r.active[OPENSC2_CAL_REC_PRESSURE]);
