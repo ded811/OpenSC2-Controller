@@ -344,6 +344,28 @@ void osc2_usb_get_info(struct opensc2_usb_info *info);
 
 /* usblog.c: the retained area (mark and USB session log). */
 int osc2_retained_mark_taken(void);              /* the mark found at boot (enum osc2_mark) */
+uint8_t osc2_retained_level_at_boot(void);       /* the battery level kept (255: none) */
+void osc2_retained_level_set(uint8_t level);     /* keep a battery level (0..100) */
+/* mode.c: the warm-restart mark brought this boot back (and no held chord used it up); the
+ * machine's wired start turns the USB device on; USB power in the battery wait makes the boot
+ * wired in place (the console stops). */
+bool osc2_mode_warm(void);
+void osc2_mode_usb_on(void);
+void osc2_mode_go_wired(void);
+/* usb.c: the console in wireless mode gives the USB controller back. */
+void osc2_usb_console_stop(void);
+/* battery_stats.c: the "battery" statistics group, at every battery report. */
+#if defined(CONFIG_OPENSC2_BATTERY_STATS)
+void osc2_battery_stats(const struct opensc2_battery *b);
+#else
+static inline void osc2_battery_stats(const struct opensc2_battery *b)
+{
+	(void)b;
+}
+#endif
+/* core.c: a power request to the application's callback (or the library's default), now; the
+ * system state machine passes a host's request on this way once a state acts on it. */
+void osc2_power_to_app(enum opensc2_power_request request, const char *why);
 void osc2_retained_mark_set(int mark);           /* enum osc2_mark, just before a reboot */
 bool osc2_retained_was_kept(void);               /* the area survived the last reset */
 /* The system machine's test words (retained.h): as found at boot, and set one or more (NULL: 0). */

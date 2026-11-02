@@ -672,8 +672,11 @@ static void wait_fn(struct k_work *work)
 #endif
 	/* STEAM pressed while no host has configured the device: back to wireless, as on the real
 	 * controller (for example on a USB charger). The button word the rules see: the
-	 * application's, or the test hooks' system injection. */
-	if (osc2_sys_buttons() & OPENSC2_BTN_STEAM) {
+	 * application's, or the test hooks' system injection. With the system state machine its
+	 * wired start has the rule (a press that began before the boot counts there too). */
+	if (IS_ENABLED(CONFIG_OPENSC2_SYSTEM)) {
+		/* nothing */
+	} else if (osc2_sys_buttons() & OPENSC2_BTN_STEAM) {
 		if (steam_seen_up && ++steam_polls >= STEAM_POLLS) {
 			osc2_usblog("STEAM pressed while waiting for a host");
 			osc2_schedule_power(OPENSC2_POWER_REBOOT_KEEP_LINK, 0, "STEAM, no host");
@@ -923,10 +926,25 @@ USBD_DESC_SERIAL_NUMBER_DEFINE(console_sn);
 USBD_CONFIGURATION_DEFINE(console_config, 0, 125, NULL);
 #endif
 
+#if defined(CONFIG_OPENSC2_USB_CONSOLE)
+static bool console_started;
+static bool console_up;
+#endif
+
+void osc2_usb_console_stop(void)
+{
+#if defined(CONFIG_OPENSC2_USB_CONSOLE)
+	if (console_up) {
+		(void)usbd_disable(&osc2_console);
+		(void)usbd_shutdown(&osc2_console);
+		console_up = false;
+	}
+#endif
+}
+
 int osc2_usb_console_start(void)
 {
 #if defined(CONFIG_OPENSC2_USB_CONSOLE)
-	static bool console_started;
 	int err;
 
 	if (console_started) {
@@ -948,6 +966,7 @@ int osc2_usb_console_start(void)
 	if (err) {
 		LOG_ERR("The USB console did not start (%d)", err);
 	}
+	console_up = err == 0;
 	return err;
 #else
 	return 0;

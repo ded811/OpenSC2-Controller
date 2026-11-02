@@ -47,6 +47,11 @@ enum osc2_plug_in {
 	OSC2_PLUG_IN_STEAM,        /* reboot and come back wired: STEAM held while plugging in */
 };
 
+/* The mark a boot goes on with. The real controller reads (and clears) its warm-restart flag at
+ * the first event after start-up, and a transport chord already held then (STEAM alone included)
+ * posts its press first: such a boot goes on like a cold one. */
+enum osc2_mark osc2_mark_after_chord(enum osc2_mark mark, bool transport_chord_held);
+
 /* `policy` as it is when USB power appears (a change at run time counts at once). */
 enum osc2_plug_in osc2_plug_in_rule(enum opensc2_policy policy, bool link_up, bool steam_held);
 

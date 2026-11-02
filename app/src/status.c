@@ -21,8 +21,9 @@
  *     _b and _w, percent (opensc2_cal_led_trim(): the real controller's factory values 90 35 120
  *     80 until a host stores others), or the board's own when the overlay names them (zephyr,user
  *     `led-trims`, R G B W). Without a white channel, white is mixed into red, green and blue.
- *   - A PWM channel named "ir" is the IR LED: controller setting 36 in percent, off during every
- *     shutdown and reboot (its setting stays).
+ *   - A PWM channel named "ir" is the IR LED: controller setting 36 in percent, turned off when a
+ *     shutdown or reboot starts (its setting stays; a later change of the setting applies again,
+ *     as on the real controller).
  *   - Dark once the pairing button has been held 3 s while wired: releasing it then reboots into
  *     wireless mode.
  */
@@ -80,6 +81,8 @@ static struct opensc2_led_player player;
 static volatile bool hold_cue;   /* the pairing button held 3 s while wired: dark */
 static volatile bool off;        /* powering off */
 static volatile uint8_t ir_percent;
+static volatile bool ir_dark;    /* a shutdown or reboot turned the IR LED off (until setting 36
+				  * changes again, as on the real controller) */
 #if !defined(CONFIG_OPENSC2_SYSTEM)
 static enum opensc2_mode mode = OPENSC2_MODE_WIRELESS;
 static enum opensc2_usb_state usb = OPENSC2_USB_OFF;
@@ -151,7 +154,15 @@ static void tick_work_fn(struct k_work *work)
 	set_duty(&white, dark ? 0 : opensc2_led_duty(c[3], trim(3), st.brightness));
 #endif
 #if HAS_IR
-	set_duty(&ir, st.shutting_down || off ? 0 : (uint16_t)(ir_percent * 10u));
+	{
+		static bool was_shutting;
+
+		if (st.shutting_down && !was_shutting) {
+			ir_dark = true;   /* the shutdown or reboot starts: off, its setting stays */
+		}
+		was_shutting = st.shutting_down;
+		set_duty(&ir, ir_dark || off ? 0 : (uint16_t)(ir_percent * 10u));
+	}
 #endif
 	if (!off) {
 		k_work_schedule(&tick_work, K_MSEC(OPENSC2_LED_STEP_MS));
@@ -198,11 +209,14 @@ void status_led(const struct opensc2_led *l)
 
 void status_setting(uint8_t number, int16_t value)
 {
+	/* Every change applies the setting, during a shutdown too, as on the real controller. */
 	if (number == OPENSC2_SETTING_IR_LED_BRIGHTNESS) {
 		ir_percent = (uint8_t)CLAMP(value, 0, 100);
+		ir_dark = false;
 	} else if (number == OPENSC2_SETTINGS_ALL) {
 		ir_percent = (uint8_t)CLAMP(opensc2_setting_get(OPENSC2_SETTING_IR_LED_BRIGHTNESS), 0,
 					    100);
+		ir_dark = false;
 	}
 }
 

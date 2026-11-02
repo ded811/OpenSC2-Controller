@@ -32,43 +32,40 @@ void opensc2_gauge_history_reset(struct opensc2_gauge_history *h)
 
 void opensc2_gauge_history_add(struct opensc2_gauge_history *h, uint16_t mv)
 {
-	if (!h->filled) {
-		for (int i = 0; i < OPENSC2_GAUGE_HISTORY; i++) {
-			h->mv[i] = mv;
-		}
-		h->filled = true;
-		h->next = 0;
-	}
 	h->mv[h->next] = mv;
 	h->next = (uint8_t)((h->next + 1) % OPENSC2_GAUGE_HISTORY);
+	if (h->count < OPENSC2_GAUGE_HISTORY) {
+		h->count++;
+	}
 }
 
 uint16_t opensc2_gauge_latest(const struct opensc2_gauge_history *h)
 {
-	if (!h->filled) {
+	if (h->count == 0) {
 		return 0;
 	}
 	return h->mv[(h->next + OPENSC2_GAUGE_HISTORY - 1) % OPENSC2_GAUGE_HISTORY];
 }
 
+/* After a reset the readings fill the slots from the first on: `count` of them hold one. */
 uint16_t opensc2_gauge_average(const struct opensc2_gauge_history *h)
 {
 	uint32_t sum = 0;
 
-	if (!h->filled) {
+	if (h->count == 0) {
 		return 0;
 	}
-	for (int i = 0; i < OPENSC2_GAUGE_HISTORY; i++) {
+	for (int i = 0; i < h->count; i++) {
 		sum += h->mv[i];
 	}
-	return (uint16_t)(sum / OPENSC2_GAUGE_HISTORY);
+	return (uint16_t)(sum / h->count);
 }
 
 uint16_t opensc2_gauge_max(const struct opensc2_gauge_history *h)
 {
 	uint16_t m = 0;
 
-	for (int i = 0; h->filled && i < OPENSC2_GAUGE_HISTORY; i++) {
+	for (int i = 0; i < h->count; i++) {
 		m = h->mv[i] > m ? h->mv[i] : m;
 	}
 	return m;
@@ -111,10 +108,13 @@ uint16_t opensc2_gauge_curve(const struct opensc2_gauge_point *points, size_t n,
 
 uint8_t opensc2_gauge_stretch(uint16_t permille, uint16_t target_permille)
 {
-	/* percent = permille / 10 x (200 - target / 10) / 100, rounded */
-	int32_t factor = 2000 - (int32_t)target_permille;
-	int32_t pct = ((int32_t)permille * factor + 5000) / 10000;
+	/* s = the target's reading in whole percent (rounded, at most 100), then
+	 * percent = permille / 10 x (200 - s) / 100, rounded */
+	int32_t s = ((int32_t)target_permille + 5) / 10;
+	int32_t pct;
 
+	s = s > 100 ? 100 : s;
+	pct = ((int32_t)permille * (200 - s) + 500) / 1000;
 	return (uint8_t)(pct < 0 ? 0 : pct > 100 ? 100 : pct);
 }
 
@@ -125,28 +125,90 @@ void opensc2_gauge_init(struct opensc2_gauge *g, uint8_t kept_level)
 	opensc2_gauge_history_reset(&g->history);
 	g->level = kept_level <= 100 ? kept_level : OPENSC2_GAUGE_NO_LEVEL;
 	g->charge_state = OPENSC2_CHARGE_RESET;
+	g->charger_charging = false;
+	g->voltage_mv = 0;
+	g->curves = NULL;
+}
+
+void opensc2_gauge_set_curves(struct opensc2_gauge *g, const struct opensc2_gauge_curves *curves)
+{
+	g->curves = curves;
+}
+
+uint8_t opensc2_gauge_begin(struct opensc2_gauge *g, uint8_t charge_state)
+{
+	return opensc2_gauge_begin_charger(g, charge_state,
+					   charge_state == OPENSC2_CHARGE_CHARGING);
+}
+
+uint8_t opensc2_gauge_begin_charger(struct opensc2_gauge *g, uint8_t charge_state,
+				    bool charger_charging)
+{
+	if (charger_charging != g->charger_charging) {
+		opensc2_gauge_history_reset(&g->history);   /* the readings jump: start over */
+	}
+	g->charger_charging = charger_charging;
+	g->charge_state = charge_state;
+	if (charge_state == OPENSC2_CHARGE_DONE) {
+		return 0;
+	}
+	return g->history.count >= OPENSC2_GAUGE_HISTORY ? 1 :
+	       (uint8_t)(OPENSC2_GAUGE_HISTORY - g->history.count);
+}
+
+void opensc2_gauge_add(struct opensc2_gauge *g, uint16_t battery_mv)
+{
+	opensc2_gauge_history_add(&g->history, battery_mv);
+}
+
+uint16_t opensc2_gauge_voltage(const struct opensc2_gauge *g)
+{
+	return g->voltage_mv;
 }
 
 uint8_t opensc2_gauge_step(struct opensc2_gauge *g, uint16_t battery_mv, uint8_t charge_state)
 {
-	bool charging = charge_state == OPENSC2_CHARGE_CHARGING;
+	if (opensc2_gauge_begin(g, charge_state) > 0) {
+		opensc2_gauge_add(g, battery_mv);
+	}
+	return opensc2_gauge_finish(g);
+}
+
+uint8_t opensc2_gauge_finish(struct opensc2_gauge *g)
+{
+	bool charging = g->charge_state == OPENSC2_CHARGE_CHARGING;
 	const struct opensc2_gauge_point *curve;
 	size_t n;
 	uint16_t target;
 	uint8_t level;
 
-	if (charging != (g->charge_state == OPENSC2_CHARGE_CHARGING)) {
-		opensc2_gauge_history_reset(&g->history);   /* the next reading fills it */
-	}
-	g->charge_state = charge_state;
-	opensc2_gauge_history_add(&g->history, battery_mv);
-	if (charge_state == OPENSC2_CHARGE_DONE) {
-		g->level = 100;
+	if (g->charge_state == OPENSC2_CHARGE_DONE) {
+		g->level = 100;   /* no reading taken: the reported voltage holds */
 		return g->level;
 	}
+	if (g->history.count == 0) {
+		return g->level;   /* nothing read */
+	}
+	g->voltage_mv = opensc2_gauge_average(&g->history);
 	curve = charging ? opensc2_gauge_lipo_charging : opensc2_gauge_lipo_discharging;
 	n = charging ? opensc2_gauge_lipo_charging_len : opensc2_gauge_lipo_discharging_len;
 	target = charging ? OPENSC2_GAUGE_TARGET_CHARGING_MV : OPENSC2_GAUGE_TARGET_MV;
+	if (g->curves) {
+		/* a board's own, where it gives one */
+		const struct opensc2_gauge_point *own = charging ? g->curves->charging :
+								   g->curves->discharging;
+		size_t own_n = charging ? g->curves->charging_len : g->curves->discharging_len;
+		uint16_t own_target = charging ? g->curves->target_charging_mv :
+						 g->curves->target_mv;
+
+		if (own && own_n) {
+			curve = own;
+			n = own_n;
+		}
+		if (own_target) {
+			target = own_target;
+		}
+	}
 	level = opensc2_gauge_stretch(opensc2_gauge_curve(curve, n,
 							  opensc2_gauge_average(&g->history)),
 				      opensc2_gauge_curve(curve, n, target));

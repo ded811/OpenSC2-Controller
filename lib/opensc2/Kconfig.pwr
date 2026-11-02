@@ -44,6 +44,17 @@ config OPENSC2_POWER_POLL_MS
 
 endif # OPENSC2_SYSTEM
 
+config OPENSC2_BATTERY_STATS
+	bool "A Zephyr statistics group \"battery\" filled at every battery report"
+	default y
+	depends on STATS
+	help
+	  As the real controller keeps one: the battery, system and input millivolts, the battery
+	  and input currents, the level and the temperature of every battery report (the values
+	  the application gives with opensc2_set_battery()), and a status entry that is never
+	  written. Readable with Zephyr's statistics tools (mcumgr, the shell's "stat"), which the
+	  real controller's own build leaves out; no host of the controller reads them.
+
 config OPENSC2_NO_BOND_TIMEOUT_S
 	int "With the selected bond slot empty, turn wireless off after this many seconds (0 = never)"
 	default 10

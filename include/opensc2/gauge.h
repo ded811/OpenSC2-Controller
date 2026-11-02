@@ -28,14 +28,15 @@ int32_t opensc2_gauge_divider_mv(int32_t pin_mv, uint32_t total_ohm, uint32_t bo
 				 int16_t offset_mv);
 
 /* The last readings, as the real controller keeps 40: the latest, their average and their
- * maximum. The first reading after a reset fills the whole history (the real controller takes 40
- * in a row then: at start-up and whenever charging starts or stops). */
+ * maximum, over the readings since the last reset (at most 40). The real controller takes 40 in a
+ * row after a reset (at start-up and whenever charging starts or stops), then one a second:
+ * opensc2_gauge_begin() says how many a step wants. */
 #define OPENSC2_GAUGE_HISTORY 40
 
 struct opensc2_gauge_history {
 	uint16_t mv[OPENSC2_GAUGE_HISTORY];
 	uint8_t next;
-	bool filled;
+	uint8_t count;          /* readings since the reset, at most OPENSC2_GAUGE_HISTORY */
 };
 
 void opensc2_gauge_history_reset(struct opensc2_gauge_history *h);
@@ -64,26 +65,63 @@ extern const size_t opensc2_gauge_lipo_charging_len;
 #define OPENSC2_GAUGE_TARGET_CHARGING_MV  4160   /* its target during a charge cycle */
 
 /* The stretch: the curve's charge times (200 - s) / 100, with s the curve's reading at the charge
- * target in percent, rounded to a whole percent and limited to 0..100. */
+ * target rounded to a whole percent (at most 100); the result rounded to a whole percent and
+ * limited to 0..100. */
 uint8_t opensc2_gauge_stretch(uint16_t permille, uint16_t target_permille);
 
 /* The level the controller reports. 255 until the first reading (what the real controller's first
  * battery report after a cold start carries). */
 #define OPENSC2_GAUGE_NO_LEVEL 255
 
+/* A board's own curves and charge targets in place of OpenSC2's (a NULL curve or a 0 target keeps
+ * the built-in one). The level is the curve's reading stretched so that the target reads 100 %. */
+struct opensc2_gauge_curves {
+	const struct opensc2_gauge_point *discharging;
+	size_t discharging_len;
+	const struct opensc2_gauge_point *charging;
+	size_t charging_len;
+	uint16_t target_mv;            /* 0: OPENSC2_GAUGE_TARGET_MV */
+	uint16_t target_charging_mv;   /* 0: OPENSC2_GAUGE_TARGET_CHARGING_MV */
+};
+
 struct opensc2_gauge {
 	struct opensc2_gauge_history history;
 	uint8_t level;          /* percent, or OPENSC2_GAUGE_NO_LEVEL */
 	uint8_t charge_state;   /* the state of the last step (enum opensc2_charge_state) */
+	bool charger_charging;  /* whether the charger charged at the last step */
+	uint16_t voltage_mv;    /* the voltage to report: the average at the last step outside
+				 * "done" (0 before the first) */
+	const struct opensc2_gauge_curves *curves;   /* NULL: OpenSC2's LiPo curves */
 };
 
-/* Start from nothing, or from a level kept over a warm reboot (OPENSC2_GAUGE_NO_LEVEL: none). */
+/* Start from nothing, or from a level kept over a warm reboot (opensc2_battery_kept_level();
+ * OPENSC2_GAUGE_NO_LEVEL: none), with the built-in curves. */
 void opensc2_gauge_init(struct opensc2_gauge *g, uint8_t kept_level);
-/* One reading (battery mV, offset included) and the charge state (enum opensc2_charge_state):
- * charging (2) uses the charging curve and the level may only rise; done (4) reads 100; anything
- * else uses the discharging curve and the level may only fall. A change between charging and not
- * charging starts the history over. Returns the level. */
+/* Use a board's own curves from now on (NULL: the built-in ones again). Call it after
+ * opensc2_gauge_init(); `curves` must stay valid while the gauge is in use. */
+void opensc2_gauge_set_curves(struct opensc2_gauge *g, const struct opensc2_gauge_curves *curves);
+
+/* A step, the way the real controller's gauge takes its readings. Begin with the charge state
+ * (enum opensc2_charge_state); it returns how many fresh readings to take in a row: 40 after a
+ * start and whenever charging starts or stops (the readings jump, so the history starts over; the
+ * real controller also waits 250 ms first), else 1, and 0 while the charge is done (no reading
+ * then: the level reads 100 and the reported voltage holds). Add each reading (battery mV, offset
+ * included), then finish: charging (2) uses the charging curve and the level may only rise,
+ * anything else the discharging curve and the level may only fall. Returns the level. */
+uint8_t opensc2_gauge_begin(struct opensc2_gauge *g, uint8_t charge_state);
+/* The same, for a board that runs the charging rules (<opensc2/charger.h>): the history starts
+ * over whenever the charger itself starts or stops charging (`charger_charging`: its status is
+ * precharge or fast charge), also while the charge state is "done", when a charger tops the battery
+ * up again, as on the real controller. opensc2_gauge_begin() takes "charging" from the state. */
+uint8_t opensc2_gauge_begin_charger(struct opensc2_gauge *g, uint8_t charge_state,
+				    bool charger_charging);
+void opensc2_gauge_add(struct opensc2_gauge *g, uint16_t battery_mv);
+uint8_t opensc2_gauge_finish(struct opensc2_gauge *g);
+/* The three with a single reading (the history then grows by one reading a step). */
 uint8_t opensc2_gauge_step(struct opensc2_gauge *g, uint16_t battery_mv, uint8_t charge_state);
+/* The battery voltage report 0x43 carries, as the real controller's gauge gives it: the average of
+ * the readings at the last step outside "done", held while the charge is done. */
+uint16_t opensc2_gauge_voltage(const struct opensc2_gauge *g);
 
 #ifdef __cplusplus
 }

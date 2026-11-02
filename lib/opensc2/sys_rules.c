@@ -62,6 +62,7 @@ static void cue(struct osc2_sys_out *o, uint8_t c)
 
 static void start_link(struct osc2_sys *m, struct osc2_sys_out *o, bool pairing)
 {
+	m->selected = true;
 	o->actions |= OSC2_SYS_DO_START;
 	o->transport = m->chosen;
 	o->pairing = pairing;
@@ -88,20 +89,52 @@ static uint8_t end_of(const struct osc2_sys *m, const struct osc2_sys_in *in)
 	}
 }
 
-/* Off or reboot once STEAM is up (a shutdown caused by holding STEAM ends only when it is let go,
- * so the press does not wake the controller again); a reboot does not wait. */
-static void finish(struct osc2_sys *m, const struct osc2_sys_in *in, struct osc2_sys_out *o)
+/* What waited for STEAM to be up: the wired start's USB device (and its 0.5 s timer), or the end.
+ */
+static void steam_is_up(struct osc2_sys *m, const struct osc2_sys_in *in, uint32_t now_ms,
+			struct osc2_sys_out *o)
 {
-	if (in->steam && m->state != OSC2_SYS_REBOOT) {
-		m->steam_wait = true;
+	m->steam_wait = false;
+	if (m->steam_then == OSC2_SYS_THEN_USB_ON) {
+		o->actions |= OSC2_SYS_DO_USB_ON;
+		m->timer_on = true;
+		m->timer_at = now_ms + OSC2_SYS_NO_HOST_MS;
 		return;
 	}
-	m->steam_wait = false;
 	m->ended = true;
 	o->actions |= OSC2_SYS_DO_END;
 	o->end = end_of(m, in);
 	o->end_state = m->state;
 	o->end_cause = m->end_cause;
+	o->end_request = o->end == OSC2_SYS_END_REBOOT ? m->end_req : OSC2_SYS_REQ_PLAIN;
+}
+
+/* Wait until STEAM is up (polled every 10 ms; the machine holds its events meanwhile), then `then`.
+ */
+static void after_steam(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t then,
+			uint32_t now_ms, struct osc2_sys_out *o)
+{
+	m->steam_then = then;
+	if (in->steam) {
+		m->steam_wait = true;
+		m->timer_on = false;
+		m->timer_at = now_ms + OSC2_SYS_STEAM_POLL_MS;   /* the next look at STEAM */
+		return;
+	}
+	steam_is_up(m, in, now_ms, o);
+}
+
+/* Off or reboot once STEAM is up (a shutdown caused by holding STEAM ends only when it is let go,
+ * so the press does not wake the controller again); a reboot does not wait. */
+static void finish(struct osc2_sys *m, const struct osc2_sys_in *in, uint32_t now_ms,
+		   struct osc2_sys_out *o)
+{
+	if (m->state == OSC2_SYS_REBOOT) {
+		m->steam_then = OSC2_SYS_THEN_END;
+		steam_is_up(m, in, now_ms, o);
+		return;
+	}
+	after_steam(m, in, OSC2_SYS_THEN_END, now_ms, o);
 }
 
 /* ---- entering a state ------------------------------------------------------------------------ */
@@ -127,9 +160,10 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 		timer(m, now_ms, OSC2_SYS_BATTERY_WAIT_MS);
 		break;
 	case OSC2_SYS_WIRED_WAIT:
-		/* The power-on chime; the LED is left as it is until 0.5 s without a host. */
+		/* The power-on chime; once STEAM is up the USB device and 0.5 s for a host to set it
+		 * up. The LED is left as it is until then. */
 		cue(o, OSC2_CUE_POWER_ON);
-		timer(m, now_ms, OSC2_SYS_NO_HOST_MS);
+		after_steam(m, in, OSC2_SYS_THEN_USB_ON, now_ms, o);
 		break;
 	case OSC2_SYS_WIRED:
 		led(o, OSC2_LED_WIRED, 0);
@@ -143,10 +177,14 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 		led(o, OSC2_LED_AMBER, 0);
 		break;
 	case OSC2_SYS_DOCK_OFF:
+		m->docked_sticks = true;
 		led(o, OSC2_LED_AMBER, 0);
-		o->actions |= OSC2_SYS_DO_DROP;   /* a link chosen since boot is switched off */
+		if (m->selected) {
+			o->actions |= OSC2_SYS_DO_STOP;   /* a link selected since boot is switched off */
+		}
 		break;
 	case OSC2_SYS_LIFTED:
+		m->docked_sticks = false;
 		led(o, OSC2_LED_OFF, 0);
 		timer(m, now_ms, OSC2_SYS_LIFTED_MS);
 		break;
@@ -155,6 +193,7 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 		/* The chord's transport becomes the choice: its cue, its colour steady as if
 		 * connected, 4 s, and a 500 ms pause before the next event. */
 		m->chosen = osc2_sys_chord_transport(m->chord, in->stored);
+		m->selected = true;
 		cue(o, chosen_cue(m->chord, in->stored));
 		led(o, transport_led(m->chosen), OSC2_LED_STEADY);
 		timer(m, now_ms, OSC2_SYS_CHORD_HOLD_MS);
@@ -162,6 +201,7 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 		m->busy_until = now_ms + OSC2_SYS_CHORD_PAUSE_MS;
 		break;
 	case OSC2_SYS_DOCK_ON:
+		m->docked_sticks = true;
 		led(o, transport_led(m->chosen), OSC2_LED_EXTERNAL);
 		break;
 	case OSC2_SYS_BATTERY:
@@ -184,7 +224,7 @@ static void enter(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t stat
 		m->end_cause = cause;
 		o->actions |= OSC2_SYS_DO_IR_OFF | OSC2_SYS_DO_DROP;
 		led(o, OSC2_LED_OFF, 0);
-		finish(m, in, o);
+		finish(m, in, now_ms, o);
 		break;
 	default:
 		break;
@@ -235,7 +275,9 @@ void osc2_sys_boot(struct osc2_sys *m, const struct osc2_sys_in *in,
 		}
 	} else if (in->level == 0) {
 		enter(m, in, OSC2_SYS_SHUTDOWN_SILENT, OSC2_SYS_EV_LEVEL, now_ms, out);
-	} else if (in->keylock) {
+	} else if (in->keylock && !in->keylock_chord) {
+		/* With the keylock chord held its 5 ms tap has deleted the lock by the time the
+		 * real controller decides: the board starts. */
 		enter(m, in, OSC2_SYS_SHUTDOWN_LOCKED, OSC2_SYS_EV_KEYLOCK_HELD, now_ms, out);
 	} else if (in->level <= 2) {
 		enter(m, in, OSC2_SYS_SHUTDOWN_LOW, OSC2_SYS_EV_LEVEL, now_ms, out);
@@ -258,6 +300,29 @@ static bool is_request(uint8_t ev)
 {
 	return ev == OSC2_SYS_EV_BOOTLOADER || ev == OSC2_SYS_EV_REBOOT ||
 	       ev == OSC2_SYS_EV_WARM_REBOOT;
+}
+
+/* The silent reboot, asking the application for `req`. */
+static void reboot(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t req, uint8_t cause,
+		   uint32_t now_ms, struct osc2_sys_out *o)
+{
+	m->end_req = req;
+	enter(m, in, OSC2_SYS_REBOOT, cause, now_ms, o);
+}
+
+/* A bootloader request on battery or the dock: the 60 s update window opens (again), and the LED
+ * blinks green while it runs. */
+static void open_window(struct osc2_sys *m, uint32_t now_ms, struct osc2_sys_out *o)
+{
+	m->window_on = true;
+	m->window_until = now_ms + OSC2_SYS_UPDATE_WINDOW_MS;
+	m->updates++;
+	o->actions |= OSC2_SYS_DO_UPDATE;
+}
+
+bool osc2_sys_window(const struct osc2_sys *m, uint32_t now_ms)
+{
+	return m->window_on && (int32_t)(m->window_until - now_ms) > 0;
 }
 
 /* A chord state ends: the link starts, with the pairing flag when the 4 s ran out first. */
@@ -313,9 +378,12 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 		return;
 	}
 	if (m->steam_wait) {
-		/* Waiting for STEAM to be up holds the machine: nothing else is handled. */
+		/* Waiting for STEAM to be up holds the machine: nothing else is handled (system.c
+		 * keeps the events queued meanwhile, osc2_sys_wait()). */
 		if (!in->steam) {
-			finish(m, in, out);
+			steam_is_up(m, in, now_ms, out);
+		} else if (ev == OSC2_SYS_EV_TIMER) {
+			m->timer_at = now_ms + OSC2_SYS_STEAM_POLL_MS;
 		}
 		return;
 	}
@@ -336,7 +404,13 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 	case OSC2_SYS_BATTERY_WAIT:
 		/* Chords and STEAM do not count here. */
 		if (ev == OSC2_SYS_EV_POWER_USB) {
-			enter(m, in, OSC2_SYS_REBOOT, ev, now_ms, out);   /* back wired */
+			if (in->go_wired_ok) {
+				/* The wired start, in place. */
+				out->actions |= OSC2_SYS_DO_GO_WIRED;
+				enter(m, in, OSC2_SYS_WIRED_WAIT, ev, now_ms, out);
+			} else {
+				reboot(m, in, OSC2_SYS_REQ_PLAIN, ev, now_ms, out);   /* back wired */
+			}
 		} else if (ev == OSC2_SYS_EV_POWER_DOCK) {
 			enter(m, in, OSC2_SYS_DOCK_OFF, ev, now_ms, out);
 		} else if (timer_due) {
@@ -351,6 +425,11 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 			led(out, OSC2_LED_AMBER, 0);   /* no host after 0.5 s; still waiting */
 		} else if (ev == OSC2_SYS_EV_POWER_NONE || ev == OSC2_SYS_EV_UNPLUGGED) {
 			enter(m, in, OSC2_SYS_SHUTDOWN, ev, now_ms, out);
+		} else if (ev == OSC2_SYS_EV_STEAM_PRESSED) {
+			/* STEAM before a host set the device up, a press that began before the boot
+			 * included: back wireless on USB power. */
+			out->actions |= OSC2_SYS_DO_WARM_MARK;
+			reboot(m, in, OSC2_SYS_REQ_WARM, ev, now_ms, out);
 		}
 		break;
 	case OSC2_SYS_WIRED:
@@ -372,7 +451,7 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 		break;
 	case OSC2_SYS_USB_LINK_OFF:
 		if (ev == OSC2_SYS_EV_STEAM_PRESSED) {
-			enter(m, in, OSC2_SYS_REBOOT, ev, now_ms, out);   /* no warm mark: back wired */
+			reboot(m, in, OSC2_SYS_REQ_PLAIN, ev, now_ms, out);   /* back wired */
 		} else if (ev == OSC2_SYS_EV_POWER_NONE) {
 			enter(m, in, OSC2_SYS_SHUTDOWN_SILENT, ev, now_ms, out);
 		} else if (ev == OSC2_SYS_EV_LINK_STARTED) {
@@ -394,7 +473,7 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 		if (ev == OSC2_SYS_EV_POWER_DOCK) {
 			enter(m, in, OSC2_SYS_DOCK_OFF, ev, now_ms, out);
 		} else if (ev == OSC2_SYS_EV_POWER_USB) {
-			enter(m, in, OSC2_SYS_REBOOT, ev, now_ms, out);
+			reboot(m, in, OSC2_SYS_REQ_PLAIN, ev, now_ms, out);
 		} else if (timer_due) {
 			enter(m, in, OSC2_SYS_SHUTDOWN_SILENT, ev, now_ms, out);
 		} else if (ev == OSC2_SYS_EV_CHORD_DOWN &&
@@ -413,24 +492,33 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 		}
 		break;
 	case OSC2_SYS_DOCK_ON:
-		if (is_request(ev)) {
+		if (ev == OSC2_SYS_EV_BOOTLOADER) {
+			open_window(m, now_ms, out);
+		} else if (is_request(ev)) {
 			out->actions |= OSC2_SYS_DO_PASS;
 		} else if (ev == OSC2_SYS_EV_STEAM_HELD || ev == OSC2_SYS_EV_WIRELESS_OFF ||
 			   ev == OSC2_SYS_EV_TURN_OFF) {
 			cue(out, OSC2_CUE_POWER_OFF);
 			enter(m, in, OSC2_SYS_DOCK_OFF, ev, now_ms, out);
 		} else if (ev == OSC2_SYS_EV_POWER_NONE) {
+			m->docked_sticks = false;
 			enter(m, in, OSC2_SYS_BATTERY, ev, now_ms, out);   /* the link stays up */
 		}
 		break;
 	case OSC2_SYS_BATTERY:
-		if (is_request(ev)) {
+		if (ev == OSC2_SYS_EV_BOOTLOADER) {
+			open_window(m, now_ms, out);
+		} else if (is_request(ev)) {
 			out->actions |= OSC2_SYS_DO_PASS;
 		} else if (ev == OSC2_SYS_EV_POWER_USB) {
-			/* Plugged in: with STEAM held or no link, a reboot that comes back wired; with
-			 * the link up, charging with the link kept. */
-			if (in->plug_in_reboot && (in->steam || !in->link_up)) {
-				enter(m, in, OSC2_SYS_REBOOT, ev, now_ms, out);
+			/* Plugged in: inside the update window, the bootloader (with the warm mark);
+			 * with STEAM held or no link, a reboot that comes back wired; with the link
+			 * up, charging with the link kept. */
+			if (osc2_sys_window(m, now_ms)) {
+				out->actions |= OSC2_SYS_DO_WARM_MARK;
+				reboot(m, in, OSC2_SYS_REQ_BOOTLOADER, ev, now_ms, out);
+			} else if (in->plug_in_reboot && (in->steam || !in->link_up)) {
+				reboot(m, in, OSC2_SYS_REQ_PLAIN, ev, now_ms, out);
 			} else {
 				enter(m, in, OSC2_SYS_USB_LINK_ON, ev, now_ms, out);
 			}
@@ -450,7 +538,7 @@ void osc2_sys_event(struct osc2_sys *m, const struct osc2_sys_in *in, uint8_t ev
 	case OSC2_SYS_SHUTDOWN_LOW:
 	case OSC2_SYS_SHUTDOWN_LOCKED:
 		if (timer_due) {
-			finish(m, in, out);
+			finish(m, in, now_ms, out);
 		}
 		break;
 	default:
@@ -462,6 +550,9 @@ uint32_t osc2_sys_wait(const struct osc2_sys *m, uint32_t now_ms)
 {
 	int32_t left;
 
+	if (m->steam_wait) {
+		return OSC2_SYS_STEAM_POLL_MS;
+	}
 	if (!m->busy) {
 		return 0;
 	}
@@ -478,10 +569,7 @@ int32_t osc2_sys_next(const struct osc2_sys *m, uint32_t now_ms)
 	if (m->ended) {
 		return -1;
 	}
-	if (m->steam_wait) {
-		return OSC2_SYS_STEAM_POLL_MS;
-	}
-	if (!m->timer_on) {
+	if (!m->timer_on && !m->steam_wait) {
 		return -1;
 	}
 	left = (int32_t)(m->timer_at - now_ms);
@@ -499,6 +587,25 @@ int osc2_sys_source_event(uint8_t before, uint8_t after)
 		return OSC2_SYS_EV_POWER_NONE;
 	}
 	return after == OSC2_SRC_DOCK ? OSC2_SYS_EV_POWER_DOCK : OSC2_SYS_EV_POWER_USB;
+}
+
+/* ---- the factory charge window's announcement ---------------------------------------------- */
+
+int32_t osc2_sys_announce(uint32_t elapsed_ms, bool *magenta, bool *override)
+{
+	const uint32_t blinks = OSC2_SYS_ANNOUNCE_BLINKS * 2 * OSC2_SYS_ANNOUNCE_BLINK_MS;
+
+	*magenta = false;
+	*override = false;
+	if (elapsed_ms >= OSC2_SYS_ANNOUNCE_MS) {
+		return -1;
+	}
+	if (elapsed_ms >= blinks) {
+		return (int32_t)(OSC2_SYS_ANNOUNCE_MS - elapsed_ms);   /* the override off, 100 ms */
+	}
+	*override = true;
+	*magenta = (elapsed_ms / OSC2_SYS_ANNOUNCE_BLINK_MS) % 2 == 0;
+	return (int32_t)(OSC2_SYS_ANNOUNCE_BLINK_MS - elapsed_ms % OSC2_SYS_ANNOUNCE_BLINK_MS);
 }
 
 /* ---- cues and levels ------------------------------------------------------------------------- */

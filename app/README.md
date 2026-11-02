@@ -215,9 +215,9 @@ Ways to switch:
 | --- | --- | --- |
 | wired | wireless | Steam's "reboot into wireless mode" after it paired the board |
 | wired | wireless | the pairing button **held 3 s** and released: the LED goes dark while it is held long enough, and the board reboots on the release (so the button is up again at the next boot) |
-| wired, before a PC has set the board up (a USB charger, a power bank) | wireless | the **pairing button** pressed and released, or **STEAM** pressed (at once). Without either it waits there for good, as the real controller does; for a board with no buttons wired there is a separate [test build](#test-build-the-charger-fallback) that goes wireless by itself |
-| wired, with a battery | wireless | the **cable pulled**: after 0.2 s without USB power the board shuts down (the power-off cue, 0.5 s) and reboots, coming back wireless on the battery; a [battery build](#a-battery-build) turns off instead, as the real controller does. Without a battery the board is simply off |
-| wireless on USB power, with wireless switched off (the PC went to sleep, Steam's turn-off, STEAM held 7 s) | wired | **STEAM** pressed: a reboot, which comes back wired, as on the real controller (`opensc2 start` turns wireless on again instead) |
+| wired, before a PC has set the board up (a USB charger, a power bank) | wireless | the **pairing button** pressed and released, or **STEAM** pressed (at once; a press held while plugging in counts too: as on the real controller the USB device appears only once STEAM is up, and the board then comes back wireless on USB power). Without either it waits there for good, as the real controller does; for a board with no buttons wired there is a separate [test build](#test-build-the-charger-fallback) that goes wireless by itself |
+| wired, with a battery | wireless | the **cable pulled**: at the next look at the power (every 50 ms) the board shuts down (the power-off cue, 0.5 s) and reboots, coming back wireless on the battery; a [battery build](#a-battery-build) turns off instead, as the real controller does. Without a battery the board is simply off |
+| wireless on USB power, with wireless switched off (the PC went to sleep, Steam's turn-off, STEAM held 7 s, 60 s without finding the puck, 10 s with an empty bond slot, Bluetooth's 60 s without a host) | wired | **STEAM** pressed: a reboot, which comes back wired, as on the real controller (`opensc2 start` turns wireless on again instead) |
 | wireless, with a battery, policy auto | wired | USB power plugged in while the radio link is down, or with STEAM held; with the link up it stays wireless and charges |
 | wireless | wired | a new power-up on USB, or `opensc2 reboot wired` (once, whatever the policy) |
 
@@ -262,7 +262,7 @@ calibration keys `cal/rgbw_r`, `_g`, `_b` and `_w`, which start at the real cont
 values 90, 35, 120 and 80 %; or the board's own `led-trims` in the overlay) and by the brightness
 Steam sets (controller setting 45, 50 % by default; Steam writes 100 on the cable), through the curve of
 setting 38. Without a white channel, white is mixed into red, green and blue. An IR LED (a PWM
-channel `ir`) follows controller setting 36 and is off during every shutdown and reboot.
+channel `ir`) follows controller setting 36 and is turned off when a shutdown or reboot starts.
 
 ## The serial console (wireless mode)
 
@@ -445,7 +445,7 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
 | `CONFIG_OPENSC2_HAPTICS_SYNTH=y` | the [haptics build](#haptics-build-the-synthesiser) (`haptics.conf`): the library renders the haptic reports itself |
 | `CONFIG_OPENSC2_BLE=y` | **not here**: in the [Bluetooth build](#test-build-bluetooth-le) (`ble.conf`), which needs the Bluetooth stack's lines too |
-| `CONFIG_OPENSC2_WATCHDOG=y` | **not here**: in the watchdog test build (`watchdog.conf`; read its notes first: the watchdog has not been tried with the UF2 bootloader) |
+| `CONFIG_OPENSC2_WATCHDOG=y` | with the real controller's hardware watchdog, which is on by default but off in a build for the UF2 bootloader such as this one (`watchdog.conf`; not yet tried on hardware with this firmware, and its notes say how to flash the board again if a `.uf2` copy is ever cut short) |
 | `CONFIG_OPENSC2_DOCK=y` | **not here**: in the [dock build](#the-dock-build-untested) (`dock.conf`), which moves four pins |
 
 Every fragment of this folder is a build of its own on top of `prj.conf`
@@ -503,9 +503,12 @@ nRF52840 enters System OFF. STEAM wakes it (the pin of the key with `OPENSC2_KEY
 one, any key), and so does plugging in USB. Without a STEAM button wired, only a USB cable or a
 reset brings it back. On USB power it behaves as the default build.
 
-This board measures no battery voltage, so the level stays at 100 % unless an application sets
-one, and low battery never turns it off. A charger with a status output can give report `0x43` its
-charge state (`charger-status-gpios`, [Optional parts](#optional-parts)).
+This board measures no battery voltage: the level reads 255, the real controller's "no level yet"
+(100 % with only a charger status pin), unless `CONFIG_APP_BATTERY` or an application sets one, and
+low battery never turns it off. With a charger status pin or `CONFIG_APP_BATTERY`, the charge state
+follows the real controller's charging rules (`<opensc2/charger.h>`: 1 on battery, 3 for a moment
+after plugging in, then 2 while charging and 4 when done), fed by a charger's status output when the board has one (`charger-status-gpios`,
+[Optional parts](#optional-parts)), else "charging" while USB power is present.
 
 ## The hardware test hooks
 

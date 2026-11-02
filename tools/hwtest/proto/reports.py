@@ -203,10 +203,10 @@ def decode_battery_args(args):
 
 
 def encode_battery(b):
-    """The 15-byte 0x43 the library builds from a battery (codec.c): the level clamped to 100,
-    the charge state as given, no gauge flags."""
+    """The 15-byte 0x43 the library builds from a battery (codec.c): the level and the charge
+    state as given (255: no level yet, as the real controller's first report), no gauge flags."""
     return struct.pack("<BBBHHHhHH", C.RPT_BATTERY, b["charge_state"] & 0xFF,
-                       min(b["level"] & 0xFF, 100), b["battery_mv"] & 0xFFFF,
+                       b["level"] & 0xFF, b["battery_mv"] & 0xFFFF,
                        b["system_mv"] & 0xFFFF, b["input_mv"] & 0xFFFF, b["current_ma"],
                        b["input_current_ma"] & 0xFFFF, b["temperature"] & 0xFFFF)
 
@@ -215,13 +215,13 @@ CHARGE_FLAG_GAVE_UP = 0x80     # 0x43's flag while the real controller's supply 
 
 
 def encode_be(b):
-    """The 15-byte answer of vendor command 0xBE for a battery (codec.c): the level clamped to
-    100, at offset 13 1 while the charge state is 2 (charging), at 14 the charge state without the
-    0x80 flag. The battery's gauge-flags field is not sent."""
+    """The 15-byte answer of vendor command 0xBE for a battery (codec.c): the level as given, at
+    offset 13 1 while the charge state is 2 (charging), at 14 the charge state without the 0x80
+    flag. The battery's gauge-flags field is not sent."""
     state = b["charge_state"] & 0x7F
     return struct.pack("<HHHHhHBBB", b["temperature"] & 0xFFFF, b["battery_mv"] & 0xFFFF,
                        b["system_mv"] & 0xFFFF, b["input_mv"] & 0xFFFF, b["current_ma"],
-                       b["input_current_ma"] & 0xFFFF, min(b["level"] & 0xFF, 100),
+                       b["input_current_ma"] & 0xFFFF, b["level"] & 0xFF,
                        1 if state == 2 else 0, state)
 
 

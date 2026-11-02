@@ -383,10 +383,16 @@ open, the library does what should work with Steam and the puck, and says so her
 3. **Report `0x43` charge state.** The library sends the application's charge state as given, in
    SDL's `EChargeState` numbering (the type SDL gives this byte; SDL reads 1 as on battery, 2 as
    charging, 4 as charged). The real controller adds a flag bit `0x80` to it while its charger has
-   given up on a supply that does not charge the battery (it tries again 60 s later); the library
-   has no charger logic of its own and never adds it, but an application may
-   (`OPENSC2_CHARGE_GAVE_UP`), and then, as on the real controller, the power rules and the LED are
-   told 100 % while the level is above 0.
+   given up on a supply that does not charge the battery (it tries again 60 s later). The library
+   sends what the application gives, flag included (`OPENSC2_CHARGE_GAVE_UP`), and then, as on the
+   real controller, the power rules and the LED are told 100 % while the level is above 0. The
+   real controller's byte is the state of its charging rules; `<opensc2/charger.h>` gives a board
+   the same rules for its own charger ([api.md](api.md#charging-helpers)), and the blank canvas uses
+   them for an optional charger status pin. A board without a charger it can read reports what it
+   knows. The level goes out as given, 255 included (the real
+   controller's "no level yet"); before the application gives a battery, a battery build sends what
+   the real controller's first report after start-up carries (the level kept over a warm reset, else
+   255, charge state 0, zeros), and a build without a battery a full one.
 4. **Answer layouts not given byte for byte**: `0xF2` selector 2 (uptime u32, then the reason as a
    u32) and `0xAE` (the tag, then the string, 20 bytes in all, as Counterpuck answers for the
    puck). `0xA1` follows the documentation byte for byte (18 bytes; the real controller's flag
@@ -520,12 +526,16 @@ open, the library does what should work with Steam and the puck, and says so her
     library checks the chip's own USB power detection at boot and, in wireless mode, every 100 ms
     (in a battery build the system state machine does, every 50 ms, in its battery state); with the
     link down, or STEAM held, it asks the application to reboot, which brings the board back wired
-    (only while the policy is auto).
-18. **STEAM while waiting for a host.** As on the real controller, a wired boot with STEAM held goes
-    on the bus once STEAM is released, and STEAM pressed before a host configures the device reboots
-    into wireless mode. The library sees STEAM held at the start when the application reported it
-    before `opensc2_init()` (the blank canvas does); a press reported later counts only after a
-    release. The power-on chime is the system state machine's (gap 34).
+    (only while the policy is auto). In the 1 s battery wait at power-on a battery build turns wired
+    in place, as the real controller does.
+18. **STEAM while waiting for a host** (closed). As on the real controller, a wired boot with
+    STEAM held goes on the bus once STEAM is released, and a STEAM press of 20 ms or more before a
+    host configures the device, one that began before the boot included, sets the warm-restart
+    mark and reboots: the board comes back wireless on USB power. The system state machine's wired
+    start runs this rule; without `CONFIG_OPENSC2_SYSTEM` the USB layer keeps the device off the
+    bus while STEAM is held and counts a press only after it has seen STEAM released. The library
+    sees STEAM held at the start when the application reported it before `opensc2_init()` (the
+    blank canvas does). The power-on chime is the system state machine's (gap 34).
 19. **Haptic stream status after a stop** (closed). The real controller answers each pair of
     Steam's zero pulses with two `0x44` reports (right pad, then left pad, flag `0x02`)
     ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it));
@@ -548,13 +558,14 @@ open, the library does what should work with Steam and the puck, and says so her
     board; a stored one makes the wired device differ from the real controller. The real
     controller reads its values from its own chip at every start; a board supplies its own in
     `opensc2_init()`, or later with `opensc2_identity_set()` (RAM only), or stores them.
-21. **The cable pulled while wired.** The real controller shuts down. The library waits 0.2 s for
-    USB power to come back (a shorter dip changes nothing); then the system state machine runs the
-    shutdown (the power-off cue, 0.5 s, off: a power-off in a battery build, a reboot otherwise,
-    [gap 34](#where-this-library-had-to-fill-gaps)). Without it (`CONFIG_OPENSC2_SYSTEM=n`) the
-    library asks the application to power off or reboot (`OPENSC2_POWER_USB_UNPLUGGED`), and without
-    a callback it reboots, which comes back wireless on a battery. A board without a battery has
-    lost its power anyway.
+21. **The cable pulled while wired.** The real controller shuts down. With the system state
+    machine the library does the same at its next look at the power source (every 50 ms, as the
+    real controller polls its supply): the power-off cue, 0.5 s, off (a power-off in a battery build,
+    a reboot otherwise, [gap 34](#where-this-library-had-to-fill-gaps)). Without it
+    (`CONFIG_OPENSC2_SYSTEM=n`) the library waits 0.2 s for USB power to come back, then asks the
+    application to power off or reboot (`OPENSC2_POWER_USB_UNPLUGGED`), and without a callback it
+    reboots, which comes back wireless on a battery. A board without a battery has lost its power
+    anyway.
 22. **The wireless transport** (`user/wireless_transport`, closed). As on the documented controller:
     `0xEE` writes any one byte into RAM and leaves the running link alone, `0xED` reads it back,
     `0xEF` stores it, `0xF0` deletes it (the key reads 2); at boot 0 and 1 run Bluetooth, 3 the
@@ -605,12 +616,13 @@ open, the library does what should work with Steam and the puck, and says so her
     truncates before it scales, so each channel of `0xE9` reads 0 below 100, 100 from 100 to 199
     and 200 from 200. The library does the same: the colour is kept as sent, 0..255, the
     application gets it unchanged (`led` callback, `opensc2_led_get()`), and the system state
-    machine's LED rules render a channel above 100 at full duty at most. (0.2.0 clamped it to 100.)
-25. **`0xBE`'s bytes 13 and 14.** The documentation gives byte 13 as "1 while charging" and byte 14
-    as `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the
-    application's charge state (1 for state 2, charging, with or without the flag), its simplest
-    reading; on the real controller it may come from the charger's own status, which no host has
-    been seen to compare.
+    machine's LED rules render a channel above 100 at full duty at most (`opensc2_led_duty()`). (0.2.0 clamped it to 100.)
+25. **`0xBE`'s bytes 13 and 14** (closed). The documentation gives byte 13 as "1 while charging" and
+    byte 14 as `0x43`'s charge state without its `0x80` flag; byte 12, the level, goes out as given
+    (255 included), as `0x43`'s does. On the real controller byte 13 is 1 exactly while its
+    charging rules are in state 2, and the flag is never set in that state; the library derives
+    byte 13 from the application's charge state the same way (1 for state 2), which is identical
+    whenever the application reports the charging rules' state (`<opensc2/charger.h>`).
 26. **Settings by name.** The library knows exactly the real controller's keys
     ([api.md](api.md#settings-by-name)); other names go to the application, then, as on the real
     controller, to any other settings handler of the build (Bluetooth's keys, the application's;
@@ -621,8 +633,11 @@ open, the library does what should work with Steam and the puck, and says so her
     `user/fully_charged_led_intensity`, `mte/charge_level` and the `settings/haptics/` keys as plain
     values: set in RAM, saved and read back where the real controller has a read function, deleted
     by the factory reset where it deletes them. The system state machine acts on the keylock and the
-    fully-charged LED level (gap 34); nothing acts on the factory charge window and the haptics
-    settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
+    fully-charged LED level (gap 34), and on the factory charge window: a stored window other than
+    0/0 brings the real controller's announcement at every power-on (gap 34), and
+    `opensc2_charge_target_mv()` gives its upper value to a board whose charger can stop there (the
+    real controller programs its charger chip with it; a board without such a charger cannot).
+    Nothing acts on the haptics settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
     valid window (both values 0, or 3400 to 4120 mV in 10 mV steps), and `0xEF` saves what `0xED`
     would read back, as the real controller saves what the key's read function gives: it fails for
     the `settings/haptics/` keys (no read function) and for an invalid charge window, and writes
@@ -639,9 +654,13 @@ open, the library does what should work with Steam and the puck, and says so her
     than inside the request.
 28. **The hardware watchdog** follows the documented timings (5 s, a feed every 2.5 s from the
     lowest priority, the 4.5 s warning that raises a kernel oops, only a log with a debugger
-    attached), but is off by default (`CONFIG_OPENSC2_WATCHDOG`): the real controller's own
-    bootloader is not there, and how the UF2 bootloader copes with a watchdog left running has
-    not been checked ([api.md](api.md#the-hardware-watchdog)).
+    attached) and is on by default, as on the real controller (`CONFIG_OPENSC2_WATCHDOG`, wherever
+    the devicetree has a `watchdog0` alias), except in a build for a UF2 bootloader such as the
+    SuperMini's, where it stays off until it is turned on on purpose (`app/watchdog.conf`). The feeder is a work queue of its own at the lowest
+    application priority, where the real controller shares its background queue with the battery
+    report and the idle monitor. Not yet tried on hardware with this firmware: the watchdog keeps
+    running into a bootloader, which has to feed it, and whether the UF2 bootloader does has not
+    been tried ([api.md](api.md#the-hardware-watchdog)).
 29. **The rules on every state report** are the documented ones
     ([pad processing](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#pad-processing),
     [raw output](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/07-input-and-sensors.md#raw-output-settings-46-and-62)),
@@ -707,9 +726,10 @@ open, the library does what should work with Steam and the puck, and says so her
     - `0xE2` and `0xFE` read their bytes whatever the length byte says, as the real controller
       does, so an empty request reads the report's zero padding;
     - a trigger direction byte other than 0 counts as 1 (the voltage falls when pulled);
-    - not reproduced, being Valve's hardware: the stick offsets while docked, the scaling of the
-      capacitive words without external power, the trackpad chip's electrode processing (an
-      application gives positions), and the IMU's runtime settings keys.
+    - not reproduced, being Valve's hardware: the stick offsets while docked (the library says when
+      the real controller applies them, `opensc2_docked_sticks()`; the values are its board's),
+      the scaling of the capacitive words without external power, the trackpad chip's electrode
+      processing (an application gives positions), and the IMU's runtime settings keys.
     The hardware test suite never writes, saves or deletes a `cal/` key and never sends the
     calibration commands (its safety rule S5): calibration is tested by the host tests only.
 32. **The pad rules** (`CONFIG_OPENSC2_PAD_RULES`, on by default, inactive with the default
@@ -732,7 +752,15 @@ open, the library does what should work with Steam and the puck, and says so her
     without it.
 34. **The system state machine** (power, chords, the status LED and cues; built, not yet tested on
     hardware). OpenSC2 follows the documented machine ([in brief](#overview-power-chords-and-the-status-led);
-    [api.md](api.md#power-and-the-system-state-machine)), with these differences and choices:
+    [api.md](api.md#power-and-the-system-state-machine)): the power-on decision with the level the
+    real controller's first battery report passes on (kept over a warm reset, else 255), the
+    factory charge window's announcement before it, the wired start that attaches once STEAM is up
+    (gap 18), USB power in the battery wait turning the boot wired in place, the warm-restart mark
+    set the moment Steam's request arrives and used up by a transport chord held at boot, the
+    keylock chord's tap deleting the lock before a battery power-on decides, the chords as two
+    combinations each (with STEAM and without) in the real controller's order, dropping only a link
+    that is up, the 60 s update window and its green blink, host requests queued like any event,
+    the 60 s and 10 s give-ups of the radio. These differences and choices stay:
     - **No battery, no power-off.** Without `CONFIG_OPENSC2_BATTERY` (the default) a board that
       runs without USB power is taken to be on an external supply, which counts as USB power, and
       every shutdown that would turn it off reboots instead (what setting 77 does on the real
@@ -740,14 +768,14 @@ open, the library does what should work with Steam and the puck, and says so her
       give-ups (60 s of listening, 10 s without a bond) are the real controller's in every build:
       on USB power, or an external supply, they end in "wireless off" (amber), where STEAM reboots
       the board wired.
+      The battery wait (and so the wired start in place) is reached only in a battery build.
     - **The wired or wireless decision stays before the machine** (the boot rule in
-      [api.md](api.md#modes)), so USB power that appears during the 1 s battery wait, or after the
-      board was lifted off the dock, reboots the board, which comes back wired; the real controller
-      enables USB in place.
-    - **The wired start** keeps the library's STEAM rule (gap 18) and attaches at once; the power-on
-      chime is raised at the start, and the LED turns amber after 0.5 s without a host.
-    - **Dropping the link** also stops a radio that is still listening; the real controller lets it
-      search on until its own timer ends.
+      [api.md](api.md#modes)), with OpenSC2's own overrides (the stored policy, the application's
+      choice, a wired mark). USB power in the battery wait turns the boot wired in place only under
+      the plug-in rule's options (policy auto, `CONFIG_OPENSC2_USB_PLUG_IN_REBOOT`, a mode the
+      application did not choose); otherwise the board reboots and comes back wired. The warm mark's
+      chord rule needs the buttons before `opensc2_init()`; an application that gives them only
+      later has its warm restarts go on whatever is held.
     - **Wireless on again**: a link started from outside the machine (`opensc2 start`, the
       application's `opensc2_start()`, pairing) while wireless is off on USB power counts as
       wireless on. A radio stopped on the board (`opensc2_stop()`) is not "wireless off": only a
@@ -755,33 +783,20 @@ open, the library does what should work with Steam and the puck, and says so her
       A transport selected at run time (`opensc2_select_transport()`, the shell's `opensc2
       transport`) becomes the machine's choice, as a chord's would: the LED shows its colour, the
       battery wait's timer starts it, and `opensc2 power` reports it.
-    - **Power that goes away** must stay away 0.2 s before it counts (the wired unplug rule's
-      debounce); the real controller acts on its charger's events. The dock is a power source an
-      application names, or the one the dock's supply rule gives in a UART build with a sense
-      input for `+` (gap 40); the SuperMini builds have none, so they never count as docked.
-    - **Host requests**: the states that do not act on a host's reboot, bootloader or warm-reboot
-      request ignore it, as documented; the library's own reboots (STEAM before a host, the shell,
-      the pairing button) are never held back.
-    - **The warm-restart mark** is set only by the reboot that carries it (`opensc2_reboot()`, mark
-      last), and the boot rule takes it whatever is held. The real controller differs twice: its
-      warm key sets the flag the moment `0x95` with `0xA427AF52` arrives, before the state machine
-      has seen the request, so the flag is set even where the state then ignores it and waits for
-      the next firmware restart (a later reboot, such as USB plugged in after a lift-off, then comes
-      back warm); and a transport chord or STEAM held when the button driver first reads the buttons
-      at a warm start uses the flag up, so such a reboot goes on like a cold one (wired on USB, the
-      radio off on the dock). OpenSC2 leaves no mark for an ignored request, and comes back wireless
-      on USB power after Steam's reboot into wireless mode even with STEAM or a chord held. In
-      today's builds an ignored warm request can only reach a state that ignores it through the dock
-      in its chord state, and no board in the matrix counts as docked.
+    - **The power source**: the dock is a power source an application names, or the one the dock's
+      supply rule gives in a UART build with a sense input for `+` (gap 40); the SuperMini builds
+      have none, so they never count as docked.
+    - **The bootloader**: requests that take the real controller into its own bootloader
+      reach the application (`OPENSC2_POWER_BOOTLOADER`), whose bootloader cannot take Steam's
+      update; after the update window the library reboots if the application did not.
     - **The Bluetooth chords** exist only in a build with Bluetooth; without one, B with a bumper
       is no chord, and a stored Bluetooth transport starts the main puck.
     - **Cues 6 and 7** (pairing, paired) are raised by the over-the-air pairing (gap 1); the real
-      controller's pairing routine has them, but nothing there reaches it. Cue 8 (the factory
-      charge window) is never raised. Cue 0 is also raised at a remote wakeup
-      (`CONFIG_OPENSC2_USB_REMOTE_WAKEUP`), as on the real controller's wake-up path (unreachable
-      in its October firmware). OpenSC2 has none of the real scripts: the cue event names the real
-      script it stands for, and the sound is OpenSC2's own, played by the haptics synthesiser when
-      it is built in (gap 35), else by the application.
+      controller's pairing routine has them, but nothing there reaches it. Cue 0 is also raised at
+      a remote wakeup (`CONFIG_OPENSC2_USB_REMOTE_WAKEUP`), as on the real controller's wake-up path
+      (unreachable in its October firmware). OpenSC2 has none of the real scripts: the cue event
+      names the real script it stands for, and the sound is OpenSC2's own, played by the haptics
+      synthesiser when it is built in (gap 35), else by the application.
     - **The keylock chord** saves the lock for the next power-on and leaves the value in RAM as it
       is, so `0xED user/keylock` reads the old value until the next boot, as documented (a quirk
       Steam could see, copied).
@@ -789,9 +804,21 @@ open, the library does what should work with Steam and the puck, and says so her
       a linear brightness for 0; OpenSC2 uses the curve for every value that is not 0. The blank
       canvas scales its channels by the per-unit `cal/rgbw_*` keys, as the real controller does
       (`led-trims` in its overlay can fix them for a board instead). The over-the-air pairing (gap
-      1), which the real controller never shows, flashes like Bluetooth's pairing mode. None of the
-      patterns has been compared with a real controller's LED.
-
+      1), which the real controller never shows, flashes like Bluetooth's pairing mode. The
+      application drives the LED from the library's status every 10 ms through the pattern player,
+      where the real controller's LED thread drives its PWM itself. None of the patterns has been
+      compared with a real controller's LED.
+    - **Power-off** is the application's: the blank canvas arms STEAM (or every key) as a wake-up
+      pin before `sys_poweroff()`, where the real controller sets no wake-up source and has its
+      charger cut the battery off (ship mode) when no charger is connected; a board with a charger
+      that has a ship mode can do the same on `OPENSC2_POWER_OFF`
+      (`opensc2_charger_ship_mode_ok()`).
+    - **The charger** is the board's. The real controller's charging rules (the charge state, the
+      charge voltage, the input-voltage search and its give-up, the factory window's cap) are
+      helpers the application runs with its own charger (`<opensc2/charger.h>`); the library
+      cannot reach a charger chip itself. Its register values, and the gauge's curves, are Valve's
+      data: OpenSC2 has curves of its own, and a board can give its own
+      (`opensc2_gauge_set_curves()`).
 35. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, off by default; built, not yet
     tested on hardware). Written from the research documentation's description of the real
     controller's sequencers, generators, scripts, cues, streams and rumble emulation

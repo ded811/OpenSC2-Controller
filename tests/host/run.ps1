@@ -39,7 +39,7 @@ $libSources = @((Join-Path $PSScriptRoot 'stubs.c'),
 # the wireless transports and Bluetooth LE
 $libSources += @("$lib\transport_rules.c", "$lib\ble_rules.c", "$lib\radio_rules.c")
 # calibration and the sensor helpers
-$libSources += @("$lib\cal.c", "$lib\sensor_helpers.c", "$lib\gauge.c", "$lib\cal_store.c",
+$libSources += @("$lib\cal.c", "$lib\sensor_helpers.c", "$lib\gauge.c", "$lib\charger.c", "$lib\cal_store.c",
     (Join-Path $PSScriptRoot 'cal_host.c'))
 # the system state machine: power, chords, the status LED, cues
 $libSources += @("$lib\sys_rules.c", "$lib\chord_rules.c", "$lib\idle_rules.c",
