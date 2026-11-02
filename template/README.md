@@ -17,8 +17,8 @@ Valve's puck over the USB-C cable; wireless, it connects through the puck.
 > [NOTICE.md](https://github.com/ded811/OpenSC2-Controller/blob/main/NOTICE.md).
 
 **Status: builds; not run on hardware.** The template builds for the SuperMini without warnings,
-but it has not run on a board yet. The hardware results come from the v0.2.0 release image of
-the firmware in `app/` ([What works](https://github.com/ded811/OpenSC2-Controller/blob/main/README.md#what-works)).
+but it has not run on a board yet. The hardware results come from the v0.2.0 release image
+(2026-11-01) of the firmware in `app/` ([What works](https://github.com/ded811/OpenSC2-Controller/blob/main/README.md#what-works)).
 
 Links to the rest of the repository are absolute, so they keep working in your copy.
 

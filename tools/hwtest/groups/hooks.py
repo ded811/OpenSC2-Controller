@@ -10,6 +10,7 @@ import struct
 
 from . import base
 from .. import config as C
+from ..proto import model as M
 from ..proto import testproto as T
 
 GROUP = "hooks"
@@ -241,5 +242,7 @@ def run(ctx):
             c.eq("SETTINGS_READ pages", sorted(settings), list(range(86)))
             for num in (2, 9, 11, 27, 45, 50, 68, 71, 76, 85):
                 ans = rig.vendor(C.VC_SETTINGS_GET, bytes([num]))
+                # 48, 84 and 85 answer their defaults whatever is kept (M.setting_answer)
                 c.eq("0x89 %d" % num, (ans.n, ans.data[:1], struct.unpack_from(
-                    "<h", ans.data + bytes(3), 1)[0]), (3, bytes([num]), settings[num]))
+                    "<h", ans.data + bytes(3), 1)[0]),
+                     (3, bytes([num]), M.setting_answer(num, settings[num])))

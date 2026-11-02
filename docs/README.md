@@ -13,7 +13,7 @@ start here if you are looking for something.
 | [API reference](api.md) | developers | every function, callback, field, mode rule, vendor command, setting, Kconfig option and shell command; power, chords, the status LED and cues |
 | [Porting to other boards](porting.md) | people porting to other boards | what a board needs, the steps, wired mode, where the retained RAM may go, boards with more analog pins |
 | [The protocol, in brief](protocol.md) | the curious | the radio link, the puck's end, the cable, the vendor commands, lizard mode, the reports, power and the status LED in short, links to the full research pages (not public yet), and every gap the library had to fill |
-| [Testing on hardware](testing.md) | people changing the library, porting it, or checking a board | the automated hardware test suite: what it covers, its safety rules, how to run it, the results so far; [the Bluetooth build's procedure](testing.md#bluetooth) |
+| [Testing on hardware](testing.md) | people changing the library, porting it, or checking a board | the automated hardware test suite: what it covers, its safety rules, how to run it, the results so far; [the Bluetooth procedure](testing.md#bluetooth) |
 | [The test protocol](test-protocol.md) | people changing the test hooks or the runner | the test channel (vendor command `0x7E`), the system injection, the ring, the counters and the console's `opensc2 test` |
 | [Releasing](releasing.md) | the maintainer | the checklist for the push, a release, making the repository public, and the day the research repository goes public |
 
@@ -42,8 +42,8 @@ off. Steam reads it like the real controller, and pairs it with the puck in this
 ShockBurst). On USB it shows at most a debug serial port with other IDs (`2FE3:0004`), which has
 the shell.
 
-**Wireless transport.** What a wireless boot runs: the puck's radio with bond 1 or 2, or (in the
-opt-in Bluetooth build, not yet tested on hardware) Bluetooth LE in slot 1 or 2, one at a time.
+**Wireless transport.** What a wireless boot runs: the puck's radio with bond 1 or 2, or Bluetooth LE
+in slot 1 or 2 (in a build with Bluetooth, such as the default `app/` image), one at a time.
 The choice is stored on the board, as the real controller's `user/wireless_transport`;
 `opensc2 transport` shows and changes it, and so do the real controller's button chords, such as
 A + right bumper held at a power-on on battery ([api.md](api.md#wireless-transports-and-bluetooth-le)).
@@ -101,8 +101,8 @@ or the chord is tapped.
 pairing). The library raises cue events; the haptics synthesiser, when it is built in, plays
 OpenSC2's own sound for each, otherwise the application does.
 
-**Haptics synthesiser.** A part of the library (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; not
-yet tested on hardware) that plays Steam's haptic output reports itself, as the real controller's
+**Haptics synthesiser.** A part of the library (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; on
+hardware so far only through the test hooks, never heard) that plays Steam's haptic output reports itself, as the real controller's
 sequencers do, as sample blocks for actuators the application drives, with sounds of
 OpenSC2's own ([api.md](api.md#the-haptics-synthesiser)).
 

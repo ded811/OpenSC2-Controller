@@ -250,8 +250,8 @@ usable without Steam. OpenSC2 does the same, on every link:
 ## Overview: power, chords and the status LED
 
 From the research documentation's page on the controller's system state machine. OpenSC2 runs the
-same machine (`CONFIG_OPENSC2_SYSTEM`, on by default; built, not yet tested on hardware); every
-rule, state and timing is in [api.md](api.md#power-and-the-system-state-machine):
+same machine (`CONFIG_OPENSC2_SYSTEM`, on by default; tested on hardware through the test hooks'
+injected buttons, battery and power source, not yet with real parts); every rule, state and timing is in [api.md](api.md#power-and-the-system-state-machine):
 
 - **Power-on**: a wired boot plays the power-on chime and waits for a host; a wireless boot on USB
   power (after the warm restart) plays the stored transport's cue and starts its link; on the dock
@@ -283,8 +283,10 @@ rule, state and timing is in [api.md](api.md#power-and-the-system-state-machine)
 ## Overview: Bluetooth LE
 
 The controller can also connect straight to a PC, phone or console over Bluetooth LE, without the
-puck. OpenSC2 has it (`CONFIG_OPENSC2_BLE`, in the blank canvas's default build), built and **not
-yet tested on hardware with this firmware**; [api.md](api.md#the-bluetooth-build) has every detail and what is not built yet.
+puck. OpenSC2 has it (`CONFIG_OPENSC2_BLE`, in the blank canvas's default build), tested on
+hardware with Windows (Windows pairs the board, Steam drives it over Bluetooth, the hardware test
+suite's Bluetooth path passes; phones, SDL and the vendor GATT service untested);
+[api.md](api.md#the-bluetooth-build) has every detail and what is not built yet.
 
 - **One transport at a time**: the stored `user/wireless_transport` decides (0 and 1 Bluetooth slots
   1 and 2, 2 and 3 the puck with bond 1 or 2); October saves a new choice only once its link is up.
@@ -371,7 +373,7 @@ a host sees the real controller's behaviour except where an entry below says oth
 entry says why (Valve's data or hardware, a defect not copied, a choice where the documentation is
 silent, or OpenSC2's own additions).
 
-Closed since 0.2.0, now as on the real controller (the entries below say where a detail stays
+Closed since the 2026-10-19 development snapshot, now as on the real controller (the entries below say where a detail stays
 different): the rumble report's layout; the controller settings' defaults and ranges, and `0x89`'s
 answers for settings 48, 84 and 85; the payload limit; a bond written with `0xA2`; all 372 bytes of
 the report descriptor (also the Bluetooth report map); the standard USB requests; a suspended bus
@@ -425,7 +427,7 @@ What stays different, or where the library had to choose:
    library's IMU (`<opensc2/imu.h>`) keeps the last sample while the stream is off, as October
    does, and the blank canvas feeds its IMU through it. October's state starts empty: until its
    IMU's first sample (only seen when its stream does not start at boot) it sends all 0, W
-   included, and so does the library for a board that set its IMU up. (0.2.0 sent all four 0 without an IMU; the
+   included, and so does the library for a board that set its IMU up. (the 2026-10-19 snapshot sent all four 0 without an IMU; the
    parity work's blank canvas sent "none" while setting 48 was 0.)
 5. **The radio link: what stays different.** The link follows the documented controller turn by
    turn (the states, timers, replies and their order, the answers, the queues, the reasons, the
@@ -496,19 +498,19 @@ What stays different, or where the library had to choose:
    while anything is non-zero first came from the same authors' study of the controller's
    firmware; the documentation has them now too, and the ranges of the settings. All of this
    is built and tested on the host (the library against the runner's model, and in the firmware
-   emulator); it is not yet tested on hardware, and its feel needs a trackpad, which no test has
-   had.
+   emulator), and on the v0.2.0 release image with injected inputs (the hardware test suite's
+   `lizard` group); its feel needs a trackpad, which no test has had.
 8. **Two forms of the device.** The library has both:
-   `CONFIG_OPENSC2_USB_PROFILE_OCTOBER` (the default after 0.2.0), the October 2026 firmware's
+   `CONFIG_OPENSC2_USB_PROFILE_OCTOBER` (the default; the 2026-10-19 snapshot's was the July form), the October 2026 firmware's
    form: USB 2.01 with a USB 2.0 extension BOS descriptor, class `00/00/00`, release 4.04, 63-byte
    GET replies; and `CONFIG_OPENSC2_USB_PROFILE_JULY`, the July 2026 controller firmware's form:
    USB 2.00, class `EF/02/01`, release 3.07, each GET answered with 64 bytes (both described
    in the research documentation:
    [The device](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-device),
    [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july)).
-   The July form is the one Steam was seen pairing over the cable with a real controller, and the
-   one tested with OpenSC2 0.2.0; the October form has not been run on hardware with this library
-   yet. A GET of the hardware test channel's own opcode (answered only while the test hooks are
+   Steam was seen pairing a real controller over the cable in the July form; with OpenSC2, Steam
+   paired the 2026-10-19 snapshot in the July form and the v0.2.0 release image in the October
+   form. A GET of the hardware test channel's own opcode (answered only while the test hooks are
    armed) is 64 bytes in both forms.
 9. **USB power that appears later.** The real controller reacts to its charger's power events. The
    library checks the chip's own USB power detection at boot and, in wireless mode, every 100 ms
@@ -622,7 +624,7 @@ What stays different, or where the library had to choose:
     | Setting 82 | the documented blanking; raw pressure (60 = 1) passes |
     | Raw triggers (62) | both bits 0 |
     | Trigger bits (68) | the real controller's trigger stage in single precision on value / 32767: on above 68 % + 5 %, off below 68 % − 5 %, never on from 95 up; a change of 68 or a set-up of the triggers clears them. The real stage works on the fraction before it is scaled to 32767, a hair above value / 32767, so a finished value within one count of a level can differ; a raw trigger's bit is the stage's own, its direction-1 quirk at 95 included |
-    | Click by pressure (52, 53) | opt-in for finished values (`CONFIG_OPENSC2_PAD_CLICK_AUTO`), so boards with a click switch keep it; the pressure / 32767 taken as the normalised press (gain 1), in single precision: at −1 (100 %) a press would have to pass 108 %, which a value capped at 32767 never does, where the real controller's uncapped value can on a very firm press. Raw pressure and trackpad frames click from their calibrated pressure as on the real controller |
+    | Click by pressure (52, 53) | for finished values an option (`CONFIG_OPENSC2_PAD_CLICK_AUTO`: off in the library, so boards with a click switch keep it; on in the blank canvas); the pressure / 32767 taken as the normalised press (gain 1), in single precision: at −1 (100 %) a press would have to pass 108 %, which a value capped at 32767 never does, where the real controller's uncapped value can on a very firm press. Raw pressure and trackpad frames click from their calibrated pressure as on the real controller |
     | Raw sticks (46) | raw sticks give counts and millivolts the documented way; the blank canvas also gives them for an input it centres itself |
 
     The pressure of an untouched pad given finished is sent as the application reports it, where
@@ -731,8 +733,8 @@ What stays different, or where the library had to choose:
     block's alpha-blend that the real controller writes on its early boards, and the chip's own
     free-fall detector in the stream (the stock driver has none; the library's software detector
     stands in).
-19. **The system state machine** (power, chords, the status LED and cues; built, not yet tested on
-    hardware). OpenSC2 follows the documented machine ([in brief](#overview-power-chords-and-the-status-led);
+19. **The system state machine** (power, chords, the status LED and cues; tested on hardware
+    through the test hooks' injected buttons, battery and power source, not yet with real parts). OpenSC2 follows the documented machine ([in brief](#overview-power-chords-and-the-status-led);
     [api.md](api.md#power-and-the-system-state-machine)): the power-on decision with the level the
     real controller's first battery report passes on (kept over a warm reset, else 255), the
     factory charge window's announcement before it, the wired start that attaches once STEAM is up
@@ -799,9 +801,10 @@ What stays different, or where the library had to choose:
       data: OpenSC2 has curves of its own, and a board can give its own
       (`opensc2_gauge_set_curves()`).
 
-20. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; built, not yet
-    tested on hardware). Re-implemented from the protocol documentation's description of the real
-    controller's sequencers, generators, scripts, cues, streams and rumble emulation, rule for
+20. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; its handling of
+    the reports tested on hardware through the test hooks, its sound never heard: no actuator
+    yet). Re-implemented from the protocol documentation's description of the real controller's
+    sequencers, generators, scripts, cues, streams and rumble emulation, rule for
     rule, the accidents of its arithmetic included, in integers, so blocks are bit for bit the same
     on the board and on a PC:
 
@@ -816,7 +819,7 @@ What stays different, or where the library had to choose:
     | The drop sounds | reported by the application (the blank canvas: a software detector, below 0.35 g for 150 ms, where the real controller uses its IMU's own); the IMU stopping within 5 s of a fall cancels the sound and leaves the drop sounds off until a reboot (`opensc2_haptics_imu_stopped()`), as on the real controller |
     | Valve's data | not carried: the two clicks are damped sine bursts of OpenSC2's own at the real clicks' lengths; scripts 1 to 17 (the cues' and the drop sounds' too) are short sounds of OpenSC2's own; the 18th script, which nothing plays, is left out. A board can give its own clicks and scripts, recordings included ([api.md](api.md#sounds-the-application-supplies)) |
     | Still different | an output report shorter than its fields is refused (the real handlers read past its end into whatever the link's receive buffer holds, which cannot be reproduced); the pad frame's word order inside OpenSC2's output API is left first (the real device's first word is the right pad: only which pin carries which pad, the board's choice); integer arithmetic where the real one has floats: values within a count of the real ones at first; the real phases are floats that gather rounding as they run, so after seconds a tone is some tens of counts away (78 after 5 s of 1 kHz on a grip), a sweep within a few tens of counts (its phase summed sample by sample, each step taken half a sample on so the sum stays with the real closed form; over sweeps of several seconds it drifts by up to a few hundredths of a cycle), a tone far above the rate saturating at 65536 where the real values grow without end, the constant of a wrapped falling sweep exact where the real one is rounded away (for very long or very flat ones the real float phase has no correct digits left); the free-fall detector above |
-    | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
+    | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; the 2026-10-19 snapshot clamped it to 31) |
 
 21. **The dock's answers** are built as the real controller builds them, over the previous answer
    . What stays different: after a boot the bytes no request has written yet are zeros

@@ -27,11 +27,11 @@ library into a project: [integration.md](integration.md).
   chords, the keylock, the idle timeout, low battery, shutdown and power-off, the cues
 - [Status LED](#status-led): the modes the library selects, and the pattern player that shows them
 - [The haptics synthesiser](#the-haptics-synthesiser): the output reports rendered for actuators
-  (an option)
+  (on by default)
 - [Identity](#identity)
 - [Bonds and pairing](#bonds-and-pairing)
 - [Wireless transports and Bluetooth LE](#wireless-transports-and-bluetooth-le): the puck or
-  Bluetooth, and the opt-in Bluetooth build
+  Bluetooth, and the Bluetooth build
 - [Vendor commands](#vendor-commands): what the library answers itself
 - [Controller settings](#controller-settings), and the other state Steam sets
 - [Kconfig options](#kconfig-options)
@@ -1083,7 +1083,7 @@ thread that builds the state reports, after the frame's reports, and only while 
 setting 70 is exactly 1 (never once Steam has turned lizard mode off).
 
 The callbacks hand over what Steam asked for; playing it on actuators is the application's job,
-unless the library's [haptics synthesiser](#the-haptics-synthesiser) (an option) renders it.
+unless the library's [haptics synthesiser](#the-haptics-synthesiser) (on by default) renders it.
 
 ### Power requests
 
@@ -1113,9 +1113,11 @@ opens the update window instead). At the end of a shutdown the application gets
 ## Power and the system state machine
 
 > [!NOTE]
-> Built; not yet tested on hardware. The rules are host-tested, and the hardware test suite's
-> `system` group runs them against the firmware emulator ([testing.md](testing.md)); none of this
-> section has run on a board yet.
+> The rules are host-tested, and the hardware test suite's `system` group runs them against the
+> firmware emulator and, on the v0.2.0 release image, on a board with nothing wired, through the
+> test hooks' system injection: buttons, a battery level and a power source that reach these rules
+> ([testing.md](testing.md)). There every shutdown reboots instead of powering off; real buttons, a
+> real battery, a real power-off and a real cable pulled have not been tried.
 
 `CONFIG_OPENSC2_SYSTEM` (on by default) runs the real controller's system state machine, as the
 protocol documentation describes it (not public yet; [protocol.md](protocol.md#where-this-library-had-to-fill-gaps)
@@ -1151,7 +1153,7 @@ amber LED; a STEAM press then reboots the board, which comes back wired, and `op
 application's `opensc2_start()`) turns wireless on again. A battery build (`app/battery.conf`, or
 `CONFIG_OPENSC2_BATTERY=y`) runs on its battery without USB power, with every rule below.
 
-With `CONFIG_OPENSC2_SYSTEM=n` the library behaves as v0.2.0 did: `opensc2_init()` starts the link,
+With `CONFIG_OPENSC2_SYSTEM=n` the library behaves as the 2026-10-19 development snapshot did: `opensc2_init()` starts the link,
 every power request goes to the application, `opensc2_led_status()` selects no mode and
 `opensc2_keylock()` is false.
 
@@ -1399,8 +1401,10 @@ logs each cue.
 ## Status LED
 
 > [!NOTE]
-> Built; not yet tested on hardware. The patterns follow the protocol documentation's description
-> of the real controller's LED; none of them has been compared with a real controller.
+> The mode the library selects is checked on a board by the hardware test suite's `system` group,
+> through the test hooks (on the v0.2.0 release image). The patterns follow the protocol
+> documentation's description of the real controller's LED; the suite does not look at the light,
+> and none of them has been compared with a real controller.
 
 With `CONFIG_OPENSC2_SYSTEM` the library selects the status LED's mode and the application shows
 it. `opensc2_led_status(&st)` gives everything a pattern depends on, at any time. The `led_status`
@@ -1505,9 +1509,10 @@ to built-in ones. It also plays the built-in sounds (the scripts of report `0x85
 drop sounds: OpenSC2's own unless the board gives its own, [below](#sounds-the-application-supplies))
 and sends input report `0x44`: the PCM streams' flow control and the replies to stops. The `rumble`
 and `haptic` callbacks are still called as before. Everything is in `<opensc2/haptics.h>`; without
-the option its functions answer `-ENOTSUP`. Built; not yet tested on hardware: the rendering is
-checked by the host tests and, on a board with nothing wired, by the hardware test suite's
-`haptics` group ([testing.md](testing.md)).
+the option its functions answer `-ENOTSUP`. The rendering is checked by the host tests and, on the
+v0.2.0 release image with nothing wired, by the hardware test suite's `haptics` group (the CRCs of
+the rendered blocks, [testing.md](testing.md)); its sound has never been heard, as no actuator has
+been on a test board.
 
 ```c
 #include <opensc2/haptics.h>
@@ -1794,7 +1799,7 @@ mutex: call it from a thread, never from an interrupt.
   synthesiser, never held while an output plays or a report goes out, and a second one lets one
   thread at a time send what it made, so its `0x44` reports keep their order. Output reports reach it from
   the radio or USB thread after the callbacks, and only queue commands and copy stream bytes there.
-- About 10 KB of RAM and 15 KB of flash (the blank canvas with `app/haptics.conf` against without).
+- About 10 KB of RAM and 15 KB of flash (the blank canvas with it against without).
 
 ## Identity
 
@@ -1982,9 +1987,12 @@ other byte the main puck (and stays as it is in the key).
 
 `CONFIG_OPENSC2_BLE` (off by default in the library, on in the blank canvas's default build, as
 the real controller has it) makes the board a Steam Controller 2 over Bluetooth LE: a
-HID-over-GATT peripheral that Windows, phones and SDL can use without the puck. **Built; not yet
-tested on hardware with this firmware.** `app/ble.conf` explains each of its settings
-([app/README.md](../app/README.md#test-build-bluetooth-le)). What a host sees, following the
+HID-over-GATT peripheral that Windows, phones and SDL can use without the puck. **Tested on
+hardware with Windows** (the v0.2.0 release image): Windows pairs the board, it connects again by
+itself after a reboot, Steam recognises it over Bluetooth and drives it, and the hardware test
+suite's `--bluetooth` path passes ([testing.md](testing.md#results-so-far)); phones, SDL and the
+vendor GATT service have not been tested. `app/ble.conf` explains each of its settings
+([app/README.md](../app/README.md#bluetooth-le)). What a host sees, following the
 protocol documentation's Bluetooth page ([protocol.md](protocol.md#overview-bluetooth-le) has the
 summary and the gaps):
 
@@ -2095,8 +2103,8 @@ plug-in rule count a host as connected from its connection, before the gate.
 Without the machine the chords are an application's (`opensc2_select_transport()`,
 `opensc2_select_transport_pairing()`) and the cues its own, from `link_changed`. The shell's
 `opensc2 ble status` shows the link, and the hardware test suite's `--bluetooth` path checks it on a
-board paired with Windows ([testing.md](testing.md#bluetooth)); nothing of it has run on
-hardware yet.
+board paired with Windows ([testing.md](testing.md#bluetooth)); that path has run on the v0.2.0
+release image, and the transport chords over Bluetooth have not been tried with real buttons.
 
 What a project needs, as `app/ble.conf` sets it:
 
@@ -2338,7 +2346,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_REPORT_DELAY_US` | 2075 | the state report's slot after a keep-alive is handled (68 ticks of 32768 Hz, as the real controller); the report is built early by the longest build of the last 65 |
 | `CONFIG_OPENSC2_LISTEN_TIMEOUT_S` | 60 | as the real controller: listening gives up after this long (wireless off); 0: never (OpenSC2's choice); `opensc2_radio_set_give_ups()` at run time |
 | `CONFIG_OPENSC2_NO_BOND_TIMEOUT_S` | 10 | as the real controller: with the selected slot empty, the radio goes `OFF` after this long (wireless off); 0: never; 0 to 3600; `opensc2_radio_set_give_ups()` at run time |
-| `CONFIG_OPENSC2_SYSTEM` | y | the [system state machine](#power-and-the-system-state-machine): power, chords, the status LED's mode, cues; off: as v0.2.0 |
+| `CONFIG_OPENSC2_SYSTEM` | y | the [system state machine](#power-and-the-system-state-machine): power, chords, the status LED's mode, cues; off: as the 2026-10-19 snapshot |
 | `CONFIG_OPENSC2_BATTERY` | n | the board runs on a battery without USB power: shutdowns turn it off (`OPENSC2_POWER_OFF`; selects `CONFIG_POWEROFF`); off, every shutdown reboots |
 | `CONFIG_OPENSC2_POWER_POLL_MS` | 50 | how often the system state machine looks at the power source; 10 to 1000 |
 | `CONFIG_OPENSC2_BATTERY_STATS` | y with `CONFIG_STATS` | the Zephyr statistics group "battery", filled at every battery report ([Battery](#battery)) |
@@ -2353,7 +2361,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO` | y | |
 | `CONFIG_OPENSC2_LIZARD_MODE`, `_STEAM_WATCHDOG` | y, y | |
 | `CONFIG_OPENSC2_LIZARD_STABILISER`, `_SMOOTHING`, `_GLIDE`, `_TICKS` | y, y, y, y | lizard mode's processing ([Lizard mode](#lizard-mode)) |
-| `CONFIG_OPENSC2_STICK_TOUCH_FALLBACK`, `CONFIG_OPENSC2_PAD_BLANK_ON_STICK`, `CONFIG_OPENSC2_PAD_CLICK_AUTO` | y, y, n | [the rules on every report](#the-rules-on-every-report) |
+| `CONFIG_OPENSC2_STICK_TOUCH_FALLBACK`, `CONFIG_OPENSC2_PAD_BLANK_ON_STICK`, `CONFIG_OPENSC2_PAD_CLICK_AUTO` | y, y, n (on in the blank canvas) | [the rules on every report](#the-rules-on-every-report) |
 | `CONFIG_OPENSC2_STORAGE` | y with `CONFIG_SETTINGS` | bonds, identity and policy in Zephyr settings |
 | `CONFIG_OPENSC2_SHELL` | y with `CONFIG_SHELL` | |
 | `CONFIG_OPENSC2_FUSION` | n | the IMU fusion helper |
@@ -2388,7 +2396,7 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_DOCK_LINK` | y with the test hooks | the [dock link](#the-dock-link): the dock's protocol without pins, the supply rule on the board's readers, and the calls of `<opensc2/docking.h>` for a wire of the board's own |
 | `CONFIG_OPENSC2_DOCK` (`_THREAD_PRIORITY`, `_THREAD_STACK_SIZE`) | n (9, 2048) | the dock's UART and pilot sense, from the devicetree alias `opensc2-dock`; **built, never run on hardware** ([The UART build](#the-uart-build-untested)) |
 | identity: `_UNIT_SERIAL`, `_BOARD_SERIAL`, `_SERIAL_FROM_CHIP`, `_GIT_REVISION`, `_PRODUCT_ID`, `_BOARD_REVISION`, `_BUILD_TIME`, `_BOOTLOADER_BUILD_TIME` | see [Identity](#identity) | |
-| `CONFIG_OPENSC2_BLE` | n | Bluetooth LE, built and not yet tested on hardware ([the Bluetooth build](#the-bluetooth-build)) |
+| `CONFIG_OPENSC2_BLE` | n (on in the blank canvas) | Bluetooth LE, tested on hardware with Windows ([the Bluetooth build](#the-bluetooth-build)) |
 | `CONFIG_OPENSC2_BLE_NAME_PREFIX` | "Steam Ctrl (BT) " | the name before the unit serial |
 | `CONFIG_OPENSC2_BLE_COMPANY_ID` | 0x055D | the advertised manufacturer data's company ID (Valve's, for interoperability: [NOTICE.md](../NOTICE.md)) |
 | `CONFIG_OPENSC2_BLE_PNP_VENDOR`, `_PNP_PRODUCT`, `_PNP_VERSION` | 0x28DE, 0x1303, 0x0100 | the Device Information Service's PnP ID (vendor ID source: the USB-IF) |

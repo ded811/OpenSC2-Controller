@@ -16,9 +16,12 @@ to its folder (for example `C:\ncs\v3.4.0`); each one was checked in that releas
 | Component | Licence | Text |
 | --- | --- | --- |
 | OpenSC2 (the library, the firmware, the samples, the template) | MIT | [`LICENSE`](LICENSE) |
-| Zephyr RTOS: the kernel, drivers, the USB device stack, CDC-ACM, the input subsystem, the sensor API, the shell, logging, settings, NVS, the nrfx glue, the `promicro_nrf52840` board files (used from Zephyr, not copied here) | Apache-2.0 | `zephyr/LICENSE` |
-| nRF Connect SDK code: Enhanced ShockBurst (ESB), the MPSL glue, the CryptoCell entropy driver, the multithreading lock | LicenseRef-Nordic-5-Clause | `nrf/LICENSE` |
-| MPSL, Nordic's binary Multiprotocol Service Layer library, which ESB's build links (with its front-end module library) | LicenseRef-Nordic-5-Clause | `nrfxlib/mpsl/license.txt` (the licence tag; its text is `nrfxlib/LICENSE`), and an ARM Ltd BSD-3-Clause notice in `nrfxlib/mpsl/LICENSE-ATTRIBUTION.txt` |
+| Zephyr RTOS: the kernel, drivers, the USB device stack, CDC-ACM, the Bluetooth host, the input subsystem, the sensor API, the shell, logging, settings, NVS, the nrfx glue, the `promicro_nrf52840` board files (used from Zephyr, not copied here) | Apache-2.0 | `zephyr/LICENSE` |
+| nRF Connect SDK code: Enhanced ShockBurst (ESB), the MPSL glue, the SoftDevice Controller glue, `nrf_security` (the PSA crypto set-up), the CryptoCell entropy driver, the multithreading lock | LicenseRef-Nordic-5-Clause | `nrf/LICENSE` |
+| MPSL, Nordic's binary Multiprotocol Service Layer library, which ESB and Bluetooth link (with its front-end module library) | LicenseRef-Nordic-5-Clause | `nrfxlib/mpsl/license.txt` (the licence tag; its text is `nrfxlib/LICENSE`), and an ARM Ltd BSD-3-Clause notice in `nrfxlib/mpsl/LICENSE-ATTRIBUTION.txt` |
+| The SoftDevice Controller, Nordic's binary Bluetooth LE controller library | LicenseRef-Nordic-5-Clause | `nrfxlib/softdevice_controller/license.txt` (the licence tag; its text is `nrfxlib/LICENSE`) |
+| nrf_oberon, Nordic's binary build of Oberon microsystems' `ocrypto` primitives, which Bluetooth's pairing crypto uses | LicenseRef-Nordic-5-Clause | `nrfxlib/crypto/nrf_oberon/license.txt` (the licence tag; its text is `nrfxlib/LICENSE`) |
+| Oberon PSA Crypto: the PSA crypto core (a fork of TF-PSA-Crypto, formerly Mbed TLS's crypto) and the Oberon PSA drivers | the core's files Apache-2.0 OR GPL-2.0-or-later (OpenSC2's releases take Apache-2.0), the rest LicenseRef-Nordic-5-Clause | `modules/crypto/oberon-psa-crypto/LICENSING.md` (which files are under which) and `modules/crypto/oberon-psa-crypto/LICENSE` |
 | nrf_cc310_platform, Nordic's binary CryptoCell 310 platform library, which the entropy driver uses for random numbers | LicenseRef-Nordic-5-Clause | `nrfxlib/crypto/nrf_cc310_platform/license.txt` (the licence tag; its text is `nrfxlib/LICENSE`) |
 | nrfx drivers and the nRF MDK | BSD-3-Clause | the header of each file, for example `modules/hal/nordic/nrfx/nrfx.h` and `modules/hal/nordic/nrfx/bsp/stable/mdk/system_nrf52840.c` |
 | CMSIS 6 core headers | Apache-2.0 | `modules/hal/cmsis_6/LICENSE` |
@@ -26,18 +29,15 @@ to its folder (for example `C:\ncs\v3.4.0`); each one was checked in that releas
 | libgcc, GCC's runtime library (from the toolchain) | GPL-3.0 with the GCC Runtime Library Exception 3.1 | the toolchain; not in the SDK's repositories |
 
 The samples and your own builds may link more of Zephyr and the SDK (sensor and input drivers, PWM,
-I2C). Each of those files names its licence in its header (`SPDX-License-Identifier`). The opt-in
-builds of `app/` link more too, and the table above and `tools/collect_licenses.py` cover only the
-default image: the Bluetooth build (`app/ble.conf`, `app/all.conf`) adds Zephyr's Bluetooth host
-(Apache-2.0), Nordic's SoftDevice Controller, a binary library under LicenseRef-Nordic-5-Clause
-(`nrfxlib/softdevice_controller/license.txt`), and the SDK's crypto (`nrf_security` with Mbed TLS,
-Apache-2.0, and Nordic's binary `nrf_oberon` library, LicenseRef-Nordic-5-Clause,
-`nrfxlib/crypto/nrf_oberon/license.txt`). Check those before you pass such a build on.
+I2C). Each of those files names its licence in its header (`SPDX-License-Identifier`). The table
+above and `tools/collect_licenses.py` cover the default image (Bluetooth LE included); a build with
+other options may link more, so check it before you pass it on.
 
 What the licences ask of copies in binary form, in short (the licence texts decide; this is not
 legal advice):
 
-- **Apache-2.0** (Zephyr, CMSIS): section 4(a) asks that recipients get a copy of the licence.
+- **Apache-2.0** (Zephyr, CMSIS, the PSA crypto core): section 4(a) asks that recipients get a copy
+  of the licence.
 - **BSD-3-Clause** (nrfx, the nRF MDK, the MPSL attribution, much of picolibc): clause 2 asks that
   binaries reproduce the copyright notice, the conditions and the disclaimer in their documentation
   or other materials.
@@ -45,8 +45,8 @@ legal advice):
   binaries, except as embedded in a Nordic chip in a product or in a software update for one; clause
   3 forbids using Nordic's name to endorse the product; clause 4 limits use to Nordic Semiconductor
   chips; clause 5 forbids reverse engineering, modifying or disassembling software provided in
-  binary form under it (and the other ways its text lists), which MPSL and the CryptoCell library
-  are.
+  binary form under it (and the other ways its text lists), which MPSL, the SoftDevice Controller,
+  nrf_oberon and the CryptoCell library are.
 - **MIT** (OpenSC2): the copyright notice and the permission notice go with copies of the software.
 
 Every release carries `THIRD_PARTY_LICENSES.txt` next to the `.uf2`: the texts above in one file,

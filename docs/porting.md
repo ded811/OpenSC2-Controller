@@ -90,7 +90,7 @@ that ESB also supports are untested.
    ([NOTICE.md](../NOTICE.md)).
 
 9. **Radio coexistence.** The library owns the radio while it is on. Its own Bluetooth
-   (`CONFIG_OPENSC2_BLE`, not yet tested on hardware) takes turns with the puck's link: one at a
+   (`CONFIG_OPENSC2_BLE`, tested on the SuperMini with Windows) takes turns with the puck's link: one at a
    time, the radio handed over at run time ([api.md](api.md#the-bluetooth-build)); that needs
    Nordic's SoftDevice Controller and no other user of the radio. Bluetooth of the application's
    own next to the puck's link is not supported (it would need ESB on MPSL timeslots,

@@ -59,8 +59,9 @@ of 2026-10-19 (never released), whose own list follows further down.
 - The real controller's rules on every state report, after the test hooks' injection point: a stick
   deflected beyond 12000 counts as touched (`CONFIG_OPENSC2_STICK_TOUCH_FALLBACK`), setting 82
   blanks a pad in report `0x42` too (`CONFIG_OPENSC2_PAD_BLANK_ON_STICK`), no trigger bit while
-  setting 62 asks for raw triggers, and, opt-in, the pads' clicks from their pressure with settings
-  52 and 53 (`CONFIG_OPENSC2_PAD_CLICK_AUTO`).
+  setting 62 asks for raw triggers, and the pads' clicks from their pressure with settings 52 and
+  53 (`CONFIG_OPENSC2_PAD_CLICK_AUTO`: off in the library, so that a board with click switches
+  keeps them; on in the blank canvas's default build).
 - Lizard mode's processing as the real controller's, each part a Kconfig option, all on by default:
   the touch stabilisers (the right pad's while setting 80 is 1, the left pad's always), the 8-frame
   motion average, the glide after a flick (settings 11 and 12; a new touch, lizard mode turning off
@@ -379,7 +380,8 @@ of 2026-10-19 (never released), whose own list follows further down.
 - The Bluetooth path (`--bluetooth`, path B, alone): the board found through its console and the HID
   device Windows made of it, only that device ever opened; the groups hooks, desc, cmd, inputs,
   battery, stream, reports, outputs, settings, ble and lizard over Bluetooth, then a warm reboot
-  that must come back on Bluetooth (`modes`). Run only against the simulator so far.
+  that must come back on Bluetooth (`modes`); run on hardware with Windows (Proven on hardware,
+  below).
 - Safety: the suite never writes, saves or deletes a `cal/` key (rule S5), and a dock frame that
   runs a command is held to the test link's allowlist. The firmware emulator runs the system state
   machine, the synthesiser, the calibration and the dock link, so the dry run checks those groups
@@ -643,11 +645,53 @@ of 2026-10-19 (never released), whose own list follows further down.
   245 and skip 18 with `--flash` (the flash group and `system.keylock`), both run by the host
   tests; `tools/fake_puck.py` has 6 self-tests.
 
+### Proven on hardware
+
+Tested on 2026-11-01 with the release image (`opensc2-supermini-nrf52840-v0.2.0.uf2`, the default
+`app/` build: Bluetooth LE, the haptics synthesiser and pad clicks by pressure in it, test hooks on;
+revision `osc2-0.2.0`, build time pinned to `0x6AE8031F`), on a SuperMini nRF52840 with nothing
+wired to it, with Valve's puck on its October 2026 firmware and Steam on a Windows PC. The
+Bluetooth checks ran on that image and, earlier the same day, on a development build of the same
+code.
+
+- It enumerates over USB like a real Steam Controller 2 (`28DE:1302`), in the October 2026 form,
+  now the default.
+- Steam pairs it with Valve's puck over the USB-C cable, and it then reboots into wireless mode and
+  connects through the puck.
+- Steam shows no "needs an update" prompt, and `opensc2 id` shows the pinned build time.
+- Bluetooth LE to Windows: Windows pairs it, it connects again by itself after a reboot, and Steam
+  recognises it over Bluetooth and drives it (Steam switches lizard mode off).
+- The automated hardware test suite on the cable and through the puck, with every opt-in
+  (`--through-puck --flash --lizard --dock --with-steam --steam-control`): 264 of 264 tests passed (only the optional soak test, off by default, skipped). Over Bluetooth
+  (`--bluetooth --lizard --flash --steam-control`): 102 of 102 tests passed (only the optional soak test skipped).
+- What the suite exercises on the board, with inputs and events injected through the test hooks
+  (nothing wired): the inputs and the rules on every state report, the battery reports, rumble and
+  every haptic report with the real controller's replies to stops, the haptics synthesiser's
+  handling of them (the CRCs of its rendered blocks, its generators, scripts, cues and stream
+  flags), the LED colour and the controller settings (defaults, clamps, Steam's watchdog), the
+  vendor commands and the settings keys of `0xED`..`0xF0`, calibration's processing of injected
+  raw inputs, lizard mode and its processing (the stabilisers, the 8-frame average, the glide, the
+  haptic ticks and pad clicks), the system state machine (power-on, battery and USB power, STEAM
+  held 7 s, the chords, the keylock, the idle timeout, low battery, the shutdowns, the status LED's
+  mode, the cues), the dock's protocol (frames handed to the dock link through the test hooks;
+  never a real dock or the puck's pads), reboots, mode switches, reconnects, Bluetooth's link rules
+  (its gate, a lost link, the host leaving, the advertising window) and a run with Steam open.
+
 ### Not proven
 
-- Everything above is built and checked on the host; none of it has run on hardware yet. The
-  default image differs from the 2026-10-19 snapshot's on the wire and on the board as the Changed section says, and
-  has new ops in its test hooks.
+- Built, not yet tried with real parts: buttons, sticks, trackpads, IMU, rumble motor, haptic
+  actuators and amplifiers, RGB and IR LEDs, a LiPo battery and charger, the I2C port expander and
+  the capacitive sensor (the drivers in `app/` and the samples have never run on such parts). The
+  haptics synthesiser's sound has never been heard: no actuator has been on a test board. The
+  calibration recordings need real parts; the suite writes no calibration.
+- Built, not run on hardware: the samples and the template; `app/battery.conf`,
+  `app/sensors.conf`, `app/imu-stream.conf`, `app/expander.conf`, `app/dock.conf` (the dock's UART
+  and pilot sense: nothing has been connected to the puck's pads), `app/watchdog.conf` and
+  `app/all.conf`; the settings partition's recovery and a crash record of a real fault.
+- Built, untested with Steam: pairing over the air (the puck's pairing window).
+- Not tested: Bluetooth to other hosts (phones, SDL) and Valve's vendor GATT service; other
+  boards; Linux and macOS as the PC (the PC side was tested with Steam on Windows); the charger
+  test aid with this release (it worked with the 2026-10-19 snapshot).
 
 ## Development snapshot - 2026-10-19 (not released)
 
@@ -684,8 +728,8 @@ Not released: the development state that 0.2.0 grew from.
 
 ### Proven on hardware
 
-Tested with the v0.2.0 release image (`opensc2-supermini-nrf52840-v0.2.0.uf2`, 2026-10-19), on a
-SuperMini nRF52840 with nothing wired to it, with Valve's puck on its October 2026 firmware and
+Tested with the snapshot's image (built on 2026-10-19 as a v0.2.0 candidate and never released;
+build time `0x6AD6E287`), on a SuperMini nRF52840 with nothing wired to it, with Valve's puck on its October 2026 firmware and
 Steam on a Windows PC.
 
 - It enumerates over USB exactly like a real Steam Controller 2 (`28DE:1302`).
@@ -693,7 +737,7 @@ Steam on a Windows PC.
 - It then reboots into wireless mode and connects through the puck.
 - Steam shows no "needs an update" prompt for a freshly flashed board: it reports a build time newer
   than Steam's current controller firmware (set to an older one, it gets the prompt).
-- The automated hardware test suite passed every test on the release image with every opt-in on
+- The automated hardware test suite passed every test on that image with every opt-in on
   (`--through-puck --flash --lizard --with-steam --steam-control`): 165 of 165 in a run started
   wireless, and 31 of 31 for the `modes` and `cmd` groups in a run started wired, which adds the
   four tests that only run from a wired start (0 failed, 0 errors, 0 warnings). It covers inputs

@@ -21,7 +21,7 @@ One binary protocol, the same bytes on every transport:
 | --- | --- | --- |
 | USB (wired) | `SET_REPORT(Feature 1)`: `01 7E <n> <request>`, zero padded to 64 bytes | the next `GET_REPORT(Feature 1)`: `01 7E <m> <answer>`, always 64 bytes (the October device form cuts the vendor commands' replies to 63, which would cut a 61-byte answer) |
 | the radio, through the puck | the puck's feature report 1, the same bytes (a SET record) | the puck's GET (retried until the answer is there) |
-| Bluetooth (the opt-in Bluetooth build; the suite's path B, `--bluetooth`) | a write of feature report 1's characteristic: `7E <n> <request>`, without the report ID | the next read of it: `7E <m> <answer>`, 63 bytes |
+| Bluetooth (a build with `CONFIG_OPENSC2_BLE`, such as the default `app/` image; the suite's path B, `--bluetooth`) | a write of feature report 1's characteristic: `7E <n> <request>`, without the report ID | the next read of it: `7E <m> <answer>`, 63 bytes |
 | the console (wireless) | `opensc2 test <id> raw <request as hex>` | `HWT <id> RAW <answer as hex>` |
 
 `0x7E` is no command of the real controller, of Steam or of SDL (theirs start at `0x80`).
@@ -128,9 +128,9 @@ Caps (the ARM result, 36 bytes): 0 version (1); 1 mode (0 wireless, 1 wired); 2 
 5 `USB_CONSOLE`, 6 `USB_WIRED_CONSOLE`, 7 `IDENTITY_VENDOR_WRITE`, 8 `STORAGE`, 9 `USB_LOG`, 10
 `USB_REMOTE_WAKEUP`, 11 `USB_PLUG_IN_REBOOT`, 12 `SHELL`, 13 `FUSION`, each `CONFIG_OPENSC2_*`; 14
 `NO_HOST_WIRELESS_MS` not 0, the charger test build; 15 the rule word, ops `RULES` and `RULES_SET`:
-without it the firmware has OpenSC2 0.2.0's rules, the trigger bits only and none of lizard mode's
+without it the firmware has the 2026-10-19 development snapshot's rules, the trigger bits only and none of lizard mode's
 processing; 16 `HAPTIC_STOP_STATUS`, the `0x44` replies to stops (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`
-or the haptics synthesiser); 17 `BLE`, the Bluetooth build; 18
+or the haptics synthesiser); 17 `BLE`, Bluetooth LE (`CONFIG_OPENSC2_BLE`); 18
 `SYSTEM`, the system state machine and its ops; 19 `HAPTICS_SYNTH`, the haptics synthesiser; 20
 `DOCK_LINK`, the dock link and its ops; 21 `CAL`, the library's calibration and raw inputs with
 `RAW_INJECT`; bits 22 to 31 are left for other options); 6 battery report interval ms u16; 8

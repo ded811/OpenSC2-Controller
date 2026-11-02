@@ -6,8 +6,8 @@ this to use the firmware.
 
 OpenSC2 emulates a Steam Controller 2: buttons, sticks, triggers, trackpads, an IMU, a battery,
 rumble and haptics, an LED, the controller settings, lizard mode, the vendor commands Steam uses,
-two modes (wired on USB, wireless through Valve's puck) and the switches between them. The test
-suite checks all of it on a real board, automatically, **with nothing wired to the board and no
+two modes (wired on USB, wireless through Valve's puck or over Bluetooth LE) and the switches
+between them. The test suite checks all of it on a real board, automatically, **with nothing wired to the board and no
 physical interaction**: you start it, it runs for about five to ten minutes, and it tells you, test
 by test, what the firmware did right or wrong.
 
@@ -51,7 +51,7 @@ tests (for example `puck.output@R`, `steam.wired_passive@W`).
 | `wireless` | R | which of the puck's slots carries the board (an injected signature), the puck's link status and link quality reports, the identity sent on connect, reconnecting after `opensc2 stop`/`start`, a lost link (the radio made deaf for 800 ms), the turn-off requests |
 | `ble` | B | the Bluetooth link: connected and past its gate (encrypted, ATT MTU 64 or more), the identity in use and its bond, the connection interval, the name and address the console shows; the state report cut to `0x45` (no quaternion); feature report 1 read as the real controller answers it (after a `0xAE` request longer than its answer, the string's padding byte and then the request's own bytes follow the answer, then the SET's zeros; the stored request answers again); a lost link (the board drops it with reason `0x08`): the same identity advertises again 500 ms later, directed to its host, and Windows connects it again, and the stored request of feature report 1 outlives the link; the host ending the link (`0x13`): wireless off and the `WIRELESS_OFF` power request, and `opensc2 start` brings it back; with `--flash` the 60 s advertising window, shortened to 3 s, running out in pairing mode on the slot's other identity while the slot's host keeps its bond |
 | `cal` | W R | builds with `CONFIG_OPENSC2_CAL` (caps bit 21): raw inputs given with the `RAW_INJECT` test op and processed by the library as an application's would be: uncalibrated sticks, triggers and pad pressure read 0, settings 46, 62 and 60 give millivolts or counts, the stick-touch and grip bits follow the means of their words with the hysteresis of settings 30, 31, 34 and 35, a change of setting 34 starts them over; on injected pads the rotation (settings 2 and 24) and the touch stabiliser (setting 80 = 2); `RAW_OFF`. It writes no calibration (safety rule S5): a board that holds a calibration skips the uncalibrated checks |
-| `system` | W R | the [system state machine](api.md#power-and-the-system-state-machine), through the hooks' system injection (buttons, a battery level and a power source that reach the firmware's rules, never a report), Steam closed: the power-on state and its cue; battery operation with the link kept and back on USB power; the turn-off command, a link that gave up and STEAM held 7 s (its 20 ms and 7 s timings) switching wireless off on USB power, and `opensc2 start` back on; a STEAM press then rebooting into wired; the chords' edges in the real controller's order (A + RB with STEAM added and lifted); the PC-asleep cue, once; the idle monitor on USB power (nothing acts on it); on an injected battery with setting 77 = 1, so that each shutdown reboots where the suite can see it: STEAM held 7 s, the idle timeout (its 16 to 17 periods), 0 % (the low-battery shutdown), the power-on chord with and without its 4 s pairing hold (a boot-time injection), the keylock (`--flash`); wired, the cable pulled (an injected battery). Each shutdown's end is read back after the reboot. Built, not yet run on hardware |
+| `system` | W R | the [system state machine](api.md#power-and-the-system-state-machine), through the hooks' system injection (buttons, a battery level and a power source that reach the firmware's rules, never a report), Steam closed: the power-on state and its cue; battery operation with the link kept and back on USB power; the turn-off command, a link that gave up and STEAM held 7 s (its 20 ms and 7 s timings) switching wireless off on USB power, and `opensc2 start` back on; a STEAM press then rebooting into wired; the chords' edges in the real controller's order (A + RB with STEAM added and lifted); the PC-asleep cue, once; the idle monitor on USB power (nothing acts on it); on an injected battery with setting 77 = 1, so that each shutdown reboots where the suite can see it: STEAM held 7 s, the idle timeout (its 16 to 17 periods), 0 % (the low-battery shutdown), the power-on chord with and without its 4 s pairing hold (a boot-time injection), the keylock (`--flash`); wired, the cable pulled (an injected battery). Each shutdown's end is read back after the reboot |
 | `restore` | all | always last and always whole (whatever `--test` selects), also after a failure or Ctrl-C: outputs and injection off (the system injection too, and no boot-time injection left for the board's next boot), settings and LED colour written back, disarmed, every link's stored request as after a boot, and the board **as found** (mode, bonds, identity, slot, chime level, mode policy, the settings and the LED colour) |
 | `flash` | W (R) | opt-in `--flash`: the flash writes Steam makes when it pairs a controller, rehearsed with the values the board already holds (its bond, the chime level, the transport, `0xA2`, deleting an empty bond slot, the kept keys `user/keylock`, `mte/charge_level` and `debug/resetreason` saved as they read, restating the mode policy); see [the note below](#what---flash-writes) |
 | `lizard` | W R B | opt-in `--lizard`: lizard mode on injected inputs (keyboard keys, pointer, scroll, mouse buttons, also from the click by pressure switched on for the test, thumb on the stick by its sensor's bit or the stick-touch fallback, a pad click without a touch, lizard mode off and back, `0x85` then `0x81` leaving the keyboard typing with setting 9 at 0 until the next `0x81`, with its processing switched off; the hooks hold the buttons to the frames while armed, so a key report at the moment of a button change, `CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE`, is covered by the host tests only), then its processing part by part (the touch stabilisers with setting 80 at 0, 1 and 2, the 8-frame average, the glide after a flick and what ends it: a new touch, `0x81`, an `ARM`, and the haptic ticks and clicks) and all together as the build has it, each sequence followed until lizard mode goes quiet, with only the guard keeping its mouse and keyboard reports on the board. It runs last on each path (before the `system` group, whose reboots come at the very end), and only when everything before it passed, `inputs.lizard_lock` passed on that path, and the leak detector watches that path (otherwise `--lizard` is refused there, exit code 2) |
@@ -67,8 +67,9 @@ synthesiser's I2S, PWM and DRV2605 outputs), the USB cable rules on a real cable
 plugging in: the `system` group injects the power source instead), a real power-off (the board has
 no battery, so every shutdown reboots) and the dock's wire (its UART and pilot: the `dock` group
 reaches the dock link through the test hooks only). Bluetooth is a run of its own, `--bluetooth`
-([Bluetooth](#bluetooth)); of it the suite does not cover Valve's vendor GATT service, other hosts
-(phones, SDL) or Steam over Bluetooth, which are checked by hand.
+([Bluetooth](#bluetooth)); of it the suite does not cover Steam over Bluetooth, which is checked by
+hand (Steam recognised the board over Bluetooth and drove it), nor Valve's vendor GATT service or
+other hosts (phones, SDL), which have not been tested.
 
 ## What it needs
 
@@ -87,8 +88,8 @@ reaches the dock link through the test hooks only). Bluetooth is a run of its ow
 - **Windows 10 or 11** (tested on Windows 11) and **Python 3** (tested with 3.11; standard library
   and `ctypes` only, no packages), in a **normal, not elevated** terminal in the repository folder.
   `--selftest` and `--dry-run` also run on Linux and macOS.
-- **For `--bluetooth`**: the board flashed with the Bluetooth build (`app/ble.conf`), wireless on
-  its Bluetooth transport and paired with Windows, and the PC's Bluetooth on; no puck needed. A real
+- **For `--bluetooth`**: the board flashed with the default `app/` image (Bluetooth LE is in it),
+  wireless on its Bluetooth transport and paired with Windows, and the PC's Bluetooth on; no puck needed. A real
   controller paired with the same PC is never opened, but switched off is simpler
   ([Bluetooth](#bluetooth)).
 
@@ -179,15 +180,15 @@ python -I tools\hwtest\run.py                       # the full run on the board
 `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows, or
 `sh tests/host/run.sh` on Linux and macOS, builds the C host tests and a **firmware emulator**, the
 library's own command channel and hooks on the PC, and then runs the self-tests and two dry runs of
-the suite against that emulator. Today that is 193 host tests (25,482 checks); 240 (28,797 checks)
+the suite against that emulator. Today that is 263 host tests; 310
 with the hardware test hooks built in, and the two builds answer 2,000 unarmed commands byte for
 byte alike (after every test, each mutex the library took must have been let go again); a compile of
 the library files whose calibration calls become stand-ins without `CONFIG_OPENSC2_CAL`; the
-runner's 282 self-tests (a dry run of the Bluetooth path among them); its dry runs against the
-library's own code in a firmware emulator (`--lizard --dock`: 234 tests pass, 26 are skipped; and
+runner's 284 self-tests (a dry run of the Bluetooth path among them); its dry runs against the
+library's own code in a firmware emulator (`--lizard --dock`: 237 tests pass, 26 are skipped; and
 `--flash --lizard --dock`, with the `flash` group and the tests that store something, such as
-`system.keylock`: 242 pass, 18 skipped), which has the system state machine, the calibration, the
-dock link and the haptics synthesiser built in (as `app/haptics.conf`), so the `system`, `cal`,
+`system.keylock`: 245 pass, 18 skipped), which has the system state machine, the calibration, the
+dock link and the haptics synthesiser built in (as the default `app/` build), so the `system`, `cal`,
 `dock` and `haptics` groups run there too; 6 self-tests of `tools/fake_puck.py`; 9 self-tests of
 `tools/match_steam_version.py`. With every opt-in that runs offline, the simulator passes 182
 (`--lizard --flash`, 60 skipped: it models no calibration, system state machine, synthesiser or
@@ -232,13 +233,13 @@ python -I tools\hwtest\run.py --dock                   # the dock link through t
 python -I tools\hwtest\run.py --with-steam --steam-control
 ```
 
-The Bluetooth build has a path of its own, `--bluetooth` ([Bluetooth](#bluetooth)).
+Bluetooth has a path of its own, `--bluetooth`, a run of its own ([Bluetooth](#bluetooth)).
 
 | Option | |
 | --- | --- |
 | `--group G[,G...]`, `--test ID[,ID...]` | only these (the start snapshot, the switches they need and the whole restore always run) |
 | `--wired-only`, `--wireless-only` | one path; the board is switched there first if needed, and back at the end |
-| `--bluetooth` | the Bluetooth path alone (B): a board of the Bluetooth build, wireless on its Bluetooth transport and paired with Windows ([Bluetooth](#bluetooth)); not with `--wired-only`, `--wireless-only`, `--through-puck`, `--with-steam` or `--dock` |
+| `--bluetooth` | the Bluetooth path alone (B): the board wireless on its Bluetooth transport and paired with Windows ([Bluetooth](#bluetooth)); not with `--wired-only`, `--wireless-only`, `--through-puck`, `--with-steam` or `--dock` |
 | `--through-puck` | allow writes through the puck to the board's slot ([below](#the---through-puck-opt-in)) |
 | `--flash` | allow the value-preserving flash rewrites of group `flash` ([what they write](#what---flash-writes)) |
 | `--lizard` | run group `lizard`: lizard mode on injected inputs, only the guard holding its reports back (needs the canary, the leak detector watching that path, and `inputs.lizard_lock` passed on it in the same run, for example `--group hooks,inputs,lizard`) |
@@ -263,35 +264,36 @@ program holds the board's console.
 Tested on a SuperMini nRF52840 with nothing wired to it, with Valve's puck on its October 2026
 firmware and Steam on a Windows PC.
 
-On the v0.2.0 release image every test passed (0 failed, 0 errors, 0 warnings) with every opt-in
-on, `--through-puck --flash --lizard --with-steam --steam-control`: 165 of 165 in a run that
-started with the board wireless, and 31 of 31 for `--group modes,cmd` in a run that started wired,
-which adds the four tests that only run from a wired start (`modes.plain_reboot`,
-`modes.to_wireless`, `modes.session_log`, `cmd.first_get`). Before the release, a development
-build passed 169 of 169 in one run started wired. Only the optional soak test (`--soak S`), which
-needs a duration, was not run. The suite counts one test per path (wired,
-wireless, through the puck, with Steam); each test makes its own checks. In the report, the tests
-of the through-puck and Steam paths carry the mode they ran in (`@R` or `@W`).
+On the v0.2.0 release image, on the cable and through the puck with every opt-in on
+(`--through-puck --flash --lizard --dock --with-steam --steam-control`): 264 of 264 tests passed (only the optional soak test, off by default, skipped). Over Bluetooth,
+the board paired with Windows (`--bluetooth --lizard --flash --steam-control`): 102 of 102 tests
+passed. The suite counts one test per path (wired, wireless, through the puck, with Steam, over
+Bluetooth); each test makes its own checks. In the report, the tests of the through-puck and Steam
+paths carry the mode they ran in (`@R` or `@W`).
 
 | | |
 | --- | --- |
-| Date | 2026-10-19 |
+| Date | 2026-11-01 |
 | PC | Windows 11, Python 3.11 |
-| Firmware | the v0.2.0 release image `opensc2-supermini-nrf52840-v0.2.0.uf2` (revision string `osc2-0.2.0`, build time `0x6AD6E287`, test hooks on), with the identity cleared to the built-in one |
-| Report | started wireless: `PASS 165 FAIL 0 WARN 0 ERROR 0 SKIP 2`; started wired, `--group modes,cmd`: `PASS 31 FAIL 0 WARN 0 ERROR 0 SKIP 0`; exit code 0 both times, the board left as found |
+| Firmware | the v0.2.0 release image `opensc2-supermini-nrf52840-v0.2.0.uf2`: the default `app/` build (Bluetooth LE, the haptics synthesiser and pad clicks by pressure in it, test hooks on), revision string `osc2-0.2.0`, build time `0x6AE8031F`. The Bluetooth checks ran on that image and, earlier the same day, on a development build of the same code |
+| Report | cable and puck: 264 of 264 passed; Bluetooth: 102 of 102 tests passed (only the optional soak test skipped) |
 
-What it covered: inputs injected and checked wired and through the puck, battery, rumble and
-haptics, LEDs, settings, all vendor commands Steam sends, lizard mode with nothing reaching the PC,
-reboots, mode switches, reconnects, and a run with Steam open. Not covered: real buttons, sticks,
-trackpads, IMU, rumble motor, RGB LED and battery hardware, which no test has run on
+What it covered: the groups of [What it covers](#what-it-covers) on the board, with inputs and
+events injected through the test hooks: the inputs and the rules on every state report, battery,
+rumble and the haptic reports, the haptics synthesiser's handling of them (by the CRCs of what it
+renders), the LED colour and the settings, the vendor commands, calibration's processing of
+injected raw inputs, lizard mode and its processing with nothing reaching the PC, the system state
+machine, the dock's protocol through the test hooks, reboots, mode switches, reconnects, the
+Bluetooth link, and a run with Steam open. By hand, the same day: Steam paired the board with the
+puck over the cable, the board connected through the puck, Steam showed no update prompt, Windows
+paired the board over Bluetooth and connected it again after a reboot, and Steam recognised it
+over Bluetooth and drove it.
+
+Not covered: real buttons, sticks, trackpads, IMU, rumble motor, haptic actuators, RGB LED, battery
+and charger, which no test has run on (so the synthesiser's sound has never been heard); a real
+dock and the dock's wire; the builds of `app/` other than the default
 ([What works](../README.md#what-works)). A release image is checked the same way before it is
-tagged ([releasing.md](releasing.md)). The Bluetooth path (`--bluetooth`) has run only against the
-simulator so far ([Bluetooth](#bluetooth)).
-
-The groups and tests added since v0.2.0 (the groups `cal`, `system`, `haptics`, `ble` and `dock`;
-`outputs.stop_status`, `settings.imu_answers`, `flash.kept_keys`, `steam.session`'s traffic counts,
-the input rules' and lizard mode's processing tests, and the new checks in `cmd`, `battery` and
-`settings`) have run only against the simulator and the firmware emulator so far, not on a board.
+tagged ([releasing.md](releasing.md)).
 
 ### What `--flash` writes
 
@@ -359,19 +361,18 @@ Everything in them is masked; they are safe to attach to an issue.
 
 ## Bluetooth
 
-The Bluetooth build (`app/ble.conf`) is built and **not yet tested on hardware**: this is the
-procedure for its first run, and for any later one. It needs a PC with Bluetooth LE (Windows 10 or
-11 with its own Bluetooth stack), the board on the PC's USB for power and its console, and Steam
-closed.
+Bluetooth LE is in the default `app/` image, and it has run on hardware with Windows
+([Results so far](#results-so-far)). This is the procedure for a run. It needs a PC with
+Bluetooth LE (Windows 10 or 11 with its own Bluetooth stack), the board on the PC's USB for power
+and its console, and Steam closed.
 
-1. **Build and flash** the Bluetooth image: `powershell -NoProfile -ExecutionPolicy Bypass -File
-   build.ps1 -Project app\ble.conf -OutDir C:\b\osc2-ble -Pristine` (or `west build -p always -d
-   build-ble -b promicro_nrf52840/nrf52840/uf2 app -- -DEXTRA_CONF_FILE=ble.conf`), then `uf2` on
-   the board's console (a wireless boot), or RST shorted to GND twice quickly, and copy
-   `zephyr.uf2` to the USB drive that appears (`NICENANO`).
-2. **The puck first.** The image behaves like the default one while the puck is the transport:
-   run the suite as usual (`python -I tools\hwtest\run.py`, wired and through the puck); a
-   Bluetooth build reports caps bit 17. Then get the board wireless, with its console: plug it in
+1. **Flash** the default image: a release's `.uf2`, or your build of `app/`
+   ([Quick start](../README.md#quick-start); `app\ble.conf` builds the same firmware). `uf2` on the
+   board's console (a wireless boot), or RST shorted to GND twice quickly, and copy the `.uf2` to the
+   USB drive that appears (`NICENANO`).
+2. **The puck first.** While the puck is the transport the board works as without Bluetooth: run
+   the suite as usual (`python -I tools\hwtest\run.py`, wired and through the puck); an image with
+   Bluetooth reports caps bit 17. Then get the board wireless, with its console: plug it in
    with P0.31 held against GND
    ([I cannot find the console](troubleshooting.md#i-cannot-find-the-console)); on the console of a
    wireless boot, `opensc2 mode wireless` keeps every boot wireless (`opensc2 mode auto` goes back
@@ -434,7 +435,7 @@ except that the board stores Bluetooth as its transport when a link comes up whi
 stored (October's rule; it did so when you paired it) and `ble.window` (`--flash` only) resets the
 slot's other identity, which stores that identity's new address.
 
-What the first hardware run will show, and the suite reports rather than assumes: the interval
+What the suite reports rather than assumes, as it may differ from PC to PC: the interval
 Windows grants, the strings Windows gives a Bluetooth HID device, how Windows passes a refusal (an
 ATT error) to a feature request, and how quickly it connects the board again.
 
@@ -473,8 +474,9 @@ What can be tested without the puck, and how:
   hand the board's dock link 73-byte frames as if the puck had sent them, and read the answers
   back ([the ops](test-protocol.md#the-test-channel-vendor-command-0x7e)). Nothing is wired; the
   frames never leave the PC except to the board's own test channel, and through the puck never.
-  Built: the dock link is in the default `app/` image, with the test hooks. Not yet run on
-  hardware; the dry run checks the group against the library's own code.
+  The dock link is in the default `app/` image, with the test hooks; the group has run on the
+  release image ([Results so far](#results-so-far)), and the dry run checks it against the
+  library's own code too.
 - **The wire, against a fake puck**: [tools/fake_puck.py](../tools/fake_puck.py) plays the puck's end
   (a probe, polls 64 ms apart, a vendor command, a short frame and a bad CRC) through the firmware
   emulator (`--fw-emu`), a board's test hooks (`--test-op`), or a 3.3 V USB-UART adapter wired to
@@ -490,7 +492,7 @@ python -I tools\fake_puck.py --test-op --polls 20
 
 ## Tests of the test suite
 
-- **Self-tests** (`--selftest`, 282 tests): the wire formats, the expected-report and lizard models,
+- **Self-tests** (`--selftest`, 284 tests): the wire formats, the expected-report and lizard models,
   the test channel's codec, the console grammar, the masking (Bluetooth addresses too), every
   safety rule (including the source scan of the puck reader, that every function that sends checks
   the exact bytes, and which Bluetooth node is the board's), the link lock against a racing

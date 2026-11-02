@@ -14,7 +14,7 @@ flashes or adds a board.
 | No USB drive after shorting RST | [The UF2 drive does not appear](#the-uf2-drive-does-not-appear) |
 | The build stops with an error | [The build fails](#the-build-fails) |
 | The test suite stops with exit code 2 or 3 | [The hardware test suite refuses my board](#the-hardware-test-suite-refuses-my-board) |
-| The Bluetooth build: Windows does not find or connect the board | [Bluetooth](#windows-does-not-find-the-board-over-bluetooth) |
+| Bluetooth: Windows does not find or connect the board | [Bluetooth](#windows-does-not-find-the-board-over-bluetooth) |
 | A real controller as well | [Can I keep using my real controller?](#can-i-keep-using-my-real-controller) |
 | Worried about the puck | [Does any of this change my puck?](#does-any-of-this-change-my-puck) |
 | Posting a log | [What can I share in an issue?](#what-can-i-share-in-an-issue) |
@@ -55,8 +55,7 @@ Some numbers, for reference:
    wireless: the pairing button held while plugging in, or Steam's reboot into wireless mode right
    before. Unplug it, check that nothing holds P0.31 against GND, and plug it in again. Wired, the
    LED turns on once the PC has set the board up (until then it shows a short dark blink every
-   second; the v0.2.0 image blinks fast instead). A stored policy
-   can keep it wireless for good: `opensc2 mode` in the shell shows it, `opensc2 mode auto` restores
+   second). A stored policy can keep it wireless for good: `opensc2 mode` in the shell shows it, `opensc2 mode auto` restores
    the normal rule.
 3. **Windows.** In Device Manager the board shows up under Human Interface Devices. In its
    Properties, the Details tab, the property Hardware Ids lists `VID_28DE&PID_1302`.
@@ -73,14 +72,13 @@ The board is wireless and looks for its puck, but the puck does not connect it.
   ([Add it in Steam](getting-started.md#add-it-in-steam)).
 - **The pairing is not there.** In the shell, `opensc2 bonds` lists the two pairing slots (1 and
   2) and which one is in use; an empty slot in use means "pair first" (the LED then blinks the same
-  way; the v0.2.0 image gives a short blink every 2 seconds instead).
+  way).
 
 `opensc2 bonds` shows your puck's serial: mask it before you post the output.
 
 ## The LED is on with a short dark blink every second
 
-That is the real controller's amber mode, on the SuperMini's one-colour LED (built; not yet tested
-on hardware; the v0.2.0 image does not have it):
+That is the real controller's amber mode, on the SuperMini's one-colour LED:
 
 - **Wired, but no PC has set the board up**: a USB charger or a power bank. STEAM or the pairing
   button sends it wireless.
@@ -153,15 +151,15 @@ exit code when it is not:
 | Two pucks are plugged in | unplug one: the suite cannot tell their slots apart |
 | Another program reads the board's or a slot's collection | close it (a game, a controller-mapping tool, a browser tab using WebHID) |
 | Not Windows (exit code 3) | hardware runs need Windows; `--selftest` and `--dry-run` run anywhere |
-| `--bluetooth`: no Bluetooth, or the transport is not Bluetooth | flash the Bluetooth build (`app/ble.conf`); `opensc2 transport ble` on its console, then pair it in Windows |
+| `--bluetooth`: no Bluetooth, or the transport is not Bluetooth | flash the default `app/` image (Bluetooth LE is in it; a build with `CONFIG_OPENSC2_BLE` off has none); `opensc2 transport ble` on its console, then pair it in Windows |
 | `--bluetooth`: the board's Bluetooth HID device is not there | pair it in Windows and keep it connected ([below](#windows-does-not-find-the-board-over-bluetooth)); a device renamed in Windows is refused, since the name is one of the checks |
 
 The exit codes in full: [testing.md](testing.md#how-to-read-the-report).
 
 ## Windows does not find the board over Bluetooth
 
-Only for the opt-in Bluetooth build (`app/ble.conf`, not yet tested on hardware). `opensc2 ble
-status` on the board's console says what it does:
+Bluetooth LE is in the default `app/` image (tested with Windows). `opensc2 ble status` on the
+board's console says what it does:
 
 | It shows | What to do |
 | --- | --- |

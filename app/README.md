@@ -12,10 +12,11 @@ stick to the pins below, or nothing at all to try it.
 > use. It contains no Valve code or binaries. See [NOTICE.md](../NOTICE.md).
 
 The hardware results come from this firmware ([What works](../README.md#what-works)): from its
-v0.2.0 release image (2026-10-19), on a SuperMini nRF52840 with nothing wired to it, with Valve's
-puck on its October 2026 firmware and Steam on a Windows PC.
-The firmware's code for real buttons, sticks, trackpads, IMU, rumble motor, RGB LED and battery
-hardware has not run on such parts yet. Valve's puck is the small USB receiver and charging dock
+v0.2.0 release image (2026-11-01), on a SuperMini nRF52840 with nothing wired to it, with Valve's
+puck on its October 2026 firmware and Steam on a Windows PC: wired, through the puck and over
+Bluetooth LE to Windows, and the hardware test suite with inputs injected through the test hooks.
+The firmware's code for real buttons, sticks, trackpads, IMU, rumble motor, haptic actuators, RGB
+LED and battery hardware has not run on such parts yet. Valve's puck is the small USB receiver and charging dock
 that comes with the Steam Controller 2; Steam talks to wireless controllers through it.
 
 Every input is set up in one file,
@@ -29,8 +30,8 @@ change a pin there, or delete an input you do not wire.
 | [Wired and wireless modes](#wired-and-wireless-modes), [LED](#led) | what the board does and shows |
 | [The serial console](#the-serial-console-wireless-mode), [Identity](#identity), [Steam's firmware update](#steams-firmware-update) | looking inside and changing what Steam sees |
 | [Optional parts](#optional-parts), [Build options](#build-options), [A battery build](#a-battery-build) | more hardware, other settings |
-| [The hardware test hooks](#the-hardware-test-hooks), [Test build: the charger fallback](#test-build-the-charger-fallback), [The dock build](#the-dock-build-untested) | testing |
-| [Haptics build](#haptics-build-the-synthesiser), [Test build: Bluetooth LE](#test-build-bluetooth-le), [Test build: everything without parts](#test-build-everything-without-parts) | the opt-in builds (built, not yet tested on hardware) |
+| [The haptics synthesiser](#the-haptics-synthesiser), [Bluetooth LE](#bluetooth-le) | in the default build |
+| [The hardware test hooks](#the-hardware-test-hooks), [Test build: the charger fallback](#test-build-the-charger-fallback), [The dock build](#the-dock-build-untested), [Test build: everything without parts](#test-build-everything-without-parts) | testing (the last two: built, not yet tested on hardware) |
 
 ## Build and flash
 
@@ -177,8 +178,9 @@ A host can ask for the sticks raw, as from the real controller (controller setti
 each axis's ADC counts on 12 bits (0..4095), 1 gives millivolts converted the real controller's way
 (counts × 3300 / 4096, as if VCC were 3.3 V). Both skip the calibration and the axis inversion; an
 axis that is not wired reads 0. On a bare board the left stick's two pins sit at about half of full
-scale (about 2048 counts, 1650 mV), held there by the bias. Setting 62 does the same for analog
-triggers. Built; not yet tested on hardware.
+scale (about 2048 counts, 1650 mV), held there by the bias, and the hardware test suite reads them
+so (group `inputs`, on the release image). Setting 62 does the same for analog triggers, which the
+SuperMini has no pins for: this firmware's side of it has not run on hardware.
 
 The build [sensors.conf](sensors.conf) (with [sensors.overlay](sensors.overlay); untested on
 hardware) adds the real controller's other sensors: an IMU, a trackpad and a capacitive sensor.
@@ -242,9 +244,10 @@ side: [docs/api.md](../docs/api.md#modes).
 ## LED
 
 The status LED shows the real controller's modes and patterns: the library's system state machine
-picks the mode and its pattern player plays it ([docs/api.md](../docs/api.md#status-led)). Built;
-not yet tested on hardware. The v0.2.0 release image shows simpler patterns of its own, as
-described in the README of its release.
+picks the mode and its pattern player plays it ([docs/api.md](../docs/api.md#status-led)). The
+mode it picks is checked on hardware by the test suite's `system` group, through the test hooks;
+the suite does not look at the light itself, an RGB LED has not been tried, and no pattern has been
+compared with a real controller's.
 
 | The on-board LED (one colour) | An RGB(W) LED | Means |
 | --- | --- | --- |
@@ -290,7 +293,7 @@ On Linux it is usually `/dev/ttyACM0`, on macOS `/dev/cu.usbmodem…` (Linux and
 | `opensc2 usb`, `opensc2 usb log`, `opensc2 usb log clear` | the USB state, the USB session log |
 | `opensc2 pair`, `opensc2 cancel` | pairing over the air |
 | `opensc2 start`, `opensc2 stop` | the wireless link on, off (for example after "wireless off") |
-| `opensc2 transport`, `opensc2 transport puck2` | the wireless transport: show it, or run another (`puck`, `puck2`; `ble`, `ble2` in the [Bluetooth build](#test-build-bluetooth-le)) |
+| `opensc2 transport`, `opensc2 transport puck2` | the wireless transport: show it, or run another (`puck`, `puck2`; `ble`, `ble2`: [Bluetooth LE](#bluetooth-le)) |
 | `opensc2 bonds`, `opensc2 slot 1`, `opensc2 forget 1` | the pairings |
 | `opensc2 id`, `opensc2 id set unit OSC2MYBOARD01`, `opensc2 id set rev 0x48`, `opensc2 id set name "My Steam Controller"`, `opensc2 id clear` | the identity Steam sees, and the name Windows shows ([Identity](#identity)) |
 | `opensc2 state` | what the inputs read right now |
@@ -438,7 +441,7 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | Option | |
 | --- | --- |
 | `CONFIG_OPENSC2_TEST_HOOKS=n` | build without the [hardware test hooks](#the-hardware-test-hooks) |
-| `CONFIG_OPENSC2_USB_PROFILE_JULY=y` | the July 2026 form of the USB device, the one Steam was seen pairing with 0.2.0, instead of the October form, the default ([details](../docs/api.md#wired-mode)) |
+| `CONFIG_OPENSC2_USB_PROFILE_JULY=y` | the July 2026 form of the USB device (the 2026-10-19 snapshot's default, which Steam also paired) instead of the October form, the default, which Steam paired with the v0.2.0 release image ([details](../docs/api.md#wired-mode)) |
 | `CONFIG_OPENSC2_DEFAULT_POLICY_WIRELESS=y` | never wired until `opensc2 mode auto` |
 | `CONFIG_OPENSC2_USB_CONSOLE=n` | nothing on USB in wireless mode |
 | `CONFIG_OPENSC2_USB_WIRED_CONSOLE=y` | debug only: the serial port also while wired (a composite device, unlike the real controller) |
@@ -455,9 +458,9 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_APP_BATTERY=y` | the library's fuel gauge on this board's readings: VDDH / 5, or a `battery` io-channel in `zephyr,user` with `battery-divider-ohms = <total bottom>` and an optional `battery-enable-gpios`; the system voltage is the chip's VDD, the input voltage an optional `input` io-channel with `input-divider-ohms`; SAADC channels 6 (VDD) and 7 (VDDH) are this build's, so the overlay numbers its own ADC channels below 6 (untested) |
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
 | `CONFIG_OPENSC2_BATTERY=y` | **not here**: in the [battery build](#a-battery-build) (`battery.conf`) |
-| `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
-| `CONFIG_OPENSC2_HAPTICS_SYNTH=n` | without the [haptics synthesiser](#haptics-build-the-synthesiser), which `prj.conf` turns on: the haptic reports reach only the callbacks, the motor follows the decoded rumble |
-| `CONFIG_OPENSC2_BLE=y` | **not here**: in the [Bluetooth build](#test-build-bluetooth-le) (`ble.conf`), which needs the Bluetooth stack's lines too |
+| `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (the 2026-10-19 snapshot's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
+| `CONFIG_OPENSC2_HAPTICS_SYNTH=n` | without the [haptics synthesiser](#the-haptics-synthesiser), which `prj.conf` turns on: the haptic reports reach only the callbacks, the motor follows the decoded rumble |
+| `CONFIG_OPENSC2_BLE` | [Bluetooth LE](#bluetooth-le), on in `prj.conf`; to leave it out, delete the whole Bluetooth block of `prj.conf` (`CONFIG_OPENSC2_BLE` and the `CONFIG_BT...` lines) |
 | `CONFIG_OPENSC2_WATCHDOG=y` | with the real controller's hardware watchdog, which is on by default but off in a build for the UF2 bootloader such as this one (`watchdog.conf`; not yet tried on hardware with this firmware, and its notes say how to flash the board again if a `.uf2` copy is ever cut short) |
 | `CONFIG_OPENSC2_DOCK=y` | **not here**: in the [dock build](#the-dock-build-untested) (`dock.conf`), which moves four pins |
 
@@ -469,16 +472,15 @@ RAM; every build prints its own use):
 
 | Build | Flash | RAM | |
 | --- | --- | --- | --- |
-| `prj.conf` (the default, test hooks on) | about 213 KB | about 52 KB | within it, about: the system state machine 10 KB of flash, calibration 10 KB and 0.7 KB of RAM, the dock link with its test ops 4 KB and 0.5 KB, the test hooks 3 KB of RAM |
-| `ble.conf` | about 364 KB | about 82 KB | Bluetooth LE: about 150 KB and 30 KB more |
-| `haptics.conf` | about 228 KB | about 62 KB | the haptics synthesiser: about 15 KB and 10 KB more |
-| `dock.conf` | about 219 KB | about 55 KB | the dock's UART and pilot sense, with a 2 KB thread stack |
-| `watchdog.conf` | about 215 KB | about 53 KB | |
-| `battery.conf`, `test-charger.conf` | about 214 KB | about 52 KB | |
-| `expander.conf` | about 218 KB | about 52 KB | |
-| `sensors.conf` | about 239 KB | about 56 KB | the IMU, trackpad and capacitive-sensor drivers |
-| `imu-stream.conf` | about 246 KB | about 65 KB | |
-| `all.conf` | about 380 KB | about 94 KB | Bluetooth, the synthesiser, the dock link and the watchdog |
+| `prj.conf` (the default, test hooks on; the v0.2.0 release image) | about 396 KB | about 93 KB | within it, about: Bluetooth LE 150 KB of flash and 30 KB of RAM, the haptics synthesiser 15 KB and 10 KB, the system state machine 10 KB of flash, calibration 10 KB and 0.7 KB of RAM, the dock link with its test ops 4 KB and 0.5 KB, the test hooks 3 KB of RAM |
+| `ble.conf`, `haptics.conf` | as `prj.conf` | as `prj.conf` | they build the same firmware |
+| `dock.conf` | about 401 KB | about 95 KB | the dock's UART and pilot sense, with a 2 KB thread stack |
+| `watchdog.conf`, `all.conf` | about 397 KB | about 94 KB | `all.conf`: the default build and the watchdog |
+| `battery.conf` | about 398 KB | about 95 KB | |
+| `test-charger.conf` | about 396 KB | about 93 KB | |
+| `expander.conf` | about 402 KB | about 93 KB | |
+| `sensors.conf` | about 420 KB | about 100 KB | the IMU, trackpad and capacitive-sensor drivers |
+| `imu-stream.conf` | about 426 KB | about 107 KB | |
 
 The USB session log and the warm-restart mark live in a 16 KB RAM area that the overlay takes out
 of the application's RAM, clear of the RAM the UF2 bootloader uses at every reset
@@ -489,7 +491,10 @@ Kconfig lines (its RC oscillator) are in
 ### A battery build
 
 > [!NOTE]
-> Built; not yet tested on hardware: no LiPo has been on a test board yet.
+> Built; not yet tested on hardware: no LiPo has been on a test board yet. The rules it runs on a
+> battery are checked by the hardware test suite on the default build, on an injected battery
+> (group `system`, where each shutdown reboots instead of powering off); a real power-off and wake
+> have not been tried.
 
 The default build takes a board without USB power to be on an external supply and never switches
 itself off: every shutdown reboots. For a SuperMini with a LiPo on its battery pads, build
@@ -544,26 +549,24 @@ are only injected with lizard mode off, so nothing types or moves the pointer on
 cost about 3 KB of RAM. How to run the suite and read its report:
 [docs/testing.md](../docs/testing.md); the protocol: [docs/test-protocol.md](../docs/test-protocol.md).
 
-## Haptics build: the synthesiser
+## The haptics synthesiser
 
-The default build (`prj.conf`) has the library's haptics synthesiser, as `app/haptics.conf` does
-on its own (`CONFIG_OPENSC2_HAPTICS_SYNTH`; built, not yet tested on hardware): it renders
-everything Steam
-plays on the controller's haptics (rumble, pulses, clicks, tones, sweeps, scripts, PCM streams) into
-sample blocks as the real controller does, plays sounds of OpenSC2's own (scripts, cues, drop
-sounds) and sends the PCM streams' flow control (`0x44`). Wire-wise it differs from the default
-build only in those `0x44` reports, which the real controller sends too. With nothing wired the
-blocks go nowhere, and the hardware test suite's `haptics` group checks them through the test hooks
-([docs/testing.md](../docs/testing.md)); with a vibration motor on the `rumble` PWM channel, the
-motor follows the rendered blocks' loudness instead of the decoded reports. The library also plays
-lizard mode's ticks and pad clicks and the system state machine's cues on it.
+The default build (`prj.conf`) has the library's haptics synthesiser
+(`CONFIG_OPENSC2_HAPTICS_SYNTH`): it renders everything Steam plays on the controller's haptics
+(rumble, pulses, clicks, tones, sweeps, scripts, PCM streams) into sample blocks as the real
+controller does, plays sounds of OpenSC2's own (scripts, cues, drop sounds) and sends the PCM
+streams' flow control (`0x44`). Wire-wise it differs from a build without it only in those `0x44`
+reports, which the real controller sends too. With nothing wired the blocks go nowhere; with a
+vibration motor on the `rumble` PWM channel, the motor follows the rendered blocks' loudness
+instead of the decoded reports. The library also plays lizard mode's ticks and pad clicks and the
+system state machine's cues on it. `app/haptics.conf` is kept so that older build commands keep
+working: it builds the same firmware as `prj.conf`.
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\haptics.conf -OutDir C:\b\osc2-hap -Pristine
-```
-
-The image is `C:\b\osc2-hap\app\zephyr\zephyr.uf2`; as with the charger build, give it a build
-folder of its own. Real actuator outputs (an I2S amplifier, the pads' PWM DAC, a DRV2605):
+On the v0.2.0 release image, with nothing wired, the hardware test suite's `haptics` group checks
+through the test hooks how it handles every haptic report: the CRCs of the blocks it renders, its
+generators, scripts, cues and the streams' flags ([docs/testing.md](../docs/testing.md)). Its sound
+has never been heard: no actuator, amplifier or motor has been on a test board. Real actuator
+outputs (an I2S amplifier, the pads' PWM DAC, a DRV2605):
 [samples/haptics](../samples/haptics/README.md). The synthesiser itself:
 [docs/api.md](../docs/api.md#the-haptics-synthesiser).
 
@@ -573,9 +576,10 @@ folder of its own. Real actuator outputs (an I2S amplifier, the pads' PWM DAC, a
 > The charger test build (`app/test-charger.conf`, `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000`) is a
 > temporary testing aid. It is not the real controller's behaviour and it is not part of the
 > default build or any release. A wired boot that no USB host talks to within 5 s reboots into
-> wireless mode, so a PC that is asleep or still booting looks like a charger to it. It has not been
-> tried on a real charger. Build it only on purpose, in a build folder of its own, and flash the
-> default build again when you are done.
+> wireless mode, so a PC that is asleep or still booting looks like a charger to it. On a plain USB
+> wall charger it worked with the 2026-10-19 development snapshot; it has not been tried again with
+> this release. Build it only on purpose, in a build folder of its own, and flash the default build
+> again when you are done.
 
 <details>
 <summary>Why it exists, how to build it, and what it does</summary>
@@ -631,24 +635,20 @@ The library side, the rule and its Kconfig option:
 
 </details>
 
-## Test build: Bluetooth LE
+## Bluetooth LE
 
 > [!NOTE]
-> The Bluetooth build (`app/ble.conf`, `CONFIG_OPENSC2_BLE`) is opt-in and **built, not yet tested
-> on hardware**. It is not part of the default build or any release.
+> Bluetooth LE (`CONFIG_OPENSC2_BLE`) is in the default build and has run on hardware with
+> Windows, on the v0.2.0 release image: Windows pairs the board, it connects again by itself after a
+> reboot, Steam recognises it over Bluetooth and drives it, and the hardware test suite has a
+> Bluetooth path of its own ([docs/testing.md](../docs/testing.md#results-so-far)). Phones, SDL and
+> Valve's vendor GATT service have not been tested.
 
-On top of everything the default build does, the board can be a Steam Controller 2 over Bluetooth
-LE: a HID-over-GATT device (`28DE:1303`) that a PC or a phone pairs without the puck. It still boots
-wired on USB power, and wireless on the stored transport: the puck unless Bluetooth was chosen and
-has connected once. Build it with the fragment on top of `prj.conf`, in a build folder of its own:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\ble.conf -OutDir C:\b\osc2-ble -Pristine
-```
-
-The image is `C:\b\osc2-ble\app\zephyr\zephyr.uf2` (about 364 KB of flash and 82 KB of RAM, against
-about 213 KB and 52 KB without Bluetooth). With west: `west build -p always -d build-ble -b
-promicro_nrf52840/nrf52840/uf2 app -- -DEXTRA_CONF_FILE=ble.conf`.
+Besides the puck, the board is a Steam Controller 2 over Bluetooth LE: a HID-over-GATT device
+(`28DE:1303`) that a PC or a phone pairs without the puck. It still boots wired on USB power, and
+wireless on the stored transport: the puck unless Bluetooth was chosen and has connected once.
+[ble.conf](ble.conf) keeps the notes on each of its settings; it builds the same firmware as
+`prj.conf`.
 
 On the console (wireless mode):
 
@@ -682,8 +682,9 @@ built and what is not: [docs/api.md](../docs/api.md#the-bluetooth-build).
 > ([docs/testing.md](../docs/testing.md#the-dock)).
 
 The default build already has the dock's protocol without pins (with the test hooks), which the
-hardware test suite checks through the test hooks (`--dock`). The dock build adds the dock's UART
-and pilot sense (`CONFIG_OPENSC2_DOCK`) on four pins that are buttons in the default build:
+hardware test suite checks through the test hooks (`--dock`; run on the v0.2.0 release image).
+The dock build adds the dock's UART and pilot sense (`CONFIG_OPENSC2_DOCK`) on four pins that are
+buttons in the default build:
 
 | Pin | In the dock build | In the default build |
 | --- | --- | --- |
@@ -712,18 +713,18 @@ floating P0.31 can do that with a USB cable: tie it to ground on a board with no
 > [!NOTE]
 > `app/all.conf` is a test build: built, **not yet tested on hardware**, not part of any release.
 
-Bluetooth LE, the haptics synthesiser, the dock link and the hardware watchdog in one image, for a
-board with nothing wired. It builds on [ble.conf](ble.conf), [haptics.conf](haptics.conf) and
-[watchdog.conf](watchdog.conf): its `# OPENSC2_FRAGMENTS:` line names them, and `app/CMakeLists.txt`
-adds them before it. Read the [Bluetooth build](#test-build-bluetooth-le)'s notes and
-`watchdog.conf`'s (how to flash the board again while the watchdog runs) first.
+The default image with the hardware watchdog added, for a board with nothing wired: Bluetooth LE,
+the haptics synthesiser and the dock link are in the default build already. It builds on
+[ble.conf](ble.conf), [haptics.conf](haptics.conf) and [watchdog.conf](watchdog.conf): its
+`# OPENSC2_FRAGMENTS:` line names them, and `app/CMakeLists.txt` adds them before it. Read
+`watchdog.conf`'s notes (how to flash the board again while the watchdog runs) first.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Project app\all.conf -OutDir C:\b\osc2-all -Pristine
 ```
 
 With west: `west build -p always -d build-all -b promicro_nrf52840/nrf52840/uf2 app --
--DEXTRA_CONF_FILE=all.conf`. The four fit together (about 380 KB of flash and 94 KB of RAM). Left
+-DEXTRA_CONF_FILE=all.conf`. It takes about 397 KB of flash and 94 KB of RAM. Left
 out, as they need parts: `sensors.conf`, `imu-stream.conf` and `expander.conf`, `battery.conf` (a
 battery: without one a shutdown that powers off could not be woken) and `dock.conf` (its pins).
 

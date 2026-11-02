@@ -6,7 +6,7 @@
 # stack up the way this needs (docs/api.md, Bluetooth LE).
 
 menuconfig OPENSC2_BLE
-	bool "Bluetooth LE: a Steam Controller 2 over Bluetooth (28DE:1303) [not yet tested on hardware]"
+	bool "Bluetooth LE: a Steam Controller 2 over Bluetooth (28DE:1303)"
 	depends on BT_PERIPHERAL && BT_SMP && BT_LL_SOFTDEVICE
 	select ESB_DYNAMIC_INTERRUPTS
 	select MPSL_DYNAMIC_INTERRUPTS

@@ -169,9 +169,9 @@ The LED of the firmware in `app/` (the full table is in [app/README.md](../app/R
 | two quick flashes, repeating | pairing over the air |
 | off | the first second or so after power-up, a reboot, a shutdown |
 
-These are the real controller's patterns, shown on the SuperMini's one-colour LED; they are built
-and not yet tested on hardware. The v0.2.0 release image shows simpler patterns of its own, as
-described in the README of its release.
+These are the real controller's patterns, shown on the SuperMini's one-colour LED. The hardware
+test suite checks which mode the firmware picks; the patterns have not been compared with a real
+controller's.
 
 The steps say "the board" for `app/`; the samples and the template have their own LED behaviour,
 described in their READMEs.
@@ -220,6 +220,7 @@ P1.11. The pins: [app/README.md](../app/README.md#pins).
 | start your own project | [template/](../template) and [integration.md](integration.md) |
 | add a trackpad, an IMU, a motor or an RGB LED | [samples/README.md](../samples/README.md) |
 | see everything the firmware does | [app/README.md](../app/README.md) |
+| connect it over Bluetooth LE instead of the puck | [app/README.md, Bluetooth LE](../app/README.md#bluetooth-le) |
 | use the library's API | [api.md](api.md) |
 | check a board from the PC | [testing.md](testing.md) |
 | fix something | [troubleshooting.md](troubleshooting.md) |

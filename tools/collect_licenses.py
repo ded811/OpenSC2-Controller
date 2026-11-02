@@ -21,21 +21,34 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # (component, licence, repository in the SDK, path in it, how to take it); in THIRD_PARTY.md order.
 COMPONENTS = (
-    ("Zephyr RTOS (the kernel, drivers, the USB device stack, CDC-ACM, the input subsystem, the "
-     "sensor API, the shell, logging, settings, NVS, the nrfx glue, the promicro_nrf52840 board files)",
+    ("Zephyr RTOS (the kernel, drivers, the USB device stack, CDC-ACM, the Bluetooth host, the input "
+     "subsystem, the sensor API, the shell, logging, settings, NVS, the nrfx glue, the "
+     "promicro_nrf52840 board files)",
      "Apache-2.0", "zephyr", "LICENSE", "file"),
-    ("nRF Connect SDK code (Enhanced ShockBurst, the MPSL glue, the CryptoCell entropy driver, the "
-     "multithreading lock)",
+    ("nRF Connect SDK code (Enhanced ShockBurst, the MPSL glue, the SoftDevice Controller glue, "
+     "nrf_security, the CryptoCell entropy driver, the multithreading lock)",
      "LicenseRef-Nordic-5-Clause", "nrf", "LICENSE", "file"),
     ("MPSL, Nordic's binary Multiprotocol Service Layer library, and its front-end module library: "
      "the licence tag",
      "LicenseRef-Nordic-5-Clause", "nrfxlib", "mpsl/license.txt", "file"),
     ("MPSL: the attribution notice it carries",
      "BSD-3-Clause (ARM Ltd)", "nrfxlib", "mpsl/LICENSE-ATTRIBUTION.txt", "file"),
+    ("The SoftDevice Controller, Nordic's binary Bluetooth LE controller library: the licence tag",
+     "LicenseRef-Nordic-5-Clause", "nrfxlib", "softdevice_controller/license.txt", "file"),
+    ("nrf_oberon, Nordic's binary build of Oberon microsystems' ocrypto primitives: the licence tag",
+     "LicenseRef-Nordic-5-Clause", "nrfxlib", "crypto/nrf_oberon/license.txt", "file"),
     ("nrf_cc310_platform, Nordic's binary CryptoCell 310 platform library: the licence tag",
      "LicenseRef-Nordic-5-Clause", "nrfxlib", "crypto/nrf_cc310_platform/license.txt", "file"),
-    ("nrfxlib (MPSL and nrf_cc310_platform): the licence text the two tags above name",
+    ("nrfxlib (MPSL, the SoftDevice Controller, nrf_oberon and nrf_cc310_platform): the licence text "
+     "the tags above name",
      "LicenseRef-Nordic-5-Clause", "nrfxlib", "LICENSE", "file"),
+    ("Oberon PSA Crypto (the PSA crypto core, a fork of TF-PSA-Crypto, and the Oberon PSA drivers): "
+     "which of its files are under which licence",
+     "Apache-2.0 OR GPL-2.0-or-later (the core's files; Apache-2.0 taken, its text is Zephyr's "
+     "above), LicenseRef-Nordic-5-Clause (the rest)",
+     "modules/crypto/oberon-psa-crypto", "LICENSING.md", "file"),
+    ("Oberon PSA Crypto: the licence of its files that are not under Apache-2.0 OR GPL-2.0-or-later",
+     "LicenseRef-Nordic-5-Clause", "modules/crypto/oberon-psa-crypto", "LICENSE", "file"),
     ("nrfx drivers (the licence in the header of each file; this is nrfx/nrfx.h's)",
      "BSD-3-Clause", "modules/hal/nordic", "nrfx/nrfx.h", "header"),
     ("The nRF MDK (the licence in the header of each file; this is system_nrf52840.c's)",

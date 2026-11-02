@@ -148,11 +148,13 @@ is public, and the same steps apply.
    they contain your local folders.
 4. **Check that exact file on hardware.** Flash it on a SuperMini and check: it enumerates as
    `28DE:1302`; Steam pairs it over USB-C; it reboots wireless and connects through the puck; Steam
-   shows no update prompt; `opensc2 id` shows the pinned build time. Then run the suite with every
-   opt-in, Steam closed:
+   shows no update prompt; `opensc2 id` shows the pinned build time; Windows pairs it over Bluetooth
+   and Steam drives it there ([testing.md, Bluetooth](testing.md#bluetooth)). Then run the suite
+   with every opt-in, Steam closed: on the cable and through the puck, and over Bluetooth:
 
    ```powershell
-   python -I tools\hwtest\run.py --through-puck --flash --lizard --with-steam --steam-control
+   python -I tools\hwtest\run.py --through-puck --flash --lizard --dock --with-steam --steam-control
+   python -I tools\hwtest\run.py --bluetooth --lizard --flash --steam-control
    ```
 
    Keep the masked `report.md`. Then bring the documents that name the tested build up to date:
@@ -257,35 +259,42 @@ template for your own project, seven samples and an automated hardware test suit
 
 ## What works
 
-This release's `.uf2` was tested on a SuperMini nRF52840 with nothing wired to it, with Valve's
-puck on its October 2026 firmware and Steam on a Windows PC.
+This release's `.uf2` (the default `app/` build: Bluetooth LE, the haptics synthesiser and pad
+clicks by pressure in it, test hooks on) was tested on a SuperMini nRF52840 with nothing wired to
+it, with Valve's puck on its October 2026 firmware and Steam on a Windows PC.
 
-- It enumerates over USB exactly like a real Steam Controller 2 (`28DE:1302`).
+- It enumerates over USB like a real Steam Controller 2 (`28DE:1302`), in the October 2026 form
+  (the July 2026 form is a build option).
 - Steam pairs it with Valve's puck over the USB-C cable, like a real controller.
 - It then reboots into wireless mode and connects through the puck.
-- Steam shows no "needs an update" prompt for a freshly flashed board: it reports a build time newer
-  than Steam's current controller firmware.
-- The automated hardware test suite passed every test with every opt-in on: 165 of 165 in a run
-  started wireless, and 31 of 31 for the `modes` and `cmd` groups in a run started wired. It covers
-  inputs injected and checked wired and through the puck, battery, rumble and haptics, LEDs,
-  settings, all vendor commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode
-  switches, reconnects, and a run with Steam open.
-- The charger test aid (a separate test build, not this `.uf2`): on a plain USB wall charger it
-  switches to wireless and connects through the puck.
+- Steam shows no "needs an update" prompt: the board reports this release's pinned build time,
+  newer than Steam's current controller firmware.
+- Bluetooth LE to Windows: Windows pairs it, it connects again by itself after a reboot, and Steam
+  recognises it over Bluetooth and drives it.
+- The automated hardware test suite, on the cable and through the puck with every opt-in on
+  (`--through-puck --flash --lizard --dock --with-steam --steam-control`): 264 of 264 tests passed (only the optional soak test, off by default, skipped). Over Bluetooth
+  (`--bluetooth --lizard --flash --steam-control`): 102 of 102 tests passed (only the optional soak test skipped). With inputs and events
+  injected through the test hooks, it covers the inputs and the rules on every state report,
+  battery, rumble and the haptic reports, the haptics synthesiser's handling of them, LEDs,
+  settings, all vendor commands Steam sends, calibration's processing of injected raw inputs,
+  lizard mode and its processing with nothing reaching the PC, the system state machine (power,
+  chords, keylock, idle timeout, low battery, shutdowns, the status LED's mode, cues), the dock's
+  protocol through the test hooks, reboots, mode switches, reconnects, the Bluetooth link, and a
+  run with Steam open.
 
 ## Not proven yet
 
-- Built, not yet tried with real parts: real buttons, sticks, trackpads, IMU, rumble motor, RGB LED
-  and battery hardware (the drivers in `app/` and the samples have never run on such parts).
-- Built, not run on hardware: the samples and the template.
-- Built, not yet tested on hardware: everything new since 0.2.0 that this release's run did not
-  cover (CHANGELOG.md, [Unreleased] until the release): the system state machine (power, chords,
-  the status LED's patterns, cues), calibration and raw inputs, lizard mode's processing and the
-  rules on every state report, crash records, and as opt-in builds Bluetooth LE, the haptics
-  synthesiser, the dock's UART, the battery build and the watchdog.
+- Built, not yet tried with real parts: buttons, sticks, trackpads, IMU, rumble motor, haptic
+  actuators and amplifiers, RGB LED, LiPo battery and charger, the I2C port expander and the
+  capacitive sensor (the drivers in `app/` and the samples have never run on such parts). The
+  haptics synthesiser's sound has never been heard, and calibration has never been recorded.
+- Built, not run on hardware: the samples and the template; the other builds of `app/`
+  (`battery.conf`, `sensors.conf`, `imu-stream.conf`, `expander.conf`, `dock.conf`,
+  `watchdog.conf`, `all.conf`); the dock's wire and a real dock (nothing has been connected to the
+  puck's pads).
 - Built, untested with Steam: pairing over the air (the puck's pairing window).
-- Not tested: other boards; Linux and macOS as the PC (the PC side was tested with Steam on
-  Windows).
+- Not tested: Bluetooth to other hosts (phones, SDL) and Valve's vendor GATT service; other boards;
+  Linux and macOS as the PC (the PC side was tested with Steam on Windows).
 - Not implemented, or different from the real controller: docs/protocol.md lists every gap.
 
 ## What you need
@@ -294,7 +303,7 @@ puck on its October 2026 firmware and Steam on a Windows PC.
   Adafruit nRF52 UF2 bootloader. Nothing needs to be wired to try it. It has three analog-capable
   pins, so the default firmware carries one analog stick.
 - Valve's puck (tested with its October 2026 firmware), a Windows PC with Steam, and a USB-C data
-  cable.
+  cable. For Bluetooth, a PC with Bluetooth LE (tested with Windows 11).
 
 ## Flash it
 

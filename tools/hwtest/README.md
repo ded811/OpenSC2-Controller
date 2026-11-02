@@ -9,8 +9,8 @@ It checks, with no physical interaction, every feature OpenSC2 emulates, on a bo
 wired to it. It drives the firmware's test hooks (`CONFIG_OPENSC2_TEST_HOOKS`, on in the
 blank-canvas app; an unarmed board behaves exactly as without them), reads the board's own reports
 while wired, the puck's slot reports (read-only) while wireless, and the board's console. With
-`--bluetooth` it reads and writes the board's Bluetooth HID device instead (a Bluetooth build paired
-with Windows; never any other Bluetooth device).
+`--bluetooth` it reads and writes the board's Bluetooth HID device instead (the default image on its
+Bluetooth transport, paired with Windows; never any other Bluetooth device).
 
 ```powershell
 python -I tools\hwtest\run.py --selftest      # the runner's own tests (no device)
@@ -110,8 +110,8 @@ every one of them is still a format string of shell.c.
 - There is no recording and replay of a hardware run; the firmware emulator covers the offline
   cross-check against the real code.
 - `--lizard`, `--flash`, `--through-puck`, `--with-steam`, `--dock` and `--bluetooth` are opt-in
-  and off by default. The Bluetooth path (B) has run only against the simulator; the firmware
-  emulator has no Bluetooth link. The groups added since v0.2.0 (`cal`, `system`, `haptics`, `ble`,
-  `dock`) have run only against the simulator and the firmware emulator.
+  and off by default. The firmware emulator has no Bluetooth link, so offline the Bluetooth path (B)
+  runs only against the simulator; on hardware every group has run on the v0.2.0 release image
+  ([docs/testing.md](../../docs/testing.md#results-so-far)).
 
 Back to the [documentation map](../../docs/README.md).

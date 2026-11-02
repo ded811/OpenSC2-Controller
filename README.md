@@ -29,10 +29,9 @@ test suite.
   the wired USB device, pairing over the cable and the vendor commands Steam sends. Your code hands
   it the inputs (buttons, sticks, triggers, trackpads, IMU, battery) and gets the outputs (rumble,
   haptics, the status LED's mode and Steam's LED colour, settings, cues, power-off) as callbacks.
-  It has no pins of its own. New since v0.2.0 and not yet tested on hardware: the real
-  controller's power, chord and status-LED rules, its input processing and calibration, the
-  dock's protocol, and, as options, Bluetooth LE and a haptics synthesiser
-  ([below](#since-v020-not-in-a-release-yet)).
+  It has no pins of its own. It also has the real controller's power, chord and status-LED
+  rules, its input processing and calibration, the dock's protocol, Bluetooth LE and a haptics
+  synthesiser; which of these have run on hardware, and how: [What works](#what-works).
 - **The firmware** (`app/`, "the blank canvas") is a complete Steam Controller 2 for the SuperMini
   nRF52840, a Pro Micro-sized nRF52840 board with the nice!nano pinout and the Adafruit nRF52 UF2
   bootloader. Every input is set up in one devicetree file: the SuperMini's pins carry the
@@ -60,50 +59,33 @@ flowchart LR
 
 ## What works
 
-Tested with the v0.2.0 release image (`opensc2-supermini-nrf52840-v0.2.0.uf2`, 2026-10-19), on a
-SuperMini nRF52840 with nothing wired to it, with Valve's puck on its October 2026 firmware and
-Steam on a Windows PC.
+Tested on 2026-11-01 with the v0.2.0 release image (`opensc2-supermini-nrf52840-v0.2.0.uf2`, build
+time `0x6AE8031F`), on a SuperMini nRF52840 with nothing wired to it, with Valve's puck on its
+October 2026 firmware and Steam on a Windows PC. The Bluetooth checks ran on that image and, earlier
+the same day, on a development build of the same code.
 
 | What | Status |
 | --- | --- |
-| It enumerates over USB exactly like a real Steam Controller 2 (`28DE:1302`). | Works on hardware |
+| It enumerates over USB like a real Steam Controller 2 (`28DE:1302`), in the October 2026 form (the default; the July 2026 form is an option). | Works on hardware |
 | Steam pairs it with Valve's puck over the USB-C cable, like a real controller. | Works on hardware |
 | It then reboots into wireless mode and connects through the puck. | Works on hardware |
-| Steam shows no "needs an update" prompt for a freshly flashed board: it reports a build time newer than Steam's current controller firmware (set to an older one, it gets the prompt). | Works on hardware |
-| The automated hardware test suite passed every test on the release image with every opt-in on: 165 of 165 in a run started wireless, and the 31 tests of the `modes` and `cmd` groups in a run started wired (four of them run only from a wired start). It covers inputs injected and checked wired and through the puck, battery, rumble and haptics, LEDs, settings, all vendor commands Steam sends, lizard mode with nothing reaching the PC, reboots, mode switches, reconnects, and a run with Steam open. | Works on hardware |
-| Real buttons, sticks, trackpads, IMU, rumble motor, RGB LED and battery hardware: the drivers in `app/` and the samples have never run on such parts. | Built; not tried with real parts |
+| Steam shows no "needs an update" prompt: the board reports the build time pinned for the release (`opensc2 id` shows it), which is newer than Steam's current controller firmware. | Works on hardware |
+| Bluetooth LE to Windows: Windows pairs it, it connects again by itself after a reboot, and Steam recognises it over Bluetooth and drives it (Steam switches lizard mode off). | Works on hardware (Windows) |
+| The automated hardware test suite on the cable and through the puck, with every opt-in (`--through-puck --flash --lizard --dock --with-steam --steam-control`): 264 of 264 tests passed (only the optional soak test, off by default, skipped). Over Bluetooth (`--bluetooth --lizard --flash --steam-control`): 102 of 102 tests passed (only the optional soak test skipped). | Works on hardware |
+| What the suite exercises on the board, with inputs and events injected through the test hooks: every input field and the rules on every state report, the battery reports, rumble and every haptic report, the haptics synthesiser's handling of them (the CRCs of the blocks it renders, its generators, scripts, cues and stream flags), the LED colour, the controller settings (the defaults of all 86, the clamps, Steam's watchdog), the vendor commands, calibration's processing of injected raw inputs, lizard mode with its processing (the stabilisers, the average, the glide, the haptic ticks), the system state machine (power-on, battery and USB power, STEAM held 7 s, the chords, the keylock, the idle timeout, low battery, the shutdowns, the status LED's mode and the cues), the dock's protocol (frames handed to the dock link through the test hooks: no dock, nothing on the puck's pads), reboots, mode switches, reconnects, the Bluetooth link's rules, and Steam open. | Tested on hardware with injected inputs |
+| Real parts: buttons, sticks, trackpads, IMU, rumble motor, haptic actuators and amplifiers, RGB LED, IR LED, LiPo battery and charger, the I2C port expander, the capacitive sensor. The drivers in `app/` and the samples, and the builds that need such parts (`app/battery.conf`, `app/sensors.conf`, `app/imu-stream.conf`, `app/expander.conf`), have never run on them. The haptics synthesiser's sound has never been heard: no actuator has been on a test board. | Built; not tried with real parts |
+| Calibration recordings (`0xD8`, `0xC0`, `0xC3`, `opensc2 cal`): they need real sticks, triggers and pads, and the suite writes no calibration. | Built; not tried with real parts |
+| The dock's wire: its UART and pilot sense (`app/dock.conf`), and a real dock. Nothing has been connected to the puck's pads. | Built; never run on hardware |
+| The hardware watchdog (off in a build for the UF2 bootloader; `app/watchdog.conf`, `app/all.conf`), the settings partition's recovery, and a crash record of a real fault. | Built; not yet tested on hardware |
 | Pairing over the air (the puck's pairing window). | Built; untested with Steam |
-| The charger test aid (a separate test build): on a plain USB wall charger it switches to wireless and connects through the puck. | Works on hardware |
+| Bluetooth to other hosts (phones, SDL) and Valve's vendor GATT service. | Built; not tested |
+| The charger test aid (a separate test build): on a plain USB wall charger it switched to wireless and connected through the puck, with the 2026-10-19 development snapshot; not repeated with this release. | Worked with the snapshot |
 | The samples and the template: they build; none has run on hardware. | Built; not run on hardware |
 | Other boards. | Not tested |
 | Linux and macOS as the PC: the PC side was tested with Steam on Windows. | Not tested |
 
-Details of the test run: [docs/testing.md](docs/testing.md#results-so-far).
-
-### Since v0.2.0, not in a release yet
-
-Everything below is new on `main` since v0.2.0. It is built (every build warning-free) and checked
-on the host: the host tests, the firmware emulator that runs the library's own code under the
-hardware test suite, and the suite's simulator. None of it has been tested on hardware yet. How to
-build each variant and what it costs in flash and RAM:
-[app/README.md, Build options](app/README.md#build-options).
-
-| What | Status |
-| --- | --- |
-| The real controller's answers to `0x89`, `0xA1`, `0xBE` and `0xE9`, the defaults and ranges of all 86 controller settings, attribute 11 of `0x83` as the current link's report interval, its `0x44` replies to stops, every settings key of `0xED`..`0xF0`, crash records behind `0xF2`, the settings partition's recovery, and its hardware watchdog (on by default, except in a build for a UF2 bootloader). | Built; not yet tested on hardware |
-| The rules on every state report: a stick deflected beyond 12000 counts as touched, a pad is blank while its stick is touched (setting 82), no trigger bit with raw triggers (setting 62), optionally the pads' clicks from their pressure (settings 52, 53). The blank canvas's raw stick output (setting 46). | Built; not yet tested on hardware |
-| Lizard mode's processing as the real controller's: the touch stabilisers, the 8-frame average, the glide after a flick, the haptic ticks and pad clicks (haptic events for the application; the blank canvas buzzes its motor for them, if one is wired); its reports waiting for room through the puck instead of being dropped. | Built; not yet tested on hardware |
-| Calibration as the real controller keeps it: the `cal/` keys (read, written and erased by the vendor commands, kept through a factory reset), the stick, trigger and pressure recordings (`0xD8`, `0xC0`, `0xC3`, also `opensc2 cal` on the console), and raw inputs processed with the real controller's rules and settings (sticks, triggers, pad pressure and click, stick touch and grip, pad rotation and stabiliser) ([how to record one](app/README.md#calibration)). | Built; not yet tested on hardware (the recordings need real parts) |
-| The real controller's input processing in its own single-precision arithmetic, quirks included: sticks, triggers and their digital bits, pad pressure, the trackpads frame by frame from a sensor's frames (`<opensc2/trackpad.h>`: the position filter, rotation, stabiliser, stick touch, grip, pressure and click), the IMU with its stream rules, scaling, mounting matrix and keys by name (`<opensc2/imu.h>`), the button debounce. The blank canvas reads its sticks and triggers this way by default (calibrate them once). | Built; host-tested against the documented arithmetic; not yet tested on hardware |
-| Sensor and battery helpers for your own parts (`<opensc2/sensor_helpers.h>`, `<opensc2/gauge.h>`), and the blank canvas's options that use them (`app/sensors.conf`: sampling right before each report, an LSM6DSV16X IMU with its mounting matrix and a rest-based gyro bias, the trackpad's processing, stick touch and grips from a capacitive sensor, the battery level, I2C bus recovery; `app/imu-stream.conf`; `app/expander.conf`: L4, L5, R4 and R5 through an I2C port expander). | Built; not yet tested on hardware (needs real parts) |
-| The real controller's power and status rules, on by default ([docs/api.md](docs/api.md#power-and-the-system-state-machine)): the power-on decision, STEAM held 7 s, the transport chords and their pairing hold, the keylock, the idle timeout, low battery, shutdown and power-off, the status LED's modes and patterns, and the cue events. | Built; not yet tested on hardware |
-| A [battery build](app/README.md#a-battery-build) (`app/battery.conf`) that turns itself off and wakes on STEAM or USB power; an RGBW status LED and an IR LED; a charger status pin. | Built; not yet tested on hardware (needs real parts) |
-| The haptics synthesiser (in the default app, [the haptics build](app/README.md#haptics-build-the-synthesiser)): rumble, pulses, clicks, tones, sweeps, scripts and PCM streams rendered as the real controller's sequencers do, the accidents of its arithmetic and timing included, sounds of OpenSC2's own (scripts, cues, drop sounds) or the board's, which it plays for lizard mode's clicks and the cues itself, the streams' flow control and the replies to stops, outputs for an I2S amplifier, a PWM DAC and a DRV2605 (`samples/haptics`). | Built; not yet tested on hardware |
-| Bluetooth LE (in the default app; its notes: [`app/ble.conf`](app/README.md#test-build-bluetooth-le); pairing with Windows: [docs/testing.md](docs/testing.md#bluetooth)): the board as a HID-over-GATT Steam Controller 2 (`28DE:1303`) that a PC or phone pairs without the puck, with the real controller's name, its three forms of advertising and the 60 s window, two identities per slot and its bond rules, "wireless off" when the host leaves, the report map, the vendor commands on feature report 1, output reports, Valve's vendor GATT service (for SDL on Android and Apple platforms), the battery service, lizard mode, a state report per connection event, and switching between the puck and Bluetooth (with the power rules: the B + bumper chords). | Built; not yet tested on hardware |
-| The dock's protocol (the controller's end of the puck's charging pads): the 73-byte frames, answers built over each other as the real controller builds them, sessions, the identity probe, Steam's commands and the state report over the dock, and its rules (the pilot, dock or USB power by the real controller's rule, the docked states, the docked stick offsets); `<opensc2/docking.h>` for a board's own pilot, `+`, wire and stick offsets. | Built; not yet tested on hardware |
-| The dock's UART and pilot sense ([`app/dock.conf`](app/README.md#the-dock-build-untested), a SuperMini variant), and `tools/fake_puck.py` for a USB-UART adapter. Nothing may be connected to Valve's puck's pads without the owner's go-ahead ([docs/testing.md](docs/testing.md#the-dock)). | Built; not yet tested on hardware |
-| A test build with Bluetooth, the synthesiser, the dock link and the watchdog together ([`app/all.conf`](app/README.md#test-build-everything-without-parts)). | Built; not yet tested on hardware |
-| The hardware test suite's new groups (`cal`, `system`, `haptics`, `ble` on its Bluetooth path `--bluetooth`, `dock` with `--dock`) and its new tests in the old groups ([docs/testing.md](docs/testing.md#what-it-covers)): run against the firmware emulator and the simulator only. | Built; not yet run on hardware |
+Details of the test runs: [docs/testing.md](docs/testing.md#results-so-far). How to build each
+variant and what it costs in flash and RAM: [app/README.md, Build options](app/README.md#build-options).
 
 ## What you need
 
@@ -214,7 +196,7 @@ Every function, field and option: [docs/api.md](docs/api.md).
 
 | Project | What it shows | Status |
 | --- | --- | --- |
-| [app/](app/README.md) | the full firmware: every input set up in one overlay, both modes, LED, shell, test hooks | tested with nothing wired ([What works](#what-works)) |
+| [app/](app/README.md) | the full firmware: every input set up in one overlay, wired, through the puck and over Bluetooth LE, LED, shell, test hooks | tested with nothing wired ([What works](#what-works)) |
 | [template/](template) | the start of your own project: buttons, pairing button, wired mode, shell | builds; not run on hardware |
 | [samples/minimal](samples/minimal) | the smallest application: init, one button, the pairing button | builds; not run on hardware |
 | [samples/buttons_sticks](samples/buttons_sticks) | buttons, a stick and a trigger from devicetree (gpio-keys and ADC) | builds; not run on hardware |
@@ -266,20 +248,18 @@ The boot rule and every way to switch: [docs/api.md](docs/api.md#modes).
 
 ## Testing
 
-- **Host tests**, no hardware: 193 host tests (25,482 checks); 240 (28,797 checks) with the hardware
+- **Host tests**, no hardware: 263 host tests; 310 with the hardware
   test hooks built in, and the two builds answer 2,000 unarmed commands byte for byte alike; the
-  runner's 282 self-tests; its dry runs against the library's own code in a firmware emulator (234
-  tests pass, 26 skipped; with `--flash` 242 pass, 18 skipped); 6 self-tests of `tools/fake_puck.py`
+  runner's 284 self-tests; its dry runs against the library's own code in a firmware emulator (237
+  tests pass, 26 skipped; with `--flash` 245 pass, 18 skipped); 6 self-tests of `tools/fake_puck.py`
   and 9 of `tools/match_steam_version.py`. Run
   `powershell -NoProfile -ExecutionPolicy Bypass -File tests\host\run.ps1` on Windows (with a gcc on
   PATH, for example MSYS2's ucrt64 gcc) or `sh tests/host/run.sh` on Linux and macOS. They are
   tested with gcc; clang (also what `gcc` runs on macOS) is not tested.
 - **The hardware test suite** (`tools/hwtest`) checks a board with nothing wired, from the PC. On the
-  v0.2.0 release image (2026-10-19), with every opt-in on
-  (`--through-puck --flash --lizard --with-steam --steam-control`), every test passed (0 failed,
-  0 errors, 0 warnings): 165 of 165 in a run started wireless, and 31 of 31 for the `modes` and
-  `cmd` groups in a run started wired, which adds the four tests that only run from a wired start.
-  Only the optional soak test (`--soak S`), which needs a duration, was not run.
+  v0.2.0 release image (2026-11-01), on the cable and through the puck with every opt-in on
+  (`--through-puck --flash --lizard --dock --with-steam --steam-control`): 264 of 264 tests passed (only the optional soak test, off by default, skipped). Over Bluetooth
+  (`--bluetooth --lizard --flash --steam-control`): 102 of 102 tests passed (only the optional soak test skipped).
 
 How to run both, and what the suite checks: [docs/testing.md](docs/testing.md).
 
@@ -347,8 +327,9 @@ documentation leaves a gap, the code does what should work, and
 ## Licence and trademarks
 
 The code and documentation here are MIT licensed ([LICENSE](LICENSE)). A built image also contains
-code from Zephyr, the nRF Connect SDK, Nordic's MPSL and CryptoCell libraries, nrfx, picolibc and
-libgcc, under their own licences; [THIRD_PARTY.md](THIRD_PARTY.md) lists them and where their texts
+code from Zephyr (its Bluetooth host included), the nRF Connect SDK, Nordic's MPSL, SoftDevice
+Controller, nrf_oberon and CryptoCell libraries, Oberon PSA Crypto, nrfx, picolibc and libgcc,
+under their own licences; [THIRD_PARTY.md](THIRD_PARTY.md) lists them and where their texts
 are. Steam and Steam Controller are trademarks of Valve Corporation: [NOTICE.md](NOTICE.md).
 
 ## Contributing
@@ -372,7 +353,7 @@ include/dt-bindings/opensc2/inputs.h   button bit numbers, for C and devicetree
 dts/bindings/           the devicetree bindings of the dock's UART and pilot (opensc2,dock) and of
                         the synthesiser's I2S and PWM DAC outputs (haptics/)
 lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc.c (wired mode),
-                        ble.c (Bluetooth LE, opt-in), wireless.c (the puck or Bluetooth),
+                        ble.c (Bluetooth LE), wireless.c (the puck or Bluetooth),
                         commands.c (vendor commands), report.c (reports on every link),
                         input_rules.c (the rules on every report), lizard.c (lizard mode), cal*.c
                         (calibration and raw inputs), pad*.c (the trackpads frame by frame), imu*.c
@@ -381,7 +362,7 @@ lib/opensc2/            the library: radio.c (the puck link), usb.c and usb_desc
                         led_rules.c (power, chords, the status LED, cues), crash.c and hwdt.c
                         (crash records, the watchdog), dock_*.c and dock.c (the dock), storage.c
                         and key_store.c (what is stored), shell.c, test_*.c (the hardware test
-                        hooks), haptics*.c (the haptics synthesiser, an option)
+                        hooks), haptics*.c (the haptics synthesiser)
 app/                    the blank-canvas firmware for the SuperMini; app/build.ps1 builds it;
                         app/*.conf its variants (app/README.md)
 template/               a small project to copy as the start of your own
