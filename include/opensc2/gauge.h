@@ -69,6 +69,12 @@ extern const size_t opensc2_gauge_lipo_charging_len;
  * limited to 0..100. */
 uint8_t opensc2_gauge_stretch(uint16_t permille, uint16_t target_permille);
 
+/* s for opensc2_gauge_percent(): the curve's reading at `target_mv`, rounded to a whole percent. */
+uint8_t opensc2_gauge_scale(const struct opensc2_gauge_point *points, size_t n, uint16_t target_mv);
+/* The level of `mv` on a curve, stretched by (200 - scale) / 100: 0..100. */
+uint8_t opensc2_gauge_percent(const struct opensc2_gauge_point *points, size_t n, uint8_t scale,
+			      uint16_t mv);
+
 /* The level the controller reports. 255 until the first reading (what the real controller's first
  * battery report after a cold start carries). */
 #define OPENSC2_GAUGE_NO_LEVEL 255

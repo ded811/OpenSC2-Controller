@@ -20,6 +20,23 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
 static struct osc2_blob_store blobs;
 static struct k_spinlock blob_lock;
+/* Loads, sets and command deletes of the charge window (mte/charge_level): the fuel gauge applies
+ * it after each, as the real controller does after every load of the key, a value of the wrong
+ * size included (the window then stays as it was), and after 0xF0 (which loads it again as empty:
+ * no window). The factory reset's delete is none: the charger keeps its cap until the next boot. */
+static atomic_t window_changes;
+
+uint32_t osc2_keys_window_changes(void)
+{
+	return (uint32_t)atomic_get(&window_changes);
+}
+
+static void window_touched(uint8_t id)
+{
+	if (id == OSC2_KEY_CHARGE_WINDOW) {
+		atomic_inc(&window_changes);
+	}
+}
 
 static const struct osc2_key_info *blob_key(uint8_t id)
 {
@@ -43,8 +60,12 @@ static int keys_on_set(const char *name, size_t len, settings_read_cb read_cb, v
 		return -ENOENT;
 	}
 	k = osc2_key_by_store(name);
-	if (!k || len != k->size) {
-		return k ? 0 : -ENOENT;   /* another size: the default stays */
+	if (!k) {
+		return -ENOENT;
+	}
+	window_touched(k->id);
+	if (len != k->size) {
+		return 0;   /* another size: the default stays */
 	}
 	n = read_cb(cb_arg, buf, len);
 	if (n == (ssize_t)k->size) {
@@ -138,6 +159,7 @@ int osc2_keys_set(uint8_t id, const uint8_t *value, uint8_t len)
 	lk = k_spin_lock(&blob_lock);
 	err = osc2_blob_set(&blobs, id, value, len);
 	k_spin_unlock(&blob_lock, lk);
+	window_touched(id);   /* a refused size too, as on the real controller */
 	return err;
 }
 
@@ -160,6 +182,16 @@ int osc2_keys_delete(uint8_t id)
 	(void)osc2_blob_reset(&blobs, id);
 	k_spin_unlock(&blob_lock, lk);
 	return store_delete(k);
+}
+
+int osc2_keys_delete_cmd(uint8_t id)
+{
+	int err = osc2_keys_delete(id);
+
+	if (err == 0) {
+		window_touched(id);
+	}
+	return err;
 }
 
 int osc2_keys_get(uint8_t id, uint8_t *out, uint8_t *len)

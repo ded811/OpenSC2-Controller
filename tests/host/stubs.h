@@ -37,6 +37,7 @@ struct stub_record {
 	/* key_store.c's blob values, and the keys saved and deleted (a bit per enum osc2_key_id) */
 	struct osc2_blob_store blobs;
 	uint32_t key_saves, key_deletes;
+	uint32_t key_cmd_deletes;       /* those deleted by 0xF0 (osc2_keys_delete_cmd()) */
 	int key_factory_resets;
 	/* storage.c's flash-only stores, and an error they all return (0: none) */
 	struct opensc2_bond stored_bonds[OPENSC2_BOND_SLOTS];

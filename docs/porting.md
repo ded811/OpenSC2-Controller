@@ -108,6 +108,25 @@ that ESB also supports are untested.
     ([api.md, The dock](api.md#what-a-board-supplies)). Nothing may be connected to Valve's puck's
     pads without the owner's go-ahead ([testing.md](testing.md#the-dock)).
 
+11. **A battery and a charger.** Measure the battery with any ADC channel (a divider switched on
+    while it reads, as the real controller does, or the nRF52840's VDDH / 5 for a cell on VDDH) and
+    hand the library a `read_mv` callback: it runs the real controller's fuel gauge on it
+    ([api.md](api.md#the-battery-and-the-charger)). A charger chip on I2C gives the rest through the
+    same struct: its status and measurements from `charger_update`, its charge voltage and
+    input-voltage limit through `set_charge_voltage` and `set_input_voltage_limit`, its ship mode
+    through `battery_cutoff`, its input current limit through `input_changed`. A charger module
+    with only a status pin gives the status; without any, the library's charger model stands in.
+    A gauge chip that reports a level of its own plugs in through `level`. Build with
+    `CONFIG_OPENSC2_BATTERY=y` so the board powers off on its battery. Capacitive sensors read
+    weaker on battery: the library boosts stick-touch and grip words as the real controller does
+    (`CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN`; turn it off if yours do not).
+
+12. **I2C parts.** Free each bus at boot before its parts' drivers start (`i2c_recover_bus()`, as
+    `app/src/i2c_recover.c` does), as the real controller does: a reset in the middle of a transfer
+    otherwise leaves a part holding SDA low. An input expander with an interrupt output is read
+    only when it fires (`interrupt-gpios` on the expander, a `gpio-keys` node without
+    `polling-mode`; `app/expander.overlay`). The real controller's LEDs run at a 50 µs PWM period.
+
 ## Wired mode
 
 `CONFIG_OPENSC2_USB` turns itself on when the devicetree has the HID node below; without it every

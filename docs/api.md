@@ -70,6 +70,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_set_trackpad(side, &pad)`, `opensc2_set_imu(&imu)` | a trackpad, the IMU | [Inputs](#inputs) |
 | `opensc2_set_state(&state)`, `opensc2_get_state(&state)` | the whole input state at once | [Inputs](#inputs) |
 | `opensc2_set_battery(&battery)`, `opensc2_battery_kept_level()` | the battery report; the level kept over a warm reset | [Battery](#battery) |
+| `opensc2_battery_start(&board)`, `opensc2_charger_set_status(s)`, `opensc2_charger_set_values(&v)`, `opensc2_battery_set_charge_target(mv)`, `opensc2_battery_get(&b)`, `opensc2_battery_cutoff()` | the library's fuel gauge on the board's battery and charger (`<opensc2/battery.h>`) | [The battery and the charger](#the-battery-and-the-charger) |
 | `opensc2_set_stick_raw()`, `_trigger_raw()`, `_pressure_raw()`, `_touch_raw()`, `opensc2_set_raw(&raw)`, `opensc2_cal_raw_release(inputs)` | raw inputs, processed as the real controller does with its stored calibration | [Calibration and raw inputs](#calibration-and-raw-inputs) |
 | `opensc2_cal_stick_ok(side)`, `_trigger_ok()`, `_pressure_ok()`, `opensc2_cal_recording(kind)`, `opensc2_cal_led_trim(ch)`, `opensc2_cal_volt_offset()`, `opensc2_cal_gyro_bias(b)`, `opensc2_cal_generation()` | the stored calibration, a recording running | [Calibration and raw inputs](#calibration-and-raw-inputs) |
 | `opensc2_cal_set_dock_offsets(side, x, y)` | the sticks' offsets while docked (the board's own data; 0 by default) | [Calibration and raw inputs](#calibration-and-raw-inputs) |
@@ -459,6 +460,8 @@ from boot on whatever link is up (dropped while there is none), and answered to 
 `0xBE`. `opensc2_set_battery()` takes it at any time, before `opensc2_init()` too; call it whenever
 a value changes (the real controller's gauge measures once a second). Every field is the board's to
 supply: a board without a part for one gives the value below.
+The application sets it field by field, or lets the library's fuel gauge fill it from the board's
+readings ([The battery and the charger](#the-battery-and-the-charger)).
 
 Until the application sets one, a battery build (`CONFIG_OPENSC2_BATTERY`) reports what the real
 controller's first report after start-up carries, before its gauge has measured: the level kept
@@ -475,10 +478,10 @@ does not jump when Steam reboots the controller into wireless mode.
 | Field | Unit | Note |
 | --- | --- | --- |
 | `charge_state` | `OPENSC2_CHARGE_DISCHARGING` (1), `_CHARGING` (2), `_DONE` (4), `_RESET` (0), `_SRC_VALIDATE` (3) | SDL's `EChargeState`, the numbering the real controller uses; SDL shows 1 as on battery, 2 charging, 4 charged |
-| `level` | percent | the battery level Steam shows; sent as given (255 is "no level yet") |
+| `level` | percent | the battery level Steam shows; sent as given, as the real controller sends its gauge's value: 0..100, or 255 (no reading yet: the real controller's first report after a cold start) |
 | `battery_mv`, `system_mv`, `input_mv` | mV | |
-| `current_ma`, `input_current_ma` | mA | battery current signed |
-| `temperature` | raw | the charger's raw value on the real controller |
+| `current_ma`, `input_current_ma` | mA | sent as given; the real controller sends the battery current as a magnitude (the charge current while charging, the draw otherwise) |
+| `temperature` | thousandths of a °C | the real controller's unit: its charger's thermistor reading worked out in degrees, ×1000, rounded up (25 °C is 25000) |
 | `gauge_flags` | | not sent (it was `0xBE`'s byte 13 in 0.2.0); `0xBE` now derives that byte from `charge_state`, as the real controller does |
 
 `0xBE` answers 15 bytes: temperature, battery, system and input mV, current, input current, the
@@ -490,15 +493,16 @@ supply check has given up; [protocol.md, gap 3](protocol.md#where-this-library-h
 its charger has given up on a supply that does not charge the battery (it tries again 60 s later).
 Report `0x43` carries it as given; while it is set and the level is above 0, the
 [system state machine](#low-battery) and the [status LED](#status-led) are told 100 %, and the
-report keeps the measured level. The library adds nothing to what the application gives; the
-[charging helpers](#charging-helpers) give the whole charge state, flag included, the way the real
-controller's charging rules do.
+report keeps the measured level. The library's fuel gauge adds it the way the real controller
+does ([The battery and the charger](#the-battery-and-the-charger)); the
+[charging helpers](#charging-helpers) give the same rules, flag included, to a board that runs
+its own gauge.
 
 On the real controller every value comes from its charger and gauge: the charge state is the
 state of its charging rules (0 until their first step, then 1 on battery, 3 while a new supply is
-checked, 2 charging, 4 done). A board gets the same from `<opensc2/charger.h>`, fed with its
-charger's status once a second ([Charging helpers](#charging-helpers)); the blank canvas does so for
-an optional charger status pin ([app/README.md](../app/README.md#optional-parts); untested).
+checked, 2 charging, 4 done). A board gets the same from the library's fuel gauge, or from
+`<opensc2/charger.h>` fed with its charger's status once a second ([Charging helpers](#charging-helpers)); the blank canvas runs the gauge for
+`CONFIG_APP_BATTERY` and hands an optional charger status pin over ([app/README.md](../app/README.md#optional-parts); untested).
 `opensc2_charge_state_of(input_power, charging)` (pure) is the shortcut for a charger with only a
 status output, such as a TP4056 module's CHRG pin: without input power 1 (on battery), with it 2
 while the charger charges and 4 (done; report a level of 100) otherwise, without the real
@@ -523,6 +527,130 @@ battery reports the application's; a board that never sets a battery is never lo
 millivolts, both currents, the level and the temperature, as the real controller keeps one; a
 status entry stays unwritten, as there. Zephyr's statistics tools read it; no host of the
 controller does.
+
+### The battery and the charger
+
+`<opensc2/battery.h>`, with `CONFIG_OPENSC2_BATTERY_GAUGE` (on with `CONFIG_OPENSC2_BATTERY`):
+the library runs the real controller's fuel gauge on what the board measures. The application
+describes its battery parts once, after `opensc2_init()`, and from then on can update the charger's
+status and values at any time. Built and host-tested; not yet tested on a battery.
+
+```c
+#include <opensc2/battery.h>
+
+static int read_mv(void *user, uint16_t *mv, size_t n)   /* n readings in a row, mV at the cell */
+{
+    divider_on();                          /* once for the batch: 1 normally, 40 after a restart */
+    for (size_t i = 0; i < n; i++) {
+        mv[i] = adc_read_battery_mv();     /* without cal/volt_offset: the library adds it */
+    }
+    divider_off();
+    return n;
+}
+
+static int charger_update(void *user)     /* at the start of every pass */
+{
+    struct opensc2_charger_values v = {
+        .system_mv = sys_mv(), .input_mv = vin_mv(), .current_ma = ibat_ma(),
+        .input_current_ma = iin_ma(), .temperature = temp_milli_c(),
+    };
+    opensc2_charger_set_values(&v);
+    return opensc2_charger_set_status(charger_is_charging() ? OPENSC2_CHARGER_CHARGING :
+                                      charger_is_done() ? OPENSC2_CHARGER_DONE :
+                                      OPENSC2_CHARGER_OFF);
+}
+
+static const struct opensc2_battery_board battery = {
+    .read_mv = read_mv,
+    .charger_update = charger_update,          /* optional */
+    .set_charge_voltage = my_charger_vreg,     /* optional, (user, mV) */
+    .set_input_voltage_limit = my_charger_vin, /* optional, (user, mV) */
+    .battery_cutoff = my_charger_ship_mode,    /* optional, (user) */
+};
+
+opensc2_battery_start(&battery);
+```
+
+What the board must or may supply:
+
+| Part | Field or call | Without it |
+| --- | --- | --- |
+| Battery voltage | `read_mv` (required): `n` readings in a row, millivolts at the cell; return how many | — |
+| Charger status | `opensc2_charger_set_status()`: `OPENSC2_CHARGER_OFF` (0), `_PRECHARGE` (1), `_CHARGING` (2), `_DONE` (3), the four the real controller's charger tells | `OPENSC2_CHARGER_UNKNOWN`: the library's model, charging while there is input power and the battery's average stays under the charge voltage it last asked for, then done |
+| Charger values | `opensc2_charger_set_values()`: system and input mV, battery current (a magnitude), input current, temperature (m°C) | 0 in `0x43` and `0xBE`, as the real controller's before its first reading |
+| A fresh reading per pass | `charger_update`, called at the start of every pass; an error keeps that pass's level and voltage | the last values set stand |
+| Input power | `opensc2_set_power_source()` ([What powers the board](#what-powers-the-board)) | USB power from the chip's VBUS detection |
+| Charge voltage | `set_charge_voltage(mV)` | the board's charger keeps its own |
+| Input-voltage limit | `set_input_voltage_limit(mV)` | the supply check still runs and reports state 3, but limits nothing |
+| Ship mode | `battery_cutoff()` | an off board keeps its battery connected |
+| Input current | `input_changed(present)`: at the start, then at every change of input power (looked at every 50 ms): raise the charger's input current limit for a supply, lower it without one | the board's charger keeps its own limit |
+| Level | `level(average_mV, charging)` for a gauge chip or a curve of the board's own; or `charging` / `discharging` curves in `<opensc2/gauge.h>`'s format | OpenSC2's single-cell LiPo curves |
+
+What the gauge does, as the real controller's:
+
+- **A pass once a second**, the first 250 ms after `opensc2_battery_start()`, in its own thread
+  (`CONFIG_OPENSC2_BATTERY_GAUGE_PRIORITY`, 9; `_STACK_SIZE`, 1536). It takes the charger's status
+  and values; when charging starts or stops it starts the battery history over and waits 250 ms.
+- **The battery history**: the last 40 readings plus `cal/volt_offset`; after it starts over (and
+  at the first pass) 40 fresh readings in a row, otherwise one per pass. The reported battery
+  voltage is their average, rounded down; it stays as it is while the charge is done.
+- **The level**: the average on the curve of the charger's direction (charging while the charger
+  says precharge or charging), stretched by (200 − s) / 100 with s the curve's reading at the
+  charge target (discharging) or the target plus the hysteresis (charging), worked out once at the
+  start, in whole percent; rounded, 0..100. The first level is taken as it is; after that it only
+  rises while charging and only falls otherwise. "Done" reads 100. The level is kept in the
+  retained RAM area, so after a warm reboot (Steam's reboot into wireless mode included) the first
+  report carries it; after a power loss the first report says 255.
+- **The charge state machine**, whose index `0x43` carries: 0 starting over (before the first
+  pass, and after every change of the charge target); 1 not charging; 3 the supply check; 2
+  charging; 4 done. Without input power it starts over at every pass and so says 1. In 1 with
+  input power: a battery average at or above the charge target is done (4); otherwise the supply
+  check starts. The check asks for the target plus the hysteresis as the charge voltage, then
+  every 5 s, while the charger does not charge, writes the input-voltage limit and lowers it by
+  100 mV (4600, 4500, 4400 mV); once it reaches 4300 it gives up: back to 1 for 60 s with
+  `OPENSC2_CHARGE_GAVE_UP` (`0x80`), then it tries again. The charger charging (2) or done (4) ends
+  the check; charging that stops goes back to 1 (and on to the check once its 5 s are over); done
+  stays until the input power goes. Entering 1 and 4 asks for the target as the charge voltage.
+  The flag clears when the check succeeds, the charge is done, or the machine starts over.
+  `0xBE`'s byte 13 is 1 exactly in state 2.
+- **The charge target**: `CONFIG_OPENSC2_CHARGE_TARGET_MV` (4120) and
+  `CONFIG_OPENSC2_CHARGE_HYSTERESIS_MV` (40); `opensc2_battery_set_charge_target(mV)` (3400..4400,
+  0 for the configured one) changes it and starts the machine over, as does every load, `0xEE`
+  (a refused size too: the window then stays as it was) and `0xF0` of the charge window
+  `mte/charge_level` ([Settings by name](#settings-by-name)): a valid window sets its upper end,
+  none (both 0, as after `0xF0`) or an invalid one goes back to the configured target. Only the
+  factory reset's delete leaves the charger as it is until the next boot. The supply check's numbers are
+  `CONFIG_OPENSC2_SUPPLY_CHECK_START_MV`, `_STEP_MV`, `_MIN_MV`, `_STEP_S` and `_REST_S`.
+- **The cut-off**: `opensc2_battery_cutoff()` calls `battery_cutoff` only without input power; with
+  it, it logs that the battery stays connected and returns `-EBUSY`. The library calls it before
+  `sys_poweroff()` when it powers off itself; the blank canvas calls it last in its own power-off.
+
+`opensc2_battery_get(&b)` reads what `0x43` carries now. Without the gauge (or before it starts),
+`opensc2_charger_set_status()` sets the application's battery's charge state (1 without input
+power; 2 while precharging or charging; 4, level 100, otherwise) and `opensc2_charger_set_values()`
+its five values, so a board can also update single fields that way.
+
+#### Input power and the capacitive sensors
+
+`opensc2_input_power()` says whether USB or the dock powers the board (`opensc2_power_source()`
+other than `OPENSC2_POWER_SOURCE_BATTERY`; always true in a build without
+`CONFIG_OPENSC2_BATTERY`). The real controller's charger, fuel gauge and trackpad chip driver all
+follow it.
+
+Without input power the real controller boosts its capacitive readings before it uses them:
+every stick-touch word ×1.2, every grip word ×1.5 and every trackpad electrode signal ×1.25, each
+multiplied in single precision and cut toward zero (a word is kept in 16 bits), from start-up until
+a supply is seen and again whenever it goes. With `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` (on by
+default) the library does the same:
+
+| Call | What it does |
+| --- | --- |
+| `opensc2_set_touch_raw(side, stick, grip)`, or `opensc2_set_raw()` with `OPENSC2_RAW_TOUCH_L` / `_R` | both words boosted while there is no input power, before the stick-touch and grip rules see them |
+| `opensc2_cap_now(kind, value)` | `value` as the library takes it now: boosted without input power, else as it is; a board that works out its trackpad signal from electrodes passes each electrode through it (`OPENSC2_CAP_ELECTRODE`) |
+| `opensc2_cap_unpowered(kind, value)` | the boost itself, pure: `OPENSC2_CAP_STICK_TOUCH` ×1.2, `OPENSC2_CAP_GRIP` ×1.5, `OPENSC2_CAP_ELECTRODE` ×1.25 |
+
+Turn the option off for a sensor whose readings do not drop on battery (it changes nothing on a
+board without a battery).
 
 ### Other input reports
 
@@ -2214,6 +2342,11 @@ The functions for the settings and the other state Steam sets:
 | `CONFIG_OPENSC2_BATTERY` | n | the board runs on a battery without USB power: shutdowns turn it off (`OPENSC2_POWER_OFF`; selects `CONFIG_POWEROFF`); off, every shutdown reboots |
 | `CONFIG_OPENSC2_POWER_POLL_MS` | 50 | how often the system state machine looks at the power source; 10 to 1000 |
 | `CONFIG_OPENSC2_BATTERY_STATS` | y with `CONFIG_STATS` | the Zephyr statistics group "battery", filled at every battery report ([Battery](#battery)) |
+| `CONFIG_OPENSC2_BATTERY_GAUGE` | y with `CONFIG_OPENSC2_BATTERY` | the library's [fuel gauge](#the-battery-and-the-charger) (runs once `opensc2_battery_start()` is called) |
+| `CONFIG_OPENSC2_BATTERY_GAUGE_PRIORITY`, `_STACK_SIZE` | 9, 1536 | its thread (the board's callbacks run on it) |
+| `CONFIG_OPENSC2_CHARGE_TARGET_MV`, `CONFIG_OPENSC2_CHARGE_HYSTERESIS_MV` | 4120, 40 | the charge voltage target, and what the supply check and a charge add |
+| `CONFIG_OPENSC2_SUPPLY_CHECK_START_MV`, `_STEP_MV`, `_MIN_MV`, `_STEP_S`, `_REST_S` | 4600, 100, 4300, 5, 60 | the supply check's input-voltage limits, its step time and its rest after giving up |
+| `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` | y | stick-touch and grip words ×1.2 and ×1.5 without input power, as the real controller ([Input power and the capacitive sensors](#input-power-and-the-capacitive-sensors)) |
 | `CONFIG_OPENSC2_PAIRING_TIMEOUT_S` | 60 | |
 | `CONFIG_OPENSC2_RUMBLE_TIMEOUT_MS` | 500 | |
 | `CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS` | 3500 | 0: never |
@@ -2300,6 +2433,10 @@ The functions for the settings and the other state Steam sets:
   channel): a command from the dock waits for one from USB or the radio, and the other way round.
   Callbacks a command calls (`vendor_command`, `setting_changed`, `led`) run with it held: do not
   wait there for another thread that sends a command. The real controller has no such lock.
+- With the fuel gauge started (`opensc2_battery_start()`), one gauge thread (`opensc2_gauge`,
+  `CONFIG_OPENSC2_BATTERY_GAUGE_PRIORITY`, 9) runs a pass once a second; the board's battery
+  callbacks run in it ([The battery and the charger](#the-battery-and-the-charger)), except
+  `input_changed`, which runs on the system work queue (looked at every 50 ms).
 - With `CONFIG_OPENSC2_DOCK`, one dock thread (`osc2_dock_tid`, priority
   `CONFIG_OPENSC2_DOCK_THREAD_PRIORITY`, 9) checks the pilot and serves the dock's requests; it runs
   the dock's vendor commands itself, and, with the dock the only link, `sample` after each GET
@@ -2835,6 +2972,7 @@ battery.
 | `opensc2_gauge_history_reset(&h)`, `opensc2_gauge_history_add(&h, mv)`, `opensc2_gauge_latest(&h)`, `opensc2_gauge_average(&h)`, `opensc2_gauge_max(&h)` | the last 40 readings (`OPENSC2_GAUGE_HISTORY`), over those since the last reset: the latest, their average rounded down, their maximum |
 | `opensc2_gauge_curve(points, n, mv)` | a curve's charge in tenths of a percent (linear between points, 0 below the first, 1000 above the last); OpenSC2's single-cell LiPo curves are `opensc2_gauge_lipo_discharging` and `opensc2_gauge_lipo_charging` (with `_len`) |
 | `opensc2_gauge_stretch(permille, target_permille)` | the stretch towards the charge target (`OPENSC2_GAUGE_TARGET_MV`, 4120, or `OPENSC2_GAUGE_TARGET_CHARGING_MV`, 4160, during a charge cycle): the charge times (200 − s) / 100, s the curve's reading at the target rounded to a whole percent (at most 100); the result rounded, 0..100 |
+| `opensc2_gauge_scale(points, n, target_mv)`, `opensc2_gauge_percent(points, n, scale, mv)` | the same in two steps, as the fuel gauge does it: s once, then a level per reading |
 | `opensc2_gauge_init(&g, kept_level)` | start: `OPENSC2_GAUGE_NO_LEVEL` (255) until the first reading, or the level kept over a warm reset (`opensc2_battery_kept_level()`) |
 | `n = opensc2_gauge_begin(&g, charge_state)`, `opensc2_gauge_add(&g, mv)` (n times), `level = opensc2_gauge_finish(&g)` | a step the way the real controller's gauge takes its readings, once a second: `n` is 40 after the start and whenever charging starts or stops (the history starts over; let the voltage settle 250 ms first, as the real controller does), else 1, and 0 while the charge is done (the level reads 100, nothing is read). Charging uses the charging curve and only rises, anything else the discharging curve and only falls |
 | `n = opensc2_gauge_begin_charger(&g, charge_state, charger_charging)` | `opensc2_gauge_begin()` for a board that runs the [charging rules](#charging-helpers): the history starts over whenever the charger itself starts or stops charging (its status pre-charge or fast charge), also while the charge state stays "done" and the charger tops the battery up, as on the real controller (`opensc2_gauge_begin()` takes it from the state) |
@@ -2860,7 +2998,7 @@ still gets the charge state (it ignores the writes). Untested on a charger.
 | --- | --- |
 | `opensc2_charger_defaults(&cfg)` | the real controller's numbers: target 4120 mV, hysteresis 40 mV, the input-voltage limit from 4600 mV down by 100 mV every 5000 ms, giving up at 4300 mV, the next try 60000 ms later |
 | `opensc2_charger_init(&c, &cfg or NULL, now_ms, &out)` | start in state 0 (`OPENSC2_CHARGE_RESET`); asks for the charge voltage = the target |
-| `state = opensc2_charger_step(&c, input_power, status, battery_mv, now_ms, &out)` | the rules' step, once a second; `status` is an `enum opensc2_charger_status` (`OPENSC2_CHARGER_NOT_CHARGING`, `_PRECHARGE`, `_FAST_CHARGE`, `_CHARGE_DONE`) and `battery_mv` the gauge's averaged voltage (`opensc2_gauge_voltage()`); returns the charge state for `struct opensc2_battery` |
+| `state = opensc2_charger_step(&c, input_power, status, battery_mv, now_ms, &out)` | the rules' step, once a second; `status` is an `enum opensc2_charger_status` (`OPENSC2_CHARGER_OFF`, `_PRECHARGE`, `_CHARGING`, `_DONE`) and `battery_mv` the gauge's averaged voltage (`opensc2_gauge_voltage()`); returns the charge state for `struct opensc2_battery` |
 | `opensc2_charger_state(&c)` | the charge state as the last step left it, `OPENSC2_CHARGE_GAVE_UP` included |
 | `opensc2_charger_window(&c, opensc2_charge_target_mv())` | the factory charge window's cap (0: the configured target); a change starts the rules over |
 | `opensc2_charger_gauge_state(&c, status)` | the charge state for `opensc2_gauge_begin_charger()`, before the step |

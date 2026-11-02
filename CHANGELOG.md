@@ -277,6 +277,39 @@ controller is listed in docs/protocol.md's gaps.
   interval longer than 7.5 ms, and the bonds of each identity at every start, as the real
   controller's log has them (in OpenSC2's words).
 
+**The battery, the charger and the board's parts**
+
+- The library's fuel gauge (`<opensc2/battery.h>`, `CONFIG_OPENSC2_BATTERY_GAUGE`, on with
+  `CONFIG_OPENSC2_BATTERY`): `opensc2_battery_start()` takes the board's battery reading and,
+  optionally, its charger's controls, a cut-off and a curve or gauge chip of its own; the charger's
+  status and five values (system and input voltage, battery and input current, temperature) can be
+  set at any time (`opensc2_charger_set_status()`, `opensc2_charger_set_values()`, or the
+  `charger_update` callback at every pass). The library then runs the real controller's gauge: a
+  pass once a second (the first after 250 ms), 40 fresh readings in a row at the start and when
+  charging starts or stops (then 250 ms), the reported voltage as their average (frozen while the
+  charge is done; a failed reading keeps the last average for that pass), the level per direction with the stretch's scale in whole percent, kept over a
+  warm reboot in the retained RAM area, and the charge state machine 0 / 1 / 3 / 2 / 4 with the
+  supply check (4600, 4500, 4400 mV, 5 s apart), its give-up flag `0x80` and 60 s rest, the
+  4120 / 4160 mV charge voltages, the charge window `mte/charge_level` as a cap, and the battery
+  cut-off at power-off without input power. A board without a charger status gets the library's
+  charger model; `opensc2_battery_set_charge_target()`, `opensc2_battery_get()`. Built and
+  host-tested; not yet run on a battery or a charger.
+- Input power and the capacitive sensors (`<opensc2/battery.h>`): `opensc2_input_power()`, and the
+  real controller's boost of its capacitive readings without input power, stick-touch words ×1.2,
+  grip words ×1.5 and electrode signals ×1.25 in single precision
+  (`opensc2_cap_unpowered()`, `opensc2_cap_now()`), applied to the words of
+  `opensc2_set_touch_raw()` and `opensc2_set_raw()` with `CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN` (on by default; only a board
+  with a battery is ever without input power). The gauge's board struct takes an `input_changed`
+  callback, called at the start and at every change of input power (looked at every 50 ms), for
+  the charger's input current limit, which the real controller raises for any supply.
+- The blank canvas's battery option (`CONFIG_APP_BATTERY`) runs the fuel gauge: the divider
+  switched on once per batch of readings, the chip's VDD as the system voltage, an optional `input`
+  io-channel, the charger pin as the charger's status.
+- The stream build's IMU set-up as the real controller's (`app/src/imu_board.c`): both sensors at
+  250 Hz in high-accuracy mode (`LSM6DSVXXX_DT_ODR_HA01_AT_250Hz`), the free-fall window (63, or 0
+  on hardware ID `0x45`) and the fusion block's alpha-blending factor 0.05 on hardware IDs up to
+  `0x48` (by the hardware ID the board reports). Built; not yet run on hardware.
+
 **The dock**
 
 - The controller's end of Valve's puck's charging pads: the 73-byte frames with their CRC-16/KERMIT
@@ -397,6 +430,17 @@ controller is listed in docs/protocol.md's gaps.
   boot and keeps the last sample while setting 48 is 0 (it sent nothing until 48 was written, and
   zeros while 48 was 0); `CONFIG_APP_IMU_ALWAYS` is gone; `app/imu-stream.overlay` runs the
   LSM6DSV16X at the real controller's 250 Hz high-accuracy rate.
+- Reports `0x43` and `0xBE` send the level as given, as the real controller sends its gauge's
+  value (255 is its "no reading yet"; nothing is clamped to 100 any more). With the fuel gauge, the first `0x43` after a cold
+  start carries level 255, charge state 0 and zeros, as the real controller's does.
+- The blank canvas frees each I2C bus at boot whenever it has one (`CONFIG_APP_I2C_RECOVER` is on
+  by default now), as the real controller does at every start of its I2C drivers.
+- `app/expander.conf` reads its PCA9555 on the expander's INT output (P0.24, the left trigger
+  button's pin) instead of polling it every 16 ms, so the bus is quiet while no button moves, as
+  on the real controller (whose expander's line stays up while a button is down, its buttons then
+  read until all are up).
+- The LED examples (app overlay comments, `app/README.md`, `samples/rgb_led`) use the real
+  controller's 50 µs PWM period (20 kHz) instead of 1 ms.
 - Vendor command `0x89` answers the defaults of settings 48, 84 and 85, as the real controller does
   (it hands them to its IMU); the application still sees the values Steam wrote. A number above 85
   reads 0, also as on the real controller (it was a STALL).

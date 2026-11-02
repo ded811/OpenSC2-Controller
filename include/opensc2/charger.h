@@ -38,12 +38,18 @@
 extern "C" {
 #endif
 
-/* What the charger chip says it is doing. */
+/* What the charger says it does: the real controller's charger reports the first four. Shared
+ * with the library's fuel gauge (<opensc2/battery.h>), which runs these same rules itself. */
 enum opensc2_charger_status {
-	OPENSC2_CHARGER_NOT_CHARGING = 0,
-	OPENSC2_CHARGER_PRECHARGE = 1,
-	OPENSC2_CHARGER_FAST_CHARGE = 2,
-	OPENSC2_CHARGER_CHARGE_DONE = 3,
+	OPENSC2_CHARGER_OFF = 0,          /* not charging (no input power, or the input does not do) */
+	OPENSC2_CHARGER_PRECHARGE = 1,    /* charging a deeply discharged cell gently */
+	OPENSC2_CHARGER_CHARGING = 2,     /* charging */
+	OPENSC2_CHARGER_DONE = 3,         /* the charge is done */
+	/* The board cannot tell (no charger status): the library's fuel gauge then uses its own model
+	 * of a charger, charging while there is input power and the battery's average stays under the
+	 * charge voltage the gauge last asked for, done from there on, off without input power. The
+	 * gauge's default; the pure rules below take it as "off". */
+	OPENSC2_CHARGER_UNKNOWN = 0xFF,
 };
 
 /* The rules' numbers; opensc2_charger_defaults() gives the real controller's. */

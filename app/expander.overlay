@@ -12,17 +12,24 @@
  *   pin 0  D-pad left     pin 2  L4 (left upper grip)    pin 4  R4 (right upper grip)
  *   pin 1  D-pad right    pin 3  L5 (left lower grip)    pin 5  R5 (right lower grip)
  *
- * Pins 6 to 15 are free for more. gpio-keys reads the expander in polling mode, every 16 ms; the
- * buttons on the nRF52840's own pins are debounced 16 ms too. Untested on hardware: check the
- * address (0x20 with A0, A1 and A2 low) and the pins against your module.
+ * Pins 6 to 15 are free for more. Like the real controller's expander, the PCA9555 tells the
+ * nRF52840 on an interrupt line: INT goes to P0.24, the left trigger button's pin (that button
+ * moves off the board, as in imu-stream.overlay), so the bus stays quiet while no button moves.
+ * The real controller's expander holds its line while any button is down and its buttons are then
+ * read until all are up; the PCA9555's line marks a change instead, so it is read at each change. gpio-keys then debounces 16 ms, as it does
+ * the buttons on the nRF52840's own pins here. A module without its INT wired: delete the
+ * interrupt-gpios line and put polling-mode back into opensc2_buttons_polled (read every 16 ms).
+ * Untested on hardware: check the address (0x20 with A0, A1 and A2 low) and the pins against your
+ * module.
  */
 #include <zephyr/dt-bindings/i2c/i2c.h>
 #include <dt-bindings/opensc2/inputs.h>
 
 / {
+	/* The label is the one app/src/inputs.c looks for: a second gpio-keys, polled or (here) on
+	 * the expander's interrupt. */
 	opensc2_buttons_polled: opensc2_buttons_polled {
 		compatible = "gpio-keys";
-		polling-mode;
 		debounce-interval-ms = <16>;
 		/* the expander's pins cannot be disconnected on suspend */
 		no-disconnect;
@@ -40,6 +47,7 @@
 	debounce-interval-ms = <16>;
 	/delete-node/ dpad_left;
 	/delete-node/ dpad_right;
+	/delete-node/ trigger_l;   /* its pin carries the expander's INT */
 };
 
 &pinctrl {
@@ -69,5 +77,7 @@
 		gpio-controller;
 		#gpio-cells = <2>;
 		ngpios = <16>;
+		/* open drain, active low: the nRF52840's pull-up */
+		interrupt-gpios = <&gpio0 24 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
 	};
 };

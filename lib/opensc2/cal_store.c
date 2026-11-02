@@ -22,6 +22,7 @@
 #include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <opensc2/battery.h>
 #include <opensc2/docking.h>
 #include <opensc2/sensor_helpers.h>
 #include "internal.h"
@@ -435,13 +436,24 @@ static void set_raw_locked(const struct opensc2_raw_inputs *in)
 
 int opensc2_set_raw(const struct opensc2_raw_inputs *in)
 {
+	struct opensc2_raw_inputs given;
 	k_spinlock_key_t lk;
 
 	if (!in) {
 		return -EINVAL;
 	}
+	/* The capacitive words boosted without input power, as the real controller does
+	 * (<opensc2/battery.h>), whichever setter gave them. */
+	given = *in;
+	for (int side = 0; side < 2; side++) {
+		if (given.present & (OPENSC2_RAW_TOUCH_L << side)) {
+			given.stick_touch[side] = (int16_t)opensc2_cap_now(OPENSC2_CAP_STICK_TOUCH,
+									   given.stick_touch[side]);
+			given.grip[side] = (int16_t)opensc2_cap_now(OPENSC2_CAP_GRIP, given.grip[side]);
+		}
+	}
 	lk = k_spin_lock(&raw_lock);
-	set_raw_locked(in);
+	set_raw_locked(&given);
 	k_spin_unlock(&raw_lock, lk);
 	return 0;
 }
@@ -491,7 +503,7 @@ int opensc2_set_touch_raw(enum opensc2_side side, int16_t stick_word, int16_t gr
 		return -EINVAL;
 	}
 	in.present = (uint8_t)(OPENSC2_RAW_TOUCH_L << side);
-	in.stick_touch[side] = stick_word;
+	in.stick_touch[side] = stick_word;   /* boosted by opensc2_set_raw() without input power */
 	in.grip[side] = grip_word;
 	return opensc2_set_raw(&in);
 }

@@ -299,6 +299,7 @@ int imu_init(void)
 	}
 	(void)opensc2_imu_set_mounting(m);   /* the board's, as the real controller's sets its own */
 	(void)opensc2_imu_set_handler(&handler, NULL);
+	imu_board_setup();   /* free-fall window, fusion blend, high-accuracy mode */
 	k_thread_start(imu_tid);
 	return 0;
 }

@@ -137,9 +137,10 @@ three digits: "006" is P0.06, "111" is P1.11.
 - **Every button**: the build [expander.conf](expander.conf) (with
   [expander.overlay](expander.overlay); untested on hardware) adds L4, L5, R4 and R5 through an
   I2C port expander, as the real controller reads most of its buttons: an NXP PCA9555 on P0.17
-  (SDA) and P0.20 (SCL), which also takes the D-pad's left and right buttons from those pins. The
-  expander is polled every 16 ms and every button is debounced 16 ms; the overlay's header lists
-  the expander's pins.
+  (SDA) and P0.20 (SCL), which also takes the D-pad's left and right buttons from those pins, and
+  its INT output on the left trigger button's pin (P0.24). The expander is read only when INT
+  says an input changed, so the bus is quiet while no button moves, as on the real controller,
+  and every button is debounced 16 ms; the overlay's header lists the expander's pins.
 - **Stick touch and grips**: any input device that the chosen node `opensc2,touch-keys` names, its
   key codes the touch bits; the build [sensors.conf](sensors.conf) has a Microchip CAP1206
   capacitive sensor (polled, address 0x28) for all four (untested on hardware). The sensor's own
@@ -391,18 +392,18 @@ Each needs pins, which the default map has used up: take them from buttons you d
 | Trackpads (any touch device of Zephyr's input subsystem) | `chosen { opensc2,right-trackpad = &touch; };` (and `opensc2,left-trackpad`), `right-trackpad-size`, optional `right-trackpad-keep-y` | [samples/touchpad](../samples/touchpad/README.md) |
 | IMU (any accelerometer and gyroscope with a sensor driver) | `aliases { imu0 = &imu; };` | [samples/imu](../samples/imu/README.md) |
 | Stick touch and grips (any input device whose key codes are the touch bits, such as a CAP12xx capacitive sensor) | `chosen { opensc2,touch-keys = &touch_keys; };` | [sensors.overlay](sensors.overlay) |
-| More buttons on an I2C port expander | a second gpio-keys node labelled `opensc2_buttons_polled`, in polling mode | [expander.overlay](expander.overlay) |
+| More buttons on an I2C port expander | a second gpio-keys node labelled `opensc2_buttons_polled`, on the expander's interrupt (or in polling mode without one) | [expander.overlay](expander.overlay) |
 | A mode switch (closed at power-up: wireless) | `mode-wireless-gpios` in `zephyr,user` | the overlay's comment |
 
 The PWM parts share one `pwms` list in `zephyr,user`, found by their `pwm-names`. All channels of
-one nRF PWM instance share one period, so a motor (200 µs) and an RGB LED (1000 µs) use two
-instances:
+one nRF PWM instance share one period, so a motor (200 µs) and an RGB LED (50 µs, 20 kHz: the
+real controller's period for its status and IR LEDs) use two instances:
 
 ```dts
 pwms = <&pwm1 0 PWM_USEC(200) PWM_POLARITY_NORMAL>,
-       <&pwm2 0 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-       <&pwm2 1 PWM_USEC(1000) PWM_POLARITY_INVERTED>,
-       <&pwm2 2 PWM_USEC(1000) PWM_POLARITY_INVERTED>;
+       <&pwm2 0 PWM_USEC(50) PWM_POLARITY_INVERTED>,
+       <&pwm2 1 PWM_USEC(50) PWM_POLARITY_INVERTED>,
+       <&pwm2 2 PWM_USEC(50) PWM_POLARITY_INVERTED>;
 pwm-names = "rumble", "red", "green", "blue";
 ```
 
@@ -447,11 +448,11 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_APP_ANALOG_SAMPLE=n` | read sticks and triggers in a thread of their own every 4 ms instead of right before each state report (the default, four conversions averaged; `sensor-supply-gpios`, and `sensor-supply-settle-us`, 200 by default, in `zephyr,user` powers the sensors only while they are read; untested) |
 | `CONFIG_APP_ANALOG_RAW=n` | sticks and triggers on this firmware's own centring, not through the library's stored calibration (the default: [Calibration](#calibration); untested) |
 | `CONFIG_APP_ANALOG_SELF_CENTRE=y` | a stick or trigger without a stored calibration on this firmware's own centring instead of reading 0 ([Calibration](#calibration)) |
-| `CONFIG_APP_IMU_STREAM=y` | an LSM6DSV16X's FIFO streamed with its own fusion (game rotation vector, gyro bias) as the real controller reads it, at 250 Hz, from boot, switched by setting 48; the build [imu-stream.conf](imu-stream.conf) with [imu-stream.overlay](imu-stream.overlay) (an interrupt pin and the FIFO settings; untested) |
+| `CONFIG_APP_IMU_STREAM=y` | an LSM6DSV16X's FIFO streamed with its own fusion (game rotation vector, gyro bias) as the real controller reads it, from boot, switched by setting 48; set up as the real controller's: 250 Hz in high-accuracy mode, the free-fall window, the fusion's alpha-blending factor on hardware IDs up to `0x48`; the build [imu-stream.conf](imu-stream.conf) with [imu-stream.overlay](imu-stream.overlay) (an interrupt pin and the FIFO settings; untested) |
 | `CONFIG_APP_IMU_BIAS=y` | a rest-based gyro bias for an IMU without one, handed to the library's IMU as the sensor's bias (subtracted while setting 84 is on), setting 85 its threshold ([sensor helpers](../docs/api.md#sensor-helpers); untested; not with `CONFIG_APP_IMU_STREAM`, which has the LSM6DSV16X's own). The IMU's mounting matrix is `imu-mounting-matrix` in `zephyr,user` (9 values, row major) |
 | `CONFIG_APP_PAD_PROCESSING=y` | for a touch device with a strength: the real controller's touch from a signal level, with settings 72 and 73 and the damping near lift-off (`trackpad-strength-scale` in `zephyr,user`, 40 by default: tune it), and the level as the pad's raw pressure word, so a pressure calibration gives the pad its pressure and its click by pressure (untested) |
-| `CONFIG_APP_I2C_RECOVER=y` | free each I2C bus at boot, in case a reset caught a part in the middle of a transfer (untested) |
-| `CONFIG_APP_BATTERY=y` | the battery level of report `0x43` from VDDH / 5, or from a `battery` io-channel in `zephyr,user` with `battery-divider-ohms = <total bottom>` and an optional `battery-enable-gpios` (untested) |
+| `CONFIG_APP_I2C_RECOVER=n` | on by default whenever the board has an I2C bus: each bus is freed at boot, in case a reset caught a part in the middle of a transfer, as the real controller does (untested); `n` leaves it out |
+| `CONFIG_APP_BATTERY=y` | the library's fuel gauge on this board's readings: VDDH / 5, or a `battery` io-channel in `zephyr,user` with `battery-divider-ohms = <total bottom>` and an optional `battery-enable-gpios`; the system voltage is the chip's VDD, the input voltage an optional `input` io-channel with `input-divider-ohms`; SAADC channels 6 (VDD) and 7 (VDDH) are this build's, so the overlay numbers its own ADC channels below 6 (untested) |
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
 | `CONFIG_OPENSC2_BATTERY=y` | **not here**: in the [battery build](#a-battery-build) (`battery.conf`) |
 | `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
@@ -515,12 +516,16 @@ nRF52840 enters System OFF. STEAM wakes it (the pin of the key with `OPENSC2_KEY
 one, any key), and so does plugging in USB. Without a STEAM button wired, only a USB cable or a
 reset brings it back. On USB power it behaves as the default build.
 
-This board measures no battery voltage: the level reads 255, the real controller's "no level yet"
-(100 % with only a charger status pin), unless `CONFIG_APP_BATTERY` or an application sets one, and
-low battery never turns it off. With a charger status pin or `CONFIG_APP_BATTERY`, the charge state
-follows the real controller's charging rules (`<opensc2/charger.h>`: 1 on battery, 3 for a moment
-after plugging in, then 2 while charging and 4 when done), fed by a charger's status output when the board has one (`charger-status-gpios`,
-[Optional parts](#optional-parts)), else "charging" while USB power is present.
+`battery.conf` alone measures no battery voltage, so the level stays at 100 % unless an
+application sets one, and low battery never turns it off. A charger with a status output can give
+report `0x43` its charge state (`charger-status-gpios`, [Optional parts](#optional-parts)). Add
+`CONFIG_APP_BATTERY=y` to measure the battery: the library's fuel gauge
+([docs/api.md](../docs/api.md#the-battery-and-the-charger)) then runs the real controller's rules
+on this board's readings (VDDH / 5 for a cell on VDDH, or a `battery` io-channel): a pass once a
+second, the level from 40 readings with OpenSC2's LiPo curves, kept over a warm reboot, and the
+real controller's charge states 0 to 4 (from the charger pin, or the library's charger model
+without one). The first `0x43` after a cold start says level 255 and charge state 0, as the real
+controller's does.
 
 ## The hardware test hooks
 

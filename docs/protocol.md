@@ -33,7 +33,7 @@ say which, and which of them the documentation has now.
 | Pairing over the cable, and the reboot into wireless mode | [The cable](#overview-the-cable) | [Pairing a controller with a puck over the cable](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#pairing-a-controller-with-a-puck-over-the-cable), [Reboot into wireless mode](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#reboot-into-wireless-mode) |
 | The July and October 2026 forms of the USB device | [gap 14](#where-this-library-had-to-fill-gaps) | [What changed since July](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#what-changed-since-july) |
 | Wired or wireless at boot, the warm restart, the LEDs | [The cable](#overview-the-cable), [Reports and outputs](#overview-reports-and-outputs), [api.md, Modes](api.md#modes) | [docs/controller/09-system.md, The state machine](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#the-state-machine) |
-| The battery voltage and charge level, what erases the stored settings | [api.md, Battery helpers](api.md#battery-helpers), [gap 31](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
+| The battery voltage and charge level, the charge states, what erases the stored settings | [api.md, The battery and the charger](api.md#the-battery-and-the-charger), [api.md, Battery helpers](api.md#battery-helpers), [gaps 3 and 31](#where-this-library-had-to-fill-gaps) | [Power and charging](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#power-and-charging), [What erases what](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md#what-erases-what) |
 | Power, the chords, the keylock, the idle timeout, low battery, shutdown, the status LED's modes and patterns, the cues | [Power, chords and the status LED](#overview-power-chords-and-the-status-led), [api.md, Power and the system state machine](api.md#power-and-the-system-state-machine), [api.md, Status LED](api.md#status-led), [gap 34](#where-this-library-had-to-fill-gaps) | [docs/controller/09-system.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/09-system.md) |
 | Output reports `0x80`..`0x8A` | [Reports and outputs](#overview-reports-and-outputs), [api.md, Outputs](api.md#outputs) | [docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md) |
 | Bluetooth LE: advertising, pairing, the HID service, the gate, reports, the transport choice (an opt-in build here) | [Bluetooth LE](#overview-bluetooth-le), [api.md, Wireless transports](api.md#wireless-transports-and-bluetooth-le) | [docs/controller/05-bluetooth.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/05-bluetooth.md) |
@@ -384,16 +384,21 @@ open, the library does what should work with Steam and the puck, and says so her
 2. **Rumble report `0x80`** (closed). The research documentation and SDL's `MsgHapticRumble` agree:
    `[0]` the type, `[1..2]` the level, `[3..4]` the left speed, `[6..7]` the right speed. The
    library also decodes the gain bytes `[5]` and `[8]`, which the July 2026 firmware used.
-3. **Report `0x43` charge state.** The library sends the application's charge state as given, in
-   SDL's `EChargeState` numbering (the type SDL gives this byte; SDL reads 1 as on battery, 2 as
-   charging, 4 as charged). The real controller adds a flag bit `0x80` to it while its charger has
-   given up on a supply that does not charge the battery (it tries again 60 s later). The library
-   sends what the application gives, flag included (`OPENSC2_CHARGE_GAVE_UP`), and then, as on the
-   real controller, the power rules and the LED are told 100 % while the level is above 0. The
-   real controller's byte is the state of its charging rules; `<opensc2/charger.h>` gives a board
-   the same rules for its own charger ([api.md](api.md#charging-helpers)), and the blank canvas uses
-   them for an optional charger status pin. A board without a charger it can read reports what it
-   knows. The level goes out as given, 255 included (the real
+3. **Report `0x43` charge state** (closed for a board that runs the library's fuel gauge). The
+   charge state is the index of the real controller's charge state machine, in SDL's
+   `EChargeState` numbering (SDL reads 1 as on battery, 2 as charging, 4 as charged): 0 starting
+   over, 1 not charging, 3 checking the supply, 2 charging, 4 done, with the flag bit `0x80` while
+   the supply check has given up (it tries again 60 s later). With `CONFIG_OPENSC2_BATTERY_GAUGE`
+   and `opensc2_battery_start()` the library runs that machine on the board's charger status and
+   input power, with the documented timings and limits, and adds the flag as the real controller
+   does ([api.md](api.md#the-battery-and-the-charger)); then, as on the real controller, the power
+   rules and the LED are told 100 % while the flag is set and the level is above 0. What stays the
+   board's: the charger itself. A board whose charger reports no status gets the library's model
+   (charging under the charge voltage asked for, then done), and the input-voltage limit and the
+   charge voltage reach a charger only through the board's callbacks. Without the gauge the
+   application's charge state goes out as given (a board without a battery: "done", 100 %).
+   A board that runs its own gauge gets the same machine from `<opensc2/charger.h>`
+   ([api.md](api.md#charging-helpers)). The level goes out as given, 255 included (the real
    controller's "no level yet"); before the application gives a battery, a battery build sends what
    the real controller's first report after start-up carries (the level kept over a warm reset, else
    255, charge state 0, zeros), and a build without a battery a full one.
@@ -631,12 +636,10 @@ open, the library does what should work with Steam and the puck, and says so her
     and 200 from 200. The library does the same: the colour is kept as sent, 0..255, the
     application gets it unchanged (`led` callback, `opensc2_led_get()`), and the system state
     machine's LED rules render a channel above 100 at full duty at most (`opensc2_led_duty()`). (0.2.0 clamped it to 100.)
-25. **`0xBE`'s bytes 13 and 14** (closed). The documentation gives byte 13 as "1 while charging" and
-    byte 14 as `0x43`'s charge state without its `0x80` flag; byte 12, the level, goes out as given
-    (255 included), as `0x43`'s does. On the real controller byte 13 is 1 exactly while its
-    charging rules are in state 2, and the flag is never set in that state; the library derives
-    byte 13 from the application's charge state the same way (1 for state 2), which is identical
-    whenever the application reports the charging rules' state (`<opensc2/charger.h>`).
+25. **`0xBE`'s bytes 13 and 14** (closed). Byte 13 is the fuel gauge's flags: 1 exactly while its
+    charge state machine is in state 2 (charging, which never carries the give-up flag); byte 14 is
+    `0x43`'s charge state without its `0x80` flag. The library derives byte 13 from the charge
+    state the same way, which the documentation of the real controller's gauge confirms.
 26. **Settings by name.** The library knows exactly the real controller's keys
     ([api.md](api.md#settings-by-name)); other names go to the application, then, as on the real
     controller, to any other settings handler of the build (Bluetooth's keys, the application's;
@@ -651,6 +654,10 @@ open, the library does what should work with Steam and the puck, and says so her
     0/0 brings the real controller's announcement at every power-on (gap 34), and
     `opensc2_charge_target_mv()` gives its upper value to a board whose charger can stop there (the
     real controller programs its charger chip with it; a board without such a charger cannot).
+    The library's fuel gauge acts on the factory charge window as the real controller's does
+    (every load, `0xEE` or `0xF0` of it sets the charge voltage target to the window's upper end,
+    or back to the configured one; the factory reset's delete changes nothing until the next
+    boot).
     With the haptics synthesiser, `0xEE` on
     `settings/haptics/haptic_master_gain_db` or `.../amplifier_mode` goes to the four channels at
     once, as on the real controller, past settings 76 and 75 (which `0x89` still reads as they
@@ -750,9 +757,12 @@ open, the library does what should work with Steam and the puck, and says so her
       a board revision of `0x48` or later; the sticks and triggers are set up again when the
       controller docks or leaves the dock (on a board of any revision), as the real controller
       does;
-    - not reproduced, being Valve's hardware: the scaling of the capacitive words without
-      external power and the trackpad chip's electrode processing (an application gives positions,
-      a signal level or the words);
+    - without input power the stick-touch and grip words given with `opensc2_set_touch_raw()` or
+      `opensc2_set_raw()` are boosted ×1.2 and ×1.5 before the rules see them, as the real controller boosts its own
+      (`CONFIG_OPENSC2_TOUCH_UNPOWERED_GAIN`, on by default; a board passes its own electrode
+      signals through `opensc2_cap_now()` for the real controller's ×1.25);
+    - not reproduced, being Valve's hardware: the trackpad chip's electrode processing (an
+      application gives positions, a signal level or the words);
     - left as they are, being timing inside one frame or a failure path no host sees: the real
       controller's set-up of its sticks and triggers (a key load, setting 68, the dock) runs in its
       sampling loop and can cost that loop one state report when it coincides with a slot, where
@@ -935,6 +945,50 @@ open, the library does what should work with Steam and the puck, and says so her
     known. The SuperMini dock build (`app/dock.conf`) is a guess at the controller's side (an
     open-drain TX, RX without a pull, the pilot on an analog pin), built and never run; nothing may
     be connected to Valve's puck's pads without the owner's go-ahead.
+
+## The board's own parts
+
+The real controller runs part of its behaviour on its own chips: a charger with a fuel gauge, a
+trackpad controller, an IMU with a fusion block, a button expander, an analog window on the dock's
+pilot. The library does what those parts' drivers do with values the board supplies
+([api.md, The battery and the charger](api.md#the-battery-and-the-charger)), and the blank canvas's
+optional builds set their parts up as the real controller sets its own. What stays different, and
+why:
+
+- **The charger chip itself**: its registers, its supply-type detection (the current each supply
+  type allows), its initial configuration and its ship mode are Valve's part. The library runs the
+  charge state machine, the gauge and the cut-off on the board's callbacks (`set_charge_voltage`,
+  `set_input_voltage_limit`, `input_changed`, `battery_cutoff`), and only a board with a charger it
+  can program gets those writes; a board whose charger tells no status gets the library's model.
+  Input power is the library's view (`opensc2_power_source()`, gap 34), where the real controller
+  takes its charger's supply detection.
+- **The level's curves** are OpenSC2's own single-cell LiPo curves; the real controller's are
+  Valve's data for Valve's cell. The rules on them (the 40 readings, the stretch, the direction,
+  "done" is 100, the level kept over a warm reboot) are the real controller's.
+- **The trackpad chip**: its frame protocol, its register tables and its firmware updater belong to
+  Valve's chip and its firmware, which are not reproduced; an application gives frames or positions
+  (gaps 31 and 32). The boost of the capacitive readings without input power is the library's
+  ([api.md](api.md#input-power-and-the-capacitive-sensors)).
+- **The hardware-ID check** (an unknown board revision blinks red and reboots into Valve's
+  bootloader) and the factory identity in UICR: there is no such bootloader or record here; the
+  reported board revision is a setting (`0x48` by default). What the real controller changes by
+  revision is done by the same number: the IMU's free-fall window (0 on `0x45`) and fusion
+  alpha-blend (up to `0x48`) in the stream build, the docked stick offsets (gap 31).
+- **The analog inputs**: the sticks use the real controller's scale (gain 1/4 of VDD/4) but a
+  10 µs acquisition time instead of 3 µs, because the blank canvas holds unwired pins at mid-scale
+  with the converter's own high-value resistors, which a 3 µs sample does not settle on.
+- **The SoC set-up**: the default app is built without the hardware FPU, so its single-precision
+  arithmetic matches the host tests bit for bit (OpenSC2's code is not Valve's compiled code, so an
+  FPU would not make it identical either); MPU stack guards are on, as on the real controller; MPU
+  null-pointer detection is off; the log is a USB console instead of RTT.
+- **Power-off**: the real controller sets no wake-up source for System OFF (its own hardware wakes
+  it); the blank canvas wakes on STEAM and on a new USB supply, as a development board needs.
+- **The buttons**: the blank canvas's `gpio-keys` report a change once the contact has been steady
+  for 5 ms (16 ms in the expander build), where the real controller counts a change at once and then
+  holds the pin for 16 ms; the expander build's PCA9555 is read when its interrupt output marks a
+  change, where the real controller's expander holds its line while any button is down and its
+  buttons are read until all are up (either way the bus is quiet while no button is pressed).
+- **The dock's wire**: gap 41.
 
 ## What this library adds for development boards
 

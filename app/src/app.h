@@ -46,6 +46,8 @@ int trackpad_init(void);
  * CONFIG_APP_IMU_STREAM). A controller setting changed: the IMU's own (48) are handed over. */
 int imu_init(void);
 void imu_setting(uint8_t number, int16_t value);
+/* imu_board.c: the real controller's set-up of an LSM6DSV16X (stream build), before the stream. */
+void imu_board_setup(void);
 
 
 /* battery.c: report 0x43's battery: the level (CONFIG_APP_BATTERY) and a charger's status pin

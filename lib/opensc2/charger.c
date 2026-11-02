@@ -92,7 +92,7 @@ uint8_t opensc2_charger_gauge_state(const struct opensc2_charger *c,
 	if (c->state == OPENSC2_CHARGE_DONE) {
 		return OPENSC2_CHARGE_DONE;
 	}
-	if (status == OPENSC2_CHARGER_PRECHARGE || status == OPENSC2_CHARGER_FAST_CHARGE) {
+	if (status == OPENSC2_CHARGER_PRECHARGE || status == OPENSC2_CHARGER_CHARGING) {
 		return OPENSC2_CHARGE_CHARGING;
 	}
 	return OPENSC2_CHARGE_DISCHARGING;
@@ -102,8 +102,13 @@ uint8_t opensc2_charger_step(struct opensc2_charger *c, bool input_power,
 			     enum opensc2_charger_status status, uint16_t battery_mv,
 			     uint32_t now_ms, struct opensc2_charger_out *out)
 {
-	bool charging = status == OPENSC2_CHARGER_PRECHARGE ||
-			status == OPENSC2_CHARGER_FAST_CHARGE;
+	bool charging;
+
+	if (status == OPENSC2_CHARGER_UNKNOWN) {
+		status = OPENSC2_CHARGER_OFF;   /* no status to go by: these rules take it as off */
+	}
+	charging = status == OPENSC2_CHARGER_PRECHARGE ||
+			status == OPENSC2_CHARGER_CHARGING;
 
 	memset(out, 0, sizeof(*out));
 	if (!input_power && c->state != OPENSC2_CHARGE_RESET) {
@@ -123,7 +128,7 @@ uint8_t opensc2_charger_step(struct opensc2_charger *c, bool input_power,
 		}
 		break;
 	case OPENSC2_CHARGE_CHARGING:
-		if (status == OPENSC2_CHARGER_CHARGE_DONE) {
+		if (status == OPENSC2_CHARGER_DONE) {
 			enter(c, OPENSC2_CHARGE_DONE, now_ms, out);
 		} else if (!charging) {
 			enter(c, OPENSC2_CHARGE_DISCHARGING, now_ms, out);
@@ -131,7 +136,7 @@ uint8_t opensc2_charger_step(struct opensc2_charger *c, bool input_power,
 		break;
 	case OPENSC2_CHARGE_SRC_VALIDATE:
 		if (due(c, now_ms)) {
-			if (status == OPENSC2_CHARGER_NOT_CHARGING) {
+			if (status == OPENSC2_CHARGER_OFF) {
 				/* The supply sags under the charge current: accept a lower voltage. */
 				out->set_vin_limit = true;
 				out->vin_limit_mv = c->vin_limit_mv;
@@ -141,7 +146,7 @@ uint8_t opensc2_charger_step(struct opensc2_charger *c, bool input_power,
 		}
 		if (charging) {
 			enter(c, OPENSC2_CHARGE_CHARGING, now_ms, out);
-		} else if (status == OPENSC2_CHARGER_CHARGE_DONE) {
+		} else if (status == OPENSC2_CHARGER_DONE) {
 			enter(c, OPENSC2_CHARGE_DONE, now_ms, out);
 		} else if (c->vin_limit_mv <= c->cfg.vin_min_mv) {
 			enter(c, OPENSC2_CHARGE_DISCHARGING, now_ms, out);

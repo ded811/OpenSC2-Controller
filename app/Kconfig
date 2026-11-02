@@ -47,11 +47,15 @@ config APP_ANALOG_SELF_CENTRE
 
 config APP_BATTERY
 	bool "Measure the battery for report 0x43"
+	select OPENSC2_BATTERY_GAUGE
 	help
-	  Once a second: the battery's voltage through a divider plus cal/volt_offset, the level from
-	  the average of the last 40 readings with OpenSC2's LiPo curves (<opensc2/gauge.h>), charging
-	  while USB power is present. Without a "battery" io-channel in zephyr,user it reads the
-	  nRF52840's VDDH / 5, for a cell that feeds VDDH. Untested on a battery.
+	  The library's fuel gauge (<opensc2/battery.h>) on this board's readings: the battery's
+	  voltage through a divider plus cal/volt_offset, 40 readings with an average, the level with
+	  OpenSC2's LiPo curves, kept over a warm reboot, and the real controller's charge states,
+	  from a charger status pin (charger-status-gpios) or the library's charger model. Without a
+	  "battery" io-channel in zephyr,user it reads the nRF52840's VDDH / 5, for a cell that feeds
+	  VDDH; the system voltage is the chip's VDD, the input voltage an optional "input"
+	  io-channel. Untested on a battery.
 
 config APP_PWM
 	bool
@@ -110,9 +114,12 @@ config APP_PAD_PROCESSING
 config APP_I2C_RECOVER
 	bool "Free each I2C bus at boot, before its parts' drivers start"
 	depends on APP_I2C
+	default y
 	help
-	  As the real controller does: a reset in the middle of a transfer can leave a part holding
-	  SDA low; clocking SCL frees it (Zephyr's i2c_recover_bus()). Untested on hardware.
+	  As the real controller does at every start of its I2C drivers: a reset in the middle of a
+	  transfer can leave a part holding SDA low; clocking SCL frees it (Zephyr's
+	  i2c_recover_bus()). On whenever the board has an I2C bus; turn it off only for a bus whose
+	  driver cannot recover. Untested on hardware.
 
 config APP_I2C_RECOVER_PRIORITY
 	int "Init priority of the bus recovery (POST_KERNEL)"
