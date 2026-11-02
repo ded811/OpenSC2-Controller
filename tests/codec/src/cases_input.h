@@ -313,7 +313,7 @@ static void lz_flick(struct opensc2_lizard *lz, const int16_t *settings, uint32_
 	s.pad[OPENSC2_RIGHT].touched = true;
 	for (int i = 0; i < 21; i++) {
 		s.pad[OPENSC2_RIGHT].x = (int16_t)(-21000 + 2000 * i);
-		(void)opensc2_lizard_step(lz, &s, settings, rules, kb, mouse);
+		(void)lz_step(lz, &s, settings, rules, kb, mouse);
 	}
 }
 
@@ -324,7 +324,12 @@ static uint32_t lz_idle(struct opensc2_lizard *lz, const int16_t *settings, uint
 	uint8_t kb[9];
 
 	memset(&s, 0, sizeof(s));
-	return opensc2_lizard_step(lz, &s, settings, rules, kb, mouse);
+	return lz_step(lz, &s, settings, rules, kb, mouse);
+}
+
+static bool lz_gliding(const struct opensc2_lizard *lz, int side)
+{
+	return lz->pad[side].glide > 0.0f && !lz->pad[side].touched;
 }
 
 OPENSC2_TEST(lizard_glide_ends)
@@ -335,36 +340,53 @@ OPENSC2_TEST(lizard_glide_ends)
 	const uint32_t rules = OSC2_RULE_LIZARD_GLIDE;
 
 	in_defaults(settings);
-	/* The flick glides: the lift-off frame moves by the flick speed (2000 / 128 = 15). */
+	/* The flick glides: the lift-off frame moves by the flick speed, with the remainder of the
+	 * touch: (2000 + 64) / 128 = 16, 16 left. */
 	opensc2_lizard_reset(&lz);
 	lz_flick(&lz, settings, rules);
 	CHECK_EQ(lz_idle(&lz, settings, rules, mouse), OPENSC2_LIZARD_MOUSE);
-	CHECK(lz.pad[OPENSC2_RIGHT].gliding);
+	CHECK_EQ((int8_t)mouse[2], 16);
+	CHECK(lz_gliding(&lz, OPENSC2_RIGHT));
+	/* The factor 1 - 1/100 in the next frame: 2000 * 0.99 = 1980, + 16 = 1996: 15. */
+	CHECK_EQ(lz_idle(&lz, settings, rules, mouse), OPENSC2_LIZARD_MOUSE);
+	CHECK_EQ((int8_t)mouse[2], 15);
+	CHECK_EQ(lz.pad[OPENSC2_RIGHT].rem_x, 76);
 	/* The resync of the test hooks zeroes the momentum: nothing after it. */
 	opensc2_lizard_resync(&lz);
-	CHECK(!lz.pad[OPENSC2_RIGHT].gliding);
+	CHECK(!lz_gliding(&lz, OPENSC2_RIGHT));
 	CHECK_EQ(lz_idle(&lz, settings, rules, mouse), 0);
 	CHECK_EQ(lz_idle(&lz, settings, rules, mouse), 0);
 	/* Lizard mode turning off ends it, and turning on starts over. */
 	lz_flick(&lz, settings, rules);
 	(void)lz_idle(&lz, settings, rules, mouse);
-	CHECK(lz.pad[OPENSC2_RIGHT].gliding);
-	CHECK_EQ(opensc2_lizard_leave(&lz, kb, mouse), OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
-	CHECK(!lz.pad[OPENSC2_RIGHT].gliding);
+	CHECK(lz_gliding(&lz, OPENSC2_RIGHT));
+	CHECK_EQ(lz_setting(&lz, false, kb, mouse), OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
 	CHECK_EQ(lz_idle(&lz, settings, rules, mouse), 0);
-	(void)opensc2_lizard_enter(&lz, kb, mouse);
+	(void)lz_setting(&lz, true, kb, mouse);
+	CHECK(!lz_gliding(&lz, OPENSC2_RIGHT));
 	CHECK_EQ(lz_idle(&lz, settings, rules, mouse), 0);
 	/* The glide switched off in the middle of one ends it. */
 	lz_flick(&lz, settings, rules);
 	(void)lz_idle(&lz, settings, rules, mouse);
 	(void)lz_idle(&lz, settings, 0, mouse);
-	CHECK(!lz.pad[OPENSC2_RIGHT].gliding);
+	CHECK(!lz_gliding(&lz, OPENSC2_RIGHT));
 	CHECK_EQ(lz_idle(&lz, settings, rules, mouse), 0);
-	/* A dropped link does not: the trackers keep what they had (no frames run meanwhile). */
+	/* A new touch ends it too. */
 	lz_flick(&lz, settings, rules);
 	(void)lz_idle(&lz, settings, rules, mouse);
-	CHECK(lz.pad[OPENSC2_RIGHT].gliding);
-	CHECK_EQ(lz.pad[OPENSC2_RIGHT].glide_frame, 1);
+	lz_flick(&lz, settings, rules);   /* its first frame is a touch-down */
+	CHECK(!lz_gliding(&lz, OPENSC2_RIGHT));
+	/* Setting 12 is read in every frame: a smaller one ends it sooner. */
+	(void)lz_idle(&lz, settings, rules, mouse);
+	settings[OPENSC2_SETTING_MOMENTUM_DECAY] = 1;
+	(void)lz_idle(&lz, settings, rules, mouse);
+	CHECK(!lz_gliding(&lz, OPENSC2_RIGHT));
+	settings[OPENSC2_SETTING_MOMENTUM_DECAY] = 100;
+	/* A dropped link does not end it: the trackers keep what they had (no frames run). */
+	lz_flick(&lz, settings, rules);
+	(void)lz_idle(&lz, settings, rules, mouse);
+	CHECK(lz_gliding(&lz, OPENSC2_RIGHT));
+	CHECK(lz.pad[OPENSC2_RIGHT].glide < 1.0f);
 }
 
 OPENSC2_TEST(lizard_ticks_need_lizard_mode)
@@ -380,20 +402,43 @@ OPENSC2_TEST(lizard_ticks_need_lizard_mode)
 	opensc2_lizard_reset(&lz);
 	memset(&s, 0, sizeof(s));
 	s.pad[OPENSC2_LEFT].touched = true;
-	(void)opensc2_lizard_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse);
+	(void)lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse);
 	s.pad[OPENSC2_LEFT].x = 3000;
-	CHECK(opensc2_lizard_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse) &
+	CHECK(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse) &
 	      OPENSC2_LIZARD_TICK_LEFT);
-	/* Off: no step at all, and back on the count starts at the next touch. */
-	(void)opensc2_lizard_leave(&lz, kb, mouse);
+	/* Setting 9 off: no step at all (the touch is forgotten) ... */
+	(void)lz_setting(&lz, false, kb, mouse);
+	settings[OPENSC2_SETTING_LIZARD_MODE] = 0;
 	s.pad[OPENSC2_LEFT].x = 6000;
-	CHECK_EQ(opensc2_lizard_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse), 0);
-	(void)opensc2_lizard_enter(&lz, kb, mouse);
+	CHECK_EQ(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse), 0);
+	/* ... and back on, the count starts again where the thumb is, in the same touch. */
+	(void)lz_setting(&lz, true, kb, mouse);
+	settings[OPENSC2_SETTING_LIZARD_MODE] = 1;
+	CHECK_EQ(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse), 0);
 	for (int i = 0; i < 4; i++) {
 		s.pad[OPENSC2_LEFT].x = (int16_t)(9000 + 3000 * i);
-		made |= opensc2_lizard_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse);
+		made |= lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse);
 	}
-	CHECK(made & OPENSC2_LIZARD_TICK_LEFT);   /* the touch after enter counts again */
+	CHECK(made & OPENSC2_LIZARD_TICK_LEFT);
+	/* The click state is kept while it is off: a click pressed then plays click B when it comes
+	 * back; one held through it plays nothing. */
+	s.buttons = OPENSC2_CLICK_LEFT_PAD;
+	settings[OPENSC2_SETTING_HAPTICS_ENABLED] = 0;
+	CHECK_EQ(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse) &
+		 OPENSC2_LIZARD_CLICK_LEFT, 0);
+	settings[OPENSC2_SETTING_HAPTICS_ENABLED] = 1;
+	CHECK(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse) &
+	      OPENSC2_LIZARD_CLICK_LEFT);
+	settings[OPENSC2_SETTING_HAPTICS_ENABLED] = 2;
+	(void)lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse);
+	settings[OPENSC2_SETTING_HAPTICS_ENABLED] = 1;
+	CHECK_EQ(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse) &
+		 OPENSC2_LIZARD_CLICK_LEFT, 0);
+	/* A click without a touch is no click. */
+	s.pad[OPENSC2_LEFT].touched = false;
+	CHECK(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse) &
+	      OPENSC2_LIZARD_CLICK_LEFT);   /* the release, as the touch ends */
+	CHECK_EQ(lz_step(&lz, &s, settings, OSC2_RULE_LIZARD_TICKS, kb, mouse), 0);
 }
 
 /* ---- the radio's queue of extra reports ------------------------------------------------------ */

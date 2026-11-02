@@ -38,6 +38,10 @@ void osc2_test_frame(const uint8_t report[OPENSC2_STATE_REPORT_LEN]);
 /* First thing in osc2_report_lizard(): this frame was built from injected inputs without the
  * lizard test, so lizard mode must not see it. */
 bool osc2_test_skip_lizard(void);
+/* While armed (and while the guard stays on after): lizard mode's keyboard hears the buttons with
+ * the frames only, not when the application changes them, so that the tests see the frames'
+ * timing whatever the application does. */
+bool osc2_test_lizard_frames_only(void);
 /* The injected battery, if any, replaces `*b` (the 0x43 report and the 0xBE answer). */
 void osc2_test_battery(struct opensc2_battery *b);
 /* RADIO_DEAF: milliseconds the radio thread stays deaf, once (0: none). */
@@ -137,6 +141,11 @@ static inline void osc2_test_frame(const uint8_t report[OPENSC2_STATE_REPORT_LEN
 }
 
 static inline bool osc2_test_skip_lizard(void)
+{
+	return false;
+}
+
+static inline bool osc2_test_lizard_frames_only(void)
 {
 	return false;
 }

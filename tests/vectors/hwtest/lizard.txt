@@ -6,9 +6,12 @@
 #   FRAME [buttons=0x...] [lpad=x,y] [rpad=x,y] [s82=n] -> <reports>|- [<haptic events>]
 # is one opensc2_lizard_step() (fields not given are 0, the pads' touch and click from the button
 # bits, s82 setting 82 for this frame only), followed by its haptic events in order (TICK_L,
-# TICK_R: click A; CLICK_L, CLICK_R: click B); ENTER, LEAVE, SWITCHES up|down and RESYNC are the
-# transitions (ENTER and LEAVE both send the keyboard report, then the mouse one). Integer division
-# truncates toward zero, as in C.
+# TICK_R: click A; CLICK_L, CLICK_R: click B). The other lines are the transitions, each with the
+# reports it sends: ENTER and LEAVE write setting 9 = 1 or 0 (lizard mode hears of a change only),
+# CMD81 is vendor command 0x81 (setting 9 off, or with it already off the switches down), CMD85
+# is 0x85 (the switches up), SWITCHES up|down the switches alone, RESYNC and RELEASE the hardware
+# test hooks' resync and release. Integer division truncates toward zero, as in C; the travel,
+# the flick speed and the glide's factor are single-precision, as on the real controller.
 START
 FRAME -> -
 FRAME buttons=0x00000001 -> 410000280000000000
@@ -67,13 +70,13 @@ FRAME -> 400000000000
 LEAVE -> 410000000000000000 400000000000
 LEAVE -> -
 ENTER -> 410000000000000000 400000000000
-FRAME buttons=0x00000001 -> -
+FRAME buttons=0x00000001 -> 410000280000000000
 FRAME -> 410000000000000000
-SWITCHES down -> -
+SWITCHES down -> 410000000000000000
 FRAME buttons=0x00000001 -> -
 FRAME buttons=0x00800000 -> -
-SWITCHES up -> -
-FRAME buttons=0x00000001 -> -
+SWITCHES up -> 410000000000000000
+FRAME buttons=0x00000001 -> 410000280000000000
 FRAME -> 410000000000000000
 # resync
 FRAME buttons=0x00200000 rpad=0,0 -> -
@@ -321,56 +324,74 @@ FRAME -> 400008000000
 FRAME -> 400005000000
 FRAME -> 400002000000
 FRAME -> 400000000000
-SET 11=0,12=5
-# more than 700 units of travel are needed, by the distance approximation: 20 movements of 36 (35 each: 700) do not glide, of 37 (36 each: 720) do
+SET 11=0,12=20
+# more than 700 units of travel are needed, each movement adding its exact length: 20 movements of 35 (700) do not glide, of 36 (720) do (for 20 frames, setting 12)
 FRAME buttons=0x00200000 rpad=0,0 -> -
-FRAME buttons=0x00200000 rpad=36,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=72,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=108,0 -> -
-FRAME buttons=0x00200000 rpad=144,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=180,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=216,0 -> -
-FRAME buttons=0x00200000 rpad=252,0 -> -
-FRAME buttons=0x00200000 rpad=288,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=324,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=360,0 -> -
-FRAME buttons=0x00200000 rpad=396,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=432,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=468,0 -> -
-FRAME buttons=0x00200000 rpad=504,0 -> -
-FRAME buttons=0x00200000 rpad=540,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=576,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=612,0 -> -
-FRAME buttons=0x00200000 rpad=648,0 -> -
-FRAME buttons=0x00200000 rpad=684,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=720,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=35,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=70,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=105,0 -> -
+FRAME buttons=0x00200000 rpad=140,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=175,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=210,0 -> -
+FRAME buttons=0x00200000 rpad=245,0 -> -
+FRAME buttons=0x00200000 rpad=280,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=315,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=350,0 -> -
+FRAME buttons=0x00200000 rpad=385,0 -> -
+FRAME buttons=0x00200000 rpad=420,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=455,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=490,0 -> -
+FRAME buttons=0x00200000 rpad=525,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=560,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=595,0 -> -
+FRAME buttons=0x00200000 rpad=630,0 -> -
+FRAME buttons=0x00200000 rpad=665,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=700,0 -> 400000000000
 FRAME -> -
 FRAME -> -
+FRAME -> -
 FRAME buttons=0x00200000 rpad=0,0 -> -
-FRAME buttons=0x00200000 rpad=37,0 -> -
-FRAME buttons=0x00200000 rpad=74,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=111,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=148,0 -> -
-FRAME buttons=0x00200000 rpad=185,0 -> -
-FRAME buttons=0x00200000 rpad=222,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=259,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=296,0 -> -
-FRAME buttons=0x00200000 rpad=333,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=370,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=407,0 -> -
-FRAME buttons=0x00200000 rpad=444,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=481,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=518,0 -> -
-FRAME buttons=0x00200000 rpad=555,0 -> -
-FRAME buttons=0x00200000 rpad=592,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=629,0 -> 400000000000
-FRAME buttons=0x00200000 rpad=666,0 -> -
-FRAME buttons=0x00200000 rpad=703,0 -> 400001000000
-FRAME buttons=0x00200000 rpad=740,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=36,0 -> -
+FRAME buttons=0x00200000 rpad=72,0 -> -
+FRAME buttons=0x00200000 rpad=108,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=144,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=180,0 -> -
+FRAME buttons=0x00200000 rpad=216,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=252,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=288,0 -> -
+FRAME buttons=0x00200000 rpad=324,0 -> -
+FRAME buttons=0x00200000 rpad=360,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=396,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=432,0 -> -
+FRAME buttons=0x00200000 rpad=468,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=504,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=540,0 -> -
+FRAME buttons=0x00200000 rpad=576,0 -> -
+FRAME buttons=0x00200000 rpad=612,0 -> 400001000000
+FRAME buttons=0x00200000 rpad=648,0 -> 400000000000
+FRAME buttons=0x00200000 rpad=684,0 -> -
+FRAME buttons=0x00200000 rpad=720,0 -> 400001000000
+FRAME -> 400000000000
 FRAME -> -
 FRAME -> -
 FRAME -> 400001000000
 FRAME -> 400000000000
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> 400001000000
+FRAME -> 400000000000
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
+FRAME -> -
 FRAME -> -
 FRAME -> -
 # the left pad glides too (scroll), and setting 82 holds a glide back while the factor runs down
@@ -431,8 +452,8 @@ FRAME buttons=0x00200000 rpad=17000,0 -> 40000F000000
 FRAME buttons=0x00200000 rpad=19000,0 -> 400010000000
 FRAME buttons=0x00200000 rpad=21000,0 -> 400010000000
 FRAME -> 40000F000000
-LEAVE -> 410000000000000000400000000000
-ENTER -> 410000000000000000400000000000
+LEAVE -> 410000000000000000 400000000000
+ENTER -> 410000000000000000 400000000000
 FRAME -> -
 # the ticks (rules 800): a step each time the thumb has moved more than 1500 from the last step point, a tick (click A) once the steps times 1500 exceed setting 14 (5500: every fourth step)
 START
@@ -492,7 +513,7 @@ FRAME buttons=0x00200000 rpad=4800,0 -> 40000C000000
 FRAME buttons=0x00200000 rpad=6400,0 -> 40000D000000
 FRAME -> 400000000000
 SET 70=1
-# 70 back to 1 in the middle of a touch: counted from the next touch
+# 70 back to 1 in the middle of a touch: the count starts again where the thumb is then
 FRAME buttons=0x00200000 rpad=0,0 -> -
 SET 70=0
 FRAME buttons=0x00200000 rpad=1600,0 -> 40000C000000
@@ -501,12 +522,12 @@ FRAME buttons=0x00200000 rpad=3200,0 -> 40000D000000
 FRAME buttons=0x00200000 rpad=4800,0 -> 40000C000000
 FRAME buttons=0x00200000 rpad=6400,0 -> 40000D000000
 FRAME buttons=0x00200000 rpad=8000,0 -> 40000C000000
-FRAME buttons=0x00200000 rpad=9600,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=9600,0 -> 40000D000000 TICK_R
 FRAME -> 400000000000
-# a click held when lizard mode starts is taken as it is
-LEAVE -> 410000000000000000400000000000
-ENTER -> 410000000000000000400000000000
-FRAME buttons=0x00600000 rpad=0,0 -> 400100000000
+# the clicks are not followed while lizard mode is off: a click pressed then plays click B when it comes back
+LEAVE -> 410000000000000000 400000000000
+ENTER -> 410000000000000000 400000000000
+FRAME buttons=0x00600000 rpad=0,0 -> 400100000000 CLICK_R
 FRAME buttons=0x00200000 rpad=0,0 -> 400000000000 CLICK_R
 FRAME -> -
 # everything on (rules F00, the default) with setting 12 = 12: a swipe on the right pad, lift-off and glide
@@ -596,5 +617,108 @@ FRAME buttons=0x00300000 rpad=21000,0 -> 400000000000
 FRAME buttons=0x00100000 -> -
 FRAME -> 400008000000
 FRAME -> 400004000000
+FRAME -> 400000000000
+FRAME -> -
+# 0x85 while the keyboard runs: its "on" waits; the next 0x81 sends the empty keyboard report twice
+# (it stops, takes up the "on" and starts again) and the keyboard types on with setting 9 at 0
+# (mouse stopped, mouse buttons down) until the next switch-off
+START
+FRAME -> -
+CMD85 -> -
+CMD81 -> 410000000000000000 410000000000000000 400000000000
+FRAME buttons=0x00000001 -> 410000280000000000
+FRAME -> 410000000000000000
+FRAME buttons=0x00800000 -> -
+FRAME -> -
+CMD81 -> 410000000000000000
+FRAME buttons=0x00000001 -> -
+FRAME -> -
+# the same, then setting 9 = 1: the keyboard stops and starts again (two empty reports), the mouse starts
+CMD85 -> -
+ENTER -> 410000000000000000 400000000000
+CMD85 -> -
+CMD81 -> 410000000000000000 410000000000000000 400000000000
+ENTER -> 410000000000000000 410000000000000000 400000000000
+FRAME buttons=0x00000001 -> 410000280000000000
+FRAME -> 410000000000000000
+# 0x81 turns lizard mode off; then 0x85 does nothing, and another 0x81 nothing either
+CMD81 -> 410000000000000000 400000000000
+CMD85 -> -
+FRAME buttons=0x00000001 -> -
+CMD81 -> -
+FRAME -> -
+# the keyboard follows the buttons while it is stopped too: one held across ENTER is not reported
+FRAME buttons=0x00000001 -> -
+ENTER -> 410000000000000000 400000000000
+FRAME buttons=0x00000001 -> -
+FRAME -> 410000000000000000
+# the release (the test hooks): only while something is held
+FRAME buttons=0x00000002 -> 410000290000000000
+RELEASE -> 410000000000000000 400000000000
+RELEASE -> -
+FRAME -> 410000000000000000
+# a pad click without a touch counts for nothing (the real pads only click while touched)
+START
+RULES 800
+FRAME buttons=0x00400000 -> -
+FRAME -> -
+FRAME buttons=0x04000000 -> -
+FRAME -> -
+# setting 14 lowered during a touch: the next frame ticks without a new step
+FRAME buttons=0x00200000 rpad=0,0 -> -
+FRAME buttons=0x00200000 rpad=1600,0 -> 40000C000000
+FRAME buttons=0x00200000 rpad=3200,0 -> 40000D000000
+SET 14=1000
+FRAME buttons=0x00200000 rpad=3200,0 -> 400000000000 TICK_R
+FRAME -> -
+SET 14=5500
+# setting 80 away from 1 leaves the right pad's stabiliser as it was (not started over): back at 1,
+# a touch it never saw end is held at the old point
+START
+RULES 100
+FRAME buttons=0x00200000 rpad=0,0 -> -
+FRAME buttons=0x00200000 rpad=1000,0 -> -
+SET 80=0
+FRAME -> -
+FRAME buttons=0x00200000 rpad=3000,0 -> -
+SET 80=1
+FRAME buttons=0x00200000 rpad=3000,0 -> 4000E9000000
+FRAME buttons=0x00200000 rpad=3000,0 -> 400000000000
+FRAME -> -
+SET 80=1
+# setting 82 blanking a gliding pad: its motion is worked out and dropped, the remainders keep theirs
+START
+RULES 600
+SET 11=0,12=8
+FRAME buttons=0x00200000 rpad=-20000,0 -> -
+FRAME buttons=0x00200000 rpad=-18300,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-16600,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-14900,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-13200,0 -> 40000E000000
+FRAME buttons=0x00200000 rpad=-11500,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-9800,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-8100,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-6400,0 -> 40000E000000
+FRAME buttons=0x00200000 rpad=-4700,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-3000,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=-1300,0 -> 40000E000000
+FRAME buttons=0x00200000 rpad=400,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=2100,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=3800,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=5500,0 -> 40000E000000
+FRAME buttons=0x00200000 rpad=7200,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=8900,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=10600,0 -> 40000E000000
+FRAME buttons=0x00200000 rpad=12300,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=14000,0 -> 40000D000000
+FRAME buttons=0x00200000 rpad=15700,0 -> 40000D000000
+FRAME -> 40000E000000
+FRAME buttons=0x00100000 -> 400000000000
+FRAME buttons=0x00100000 -> -
+FRAME buttons=0x00100000 -> -
+FRAME -> 400006000000
+FRAME -> 400005000000
+FRAME -> 400004000000
+FRAME -> 400001000000
 FRAME -> 400000000000
 FRAME -> -

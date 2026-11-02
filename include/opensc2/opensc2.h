@@ -420,7 +420,9 @@ int opensc2_usb_info(struct opensc2_usb_info *info);
 int opensc2_set_state(const struct opensc2_state *state);
 void opensc2_get_state(struct opensc2_state *state);
 
-/* Change the bits in `mask` to `value` (other bits stay). */
+/* Change the bits in `mask` to `value` (other bits stay). Call it when a button changes (debounced;
+ * an interrupt is fine): lizard mode's keyboard reports the change at once, as the real
+ * controller's does (CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE). */
 int opensc2_set_buttons(uint32_t mask, uint32_t value);
 int opensc2_set_stick(enum opensc2_side side, int16_t x, int16_t y);
 /* 0..32767. Unless CONFIG_OPENSC2_TRIGGER_CLICK_AUTO is off, the trigger's digital bit follows
@@ -537,6 +539,23 @@ int opensc2_identity_set(const struct opensc2_identity *identity);
 
 int16_t opensc2_setting_get(uint8_t number);
 bool opensc2_lizard_mode(void);
+
+/* What lizard mode's mouse and keyboard are doing (CONFIG_OPENSC2_LIZARD_MODE; docs/api.md,
+ * Lizard mode). The keyboard normally runs exactly while lizard mode is on; after 0x85 while it
+ * runs, the next switch-off leaves it running with setting 9 at 0, as on the real controller. */
+struct opensc2_lizard_status {
+	bool mode;              /* setting 9 is not 0 (opensc2_lizard_mode()) */
+	bool keyboard;          /* the keyboard runs: mapped buttons send keyboard reports 0x41 */
+	bool mouse;             /* the mouse runs: one frame per state report, reports 0x40 */
+	bool keyboard_switch;   /* the switches: 0x85 raises them, 0x81 lowers them */
+	bool button_switch;     /* the mouse buttons' */
+	bool key_held;          /* the last keyboard report had a key in it */
+	bool mouse_active;      /* the last mouse report was not all zero */
+	bool gliding[2];        /* a pad (0 left, 1 right) glides after a flick */
+};
+/* From a thread, not an interrupt. -ENOTSUP in a build without lizard mode (`mode` is still filled
+ * in). */
+int opensc2_lizard_status(struct opensc2_lizard_status *status);
 void opensc2_led_get(struct opensc2_led *led);
 /* The power-on chime level Steam stores with vendor command 0xDC: 1 quiet, 2 normal (default),
  * anything else silent. */

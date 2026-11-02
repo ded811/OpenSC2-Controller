@@ -173,13 +173,106 @@ static void lizard_feedback(const struct opensc2_haptic *h, uint8_t n)
 		osc2_haptics_library(h, n);
 	}
 }
+
+/* Send what a lizard call made, in order (the lizard lock is held). */
+static void lizard_send(const struct opensc2_lizard_out *out)
+{
+	for (uint8_t i = 0; i < out->n; i++) {
+		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
+		(void)osc2_input_send(out->report[i], out->len[i], false);
+	}
+}
+
+/* ---- the keyboard hears the buttons when they change ---- */
+
+#if defined(CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE)
+/* As the real controller's keyboard listens to its button driver, the application's setters wake
+ * this thread on every change of the buttons, and the keyboard takes the change up at once (its
+ * report goes nowhere while no link runs). While the hardware test hooks are armed the frames
+ * bring the buttons instead (the injected ones included), as they do without this option. */
+static K_SEM_DEFINE(keys_sem, 0, 1);
+static atomic_t keys_ready;
+static bool keys_deferred;   /* a change waits for room in the radio's queue (lizard_lock) */
+
+static bool keys_at_once(void)
+{
+	return !osc2_test_lizard_frames_only();
+}
+
+static void keys_thread_fn(void *p1, void *p2, void *p3)
+{
+	struct opensc2_lizard_out out;
+
+	ARG_UNUSED(p1);
+	ARG_UNUSED(p2);
+	ARG_UNUSED(p3);
+	for (;;) {
+		(void)k_sem_take(&keys_sem, K_FOREVER);
+		if (!atomic_get(&keys_ready)) {
+			continue;   /* before the library starts: its first frame adopts the buttons */
+		}
+		k_mutex_lock(&lizard_lock, K_FOREVER);
+		lizard.driver = keys_at_once();
+		if (!lizard.driver) {
+			/* the frames bring the buttons */
+		} else if (osc2_mode_link() == OSC2_LINK_RADIO && osc2_radio_backlog()) {
+			keys_deferred = true;   /* the first frame that runs wakes this thread again */
+		} else {
+			(void)opensc2_lizard_buttons(&lizard, osc2_sys_app_buttons(), &out);
+			lizard_send(&out);
+		}
+		k_mutex_unlock(&lizard_lock);
+	}
+}
+
+K_THREAD_DEFINE(osc2_lizard_keys_tid, CONFIG_OPENSC2_LIZARD_KEYS_STACK_SIZE, keys_thread_fn, NULL,
+		NULL, NULL, K_PRIO_PREEMPT(CONFIG_OPENSC2_LIZARD_KEYS_PRIORITY), 0, 0);
+
+void osc2_lizard_buttons_changed(void)
+{
+	k_sem_give(&keys_sem);
+}
+
+/* In each frame (lizard_lock held): who brings the buttons, and a wake-up for the thread when a
+ * change waited, the buttons are to be adopted afresh (lizard mode's resync), or the frames have
+ * just handed the buttons over to it (the hooks' guard ended: a change the thread passed over
+ * while the frames brought the buttons is compared with the last frame's buttons, not lost). */
+static void lizard_keys_frame(void)
+{
+	bool handover = !lizard.driver;
+
+	lizard.driver = keys_at_once();
+	if (lizard.driver && (handover || keys_deferred || lizard.buttons_sync)) {
+		keys_deferred = false;
+		k_sem_give(&keys_sem);
+	}
+}
+
+static void lizard_keys_start(void)
+{
+	atomic_set(&keys_ready, 1);
+	k_sem_give(&keys_sem);
+}
+#else
+void osc2_lizard_buttons_changed(void)
+{
+}
+
+static inline void lizard_keys_frame(void)
+{
+}
+
+static inline void lizard_keys_start(void)
+{
+}
+#endif
 #endif
 
 void osc2_report_lizard(const struct opensc2_state *s)
 {
 #if defined(CONFIG_OPENSC2_LIZARD_MODE)
 	struct opensc2_haptic haptics[4];
-	uint8_t keyboard[9], mouse[6];
+	struct opensc2_lizard_out out;
 	uint8_t n_haptics;
 	uint32_t made;
 
@@ -187,9 +280,9 @@ void osc2_report_lizard(const struct opensc2_state *s)
 	if (osc2_test_skip_lizard()) {
 		return;
 	}
-	if (!opensc2_lizard_mode()) {
-		return;
-	}
+	/* Every frame, also with lizard mode off: the keyboard sees the buttons change as a button
+	 * driver reports them, and a keyboard that runs on with setting 9 at 0 (0x85, then 0x81)
+	 * still types. */
 	k_mutex_lock(&lizard_lock, K_FOREVER);
 	if (osc2_mode_link() == OSC2_LINK_RADIO && osc2_radio_backlog()) {
 		/* Reports wait for room in the radio's queue (CONFIG_OPENSC2_REPORT_WAIT_DEPTH above
@@ -198,15 +291,9 @@ void osc2_report_lizard(const struct opensc2_state *s)
 		k_mutex_unlock(&lizard_lock);
 		return;
 	}
-	made = opensc2_lizard_step(&lizard, s, osc2.settings, osc2_rules(), keyboard, mouse);
-	if (made & OPENSC2_LIZARD_KEYBOARD) {
-		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
-		(void)osc2_input_send(keyboard, sizeof(keyboard), false);
-	}
-	if (made & OPENSC2_LIZARD_MOUSE) {
-		osc2_test_count(OSC2_TEST_CNT_LIZARD_MADE);
-		(void)osc2_input_send(mouse, sizeof(mouse), false);
-	}
+	lizard_keys_frame();
+	made = opensc2_lizard_step(&lizard, s, osc2.settings, osc2_rules(), &out);
+	lizard_send(&out);
 	n_haptics = opensc2_lizard_haptics(made, haptics);
 	k_mutex_unlock(&lizard_lock);
 	lizard_feedback(haptics, n_haptics);
@@ -220,22 +307,17 @@ void osc2_report_lizard(const struct opensc2_state *s)
 void osc2_lizard_set(bool on)
 {
 #if defined(CONFIG_OPENSC2_LIZARD_MODE)
-	uint8_t keyboard[9], mouse[6];
+	struct opensc2_lizard_out out;
 	uint32_t made;
 
 	k_mutex_lock(&lizard_lock, K_FOREVER);
-	made = on ? opensc2_lizard_enter(&lizard, keyboard, mouse) :
-		    opensc2_lizard_leave(&lizard, keyboard, mouse);
-	if (made) {
-		osc2_test_note_lizard(on ? OSC2_TEST_LIZARD_ENTER : OSC2_TEST_LIZARD_LEAVE);
-		osc2_test_count_n(OSC2_TEST_CNT_LIZARD_MADE, 2);
-	}
 	/* The keyboard first, then the mouse, both ways: off, releasing whatever was held; on, both
 	 * empty (the protocol documentation's order, inferred there from the off order). */
+	made = opensc2_lizard_setting(&lizard, on, &out);
 	if (made) {
-		(void)osc2_input_send(keyboard, sizeof(keyboard), false);
-		(void)osc2_input_send(mouse, sizeof(mouse), false);
+		osc2_test_note_lizard(on ? OSC2_TEST_LIZARD_ENTER : OSC2_TEST_LIZARD_LEAVE);
 	}
+	lizard_send(&out);
 	k_mutex_unlock(&lizard_lock);
 	LOG_DBG("Lizard mode %s", on ? "on" : "off");
 	osc2_usblog("lizard mode %s", on ? "on" : "off");
@@ -247,9 +329,12 @@ void osc2_lizard_set(bool on)
 void osc2_lizard_switches(bool up)
 {
 #if defined(CONFIG_OPENSC2_LIZARD_MODE)
+	struct opensc2_lizard_out out;
+
 	k_mutex_lock(&lizard_lock, K_FOREVER);
-	opensc2_lizard_switches(&lizard, up);
+	(void)opensc2_lizard_switches(&lizard, up, &out);
 	osc2_test_note_lizard(up ? OSC2_TEST_LIZARD_UP : OSC2_TEST_LIZARD_DOWN);
+	lizard_send(&out);   /* a running keyboard that stops (or stops and starts again) */
 	k_mutex_unlock(&lizard_lock);
 #else
 	ARG_UNUSED(up);
@@ -271,19 +356,44 @@ void osc2_lizard_resync(void)
 bool osc2_lizard_release_held(void)
 {
 #if defined(CONFIG_OPENSC2_LIZARD_MODE)
-	uint8_t keyboard[9], mouse[6];
+	struct opensc2_lizard_out out;
 	bool sent;
 
 	k_mutex_lock(&lizard_lock, K_FOREVER);
-	sent = opensc2_lizard_release(&lizard, keyboard, mouse) != 0;
-	if (sent) {
-		(void)osc2_input_send(keyboard, sizeof(keyboard), false);
-		(void)osc2_input_send(mouse, sizeof(mouse), false);
+	sent = opensc2_lizard_release(&lizard, &out) != 0;
+	for (uint8_t i = 0; i < out.n; i++) {
+		(void)osc2_input_send(out.report[i], out.len[i], false);
 	}
 	k_mutex_unlock(&lizard_lock);
 	return sent;
 #else
 	return false;
+#endif
+}
+
+int opensc2_lizard_status(struct opensc2_lizard_status *status)
+{
+	if (status == NULL) {
+		return -EINVAL;
+	}
+	memset(status, 0, sizeof(*status));
+	status->mode = opensc2_lizard_mode();
+#if defined(CONFIG_OPENSC2_LIZARD_MODE)
+	k_mutex_lock(&lizard_lock, K_FOREVER);
+	status->keyboard = lizard.kb_on;
+	status->mouse = lizard.ms_on;
+	status->keyboard_switch = lizard.kb_switch;
+	status->button_switch = lizard.ms_switch;
+	status->key_held = lizard.kb_on && lizard.kb_held;
+	status->mouse_active = lizard.ms_on && lizard.mouse_owed;
+	for (int side = 0; side < 2; side++) {
+		status->gliding[side] = lizard.ms_on && lizard.pad[side].glide > 0.0f &&
+					!lizard.pad[side].touched;
+	}
+	k_mutex_unlock(&lizard_lock);
+	return 0;
+#else
+	return -ENOTSUP;
 #endif
 }
 
@@ -325,6 +435,9 @@ void osc2_report_init(void)
 {
 	opensc2_lizard_reset(&lizard);
 	osc2_input_rules_reset(&input_rules);
+#if defined(CONFIG_OPENSC2_LIZARD_MODE)
+	lizard_keys_start();
+#endif
 #if CONFIG_OPENSC2_BATTERY_REPORT_INTERVAL_MS > 0
 	k_work_schedule(&battery_work, K_NO_WAIT);   /* the first one is usually lost: no link yet */
 #endif

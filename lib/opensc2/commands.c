@@ -527,8 +527,12 @@ static int lizard_off(enum osc2_link link)
 	if (!osc2_link_active(link)) {
 		return -EINVAL;
 	}
+	/* Every accepted 0x81, as the real controller logs it. */
+	LOG_INF("Host turned the mouse and keyboard mappings off");
 	osc2.settings[OPENSC2_SETTING_LIZARD_MODE] = 0;
 	if (old != 0) {
+		/* The switches down and setting 9 off in one go: the real controller's 0x81 lowers
+		 * the switches first, and the keyboard takes both up together. */
 		osc2_lizard_set(false);   /* releases whatever lizard mode held */
 	} else {
 		osc2_lizard_switches(false);

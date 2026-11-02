@@ -61,6 +61,8 @@ controller is listed in docs/protocol.md's gaps.
   synthesiser plays itself (lizard mode on, setting 70 exactly 1, the current link not the dock).
 - The blank canvas: setting 46's raw stick output (ADC counts, or millivolts the real controller's
   way).
+- `opensc2_lizard_status()`: whether lizard mode's keyboard and mouse run, their switches, a held
+  key, an owed zero mouse report and a glide on either pad.
 
 **Calibration and sensors**
 
@@ -385,6 +387,26 @@ controller is listed in docs/protocol.md's gaps.
   was clamped to 31).
 - Lizard mode coming back on sends its empty keyboard report `0x41` before the all-zero mouse
   report `0x40`, the real controller's order (0.2.0 sent the mouse report first).
+- Lizard mode's keyboard and mouse turn on and off by events taken up in the real controller's
+  order, its quirks included: `0x85` while the keyboard runs leaves an "on" pending, so the next
+  switch-off sends the empty `0x41` twice and the keyboard keeps typing with setting 9 at 0 until
+  the switch-off after that; lowering the switches (`0x81` with lizard mode already off) stops a
+  running keyboard with its empty report. The keyboard compares the buttons with the frame before,
+  also while it is stopped, so a button held when lizard mode comes back on is reported at its
+  next change (it used to be adopted silently). Every accepted `0x81` logs an INFO line.
+- Lizard mode's arithmetic is the real controller's: the travel a glide needs adds exact lengths,
+  the flick speed and the glide's factor are single precision with setting 12 read in every frame;
+  setting 82 drops a pad's motion after the division, so the remainders keep their part; a mouse
+  report goes out while one of its bytes is not zero; the right pad's stabiliser is left as it is
+  while setting 80 is not 1; a pad click counts only while its pad is touched; the ticks and clicks
+  run while setting 9 is on and 70 is exactly 1, forget the touch but keep the click state while
+  stopped, and compare the steps with setting 14 in every touched frame.
+- Lizard mode's keyboard hears the buttons the moment the application changes them, as the real
+  controller's keyboard listens to its button driver (`CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE`, on by
+  default, a thread of its own): the key report goes out then instead of with the next state
+  report, and a change made while no link runs goes nowhere instead of being sent by the first
+  frame after the gap. While the hardware test hooks are armed the frames bring the buttons, as
+  before.
 - Without an IMU (the application's quaternion all 0, "none") the state reports carry the identity
   quaternion, W = 32767, as the real controller's always do; 0.2.0 sent all four words 0.
 - Report `0x81` swaps the two pads only for the exact targets 0 and 1, as the real controller does:

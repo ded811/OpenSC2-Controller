@@ -80,6 +80,7 @@ is not documented here and has not been checked against this library.
 | `opensc2_identity_get(&id)`, `opensc2_identity_set(&id)`, `opensc2_identity_store(&id)`, `opensc2_identity_clear()` | who the controller says it is | [Identity](#identity) |
 | `opensc2_setting_get(n)`, `opensc2_lizard_mode()`, `opensc2_led_get(&led)`, `opensc2_chime_level()` | the controller settings and the other state Steam sets | [Controller settings](#controller-settings) |
 | `opensc2_setting_set(n, v)`, `opensc2_led_set_color(r, g, b, w)`, `opensc2_chime_level_set(l)` | the same changes from the board, as Steam's `0x87`, `0xC5`, `0xDC` make them | [Controller settings](#controller-settings) |
+| `opensc2_lizard_status(&st)` | what lizard mode's keyboard and mouse are doing | [Lizard mode](#lizard-mode) |
 | `opensc2_setting_default(n)`, `opensc2_setting_clamp(n, v)` | a setting's default and range (pure) | [Controller settings](#controller-settings) |
 | `opensc2_set_power_source(s)`, `opensc2_power_source()` | what powers the board: a battery, USB or the dock | [Power and the system state machine](#power-and-the-system-state-machine) |
 | `opensc2_keylock()` | whether the keylock (travel lock) is stored | [The keylock](#the-keylock) |
@@ -549,54 +550,123 @@ Turn the option off when your haptics engine sends its own `0x44` reports.
 Lizard mode: until Steam takes over, a Steam Controller 2 acts as a plain mouse and keyboard (the
 right trackpad moves the pointer, A is Enter, B is Escape, the D-pad gives the arrow keys). Steam
 switches it off while it runs; about 10 seconds after Steam stops, it comes back. OpenSC2 does the
-same, on every link. With `CONFIG_OPENSC2_LIZARD_MODE` (default on) the library builds the mouse and
-keyboard reports from the input state:
+same, on every link (USB, Bluetooth, the puck; never the dock). With `CONFIG_OPENSC2_LIZARD_MODE`
+(default on) the library builds the mouse and keyboard reports from the input state the
+application hands over; the application supplies nothing else for it
+([What a board supplies](#what-a-board-supplies-to-lizard-mode)).
 
 - **On** at every boot (controller setting 9 = 1; settings live in RAM). Coming back on (setting 9
   = 1, `0x8E`, the Steam watchdog) sends one empty keyboard report `0x41`, then one all-zero mouse
-  report `0x40`, in the real controller's order.
+  report `0x40`, in the real controller's order, and starts the pads' trackers and stabilisers
+  over.
 - **Off** with vendor command `0x81` (the first one sends one empty keyboard report `0x41`, then one
-  all-zero mouse report `0x40`, releasing whatever was held) or setting 9 = 0. The release reports
-  always come after every report lizard mode made before it turned off, also on USB, where the
-  command runs in the USB stack's thread and the reports in the report thread. `0x85` only brings
-  the keyboard and mouse buttons back when setting 9 is on. `0x8E` (all defaults) turns it back on.
+  all-zero mouse report `0x40`, releasing whatever was held; every accepted `0x81` writes an INFO
+  log line) or setting 9 = 0. The release reports always come after every report lizard mode made
+  before it turned off, also on USB, where the command runs in the USB stack's thread and the
+  reports in the report thread. `0x8E` (all defaults) turns it back on.
+- **The two switches**: `0x81` lowers the keyboard's and the mouse buttons' switches, `0x85` raises
+  them; setting 9 moves them too. The keyboard runs while setting 9 and its switch are both on;
+  lowering the switch stops a running keyboard (with its empty report). As on the real controller,
+  the keyboard hears of a switch through its own view of setting 9 and takes its events up only in
+  the order it can: **`0x85` while the keyboard runs** leaves an "on" pending, so the next
+  switch-off (`0x81`, or setting 9 = 0) sends the empty keyboard report twice (it stops, takes up
+  the "on" and starts again) and the keyboard keeps typing with setting 9 at 0, the mouse stopped,
+  until the switch-off after that (the next `0x81`). This quirk comes from the protocol
+  documentation's reading of the controller's firmware; no host has been seen sending `0x85`
+  while lizard mode is on.
 - **The Steam watchdog** (`CONFIG_OPENSC2_STEAM_WATCHDOG`, controller setting 71): a 10 s timer,
   armed at boot and re-armed by every `0x81` and every write of setting 9 = 0, independent of the
   link. When it runs out with lizard mode off, lizard mode comes back and the settings return to
   their defaults (the IMU settings 48, 84 and 85 keep theirs). Setting 71 = 0 stops it.
 - **Mouse** `0x40`: the right trackpad moves the pointer (128 pad units per count; pad up = pointer
   up), the left one scrolls (1024 per step; moving up gives a negative wheel value, right a positive
-  pan); the right trigger or a right-pad click is button 1, the left trigger button 2. A pad is
-  ignored while its stick is touched (setting 82). A report goes out every frame while anything is
-  non-zero (a held button repeats, a glide keeps moving), then one zero report.
-- **Keyboard** `0x41`: A is Enter, B and VIEW are Escape, the D-pad the arrows, MENU is Tab. When one
-  of those changes, every held button in bit order takes the next key slot (its key, or 0), and more
-  than six held buttons give the roll-over code in every slot.
+  pan); the right trigger's digital bit or a right-pad click is button 1, the left trigger button
+  2. A pad's click counts only while the pad is touched. A pad is ignored while its stick is
+  touched (setting 82): its motion is still worked out (the division's remainder keeps its part)
+  and then dropped. A report goes out every frame while one of its bytes is not zero (a held
+  button repeats, a glide keeps moving), then one all-zero report. Each byte is the low eight bits
+  of its count, without clamping.
+- **Keyboard** `0x41`: A is Enter, B and VIEW are Escape, the D-pad the arrows, MENU is Tab. The
+  keyboard follows the 20 digital buttons, also while it is stopped, the way a button driver
+  reports them: a change of one of those eight buttons, while it runs, sends a report in which
+  every held button in bit order takes the next key slot (its key, or 0), and more than six held
+  buttons give the roll-over code in every slot. A button held while lizard mode comes back on is
+  reported at its next change. With `CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE` (default on) the keyboard
+  hears a change the moment the application makes it (`opensc2_set_buttons()`,
+  `opensc2_set_state()`, the `sample` callback), in a thread of the library's
+  (`CONFIG_OPENSC2_LIZARD_KEYS_STACK_SIZE`, 1536; `CONFIG_OPENSC2_LIZARD_KEYS_PRIORITY`, 8), and
+  the report goes out then, as on the real controller, not with the next state report. A change
+  made while no link runs (or only the dock) is sent into nothing, as on the real controller: the
+  first frames after the gap do not send it again. Through the puck a change waits while lizard
+  mode's reports wait for room. With the option off the keyboard hears the buttons once per frame
+  (up to one state report later). While the hardware test hooks are armed the frames bring the
+  buttons either way.
 - **The motion**, as the real controller works it out, once per frame (each state report), each part
   an option (all on by default):
   - the touch stabilisers (`CONFIG_OPENSC2_LIZARD_STABILISER`): a new touch does not move until the
     thumb has left a hold radius around the touch-down point, then the motion follows the thumb and
     closes the gap gradually; the right pad's radius is 4369 pad units while setting 80 is 1 (the
-    default), the left pad's 8738 always;
+    default), the left pad's 8738 always. While setting 80 is not 1 the right pad's stabiliser is
+    left as it is, not started over, and takes up from there when 80 is back at 1;
   - the 8-frame average (`CONFIG_OPENSC2_LIZARD_SMOOTHING`): each frame's motion is the mean of the
-    newest 8 movements of the touch (or of as many as there are), about 32 ms on the cable;
-  - the glide after a flick (`CONFIG_OPENSC2_LIZARD_GLIDE`): when a touch of more than 20 frames and
-    700 pad units of travel ends faster than setting 11 (default 200 pad units per frame, the mean
-    of the 15 oldest of its last 20 movements), the motion goes on, slowing down to nothing over
-    setting 12 frames (default 100, about 0.4 s on the cable); a new touch on that pad or lizard
+    newest 8 movements of the touch (or of as many as there are), rounded toward zero, about 32 ms
+    on the cable;
+  - the glide after a flick (`CONFIG_OPENSC2_LIZARD_GLIDE`): at the lift-off, the flick speed is
+    the mean of the 15 oldest of the touch's last 20 movements (0 with fewer than 20); when the
+    touch travelled more than 700 pad units (each movement adding its exact length) and the speed
+    is longer than setting 11 (default 200 pad units per frame), the motion goes on: the speed
+    times a factor that starts at 1 and drops by 1 / setting 12 every frame (default 100, about
+    0.4 s on the cable; setting 12 read in every frame). The travel, the lengths and the factor
+    are single-precision numbers, as on the real controller. A new touch on that pad or lizard
     mode turning off stops it; while setting 82 blanks the pad its motion is dropped, not saved
-    for later, and the slowing down goes on; the left pad glides too;
-  - the haptic ticks and clicks (`CONFIG_OPENSC2_LIZARD_TICKS`), while setting 70 is 1: a step each
-    time the thumb has moved more than 1500 pad units from the last one, and a tick once the steps
-    times 1500 exceed setting 14 (5500: every fourth step); click B when a pad's click turns on or
-    off, unless its threshold (52, 53) is -1. Each is a [haptic event](#outputs) from the library.
+    for later, and the factor goes on dropping; the left pad glides too;
+  - the haptic ticks and clicks (`CONFIG_OPENSC2_LIZARD_TICKS`), while setting 9 is on and setting
+    70 is exactly 1, on the pad's reported position: a new touch makes its point the step point;
+    then a step each time the thumb is more than 1500 pad units from the step point (which moves
+    there), and a tick whenever the steps times 1500 exceed setting 14 (5500: every fourth step;
+    checked in every touched frame, so lowering setting 14 during a touch can tick at once); click
+    B when a pad's click turns on or off, unless its threshold (52, 53) is -1. While setting 9 is
+    off or 70 is not 1 the touch is forgotten but the click is not: a click pressed meanwhile plays
+    click B when they come back, and the ticks count again from where the thumb is then. Each is a
+    [haptic event](#outputs) from the library.
 - **Through the puck**, as on the real controller, lizard mode's reports of a frame ride with the
   next state report, behind it, and one that finds the radio's queue of 5 full is dropped
   (`CONFIG_OPENSC2_REPORT_QUEUE_DEPTH`). OpenSC2's option `CONFIG_OPENSC2_REPORT_WAIT_DEPTH` (0 by
   default) lets that many more wait for room instead, while lizard mode waits with its next frame;
   the next frame takes up the motion. A dropped link does not start
   the trackers over, as on the real controller: no frames run meanwhile, and the first frame after
-  the gap compares the pads with the frame before it.
+  the gap compares the pads with the frame before it (and the buttons too, with
+  `CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE` off).
+
+`opensc2_lizard_status(&st)` tells the application what lizard mode is doing, from any thread (it
+takes lizard mode's lock; not from an interrupt). `-ENOTSUP` without `CONFIG_OPENSC2_LIZARD_MODE`
+(`mode` is filled in then too):
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | setting 9 is not 0 (`opensc2_lizard_mode()`) |
+| `keyboard` | the keyboard runs: mapped button changes send keyboard reports (normally exactly while `mode`; after `0x85`, then `0x81`, it runs on with `mode` false) |
+| `mouse` | the mouse runs: one frame per state report |
+| `keyboard_switch`, `button_switch` | the two switches (`0x85` raises them, `0x81` lowers them) |
+| `key_held` | the last keyboard report had a key in it |
+| `mouse_active` | the last mouse report was not all zero (one all-zero report is still owed) |
+| `gliding[2]` | a pad (0 left, 1 right) glides after a flick |
+
+#### What a board supplies to lizard mode
+
+Nothing beyond its inputs, at any time, through the usual setters: the 20 digital buttons
+(`opensc2_set_buttons()`; A, B, VIEW, MENU and the D-pad are the keyboard; call it when a button
+changes, debounced, from a thread or an interrupt: that call is the button driver the keyboard
+listens to, so a board that only updates its buttons in the `sample` callback gets its key
+reports at the frames), the triggers' digital
+bits (set by the library from `opensc2_set_trigger()` with `CONFIG_OPENSC2_TRIGGER_CLICK_AUTO`, or
+the application's own), the trackpads (`opensc2_set_trackpad()`: position, touch and click, or a
+pressure the library turns into a click, see
+[Calibration and raw inputs](#calibration-and-raw-inputs)) and the sticks' touch bits for setting
+82. A board without trackpads still gets the keyboard and the trigger buttons. The pad feedback goes
+back to the application as haptic events (`haptic` callback, `report_id` 0) or, with
+`CONFIG_OPENSC2_HAPTICS_SYNTH`, is played by the library on the pads' actuators. Each part of the
+processing has its option above; `CONFIG_OPENSC2_LIZARD_MODE=n` leaves lizard mode out.
 
 ## Calibration and raw inputs
 
@@ -878,8 +948,8 @@ Report `0x8A` does nothing, as on the real controller.
 `0x82` numbers them, and the matching channel): a tick is `OPENSC2_HAPTIC_CMD_CLICK_A` with
 `gain_db` 8, a pad click (on or off) `OPENSC2_HAPTIC_CMD_CLICK_B` with `gain_db` 6. Their gain is
 the level the sound plays at, without the extra 6 dB click A gets in `0x82`. They come from the
-thread that builds the state reports, after the frame's reports, and never once Steam has turned
-lizard mode off.
+thread that builds the state reports, after the frame's reports, and only while setting 9 is on and
+setting 70 is exactly 1 (never once Steam has turned lizard mode off).
 
 The callbacks hand over what Steam asked for; playing it on actuators is the application's job,
 unless the library's [haptics synthesiser](#the-haptics-synthesiser) (an option) renders it.
@@ -2026,6 +2096,7 @@ The functions for the settings and the other state Steam sets:
 | --- | --- |
 | `opensc2_setting_get(n)` | setting `n` as it is now (Steam's last write, or its default); 0 for a number above 85 |
 | `opensc2_lizard_mode()` | `true` while lizard mode is on (setting 9 is not 0): from every boot until Steam turns it off, and again when the Steam watchdog brings it back |
+| `opensc2_lizard_status(&st)` | what lizard mode's keyboard and mouse are doing ([Lizard mode](#lizard-mode)) |
 | `opensc2_led_get(&led)` | the LED colour and settings Steam set, as the `led` callback gets them: `red`, `green`, `blue`, `white` in percent (`0xC5`, 0..255: above 100 is brighter, up to full duty), `override` (setting 37) and `brightness` (setting 45) |
 | `opensc2_chime_level()` | the power-on chime level Steam stores with `0xDC`: 1 quiet, 2 normal (the default), anything else silent |
 | `opensc2_setting_set(n, v)` | set setting `n` from the board, exactly as one triplet of `0x87` (clamped; setting 9 switches lizard mode, 71 the Steam watchdog, 37 and 45 call `led`; `setting_changed` on a change); -EINVAL above 85 |

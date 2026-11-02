@@ -707,9 +707,47 @@ static const int16_t *lz_defaults(void)
 	return settings;
 }
 
+/* The keyboard and the mouse report of a lizard call's output, each the last one of its kind
+ * (`kb` and `mouse` are left as they are when it has none); returns `made`. */
+static uint32_t lz_copy(const struct opensc2_lizard_out *out, uint32_t made, uint8_t kb[9],
+			uint8_t mouse[6])
+{
+	for (uint8_t i = 0; i < out->n; i++) {
+		if (out->report[i][0] == 0x41) {
+			memcpy(kb, out->report[i], 9);
+		} else {
+			memcpy(mouse, out->report[i], 6);
+		}
+	}
+	return made;
+}
+
+static uint32_t lz_step(struct opensc2_lizard *lz, const struct opensc2_state *s,
+			const int16_t *settings, uint32_t rules, uint8_t kb[9], uint8_t mouse[6])
+{
+	struct opensc2_lizard_out out;
+
+	return lz_copy(&out, opensc2_lizard_step(lz, s, settings, rules, &out), kb, mouse);
+}
+
+/* Setting 9 written (lizard mode hears of a change only: call it on one). */
+static uint32_t lz_setting(struct opensc2_lizard *lz, bool on, uint8_t kb[9], uint8_t mouse[6])
+{
+	struct opensc2_lizard_out out;
+
+	return lz_copy(&out, opensc2_lizard_setting(lz, on, &out), kb, mouse);
+}
+
+static uint32_t lz_switches(struct opensc2_lizard *lz, bool up, uint8_t kb[9], uint8_t mouse[6])
+{
+	struct opensc2_lizard_out out;
+
+	return lz_copy(&out, opensc2_lizard_switches(lz, up, &out), kb, mouse);
+}
+
 /* These cases are lizard mode's mapping alone: without the stabilisers, the average, the glide and
  * the ticks (rule word 0; cases_input.h has those). */
-#define LZ_STEP(lz, s, kb, mouse) opensc2_lizard_step(&(lz), &(s), lz_defaults(), 0, kb, mouse)
+#define LZ_STEP(lz, s, kb, mouse) lz_step(&(lz), &(s), lz_defaults(), 0, kb, mouse)
 
 OPENSC2_TEST(lizard_keyboard)
 {
@@ -838,19 +876,21 @@ OPENSC2_TEST(lizard_transitions)
 	/* Off: an empty keyboard report and an all-zero mouse report, then nothing. */
 	memset(kb, 0xEE, sizeof(kb));
 	memset(mouse, 0xEE, sizeof(mouse));
-	CHECK_EQ(opensc2_lizard_leave(&lz, kb, mouse),
+	CHECK_EQ(lz_setting(&lz, false, kb, mouse),
 		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
 	CHECK_EQ(kb[0], 0x41);
 	CHECK_EQ(kb[1] | kb[2] | kb[3] | kb[4] | kb[5] | kb[6] | kb[7] | kb[8], 0);
 	CHECK_EQ(mouse[0], 0x40);
 	CHECK_EQ(mouse[1] | mouse[2] | mouse[3] | mouse[4] | mouse[5], 0);
+	CHECK(!lz.kb_on);
+	CHECK(!lz.ms_on);
 	s.buttons = OPENSC2_BTN_A | OPENSC2_CLICK_RIGHT_TRIGGER;
 	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
-	CHECK_EQ(opensc2_lizard_leave(&lz, kb, mouse), 0);   /* already off */
+	CHECK_EQ(lz_setting(&lz, false, kb, mouse), 0);   /* nothing runs: nothing to stop */
 
-	/* On: the zero mouse and empty keyboard reports; held keys wait for the next change; the
-	 * remainder is gone. */
-	CHECK_EQ(opensc2_lizard_enter(&lz, kb, mouse),
+	/* On: the empty keyboard and the zero mouse reports; a key held since before waits for the
+	 * next change (the keyboard follows the buttons while stopped too); the remainder is gone. */
+	CHECK_EQ(lz_setting(&lz, true, kb, mouse),
 		 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
 	s.buttons = OPENSC2_BTN_A;
 	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
@@ -861,13 +901,106 @@ OPENSC2_TEST(lizard_transitions)
 	s.pad[OPENSC2_RIGHT].x += 28;   /* would make a count with the old remainder */
 	CHECK_EQ(LZ_STEP(lz, s, kb, mouse) & OPENSC2_LIZARD_MOUSE, 0);
 
-	/* The switches alone (0x81 lowers them, 0x85 raises them): no keyboard and no mouse
-	 * buttons while down; motion stays. */
-	opensc2_lizard_switches(&lz, false);
+	/* The switches alone (0x81 lowers them, 0x85 raises them): lowering them stops the keyboard
+	 * (its empty report) and the mouse buttons; motion stays. Raised again while setting 9 is on,
+	 * the keyboard starts again (its empty report). */
+	memset(kb, 0xEE, sizeof(kb));
+	CHECK_EQ(lz_switches(&lz, false, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0);
 	s.buttons = OPENSC2_BTN_B | OPENSC2_CLICK_RIGHT_TRIGGER;
 	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
-	opensc2_lizard_switches(&lz, true);
+	CHECK_EQ(lz_switches(&lz, true, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
 	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_MOUSE);   /* the button counts again */
+
+	/* 0x85 while the keyboard runs: the "on" waits for its next switch-off, which then sends two
+	 * empty reports and leaves it running with setting 9 at 0, the mouse stopped. */
+	s.buttons = 0;
+	(void)LZ_STEP(lz, s, kb, mouse);
+	CHECK_EQ(lz_switches(&lz, true, kb, mouse), 0);
+	{
+		struct opensc2_lizard_out out;
+
+		CHECK_EQ(opensc2_lizard_setting(&lz, false, &out),
+			 OPENSC2_LIZARD_KEYBOARD | OPENSC2_LIZARD_MOUSE);
+		CHECK_EQ(out.n, 3);
+		CHECK_EQ(out.report[0][0], 0x41);
+		CHECK_EQ(out.report[1][0], 0x41);
+		CHECK_EQ(out.report[2][0], 0x40);
+	}
+	CHECK(lz.kb_on);
+	CHECK(!lz.ms_on);
+	s.buttons = OPENSC2_BTN_A;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x28);
+	/* The next switch-off (0x81 with setting 9 already 0) stops it. */
+	CHECK_EQ(lz_switches(&lz, false, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK(!lz.kb_on);
+	s.buttons = 0;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+}
+
+/* The keyboard as the button driver reports to it (opensc2_lizard_buttons(); report.c sets
+ * `driver` while CONFIG_OPENSC2_LIZARD_KEYS_AT_ONCE runs it): a key report at the change, and
+ * the frames' buttons left alone. */
+static uint32_t lz_buttons(struct opensc2_lizard *lz, uint32_t buttons, uint8_t kb[9])
+{
+	struct opensc2_lizard_out out;
+	uint8_t mouse[6];
+
+	return lz_copy(&out, opensc2_lizard_buttons(lz, buttons, &out), kb, mouse);
+}
+
+OPENSC2_TEST(lizard_keys_at_once)
+{
+	struct opensc2_lizard lz;
+	struct opensc2_state s;
+	uint8_t kb[9], mouse[6];
+
+	opensc2_lizard_reset(&lz);
+	memset(&s, 0, sizeof(s));
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);   /* adopts the buttons of boot */
+	lz.driver = true;
+
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A, kb), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[0], 0x41);
+	CHECK_EQ(kb[3], 0x28);
+	/* A frame that still carries the buttons before the change sends nothing. */
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	s.buttons = OPENSC2_BTN_A;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), 0);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A, kb), 0);   /* no change */
+	/* An unmapped button alone, and the bits above the 20 buttons, change nothing. */
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A | OPENSC2_BTN_X, kb), 0);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A | OPENSC2_BTN_X | OPENSC2_CLICK_RIGHT_TRIGGER, kb), 0);
+	/* The next mapped change carries every held button: A, X (no key), B. */
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A | OPENSC2_BTN_X | OPENSC2_BTN_B, kb),
+		 OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x28);
+	CHECK_EQ(kb[4], 0x29);
+	CHECK_EQ(kb[5], 0x00);
+
+	/* Stopped, the keyboard follows the buttons without a report; started again, a button held
+	 * since before waits for the next mapped change. */
+	(void)lz_setting(&lz, false, kb, mouse);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_DPAD_UP, kb), 0);
+	(void)lz_setting(&lz, true, kb, mouse);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_DPAD_UP, kb), 0);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_DPAD_UP | OPENSC2_BTN_MENU, kb),
+		 OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x52);
+	CHECK_EQ(kb[4], 0x2B);
+
+	/* After a resync the next buttons are adopted silently. */
+	opensc2_lizard_resync(&lz);
+	CHECK_EQ(lz_buttons(&lz, OPENSC2_BTN_A, kb), 0);
+	CHECK_EQ(lz_buttons(&lz, 0, kb), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0);
+
+	/* Without `driver` the frames bring the buttons again. */
+	lz.driver = false;
+	s.buttons = OPENSC2_BTN_B;
+	CHECK_EQ(LZ_STEP(lz, s, kb, mouse), OPENSC2_LIZARD_KEYBOARD);
+	CHECK_EQ(kb[3], 0x29);
 }
 
 OPENSC2_TEST(settings_defaults)

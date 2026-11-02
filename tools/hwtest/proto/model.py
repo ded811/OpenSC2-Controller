@@ -7,6 +7,7 @@
 # predict every report and the FW's host tests can check the same against the library. Integer
 # division truncates toward zero, as C does (Python's // is wrong for negatives), so a c_div()
 # helper is used throughout.
+import math
 import struct
 
 from . import reports as R
@@ -259,18 +260,6 @@ def _mouse_report(buttons, x, y, wheel, pan):
     return bytes([C.RPT_MOUSE, buttons & 0xFF, x & 0xFF, y & 0xFF, wheel & 0xFF, pan & 0xFF])
 
 
-def _isqrt(v):
-    """The integer square root, rounded down."""
-    if v <= 0:
-        return 0
-    r = int(v ** 0.5)
-    while r * r > v:
-        r -= 1
-    while (r + 1) * (r + 1) <= v:
-        r += 1
-    return r
-
-
 def _close(gap):
     """An eighth of the gap, rounded down, plus one unit toward the thumb (the stabiliser)."""
     if gap > 0:
@@ -346,165 +335,256 @@ class PadRules:
         return out
 
 
+def _f32(v):
+    """A value rounded to single precision (round to nearest, ties to even), as the firmware's
+    float holds it. One rounding of the exactly computed (or double) result of +, -, *, / or
+    sqrt on single-precision values gives the single-precision result."""
+    return struct.unpack("<f", struct.pack("<f", v))[0]
+
+
+def _length_f(a, b):
+    """lizard.c's length_f(): sqrtf(fmaf(a, a, b * b)) for whole numbers a, b: b * b rounded to
+    single precision, a * a added exactly and the sum rounded once (the fused multiply-add), then
+    the square root."""
+    bb = int(_f32(float(b * b)))
+    return _f32(math.sqrt(_f32(float(a * a + bb))))
+
+
+DIGITAL_BUTTONS = 0x000FFFFF   # the 20 buttons a button driver reports
+EV_ON, EV_OFF, EV_KEYS = 1, 2, 4
+
+
 class _Pad:
-    """One pad's tracker (struct opensc2_lizard_pad)."""
+    """One pad (struct opensc2_lizard_pad)."""
 
     def __init__(self):
+        self.restart()
+        self.fb_touched = False
+        self.step_x = self.step_y = 0
+        self.steps = 0
+        self.fb_clicked = False
+
+    def restart(self):
+        """pad_restart(): the mouse's tracker and stabiliser start over."""
         self.touched = False
         self.x = self.y = 0
         self.stab = Stabiliser()
-        self.hist = []               # the last 20 movements, oldest first
-        self.moves = 0
-        self.travel = 0
-        self.gliding = False
+        self.hist = []              # the movements, oldest first (at most 20)
+        self.travel = 0.0
+        self.glide = 0.0
         self.vx = self.vy = 0
-        self.glide_frame = self.glide_frames = 0
-        self.ticking = False
-        self.step_x = self.step_y = 0
-        self.steps = 0
-        self.click = False
+        self.rem_x = self.rem_y = 0
 
 
 class LizardModel:
-    """One instance of lizard mode's logic (lizard.c). step()/enter()/leave()/switches()/resync()
-    each return a list of (kind, report-bytes) in the exact send order of the firmware; after a
-    step, `haptics` lists its haptic events in order, as ("tick" or "click", side 0 left / 1
-    right). `rules` is the rule word: its lizard bits switch the stabilisers, the average, the
-    glide and the ticks (0: lizard mode as in OpenSC2 0.2.0)."""
+    """One instance of lizard mode's logic (lizard.c). setting()/enter()/leave()/switches()/
+    release()/resync()/step() each return a list of (kind, report-bytes) in the exact send order
+    of the firmware; after a step, `haptics` lists its haptic events in order, as ("tick" or
+    "click", side 0 left / 1 right). `rules` is the rule word: its lizard bits switch the
+    stabilisers, the average, the glide and the ticks (0: lizard mode as in OpenSC2 0.2.0)."""
 
     def __init__(self, rules=0):
         self.rules = rules
         self.reset()
 
     def reset(self):
-        self.active = True
-        self.keyboard_on = True
-        self.buttons_on = True
-        self.keyboard_sync = True
-        self.mapped = 0
-        self.haptics = []
-        self._clear_tracker()
-
-    def _clear_tracker(self):
-        self.pad = [_Pad(), _Pad()]
-        self.rem_x = self.rem_y = self.rem_pan = self.rem_wheel = 0
+        self.kb_switch = self.ms_switch = True
+        self.kb_mode = True
+        self.kb_on = self.ms_on = True
+        self.kb_events = self.ms_events = 0
+        self.kb_word = 0
+        self.kb_held = False
+        self.buttons = 0
+        self.buttons_sync = True     # a button held at boot made its report into no link
         self.mouse_owed = False
-        self.click_sync = True
+        self.fb_sync = False
+        self.haptics = []
+        self.pad = [_Pad(), _Pad()]
 
-    def gliding(self):
-        return any(p.gliding for p in self.pad)
+    # ---- the keyboard and the mouse take up their events ----
+    def _keys_report(self):
+        keys = []
+        word = self.kb_word
+        for bit in range(20):
+            if not word & (1 << bit):
+                continue
+            if len(keys) == 6:
+                keys = [KEY_ROLLOVER] * 6
+                break
+            keys.append(_KEY_MAP.get(bit, 0))
+        self.kb_held = any(keys)
+        return ("keyboard", _keyboard_report(keys))
+
+    def _keyboard_run(self):
+        made = []
+        while True:
+            if not self.kb_on:
+                if not self.kb_events & EV_ON:
+                    return made
+                self.kb_events = 0
+                self.kb_on = True
+                self.kb_held = False
+                made.append(("keyboard", _keyboard_report([])))
+                continue
+            ev = self.kb_events & (EV_OFF | EV_KEYS)
+            if not ev:
+                return made
+            self.kb_events &= ~ev
+            if ev & EV_OFF:
+                self.kb_on = False
+                self.kb_held = False
+                made.append(("keyboard", _keyboard_report([])))
+                continue
+            made.append(self._keys_report())
+
+    def _mouse_run(self):
+        made = []
+        while True:
+            if not self.ms_on:
+                if not self.ms_events & EV_ON:
+                    return made
+                self.ms_events = 0
+                self.ms_on = True
+                for p in self.pad:
+                    p.restart()
+                self.mouse_owed = False
+                made.append(("mouse", _mouse_report(0, 0, 0, 0, 0)))
+                continue
+            if not self.ms_events & EV_OFF:
+                return made
+            self.ms_events &= ~EV_OFF
+            self.ms_on = False
+            self.mouse_owed = False
+            made.append(("mouse", _mouse_report(0, 0, 0, 0, 0)))
+
+    def _take_up(self):
+        return self._keyboard_run() + self._mouse_run()
+
+    def _set_switches(self, up):
+        self.kb_switch = up
+        self.kb_events |= EV_ON if (up and self.kb_mode) else EV_OFF
+        self.ms_switch = up
+
+    def setting(self, on):
+        """opensc2_lizard_setting(): setting 9 changed to `on`."""
+        self._set_switches(on)
+        self.kb_mode = on
+        self.kb_events |= EV_ON if (on and self.kb_switch) else EV_OFF
+        self.ms_events |= EV_ON if on else EV_OFF
+        return self._take_up()
 
     def enter(self):
-        self._clear_tracker()
-        self.active = True
-        self.keyboard_on = self.buttons_on = True
-        self.keyboard_sync = True
-        # osc2_lizard_set(on): keyboard first, then mouse (the same order as off)
-        return [("keyboard", _keyboard_report([])), ("mouse", _mouse_report(0, 0, 0, 0, 0))]
+        return self.setting(True)
 
     def leave(self):
-        was_active = self.active
-        self.active = False
-        self.keyboard_on = self.buttons_on = False
-        self.mouse_owed = False
-        for p in self.pad:
-            p.gliding = False
-            p.ticking = False
-        if not was_active:
-            return []
-        # osc2_lizard_set(off): keyboard first, then mouse
-        return [("keyboard", _keyboard_report([])), ("mouse", _mouse_report(0, 0, 0, 0, 0))]
+        return self.setting(False)
 
     def switches(self, up):
-        if up and not self.keyboard_on:
-            self.keyboard_sync = True
-        self.keyboard_on = self.buttons_on = up
-        return []
+        """opensc2_lizard_switches(): 0x85 raises them, 0x81 lowers them."""
+        self._set_switches(up)
+        return self._take_up()
 
     def resync(self):
-        self._clear_tracker()
-        self.keyboard_sync = True
+        for p in self.pad:
+            p.restart()
+            p.fb_touched = False
+            p.steps = 0
+        self.mouse_owed = False
+        self.buttons_sync = True
+        self.fb_sync = True
         return []
 
     def release(self):
         """opensc2_lizard_release(): the release pair when something is held, else nothing."""
-        if not self.active or (self.mapped == 0 and not self.mouse_owed):
+        if not (self.kb_on and self.kb_held) and not (self.ms_on and self.mouse_owed):
             return []
-        self.mapped = 0
+        self.kb_held = False
         self.mouse_owed = False
         return [("keyboard", _keyboard_report([])), ("mouse", _mouse_report(0, 0, 0, 0, 0))]
+
+    def running(self):
+        """(the keyboard runs, the mouse runs)"""
+        return self.kb_on, self.ms_on
+
+    def gliding(self):
+        return self.ms_on and any(p.glide > 0.0 and not p.touched for p in self.pad)
 
     def haptic_words(self):
         """The step's haptic events as lizard.txt writes them (TICK_L, CLICK_R, ...)."""
         return [("TICK_" if kind == "tick" else "CLICK_") + ("R" if side else "L")
                 for kind, side in self.haptics]
 
-    def _pad_haptics(self, side, touched, clicked, x, y, s):
+    # ---- the frame ----
+    def _feedback(self, side, touched, clicked, x, y, s, sync):
         p = self.pad[side]
-        on = bool(self.rules & RULE_LIZARD_TICKS) and s[70] == 1
-        if touched and not p.touched:
-            p.ticking = on
-            p.step_x, p.step_y = x, y
-            p.steps = 0
-        elif touched and p.ticking and on and approx_len(x - p.step_x, y - p.step_y) > TICK_STEP:
-            p.step_x, p.step_y = x, y
-            p.steps += 1
-            if p.steps * TICK_STEP > min(max(s[14], 0), 32767):
-                p.steps = 0
-                self.haptics.append(("tick", side))
-        if not on:
-            p.ticking = False
-        if self.click_sync:
-            p.click = clicked
-        elif clicked != p.click:
-            p.click = clicked
-            if on and s[53 if side else 52] > -1:
-                self.haptics.append(("click", side))
-
-    def _pad_motion(self, p, touched, x, y, s):
-        rules = self.rules
+        if s[70] != 1 or s[9] == 0:
+            p.fb_touched = False     # the click state is kept
+            return
         if touched:
-            if not p.touched:
-                # touch-down: no motion; the history, the travel and any glide start over
-                p.hist = []
-                p.moves = 0
-                p.travel = 0
-                p.gliding = False
-                m = (0, 0)
+            if not p.fb_touched:
+                p.step_x, p.step_y = x, y
+                p.steps = 0
             else:
-                dx, dy = x - p.x, y - p.y
-                p.hist = (p.hist + [(dx, dy)])[-HISTORY:]
-                p.moves += 1
-                p.travel = min(p.travel + approx_len(dx, dy), 0x7FFFFFFF)
+                if approx_len(x - p.step_x, y - p.step_y) > TICK_STEP:
+                    p.steps += 1
+                    p.step_x, p.step_y = x, y
+                if p.steps * TICK_STEP > s[14]:
+                    p.steps = 0
+                    self.haptics.append(("tick", side))
+        p.fb_touched = touched
+        if not sync and clicked != p.fb_clicked and s[53 if side else 52] != -1:
+            self.haptics.append(("click", side))
+        p.fb_clicked = clicked
+
+    @staticmethod
+    def _mean(hist, n, skip):
+        if n <= 0 or len(hist) < n + skip:
+            return 0
+        part = hist[len(hist) - n - skip:len(hist) - skip]
+        return c_div(sum(part), n)
+
+    def _motion(self, p, touched, x, y, s):
+        rules = self.rules
+        sx = sy = 0
+        if touched:
+            if p.touched:
+                mx, my = x - p.x, y - p.y
+                p.travel = _f32(p.travel + _length_f(mx, my))
+                p.hist = (p.hist + [(mx, my)])[-HISTORY:]
                 if rules & RULE_LIZARD_SMOOTHING:
-                    newest = p.hist[-min(p.moves, AVERAGE):]
-                    n = len(newest)
-                    m = (c_div(sum(a for a, _b in newest), n), c_div(sum(b for _a, b in newest), n))
+                    n = min(len(p.hist), AVERAGE)
+                    sx = self._mean([a for a, _b in p.hist], n, 0)
+                    sy = self._mean([b for _a, b in p.hist], n, 0)
                 else:
-                    m = (dx, dy)
-            p.touched = True
-            p.x, p.y = x, y
-            return m
-        if p.touched:
-            p.touched = False
-            if rules & RULE_LIZARD_GLIDE and p.moves >= HISTORY and p.travel > FLICK_TRAVEL:
-                oldest = p.hist[:FLICK_MOVES]
-                p.vx = c_div(sum(a for a, _b in oldest), FLICK_MOVES)
-                p.vy = c_div(sum(b for _a, b in oldest), FLICK_MOVES)
-                if _isqrt(p.vx * p.vx + p.vy * p.vy) > min(max(s[11], 0), 1000):
-                    p.gliding = True
-                    p.glide_frame = 0
-                    p.glide_frames = min(max(s[12], 1), 1000)
-        if p.gliding and not rules & RULE_LIZARD_GLIDE:
-            p.gliding = False
-        if p.gliding:
-            left = p.glide_frames - p.glide_frame
-            m = (c_div(p.vx * left, p.glide_frames), c_div(p.vy * left, p.glide_frames))
-            p.glide_frame += 1
-            if p.glide_frame >= p.glide_frames:
-                p.gliding = False
-            return m
-        return (0, 0)
+                    sx, sy = mx, my
+            else:
+                p.hist = []
+                p.travel = 0.0
+        else:
+            if p.touched:
+                skip = HISTORY - FLICK_MOVES
+                p.vx = self._mean([a for a, _b in p.hist], FLICK_MOVES, skip)
+                p.vy = self._mean([b for _a, b in p.hist], FLICK_MOVES, skip)
+                p.glide = 0.0
+                if (rules & RULE_LIZARD_GLIDE and p.travel > FLICK_TRAVEL and
+                        int(_length_f(p.vx, p.vy)) > s[11]):
+                    p.glide = 1.0
+            if not rules & RULE_LIZARD_GLIDE:
+                p.glide = 0.0
+            if p.glide > 0.0:
+                sx = int(_f32(_f32(float(p.vx)) * p.glide))
+                sy = int(_f32(_f32(float(p.vy)) * p.glide))
+                p.glide = _f32(p.glide - _f32(1.0 / s[12]))
+        p.touched = touched
+        p.x, p.y = x, y
+        return sx, sy
+
+    @staticmethod
+    def _divide(p, axis, total, divisor):
+        rem = getattr(p, axis) + total
+        q = c_div(rem, divisor)
+        setattr(p, axis, rem - q * divisor)
+        return q
 
     def step(self, buttons=0, lpad=(0, 0), rpad=(0, 0), s82=None, lpad_touched=None,
              rpad_touched=None, rpad_clicked=False, lpad_clicked=False, settings=None):
@@ -512,75 +592,68 @@ class LizardModel:
         if s82 is not None:
             s[82] = s82
         self.haptics = []
-        if not self.active:
-            return []
         made = []
+
+        # the buttons as a button driver reports them: a mapped change reaches a running keyboard
+        word = buttons & DIGITAL_BUTTONS
+        if self.buttons_sync:
+            self.buttons_sync = False
+        elif (word ^ self.buttons) & _MAPPED and self.kb_on:
+            self.kb_word = word
+            self.kb_events |= EV_KEYS
+        self.buttons = word
+        made += self._take_up()
+
         pads = (lpad, rpad)
-        touched_in = [
-            lpad_touched if lpad_touched is not None else bool(buttons & _TOUCH[0]),
-            rpad_touched if rpad_touched is not None else bool(buttons & _TOUCH[1]),
-        ]
-        clicked_in = [lpad_clicked, rpad_clicked]
-
-        # keyboard: only when a mapped button changed
-        if self.keyboard_on:
-            mapped = buttons & _MAPPED
-            if self.keyboard_sync:
-                self.mapped = mapped
-                self.keyboard_sync = False
-            elif mapped != self.mapped:
-                self.mapped = mapped
-                keys = []
-                count = 0
-                for bit in range(20):
-                    if not (buttons & (1 << bit)):
-                        continue
-                    if count < 6:
-                        keys.append(_KEY_MAP.get(bit, 0))
-                    count += 1
-                if count > 6:
-                    keys = [KEY_ROLLOVER] * 6
-                made.append(("keyboard", _keyboard_report(keys)))
-
-        # mouse: each pad's stabiliser, tracker and haptics
-        motion = [(0, 0), (0, 0)]
-        blanked = [False, False]
+        touched_in = (lpad_touched, rpad_touched)
+        clicked_in = (lpad_clicked, rpad_clicked)
+        touched, clicked, blanked = [False, False], [False, False], [False, False]
+        pos = [(0, 0), (0, 0)]
         for side in range(2):
-            p = self.pad[side]
+            t_in = touched_in[side] if touched_in[side] is not None else False
             blanked[side] = bool(s[82] & (2 if side else 1)) and bool(buttons & _STICK_TOUCH[side])
-            touched = (not blanked[side]) and (touched_in[side] or bool(buttons & _TOUCH[side]))
-            clicked = (not blanked[side]) and (clicked_in[side] or bool(buttons & _PAD_CLICK[side]))
-            x, y = pads[side] if touched else (0, 0)
-            self._pad_haptics(side, touched, clicked, x, y, s)
-            if self.rules & RULE_LIZARD_STABILISER and (side == 0 or s[80] == 1):
-                x, y = p.stab.step(STABILISER_COARSE if side == 0 else STABILISER_FINE, touched,
-                                   x, y)
-            else:
-                p.stab.reset()
-            motion[side] = self._pad_motion(p, touched, x, y, s)
-            if blanked[side]:
-                motion[side] = (0, 0)   # dropped; a glide's factor keeps running down
-        self.click_sync = False
+            touched[side] = (not blanked[side]) and (t_in or bool(buttons & _TOUCH[side]))
+            clicked[side] = touched[side] and (clicked_in[side] or
+                                               bool(buttons & _PAD_CLICK[side]))
+            pos[side] = pads[side] if touched[side] else (0, 0)
+            if self.rules & RULE_LIZARD_TICKS:
+                self._feedback(side, touched[side], clicked[side], pos[side][0], pos[side][1], s,
+                               self.fb_sync)
+        self.fb_sync = False
 
-        x = self._divide("rem_x", motion[1][0], POINTER_DIVISOR)
-        y = -self._divide("rem_y", motion[1][1], POINTER_DIVISOR)
-        pan = self._divide("rem_pan", motion[0][0], SCROLL_DIVISOR)
-        wheel = -self._divide("rem_wheel", motion[0][1], SCROLL_DIVISOR)
-
-        mbuttons = 0
-        if self.buttons_on:
-            right_click = (not blanked[1]) and (bool(buttons & _CLICK_RPAD) or rpad_clicked)
-            if (buttons & _CLICK_RTRIG) or right_click:
-                mbuttons |= 0x01
-            if buttons & _CLICK_LTRIG:
-                mbuttons |= 0x02
-
-        if x or y or wheel or pan or mbuttons:
-            made.append(("mouse", _mouse_report(mbuttons, x, y, wheel, pan)))
-            self.mouse_owed = True
-        elif self.mouse_owed:
-            made.append(("mouse", _mouse_report(0, 0, 0, 0, 0)))
-            self.mouse_owed = False
+        if self.ms_on:
+            d = [(0, 0), (0, 0)]
+            for side in range(2):
+                p = self.pad[side]
+                x, y = pos[side]
+                if self.rules & RULE_LIZARD_STABILISER:
+                    radius = STABILISER_COARSE if side == 0 else STABILISER_FINE
+                    # the right pad's only while setting 80 is 1; otherwise left as it is
+                    if side == 0 or s[80] == 1:
+                        if touched[side]:
+                            x, y = p.stab.step(radius, True, x, y)
+                        else:
+                            p.stab.reset()
+                else:
+                    p.stab.reset()
+                sx, sy = self._motion(p, touched[side], x, y, s)
+                div = POINTER_DIVISOR if side else SCROLL_DIVISOR
+                dx = self._divide(p, "rem_x", sx, div)
+                dy = self._divide(p, "rem_y", sy, div)
+                d[side] = (0, 0) if blanked[side] else (dx, dy)   # worked out, then dropped
+            mbuttons = 0
+            if self.ms_switch:
+                if buttons & _CLICK_RTRIG or clicked[1]:
+                    mbuttons |= 0x01
+                if buttons & _CLICK_LTRIG:
+                    mbuttons |= 0x02
+            rep = _mouse_report(mbuttons, d[1][0], -d[1][1], -d[0][1], d[0][0])
+            if any(rep[1:]):
+                self.mouse_owed = True
+                made.append(("mouse", rep))
+            elif self.mouse_owed:
+                self.mouse_owed = False
+                made.append(("mouse", _mouse_report(0, 0, 0, 0, 0)))
         return made
 
     def step_state52(self, state52, settings=None):
@@ -588,12 +661,6 @@ class LizardModel:
         f = R.decode_state52(state52)
         return self.step(buttons=f["buttons"], lpad=(f["lpad_x"], f["lpad_y"]),
                          rpad=(f["rpad_x"], f["rpad_y"]), settings=settings)
-
-    def _divide(self, rem_name, delta, divisor):
-        total = getattr(self, rem_name) + delta
-        q = c_div(total, divisor)
-        setattr(self, rem_name, total - q * divisor)
-        return q
 
 
 def lizard_haptic_fields(kind, side):

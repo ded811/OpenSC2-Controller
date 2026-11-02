@@ -404,6 +404,7 @@ int opensc2_set_state(const struct opensc2_state *state)
 	k_spin_unlock(&osc2.lock, key);
 	if (changed) {
 		osc2_sys_buttons_changed();
+		osc2_lizard_buttons_changed();
 	}
 	return 0;
 }
@@ -436,6 +437,7 @@ int opensc2_set_buttons(uint32_t mask, uint32_t value)
 	k_spin_unlock(&osc2.lock, key);
 	if (changed) {
 		osc2_sys_buttons_changed();   /* the chords, STEAM and the idle monitor look again */
+		osc2_lizard_buttons_changed();   /* lizard mode's keyboard hears of it now */
 	}
 	return 0;
 }
