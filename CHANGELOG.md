@@ -24,9 +24,10 @@ controller is listed in docs/protocol.md's gaps.
 
 - The real controller's haptic stream status replies: every stop-all (`0x81` with an on time of 0,
   `0x82` command 0, a zero speed in `0x80`) and `0x86`'s stream stop send `0x44 {channel, 0x02}`
-  for each channel they reach (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default, and selected by
-  the haptics synthesiser). Steam's pair of zero pulses now gets `44 04 02 ...` and `44 03 02 ...`,
-  as from the real controller.
+  for each channel they reach: with the haptics synthesiser when its sequencer takes the stop, as
+  the real one does, without it at once (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, on by default).
+  Steam's pair of zero pulses now gets `44 04 02 ...` and `44 03 02 ...`, as from the real
+  controller.
 - Every settings key of the real controller in `0xED`..`0xF0`: the library keeps `user/keylock`,
   `user/fully_charged_led_intensity`, `mte/charge_level`, `debug/resetreason` and
   `settings/haptics/...` (stored under `opensc2/k/`, each exactly its size, read back and saved by
@@ -197,8 +198,9 @@ controller is listed in docs/protocol.md's gaps.
 
 **The haptics synthesiser**
 
-- `CONFIG_OPENSC2_HAPTICS_SYNTH` (off by default; `app/haptics.conf` builds the blank canvas with
-  it): the library renders the haptic output reports into sample blocks as the real controller's
+- `CONFIG_OPENSC2_HAPTICS_SYNTH` (on by default, as on the real controller, whose sequencers are
+  always there: a host gets the same `0x44` flow control from a board without actuators; turn it
+  off only on a board that needs its RAM): the library renders the haptic output reports into sample blocks as the real controller's
   two sequencers do (the pads at 4 kHz, the grips at 8 kHz, one thread each): `0x81`'s pulse trains
   and special cases, clicks, tones with an LFO, exponential sweeps, the October rumble emulation
   with settings 27, 75 and 76, scripts (one per channel), PCM streams with their rings, s16le, s8
@@ -208,6 +210,31 @@ controller is listed in docs/protocol.md's gaps.
   callback for amplitude-only actuators, and three built-in outputs: an I2S amplifier for the
   grips, a PWM "DAC" on nrfx for the pads, a DRV2605 in real-time playback. Integer arithmetic:
   blocks are bit for bit the same on the board and on a PC.
+- The synthesiser's timer, which paces a path without an output, keeps the real controller's
+  block times: 8.192 ms on the pads (32 samples at 256 µs each, the real pads' rate of about
+  3906 Hz), 8 ms on the grips, so a pad stream drains and its `0x44` flags come as fast as on the
+  real controller on a board without pad actuators too.
+- The synthesiser follows the real controller's arithmetic and timing, quirks included: the
+  polynomial sine (peak 1.0045) with its one-cycle phase wrap (tones above the rate turn into
+  clipped noise); sweeps that divide by zero (from 0 Hz, equal ends, duration 0, a 16-bit count
+  wrapped to 0) playing a full-scale push over the channel's mix, the 16-bit count wrapping, the
+  fade-out to 0, the phase kept with the real closed form to the end (each step taken half a
+  sample on, the ratio's logarithm to 30 bits, the exponential without a bias); pulse periods in 16 bits; generators lingering 1 or 4 samples in the mix; 8-bit
+  dB sums; streams keeping their interpolated values across a stop, losing half a sample when they
+  run dry, with no water mark before a format and the real handling of format bytes from 12 up;
+  every write that finds enough audio queuing a start; channel gains silent until settings 75 and
+  76 are handed to the channels as queued configure commands (at the end of start-up and on every
+  change; the `settings/haptics/` keys by name at once); the amplifier enable raised or dropped at
+  once by the amplifier mode; the `0x44` replies to stops from the sequencers; each block rendered
+  after the wait for the output (a new optional output operation, `ready()`); the PCM records
+  `0x87` and `0x89` through the puck at the record's length; the pads' PWM DAC at the real 3906 Hz
+  (`CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K` for 4 kHz); the drop sounds turned off until a
+  reboot when the IMU stops in the 5 s after a fall (`opensc2_haptics_imu_stopped()`, which the
+  blank canvas calls).
+- Sounds of the board's own in place of Valve's: `opensc2_haptics_set_click()` (click A or B as a
+  recording) and `opensc2_haptics_set_script()` (any of the 17 scripts as steps: tones, sweeps,
+  pulses, clicks and clips, a step with a fixed gain or channel of its own), so the cues and the
+  drop sounds can be a board's own sounds and recordings.
 - `samples/haptics`: the synthesiser on the I2S and PWM DAC outputs, or a DRV2605 (`drv2605.conf`),
   with a `hap` shell command to play the sounds by hand.
 - `tools/gen_haptics_tables.py`, which writes the synthesiser's constant tables.
@@ -332,7 +359,7 @@ controller is listed in docs/protocol.md's gaps.
   and reach RAM from the write; a stick or trigger recording loads every stored `cal/` key again
   (a RAM-only `0xEE` change of another key goes back); a side is saved when the board has it.
 - The IMU's stream going off (setting 48 = 0, or the key `mode`) now also drops a drop sound still
-  waiting its 250 ms, as on the real controller (`opensc2_haptics_free_fall_cancel()`, called by the
+  waiting its 250 ms, as on the real controller (`opensc2_haptics_imu_stopped()`, called by the
   library's IMU for a board that set its IMU up). Such a board's reports carry all IMU fields 0, the
   quaternion's W included, until its first sample, as the real controller's do (they started with
   the identity); a board without an IMU keeps the identity.

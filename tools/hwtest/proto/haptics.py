@@ -25,6 +25,7 @@ PLAY_CLICK = 1           # channels, click (1 A, 2 B), gain
 PLAY_SCRIPT = 2          # channels, id, gain
 PLAY_FALL = 3            # the random byte the drop sound will use
 PLAY_STOP = 4            # channels
+PLAY_IMU_OFF = 5         # (none): the IMU stopped -> 1 when it cancelled a drop sound or re-arm
 
 # ring entry kinds
 RING_HAP_GEN = 0x60
@@ -47,7 +48,7 @@ STREAM_QUEUED, STREAM_START, STREAM_DRY, STREAM_EMPTIED, STREAM_FORMAT, STREAM_W
     STREAM_STATUS = 1, 2, 3, 4, 5, 6, 7
 # HAP_SCRIPT what
 SCRIPT_START, SCRIPT_REFUSED, SCRIPT_STEP, SCRIPT_DONE, SCRIPT_CUE, SCRIPT_FALL, SCRIPT_DROP, \
-    SCRIPT_REARM = 1, 2, 3, 4, 5, 6, 7, 8
+    SCRIPT_REARM, SCRIPT_IMU_OFF = 1, 2, 3, 4, 5, 6, 7, 8, 9
 # HAP_BLOCK flags
 BLOCK_FIRST, BLOCK_LAST = 0x01, 0x02
 
@@ -112,6 +113,22 @@ def decode_status(result):
         "fill": struct.unpack_from("<HHHH", r, 26),
         "format": tuple(r[34:38]),
     }
+
+
+def wait_quiet(rig, timeout=2.0):
+    """Until the synthesiser plays nothing, runs no script and both paths' threads are idle (a
+    command sent then is applied at once, as on the real controller): the status, or None when
+    the board does not answer HAP_STATUS."""
+    deadline = rig.clock.monotonic() + rig.t(timeout)
+    while True:
+        a = rig.test(OP_HAP_STATUS)
+        if a is None or a["status"] != 0:
+            return None
+        st = decode_status(a["result"])
+        quiet = not st["busy"] and not st["running"] and not st["players"]
+        if quiet or rig.clock.monotonic() >= deadline:
+            return st
+        rig.sleep(0.02)
 
 
 def status_report(channel, flags):

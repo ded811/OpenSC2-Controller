@@ -174,8 +174,9 @@ static void stream(bool on)
 		h->stream(on, user);
 	}
 	if (!on && was && board) {
-		/* a drop sound still due is not played (a board without an IMU has no stream to stop) */
-		opensc2_haptics_free_fall_cancel();
+		/* a drop sound still due and the re-arm go with the stream, as on the real controller
+		 * (a board without an IMU has no stream to stop) */
+		opensc2_haptics_imu_stopped();
 	}
 }
 

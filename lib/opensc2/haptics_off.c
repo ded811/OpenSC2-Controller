@@ -71,8 +71,31 @@ void opensc2_haptics_free_fall(void)
 {
 }
 
-void opensc2_haptics_free_fall_cancel(void)
+int opensc2_haptics_play_report(const uint8_t *report, size_t len)
 {
+	(void)report;
+	(void)len;
+	return -ENOTSUP;
+}
+
+void opensc2_haptics_imu_stopped(void)
+{
+}
+
+int opensc2_haptics_set_click(uint8_t click, const struct opensc2_haptics_sound *sound)
+{
+	(void)click;
+	(void)sound;
+	return -ENOTSUP;
+}
+
+int opensc2_haptics_set_script(uint8_t id, const struct opensc2_haptics_step *steps,
+			       uint8_t count)
+{
+	(void)id;
+	(void)steps;
+	(void)count;
+	return -ENOTSUP;
 }
 
 int opensc2_haptics_info(struct opensc2_haptics_info *info)

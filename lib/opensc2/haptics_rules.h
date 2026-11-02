@@ -62,42 +62,35 @@ uint32_t osc2_hap_rumble_burst_mhz(uint16_t left_speed);
 #define OSC2_HAP_RUMBLE_MS 500
 #define OSC2_HAP_RUMBLE_HZ 50
 
-/* ---- built-in scripts (OpenSC2's own sounds, haptics_sounds.c) --------------------------------- */
+/* ---- scripts (OpenSC2's own sounds, haptics_sounds.c, or the application's) -------------------- */
 
-enum osc2_hap_step_kind {
-	OSC2_HAP_STEP_END = 0,         /* the script ends `delay_ms` after the step before */
-	OSC2_HAP_STEP_TONE = 1,        /* a = Hz, b = ms, c = LFO in 0.1 Hz (0: none), d = depth % */
-	OSC2_HAP_STEP_SWEEP = 2,       /* a = start Hz, b = end Hz, c = ms */
-	OSC2_HAP_STEP_PULSE = 3,       /* a = on us, b = off us, c = periods (full scale) */
-	OSC2_HAP_STEP_CLICK_A = 4,     /* the pads only */
-	OSC2_HAP_STEP_CLICK_B = 5,
-};
-
-struct osc2_hap_step {
-	uint16_t delay_ms;             /* after the step before (the first: after the request) */
-	uint8_t kind;                  /* enum osc2_hap_step_kind */
-	int8_t gain_db;                /* added to the script's gain */
-	uint16_t a, b, c;
-	uint8_t d;
-};
+/* A script's steps: struct opensc2_haptics_step and the OPENSC2_HAPTICS_STEP_* kinds of the public
+ * header <opensc2/haptics.h>. */
 
 #define OSC2_HAP_SCRIPT_FIRST 1
 #define OSC2_HAP_SCRIPT_LAST 17        /* report 0x85 plays 1..17, as the October controller */
 #define OSC2_HAP_SCRIPT_DROP_1 16
 #define OSC2_HAP_SCRIPT_DROP_2 17
 
-/* Script `id`'s steps (ending with an END step) and their number, or NULL for an unknown id. */
-const struct osc2_hap_step *osc2_hap_script(uint8_t id, uint8_t *count);
+/* Script `id`'s steps and their number (the application's when it gave some, else OpenSC2's own,
+ * which end with an END step), or NULL for an unknown id. */
+const struct opensc2_haptics_step *osc2_hap_script(uint8_t id, uint8_t *count);
 
-/* The command a step plays on `channel` at the script's gain (the step's offset added without
- * wrapping round). */
-void osc2_hap_step_cmd(const struct osc2_hap_step *step, uint8_t channel, int8_t gain_db,
+/* The application's steps for script `id` (1..17), `count` of them; NULL: OpenSC2's own again.
+ * -EINVAL for an id outside 1..17, no steps, or a step that cannot play (an unknown kind, a
+ * channel above 3, a clip without data or in a format above 11). The steps must stay valid. */
+int osc2_hap_script_set(uint8_t id, const struct opensc2_haptics_step *steps, uint8_t count);
+
+/* The command a step plays on `channel` (or the step's own channel) at the script's gain (the
+ * step's offset added in 8 bits, wrapping round as on the real controller), or at the step's own
+ * fixed gain. */
+void osc2_hap_step_cmd(const struct opensc2_haptics_step *step, uint8_t channel, int8_t gain_db,
 		       struct osc2_hap_cmd *cmd);
 
 /* One channel's script player: one script at a time, steps at their delays from the step before
  * (at least 1 ms). Times are milliseconds of any clock that wraps at 2^32. */
 struct osc2_hap_player {
-	const struct osc2_hap_step *steps;
+	const struct opensc2_haptics_step *steps;
 	uint8_t count, next;
 	uint8_t channel, id;
 	int8_t gain_db;
@@ -140,7 +133,7 @@ enum osc2_hap_drop_state {
 	OSC2_HAP_DROP_ARMED = 0,
 	OSC2_HAP_DROP_PENDING = 1,     /* a fall was seen: the sound is due at play_ms */
 	OSC2_HAP_DROP_WAITING = 2,     /* until the re-arm at rearm_ms */
-	OSC2_HAP_DROP_OFF = 3,         /* cancelled: no sound, no re-arm until the next init */
+	OSC2_HAP_DROP_OFF = 3,         /* the IMU stopped before the re-arm: off until a reboot */
 };
 
 struct osc2_hap_drop {
@@ -159,11 +152,10 @@ void osc2_hap_drop_init(struct osc2_hap_drop *d);
  * the fall. */
 bool osc2_hap_drop_fall(struct osc2_hap_drop *d, uint32_t now_ms);
 enum osc2_hap_drop_poll osc2_hap_drop_poll(struct osc2_hap_drop *d, uint32_t now_ms);
+/* The IMU stopped streaming: a sound still due and the re-arm are cancelled, which leaves the drop
+ * sounds off until a reboot (the real controller's rule). True when it cancelled something. */
+bool osc2_hap_drop_imu_stopped(struct osc2_hap_drop *d);
 int32_t osc2_hap_drop_wait(const struct osc2_hap_drop *d, uint32_t now_ms);
-/* The IMU's stream went off: a sound still due is not played, and when a fall was taken falls never
- * count again until the next init, as on the real controller (it cancels both pending works). Armed:
- * nothing changes. */
-void osc2_hap_drop_cancel(struct osc2_hap_drop *d);
 /* The script a random byte picks: below 48 script 16, 48 to 127 script 17, otherwise none (0):
  * 3 in 16 and 5 in 16, about half of all drops. */
 uint8_t osc2_hap_drop_pick(uint8_t random_byte);

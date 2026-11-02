@@ -15,12 +15,15 @@
  *   hap click <a|b> [chan] [dB]       a click on the pads
  *   hap stop [chan]                   stop everything
  *   hap fall                          a free fall: a drop sound, half of the time
+ *   hap own <on|off>                  sounds of this board's own in place of OpenSC2's: click A,
+ *                                     script 1 (the power-on cue) and script 16 (a drop sound)
  *   hap info                          what plays
  *
  * There is no power_request callback: the library does the reboots Steam asks for itself, and it
  * ignores Steam's request to enter a bootloader for a firmware update.
  */
 #include <stdlib.h>
+#include <string.h>
 #include <zephyr/kernel.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/input/input.h>
@@ -128,6 +131,48 @@ static int cmd_fall(const struct shell *sh, size_t argc, char **argv)
 	return 0;
 }
 
+/* Sounds of the board's own, as a board would give its recordings: here a short click made of a
+ * few s8 samples at 4 kHz, a two-note power-on cue and a drop sound that plays a recording (the
+ * same samples at 1 kHz, eight times as long) after a low thump on the grips. */
+static const uint8_t own_click_pcm[] = {
+	0, 90, 127, 60, (uint8_t)-40, (uint8_t)-100, (uint8_t)-60, 0, 30, 20, 0,
+};
+static const struct opensc2_haptics_sound own_click = {
+	own_click_pcm, sizeof(own_click_pcm), 5,      /* s8 at 4 kHz */
+};
+static const struct opensc2_haptics_sound own_drop = {
+	own_click_pcm, sizeof(own_click_pcm), 7,      /* s8 at 1 kHz */
+};
+static const struct opensc2_haptics_step own_power_on[] = {
+	{ .delay_ms = 1, .kind = OPENSC2_HAPTICS_STEP_TONE, .a = 330, .b = 90 },
+	{ .delay_ms = 110, .kind = OPENSC2_HAPTICS_STEP_TONE, .gain_db = 2, .a = 495, .b = 120 },
+	{ .delay_ms = 140, .kind = OPENSC2_HAPTICS_STEP_END },
+};
+static const struct opensc2_haptics_step own_drop_steps[] = {
+	{ .delay_ms = 1, .kind = OPENSC2_HAPTICS_STEP_TONE, .gain_db = -6, .a = 70, .b = 120,
+	  .flags = OPENSC2_HAPTICS_STEP_FIXED_GAIN },
+	{ .delay_ms = 130, .kind = OPENSC2_HAPTICS_STEP_CLIP, .clip = &own_drop },
+	{ .delay_ms = 100, .kind = OPENSC2_HAPTICS_STEP_END },
+};
+
+static int cmd_own(const struct shell *sh, size_t argc, char **argv)
+{
+	bool on = argc < 2 || strcmp(argv[1], "off") != 0;
+	int err;
+
+	err = opensc2_haptics_set_click(OPENSC2_HAPTIC_CMD_CLICK_A, on ? &own_click : NULL);
+	if (!err) {
+		err = opensc2_haptics_set_script(1, on ? own_power_on : NULL,
+						 on ? ARRAY_SIZE(own_power_on) : 0);
+	}
+	if (!err) {
+		err = opensc2_haptics_set_script(16, on ? own_drop_steps : NULL,
+						 on ? ARRAY_SIZE(own_drop_steps) : 0);
+	}
+	shell_print(sh, "own sounds %s: %d", on ? "on" : "off", err);
+	return 0;
+}
+
 static int cmd_info(const struct shell *sh, size_t argc, char **argv)
 {
 	struct opensc2_haptics_info info;
@@ -152,6 +197,7 @@ SHELL_STATIC_SUBCMD_SET_CREATE(hap_cmds,
 	SHELL_CMD_ARG(click, NULL, "Click: <a|b> [channels, hex] [dB]", cmd_click, 2, 2),
 	SHELL_CMD_ARG(stop, NULL, "Stop: [channels, hex]", cmd_stop, 1, 1),
 	SHELL_CMD(fall, NULL, "Report a free fall", cmd_fall),
+	SHELL_CMD_ARG(own, NULL, "Sounds of the board's own: <on|off>", cmd_own, 1, 1),
 	SHELL_CMD(info, NULL, "What plays", cmd_info),
 	SHELL_SUBCMD_SET_END);
 SHELL_CMD_REGISTER(hap, &hap_cmds, "The haptics synthesiser's sounds", NULL);

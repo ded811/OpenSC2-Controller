@@ -102,6 +102,8 @@ static void on_stream(bool on, void *user_data)
 		(void)rtio_sqe_cancel(stream);
 		stream = NULL;
 		cancelled_id = stream_id;
+		k_mutex_unlock(&stream_lock);
+		return;   /* the library's IMU cancels a drop sound still due with the stream */
 	}
 	k_mutex_unlock(&stream_lock);
 	stream_start();

@@ -59,6 +59,7 @@ static void hap_run(uint8_t path, uint32_t blocks, bool first)
 static void hap_fresh(void)
 {
 	osc2_hap_init(&hap);
+	osc2_hap_set_gains(&hap, -3);   /* as the start-up handover leaves them (setting 76) */
 	memset(&cap, 0, sizeof(cap));
 }
 
@@ -147,30 +148,57 @@ static int hap_events_of(uint8_t path, uint8_t kind, uint8_t what, struct osc2_h
 
 /* ---- the arithmetic --------------------------------------------------------------------------- */
 
+/* The real controller's sine of x radians in 0..2 pi, as its polynomial gives it. */
+static double hap_poly_sin(double x)
+{
+	const double pi = 3.14159265358979323846;
+	double sign = 1.0, t, t2;
+
+	if (x > pi) {
+		x -= pi;
+		sign = -1.0;
+	}
+	t = x < pi / 2 ? x : pi - x;
+	t2 = t * t;
+	return sign * t * (1.0 + t2 * (-0.166666 + t2 * 0.008333));
+}
+
 OPENSC2_TEST(haptics_dsp)
 {
+	/* the fifth-order polynomial: a peak of about 1.0045, not 1 */
 	CHECK_EQ(osc2_hap_sin(0), 0);
-	CHECK_EQ(osc2_hap_sin(0x40000000u), 32767);
+	CHECK_EQ(osc2_hap_sin(0x40000000u), 32916);
 	CHECK_EQ(osc2_hap_sin(0x80000000u), 0);
-	CHECK_EQ(osc2_hap_sin(0xC0000000u), -32767);
-	CHECK_EQ(osc2_hap_sin(0x20000000u), 23170);           /* sin(pi/4) */
-	CHECK_EQ(osc2_hap_sin(0xE0000000u), -23170);          /* the LFO's start, -pi/4 */
-	/* odd symmetry, and the interpolation stays within one count of the true sine */
-	for (uint32_t p = 0; p < 0x80000000u; p += 0x01234567u) {
-		double want = 32767.0 * sin(2.0 * 3.14159265358979323846 * p / 4294967296.0);
-		int32_t got = osc2_hap_sin(p);
+	CHECK_EQ(osc2_hap_sin(0xC0000000u), -32916);
+	CHECK_EQ(osc2_hap_sin(0x20000000u), 23172);           /* sin(pi/4) */
+	CHECK_EQ(osc2_hap_sinp(-0x20000000LL), -23172);       /* the LFO's start, -pi/4 */
+	for (uint32_t p = 0; p < 0xFFFFFFF0u; p += 0x01234567u) {
+		double want = 32768.0 * hap_poly_sin(2.0 * 3.14159265358979323846 * p / 4294967296.0);
 
-		CHECK(fabs(got - want) <= 1.5);
-		CHECK_EQ(osc2_hap_sin(p + 0x80000000u), -got);
+		CHECK(fabs(osc2_hap_sin(p) - want) <= 1.5);
 	}
+	/* one cycle of wrap either way, and no more: a phase left beyond 2 pi takes the polynomial
+	 * out of its range (a tone above the channel's rate) */
+	CHECK_EQ(osc2_hap_sinp(OSC2_HAP_CYCLE + 0x40000000LL), 32916);
+	CHECK_EQ(osc2_hap_sinp(-OSC2_HAP_CYCLE + 0x40000000LL), 32916);
+	CHECK(osc2_hap_sinp(2 * OSC2_HAP_CYCLE + 0x40000000LL) > 32768);   /* pi - x < 0: huge */
+	CHECK_EQ(osc2_hap_sinp(100 * OSC2_HAP_CYCLE), OSC2_HAP_HUGE);
+	CHECK_EQ(osc2_hap_sinp(-100 * OSC2_HAP_CYCLE), -OSC2_HAP_HUGE);
+	/* not a number clips to +1, whatever comes before */
+	CHECK_EQ(osc2_hap_clip(OSC2_HAP_NAN), 32768);
+	CHECK_EQ(osc2_hap_mul_q16(OSC2_HAP_NAN, 0), OSC2_HAP_NAN);
+	CHECK_EQ(osc2_hap_clip(40000), 32768);
+	CHECK_EQ(osc2_hap_clip(-40000), -32768);
 	CHECK_EQ(osc2_hap_gain_q16_db(0), 65536);
 	CHECK_EQ(osc2_hap_gain_q16_db(-6), 32846);
 	CHECK_EQ(osc2_hap_gain_q16_db(6), 130762);
 	CHECK_EQ(osc2_hap_gain_q16_db(-30), 2072);
 	CHECK_EQ(osc2_hap_gain_q16_db(-128), 2072);            /* a gain never mutes */
 	CHECK_EQ(osc2_hap_gain_q16_db(127), osc2_hap_gain_q16_db(30));
-	CHECK_EQ(osc2_hap_db_add(120, 20), 127);
-	CHECK_EQ(osc2_hap_db_add(-120, -20), -128);
+	/* dB sums in 8 bits wrap round, as on the real controller */
+	CHECK_EQ(osc2_hap_db_add(120, 20), -116);
+	CHECK_EQ(osc2_hap_db_add(-120, -20), 116);
+	CHECK_EQ(osc2_hap_db_add(122, 6), -128);
 	CHECK_EQ(osc2_hap_db_add(-3, 8), 5);
 	/* log2 and 2^x: within 0.01 % */
 	CHECK(abs(osc2_hap_log2(1000) - (int32_t)(9.965784 * 65536)) <= 7);
@@ -179,8 +207,11 @@ OPENSC2_TEST(haptics_dsp)
 	CHECK(llabs((long long)osc2_hap_scale_exp2(1000000, 65536 / 2) - 1414214) <= 141);
 	CHECK(llabs((long long)osc2_hap_scale_exp2(1000000, -65536 * 3) - 125000) <= 13);
 	CHECK_EQ(osc2_hap_scale_exp2(12345, 0), 12345);
-	/* the phase step of 50 Hz at 8 kHz: 2^32 / 160 */
-	CHECK_EQ(osc2_hap_phase_step(50000, 8000), 26843546u);
+	/* the phase step of 50 Hz at 8 kHz: 2^32 / 160; negative frequencies run backwards; above
+	 * the rate more than a cycle */
+	CHECK_EQ(osc2_hap_phase_step(50000, 8000), 26843546);
+	CHECK_EQ(osc2_hap_phase_step(-50000, 8000), -26843546);
+	CHECK_EQ(osc2_hap_phase_step(6000000, 4000), 3 * OSC2_HAP_CYCLE / 2);
 	/* G.711 mu-law: silence, the extremes, a mid code */
 	CHECK_EQ(osc2_hap_mulaw(0xFF), 0);
 	CHECK_EQ(osc2_hap_mulaw(0x7F), 0);
@@ -195,15 +226,19 @@ OPENSC2_TEST(haptics_dsp)
 		static const uint8_t s16[2] = { 0x00, 0x80 }, s16b[2] = { 0xFF, 0x7F };
 		static const uint8_t s8a = 0x80, s8b = 0x7F, s8c = 0x01;
 
-		CHECK_EQ(osc2_hap_pcm_sample(s16, OSC2_HAP_ENC_S16LE), -32767);
-		CHECK_EQ(osc2_hap_pcm_sample(s16b, OSC2_HAP_ENC_S16LE), 32767);
-		CHECK_EQ(osc2_hap_pcm_sample(&s8a, OSC2_HAP_ENC_S8), -32767);
-		CHECK_EQ(osc2_hap_pcm_sample(&s8b, OSC2_HAP_ENC_S8), 32767);
+		/* the real scalings: 1/32767 and 1/127, so the most negative codes pass -1 */
+		CHECK_EQ(osc2_hap_pcm_sample(s16, OSC2_HAP_ENC_S16LE), -32769);
+		CHECK_EQ(osc2_hap_pcm_sample(s16b, OSC2_HAP_ENC_S16LE), 32768);
+		CHECK_EQ(osc2_hap_pcm_sample(&s8a, OSC2_HAP_ENC_S8), -33026);
+		CHECK_EQ(osc2_hap_pcm_sample(&s8b, OSC2_HAP_ENC_S8), 32768);
 		CHECK_EQ(osc2_hap_pcm_sample(&s8c, OSC2_HAP_ENC_S8), 258);
 	}
 	CHECK_EQ(osc2_hap_to_u8(0), 128);
-	CHECK_EQ(osc2_hap_to_u8(32767), 255);
-	CHECK_EQ(osc2_hap_to_u8(-32767), 0);
+	CHECK_EQ(osc2_hap_to_u8(32768), 255);
+	CHECK_EQ(osc2_hap_to_u8(-32768), 0);
+	CHECK_EQ(osc2_hap_to_s16(32768), 32767);
+	CHECK_EQ(osc2_hap_to_s16(-32768), -32767);
+	CHECK_EQ(osc2_hap_to_s16(16384), 16384);
 	CHECK_EQ(osc2_hap_status_id(OSC2_HAP_CH_LEFT_PAD), 3);
 	CHECK_EQ(osc2_hap_status_id(OSC2_HAP_CH_RIGHT_PAD), 4);
 	CHECK_EQ(osc2_hap_status_id(OSC2_HAP_CH_LEFT_GRIP), 0);
@@ -238,7 +273,7 @@ OPENSC2_TEST(haptics_tone_frequency_and_lead_in)
 	struct osc2_hap_event ev[4];
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap.notes = true;
 	hap_queue_ok(&c);
 	CHECK(osc2_hap_pending(&hap, OSC2_HAP_GRIPS));
@@ -265,7 +300,7 @@ OPENSC2_TEST(haptics_tone_frequency_and_lead_in)
 
 	/* the pads: 16 silent frames, 4 kHz */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	c = hap_tone(OSC2_HAP_CH_RIGHT_PAD, 0, 100, 100, 0, 0);
 	hap_queue_ok(&c);
 	hap_run(OSC2_HAP_PADS, 16, true);
@@ -287,14 +322,14 @@ OPENSC2_TEST(haptics_gains_and_signs)
 	hap_queue_ok(&c);
 	hap_queue_ok(&d);
 	hap_run(OSC2_HAP_GRIPS, 8, true);
-	CHECK(abs(hap_peak(0, 0, cap.frames) - 11627) <= 30);
+	CHECK(abs(hap_peak(0, 0, cap.frames) - 11679) <= 30);   /* the polynomial's 1.0045 */
 	/* the right grip's channel gain is negated: the same tone comes out inverted */
 	for (uint32_t i = 0; i < cap.frames; i++) {
 		CHECK(abs(cap.s[1][i] + cap.s[0][i]) <= 1);
 	}
 	/* the pads: the left pad is the negated one */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	c = hap_tone(OSC2_HAP_CH_LEFT_PAD, 0, 100, 50, 0, 0);
 	d = hap_tone(OSC2_HAP_CH_RIGHT_PAD, 0, 100, 50, 0, 0);
 	hap_queue_ok(&c);
@@ -304,7 +339,7 @@ OPENSC2_TEST(haptics_gains_and_signs)
 	CHECK(cap.s[0][17] < 0);
 	/* two tones on one channel add up and clip at full scale */
 	hap_fresh();
-	hap.master_db = 6;
+	osc2_hap_set_gains(&hap, 6);
 	c = hap_tone(OSC2_HAP_CH_LEFT_GRIP, 0, 100, 50, 0, 0);
 	hap_queue_ok(&c);
 	c.type = OSC2_HAP_GEN_SWEEP;
@@ -322,7 +357,7 @@ OPENSC2_TEST(haptics_tone_lfo_and_phase)
 	int32_t lo = 32767, hi = 0;
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap_queue_ok(&c);
 	hap_run(OSC2_HAP_GRIPS, 52, true);
 	/* 100 % depth swings the amplitude between 0 and 1 at 10 Hz: per 10 ms window */
@@ -340,7 +375,7 @@ OPENSC2_TEST(haptics_tone_lfo_and_phase)
 
 	/* a tone started over a running one keeps the phase: no jump at the join */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	c = hap_tone(OSC2_HAP_CH_LEFT_GRIP, 0, 100, 0, 0, 0);   /* endless */
 	hap_queue_ok(&c);
 	hap_run(OSC2_HAP_GRIPS, 3, true);
@@ -370,7 +405,7 @@ OPENSC2_TEST(haptics_pulse_and_clicks)
 
 	/* a pulse train on a grip: 125 us samples, +1 for on, -1 for off, `count` periods */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	memset(&c, 0, sizeof(c));
 	c.op = OSC2_HAP_OP_START;
 	c.channel = OSC2_HAP_CH_LEFT_GRIP;
@@ -388,19 +423,36 @@ OPENSC2_TEST(haptics_pulse_and_clicks)
 	}
 	CHECK_EQ(cap.s[0][32 + 35], 0);
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
-	/* on + off shorter than a sample: nothing (noted as ignored) */
+	/* on + off shorter than a sample: a period of 0 samples, which only the 16-bit position's
+	 * wrap ends: a constant -1 for 65,536 samples (8.192 s on a grip) per period */
 	hap_fresh();
-	hap.notes = true;
+	osc2_hap_set_gains(&hap, 0);
 	c.pulse.on_us = 50;
 	c.pulse.off_us = 50;
+	c.pulse.count = 1;
 	hap_queue_ok(&c);
-	osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
+	hap_run(OSC2_HAP_GRIPS, 1024, true);
+	CHECK_EQ(cap.s[0][32], -32767);
+	CHECK_EQ(cap.s[0][7999], -32767);
+	CHECK(osc2_hap_busy(&hap, OSC2_HAP_GRIPS));       /* 65,504 of 65,536 samples played */
+	hap_run(OSC2_HAP_GRIPS, 1, false);
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
-	CHECK_EQ(hap_events_of(OSC2_HAP_GRIPS, OSC2_HAP_EV_GEN, OSC2_HAP_GEN_EV_IGNORED, ev, 8), 1);
+	/* an on time under a sample: no +1 at all, the whole period -1 */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	c.pulse.on_us = 100;
+	c.pulse.off_us = 400;
+	c.pulse.count = 2;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	for (int i = 0; i < 8; i++) {
+		CHECK_EQ(cap.s[0][32 + i], -32767);
+	}
+	CHECK_EQ(cap.s[0][40], 0);
 
 	/* click A on a pad: 70 samples at 4 kHz, then it ends; the grips refuse it */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap.notes = true;
 	memset(&c, 0, sizeof(c));
 	c.op = OSC2_HAP_OP_START;
@@ -422,7 +474,7 @@ OPENSC2_TEST(haptics_pulse_and_clicks)
 	CHECK(!osc2_hap_queue(&hap, &c));
 	/* click B: 93 samples, played at -6 dB is half as loud */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	c.channel = OSC2_HAP_CH_LEFT_PAD;
 	c.type = OSC2_HAP_GEN_CLICK_B;
 	c.gain_db = -6;
@@ -440,7 +492,7 @@ OPENSC2_TEST(haptics_sweep)
 	int early, late;
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap.notes = true;
 	memset(&c, 0, sizeof(c));
 	c.op = OSC2_HAP_OP_START;
@@ -461,26 +513,130 @@ OPENSC2_TEST(haptics_sweep)
 	CHECK(hap_peak(1, 32, 32 + 80) < 6000);
 	CHECK(hap_peak(1, 32 + 700, 32 + 1000) > 30000);
 	CHECK(hap_peak(1, 32 + 3990, 32 + 4000) < 9000);
-	CHECK(hap_last_nonzero(1) <= 32 + 4000);
+	CHECK_EQ(cap.s[1][32 + 3999], 0);                 /* the fade-out ends at 0 */
+	CHECK_EQ(hap_last_nonzero(1), 32 + 3999);          /* frames 32..4030 */
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
-	/* 0 Hz at one end plays nothing; equal ends are a tone with the fades */
 	(void)hap_events_of(OSC2_HAP_GRIPS, OSC2_HAP_EV_GEN, 0, ev, 4);
-	c.sweep.f0_hz = 0;
-	hap_queue_ok(&c);
-	osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
-	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
-	CHECK_EQ(hap_events_of(OSC2_HAP_GRIPS, OSC2_HAP_EV_GEN, OSC2_HAP_GEN_EV_IGNORED, ev, 4), 1);
+
+	/* the phase follows the closed form f0 T (exp(k n / len) - 1) / k to the end: script 10's
+	 * 400 to 1000 Hz in 300 ms on the left grip at 0 dB, against the real arithmetic's values
+	 * (a sum of the steps taken at n, not n + 1/2, drifts 13 degrees by the end, 7,000 counts) */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
+	c.channel = OSC2_HAP_CH_LEFT_GRIP;
+	c.duration_ms = 300;
+	c.sweep.f0_hz = 400;
+	c.sweep.f1_hz = 1000;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 39, true);
+	CHECK(abs(cap.s[0][32 + 1000] - -21706) <= 32);
+	CHECK(abs(cap.s[0][32 + 1800] - 16785) <= 32);
+	CHECK(abs(cap.s[0][32 + 2348] - 1713) <= 32);
+	CHECK(abs(cap.s[0][32 + 2390] - 7146) <= 32);
+	c.channel = OSC2_HAP_CH_RIGHT_GRIP;
+	c.duration_ms = 500;
+	c.sweep.f0_hz = 100;
+	c.sweep.f1_hz = 800;
+
+	/* the formula's divisions by zero: not a number, which the mix plays as +1 (full scale, the
+	 * negated right grip's gain notwithstanding) for the whole sweep: a start of 0 Hz ... */
+	hap_fresh();
+	c.sweep.f0_hz = 0;
+	c.duration_ms = 20;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 4, true);
+	for (int i = 32; i < 32 + 160; i++) {
+		CHECK_EQ(cap.s[1][i], 32767);
+	}
+	CHECK_EQ(cap.s[1][32 + 160], 0);
+	/* ... equal ends ... */
+	hap_fresh();
 	c.sweep.f0_hz = 200;
 	c.sweep.f1_hz = 200;
-	c.duration_ms = 200;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 4, true);
+	CHECK_EQ(cap.s[1][32], 32767);
+	CHECK_EQ(cap.s[1][32 + 159], 32767);
+	CHECK_EQ(cap.s[1][32 + 160], 0);
+	/* ... with another generator on the channel too: the whole mix is spoilt */
+	hap_fresh();
+	hap_queue_ok(&c);
+	{
+		struct osc2_hap_cmd t = hap_tone(OSC2_HAP_CH_RIGHT_GRIP, -20, 100, 100, 0, 0);
+
+		hap_queue_ok(&t);
+	}
+	hap_run(OSC2_HAP_GRIPS, 4, true);
+	CHECK_EQ(cap.s[1][40], 32767);
+	CHECK(cap.s[1][32 + 160] != 32767);
+	/* an end of 0 Hz spoils the first sample only, then silence */
+	hap_fresh();
+	c.sweep.f0_hz = 200;
+	c.sweep.f1_hz = 0;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 4, true);
+	CHECK_EQ(cap.s[1][32], 32767);
+	CHECK_EQ(hap_last_nonzero(1), 33);
+	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	/* a duration of 0: a count of 0 samples, which runs 65,536 (8.192 s on a grip): rising, not
+	 * a number all along; falling, the first sample, then silence */
+	hap_fresh();
+	c.duration_ms = 0;
+	c.sweep.f0_hz = 100;
+	c.sweep.f1_hz = 800;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 1024, true);
+	CHECK_EQ(cap.s[1][32], 32767);
+	CHECK_EQ(cap.s[1][7999], 32767);
+	CHECK(osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	hap_run(OSC2_HAP_GRIPS, 1, false);
+	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	hap_fresh();
+	c.sweep.f0_hz = 800;
+	c.sweep.f1_hz = 100;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 4, true);
+	CHECK_EQ(cap.s[1][32], 32767);
+	CHECK_EQ(hap_last_nonzero(1), 33);
+	CHECK(osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	/* exactly 8.192 s on a grip wraps the count to 0 too; falling, the constant that follows
+	 * the first sample grows with the fade-out's arithmetic (1 + n) until it clips */
+	hap_fresh();
+	c.duration_ms = 8192;
 	hap_queue_ok(&c);
 	hap_run(OSC2_HAP_GRIPS, 30, true);
-	CHECK(abs(hap_crossings(1, 32, 32 + 1600) - 79) <= 1);
+	CHECK_EQ(cap.s[1][32], 32767);
+	CHECK_EQ(abs(cap.s[1][32 + 1000]), 32767);
+	CHECK_EQ(cap.s[1][32 + 1000], cap.s[1][32 + 1700]);
+	/* longer than 8.192 s wraps the count: 9 s is 72,000 samples, 6,464 after the wrap, so it
+	 * sweeps 11 times faster and higher, from about 1,114 Hz */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	c.duration_ms = 9000;
+	c.sweep.f0_hz = 100;
+	c.sweep.f1_hz = 101;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 110, true);
+	CHECK(abs(hap_crossings(1, 32 + 1000, 32 + 1800) - 223) <= 3);
+	CHECK(hap_last_nonzero(1) <= 32 + 6464);
+	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	/* under 5 ms the fade-out covers the whole sweep, from the start (4 ms: 32 samples) */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	c.duration_ms = 4;
+	c.sweep.f0_hz = 1000;
+	c.sweep.f1_hz = 2000;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 2, true);
+	CHECK_EQ(cap.s[1][32 + 31], 0);
+	CHECK(hap_peak(1, 32, 64) < 600);                 /* the fade-in's 1/640 per sample, too */
+
 	/* the antiphase flag inverts it */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
+	c.duration_ms = 200;
+	c.sweep.f0_hz = 200;
+	c.sweep.f1_hz = 400;
 	c.channel = OSC2_HAP_CH_LEFT_GRIP;
 	hap_queue_ok(&c);
 	c.flags = OSC2_HAP_CMD_INVERT;
@@ -510,23 +666,24 @@ static struct osc2_hap_cmd hap_clip(uint8_t channel, const uint8_t *data, uint16
 OPENSC2_TEST(haptics_clip)
 {
 	/* a recording in a stream format (opensc2_haptics_play_clip()): s8 at 2 kHz on a grip, each
-	 * sample and three steps towards the next, the last one held through its steps */
+	 * sample and three steps towards the next; the last one plays once, without steps, and ends
+	 * the clip */
 	static const uint8_t s8[3] = { 64, (uint8_t)-64, 127 };
-	static const int32_t want[12] = { 16513, 8257, 0, -8256, -16513, -4193, 8127, 20447,
-					  32767, 32767, 32767, 32767 };
+	static const int32_t want[12] = { 16512, 8257, 0, -8256, -16512, -4193, 8127, 20446,
+					  32767, 0, 0, 0 };
 	static const uint8_t mu[3] = { 0x80, 0x00, 0xFF };
 	struct osc2_hap_cmd c = hap_clip(OSC2_HAP_CH_LEFT_GRIP, s8, 3, 6);
 	struct osc2_hap_event ev[4];
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap.notes = true;
 	hap_queue_ok(&c);
 	hap_run(OSC2_HAP_GRIPS, 2, true);
 	for (int i = 0; i < 12; i++) {
 		CHECK_EQ(cap.s[0][32 + i], want[i]);
 	}
-	CHECK_EQ(hap_last_nonzero(0), 32 + 12);
+	CHECK_EQ(hap_last_nonzero(0), 32 + 9);
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
 	CHECK_EQ(hap_events_of(OSC2_HAP_GRIPS, OSC2_HAP_EV_GEN, 0, ev, 4), 2);
 	CHECK_EQ(ev[0].what, OSC2_HAP_GEN_EV_START);
@@ -536,7 +693,7 @@ OPENSC2_TEST(haptics_clip)
 	CHECK_EQ(ev[1].what, OSC2_HAP_GEN_EV_END);
 	/* mu-law at 8 kHz on the right grip: one sample each, through the negated channel gain */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	c = hap_clip(OSC2_HAP_CH_RIGHT_GRIP, mu, 3, 8);
 	hap_queue_ok(&c);
 	hap_run(OSC2_HAP_GRIPS, 1, true);
@@ -547,7 +704,7 @@ OPENSC2_TEST(haptics_clip)
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
 	/* an 8 kHz clip on a 4 kHz pad is not slowed down to fit: one clip sample per output sample */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	c = hap_clip(OSC2_HAP_CH_RIGHT_PAD, s8, 3, 4);
 	hap_queue_ok(&c);
 	hap_run(OSC2_HAP_PADS, 1, true);
@@ -556,20 +713,44 @@ OPENSC2_TEST(haptics_clip)
 	CHECK(cap.s[1][18] > 32000);
 	CHECK_EQ(cap.s[1][19], 0);
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_PADS));
-	/* formats 12 and above, and an empty clip, play nothing; a clip already playing goes on */
+	/* bytes 12 and above read as s8 at the step the channel's clip generator had (0 at boot:
+	 * one sample each; after the 2 kHz clip above, four) */
 	hap_fresh();
-	hap.notes = true;
+	osc2_hap_set_gains(&hap, 0);
 	c = hap_clip(OSC2_HAP_CH_LEFT_GRIP, s8, 3, 12);
 	hap_queue_ok(&c);
-	osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
-	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	CHECK_EQ(cap.s[0][32], 16512);
+	CHECK_EQ(cap.s[0][33], -16512);
+	CHECK_EQ(hap_last_nonzero(0), 32 + 3);
 	c = hap_clip(OSC2_HAP_CH_LEFT_GRIP, s8, 3, 6);
 	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	c = hap_clip(OSC2_HAP_CH_LEFT_GRIP, s8, 3, 13);
+	hap_queue_ok(&c);
+	memset(&cap, 0, sizeof(cap));
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	CHECK_EQ(cap.s[0][33], 8257);                    /* steps of four */
+	/* an empty clip starts and ends at once; a new clip replaces a running one */
+	hap_fresh();
+	hap.notes = true;
 	c = hap_clip(OSC2_HAP_CH_LEFT_GRIP, s8, 0, 6);
 	hap_queue_ok(&c);
-	osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
-	CHECK_EQ(osc2_hap_gen_mask(&hap, OSC2_HAP_CH_LEFT_GRIP), 1u << OSC2_HAP_GEN_CLIP);
-	CHECK_EQ(hap_events_of(OSC2_HAP_GRIPS, OSC2_HAP_EV_GEN, OSC2_HAP_GEN_EV_IGNORED, ev, 4), 2);
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	CHECK_EQ(hap_last_nonzero(0), 0);
+	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	/* a stop does not empty the interpolated values computed ahead: they play first at the
+	 * next start (set up directly: three of them left) */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	hap.seq[OSC2_HAP_GRIPS].ch[0].fifo[OSC2_HAP_GEN_CLIP] =
+		(struct osc2_hap_fifo){ { 1000, 2000, 3000 }, 0, 3 };
+	c = hap_clip(OSC2_HAP_CH_LEFT_GRIP, s8, 3, 6);
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	CHECK_EQ(cap.s[0][32], 1000);
+	CHECK_EQ(cap.s[0][34], 3000);
+	CHECK_EQ(cap.s[0][35], 16512);
 }
 
 OPENSC2_TEST(haptics_ring_params)
@@ -647,7 +828,7 @@ OPENSC2_TEST(haptics_rumble_bursts)
 	static const int8_t want_db[7] = { 2, -1, 2, 2, -2, -4, 1 };
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	memset(&o, 0, sizeof(o));
 	o.type = OPENSC2_OUTPUT_RUMBLE;
 	o.rumble.left_speed = 0;
@@ -673,8 +854,9 @@ OPENSC2_TEST(haptics_rumble_bursts)
 		burst_peak[b] = hap_peak(1, at, at + 320);
 	}
 	CHECK_EQ(cap.s[1][32 + 666], 0);                    /* not one sample earlier */
-	/* the first burst at 0 dB (-8 dB of the gain: 13045), the later ones random */
-	CHECK(abs(burst_peak[0] - 13045) <= 40);
+	/* the first burst at 0 dB (-8 dB of the gain, the polynomial's 1.0045: 13104), the later
+	 * ones random */
+	CHECK(abs(burst_peak[0] - 13104) <= 40);
 	for (int b = 1; b < 6; b++) {
 		double ratio = (double)burst_peak[b] / burst_peak[0];
 
@@ -709,7 +891,7 @@ OPENSC2_TEST(haptics_rumble_left_tone)
 	struct osc2_hap_actions a;
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	memset(&o, 0, sizeof(o));
 	o.type = OPENSC2_OUTPUT_RUMBLE;
 	o.rumble.left_speed = 65535;
@@ -727,8 +909,24 @@ OPENSC2_TEST(haptics_rumble_left_tone)
 	hap_queue_ok(&a.cmd[0]);
 	hap_queue_ok(&a.cmd[1]);
 	hap_run(OSC2_HAP_GRIPS, 64, true);
-	CHECK(abs(hap_crossings(0, 32, 32 + 4000) - 49) <= 1);   /* 50 Hz for 500 ms */
-	CHECK(hap_peak(0, 0, cap.frames) <= 18420 + 40);           /* -5 dB */
+	{
+		/* 50 Hz for 500 ms; at full depth the LFO's 1.0045 dips a hair below 0, which turns
+		 * the tone over at a tiny level: count the crossings above that */
+		int n = 0;
+		int32_t last = 0;
+
+		for (uint32_t i = 32; i < 32 + 4000; i++) {
+			int32_t v = cap.s[0][i];
+
+			if (abs(v) > 50) {
+				n += last != 0 && (v > 0) != (last > 0);
+				last = v;
+			}
+		}
+		CHECK(abs(n - 49) <= 1);
+	}
+	/* -5 dB, times the sine's 1.0045 and the LFO's (1 - d) + d * 1.0045 */
+	CHECK(hap_peak(0, 0, cap.frames) <= 18550 + 10);
 	CHECK(hap_last_nonzero(0) <= 32 + 4000);
 }
 
@@ -911,16 +1109,24 @@ OPENSC2_TEST(haptics_stream_formats)
 	hap_format(OSC2_HAP_CH_LEFT_PAD, 5);
 	CHECK_EQ(hap_status_flags(OSC2_HAP_PADS, OSC2_HAP_CH_LEFT_PAD), OSC2_HAP_FLAG_FORMAT);
 	CHECK_EQ(osc2_hap_stream_format(&hap, OSC2_HAP_CH_LEFT_PAD), 5);
-	/* formats 12 and above: reported as set, the previous format kept */
+	/* bytes 12 and above: reported as set, and taken: the water mark and start point follow
+	 * from the byte (1 byte at an eighth of the rate), the sample size and rate only at the
+	 * stream's next start (and not from such a byte) */
 	hap_format(OSC2_HAP_CH_LEFT_PAD, 13);
 	CHECK_EQ(hap_status_flags(OSC2_HAP_PADS, OSC2_HAP_CH_LEFT_PAD), OSC2_HAP_FLAG_FORMAT);
-	CHECK_EQ(osc2_hap_stream_format(&hap, OSC2_HAP_CH_LEFT_PAD), 5);
+	CHECK_EQ(osc2_hap_stream_format(&hap, OSC2_HAP_CH_LEFT_PAD), 13);
+	CHECK_EQ(hap.seq[OSC2_HAP_PADS].ch[0].stream.water, 16);
+	CHECK_EQ(hap.seq[OSC2_HAP_PADS].ch[0].stream.start_space, 512 - 8);
+	/* byte 12 is no 8 kHz format: a pad takes it */
+	hap_format(OSC2_HAP_CH_LEFT_PAD, 12);
+	CHECK_EQ(hap_status_flags(OSC2_HAP_PADS, OSC2_HAP_CH_LEFT_PAD), OSC2_HAP_FLAG_FORMAT);
 	/* the water marks: 16 ms of audio in every format; the pads start at 8 ms */
 	CHECK_EQ(osc2_hap_water_mark(0), 256);
 	CHECK_EQ(osc2_hap_water_mark(1), 128);
 	CHECK_EQ(osc2_hap_water_mark(3), 32);
 	CHECK_EQ(osc2_hap_water_mark(4), 128);
 	CHECK_EQ(osc2_hap_water_mark(11), 16);
+	CHECK_EQ(osc2_hap_water_mark(200), 16);
 	CHECK_EQ(osc2_hap_start_threshold(OSC2_HAP_GRIPS, 0), 256);
 	CHECK_EQ(osc2_hap_start_threshold(OSC2_HAP_PADS, 5), 32);
 }
@@ -931,23 +1137,25 @@ OPENSC2_TEST(haptics_stream_flow)
 	uint32_t f;
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap.notes = true;
 	for (int i = 0; i < 64; i++) {
 		bytes[i] = (uint8_t)(i * 4);
 	}
-	/* without a format: writes only fill the ring; a full ring reports 0x01 */
+	/* without a format: writes only fill the ring, never with 0x08 (the water mark is 0 until
+	 * a format), and once it is full every write reports 0x01 */
 	for (int i = 0; i < 8; i++) {
 		f = osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
-		CHECK_EQ(f & OSC2_HAP_FLAG_DROPPED, 0);
+		CHECK_EQ(f, 0);
 	}
 	CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_LEFT_GRIP), 512);
+	CHECK_EQ(osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 1), OSC2_HAP_FLAG_DROPPED);
 	CHECK_EQ(osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 1), OSC2_HAP_FLAG_DROPPED);
 	CHECK(!osc2_hap_pending(&hap, OSC2_HAP_GRIPS));
 
 	/* s16le at 8 kHz on the left grip (water mark 256 bytes, start above 256 bytes held) */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap_format(OSC2_HAP_CH_LEFT_GRIP, 0);
 	CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_LEFT_GRIP), OSC2_HAP_FLAG_FORMAT);
 	for (int i = 0; i < 4; i++) {   /* 256 bytes: not more than the threshold yet */
@@ -985,7 +1193,7 @@ OPENSC2_TEST(haptics_stream_flow)
 	hap_run(OSC2_HAP_GRIPS, 1, true);
 	hap_format(OSC2_HAP_CH_RIGHT_GRIP, 1);
 	CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP), OSC2_HAP_FLAG_BUSY);
-	/* a stop empties the ring (the 0x02 reply is the library's, not this engine's) */
+	/* a stop empties the ring and reports 0x02, whether or not the stream played */
 	{
 		struct osc2_hap_cmd c;
 
@@ -997,8 +1205,14 @@ OPENSC2_TEST(haptics_stream_flow)
 		osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
 		CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_RIGHT_GRIP), 0);
 		CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
-		CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP), 0);
+		CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP),
+			 OSC2_HAP_FLAG_STOPPED);
 		CHECK_EQ(osc2_hap_stream_format(&hap, OSC2_HAP_CH_RIGHT_GRIP), 0);   /* stays set */
+		/* and again, with nothing streaming: 0x02 all the same (Steam's zero 0x81) */
+		hap_queue_ok(&c);
+		osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
+		CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP),
+			 OSC2_HAP_FLAG_STOPPED);
 	}
 }
 
@@ -1008,7 +1222,7 @@ OPENSC2_TEST(haptics_stream_interpolation)
 	uint8_t bytes[40];
 
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	for (int i = 0; i < 40; i++) {
 		bytes[i] = (uint8_t)(int8_t)(i % 2 ? -64 : 64);
 	}
@@ -1020,19 +1234,22 @@ OPENSC2_TEST(haptics_stream_interpolation)
 	CHECK(osc2_hap_pending(&hap, OSC2_HAP_GRIPS));    /* 20 > 16 before this write */
 	hap_run(OSC2_HAP_GRIPS, 8, true);
 	/* 64 * 32767 / 127 = 16512 then the steps down to -16512: eight values per sample */
-	CHECK_EQ(cap.s[0][32], 16513);
-	CHECK_EQ(cap.s[0][33], 16513 + (-16513 - 16513) * 1 / 8);
+	CHECK_EQ(cap.s[0][32], 16512);
+	CHECK_EQ(cap.s[0][33], osc2_hap_to_s16(16513 + (-16513 - 16513) * 1 / 8));
 	CHECK_EQ(cap.s[0][36], 0);
-	CHECK_EQ(cap.s[0][40], -16513);
-	/* the 40th sample has nothing to interpolate towards: the stream stops before it */
+	CHECK_EQ(cap.s[0][40], -16512);
+	/* the 40th sample has nothing to interpolate towards: it is taken and plays once, without
+	 * its steps, and the stream stops */
+	CHECK_EQ(cap.s[0][32 + 39 * 8], -16512);
+	CHECK_EQ(cap.s[0][32 + 39 * 8 + 1], 0);
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
-	CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_LEFT_GRIP), 1);   /* the one looked at */
+	CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_LEFT_GRIP), 0);
 	CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_LEFT_GRIP),
 		 OSC2_HAP_FLAG_STOPPED);
 
 	/* mu-law at 8 kHz: one sample per output sample */
 	hap_fresh();
-	hap.master_db = 0;
+	osc2_hap_set_gains(&hap, 0);
 	hap_format(OSC2_HAP_CH_LEFT_GRIP, 8);
 	memset(bytes, 0x80, sizeof(bytes));           /* +32124 */
 	for (int i = 0; i < 5; i++) {                 /* 160 > 128 bytes held before the last */
@@ -1041,6 +1258,41 @@ OPENSC2_TEST(haptics_stream_interpolation)
 	hap_run(OSC2_HAP_GRIPS, 1, true);
 	CHECK_EQ(cap.s[0][32], 32124);
 	CHECK_EQ(cap.s[0][63], 32124);
+	/* after a stop the interpolated values computed ahead stay and play first at the next start
+	 * (set up directly: two of them left at the stop) */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	hap_format(OSC2_HAP_CH_LEFT_GRIP, 7);
+	for (int i = 0; i < 40; i++) {
+		bytes[i] = 64;
+	}
+	(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 20);
+	(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 20);
+	osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
+	{
+		uint8_t block[OSC2_HAP_BLOCK_MAX_BYTES];
+		struct osc2_hap_cmd c;
+
+		/* 32 lead-in frames and 32 samples: four whole step runs, then a stop */
+		osc2_hap_render(&hap, OSC2_HAP_GRIPS, true, block);
+		CHECK_EQ(hap.seq[OSC2_HAP_GRIPS].ch[0].fifo[OSC2_HAP_GEN_STREAM].count, 0);
+		hap.seq[OSC2_HAP_GRIPS].ch[0].fifo[OSC2_HAP_GEN_STREAM] =
+			(struct osc2_hap_fifo){ { -1000, -2000 }, 0, 2 };
+		memset(&c, 0, sizeof(c));
+		c.op = OSC2_HAP_OP_STOP;
+		c.channel = OSC2_HAP_CH_LEFT_GRIP;
+		c.type = OSC2_HAP_GEN_STREAM;
+		hap_queue_ok(&c);
+		osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
+		CHECK_EQ(hap.seq[OSC2_HAP_GRIPS].ch[0].fifo[OSC2_HAP_GEN_STREAM].count, 2);
+	}
+	(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 20);
+	(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 20);
+	memset(&cap, 0, sizeof(cap));
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	CHECK_EQ(cap.s[0][32], osc2_hap_to_s16(-1000));
+	CHECK_EQ(cap.s[0][33], osc2_hap_to_s16(-2000));
+	CHECK_EQ(cap.s[0][34], 16512);
 }
 
 OPENSC2_TEST(haptics_stream_high_low)
@@ -1074,8 +1326,25 @@ OPENSC2_TEST(haptics_stream_high_low)
 	hap_run(OSC2_HAP_PADS, 1, false);
 	CHECK_EQ(hap_status_flags(OSC2_HAP_PADS, OSC2_HAP_CH_LEFT_PAD), OSC2_HAP_FLAG_STOPPED);
 	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_PADS));
-	/* 0x06: the stream runs dry while 0x04 is still due (set up directly: one byte of a 16-bit
-	 * format left, the low flag armed) */
+	/* 0x06: an interpolated stream runs dry just as 0x04 falls due (set up directly: s8 at
+	 * 4 kHz on a grip, one sample left, 0x04 allowed): the sample is taken, 0x04, and the next
+	 * one to interpolate towards is missing, 0x02, in one report */
+	hap_fresh();
+	hap_format(OSC2_HAP_CH_RIGHT_GRIP, 5);
+	for (int i = 0; i < 6; i++) {
+		(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_RIGHT_GRIP, bytes, 64);
+	}
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	(void)hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP);
+	st = &hap.seq[OSC2_HAP_GRIPS].ch[1].stream;
+	st->count = 1;
+	st->need_data = false;
+	hap.seq[OSC2_HAP_GRIPS].ch[1].fifo[OSC2_HAP_GEN_STREAM].count = 0;
+	hap_run(OSC2_HAP_GRIPS, 1, false);
+	CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP),
+		 OSC2_HAP_FLAG_STOPPED | OSC2_HAP_FLAG_LOW);
+	CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_RIGHT_GRIP), 0);
+	/* 16-bit with one byte left: the byte is taken and lost, 0x02 alone */
 	hap_fresh();
 	hap_format(OSC2_HAP_CH_RIGHT_GRIP, 0);
 	for (int i = 0; i < 6; i++) {
@@ -1085,11 +1354,9 @@ OPENSC2_TEST(haptics_stream_high_low)
 	(void)hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP);
 	st = &hap.seq[OSC2_HAP_GRIPS].ch[1].stream;
 	st->count = 1;
-	st->low_armed = true;
 	hap_run(OSC2_HAP_GRIPS, 1, false);
-	CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP),
-		 OSC2_HAP_FLAG_STOPPED | OSC2_HAP_FLAG_LOW);
-	CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_RIGHT_GRIP), 1);   /* half a sample stays */
+	CHECK_EQ(hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_RIGHT_GRIP), OSC2_HAP_FLAG_STOPPED);
+	CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_RIGHT_GRIP), 0);   /* the lone byte lost */
 }
 
 /* ---- scripts, cues, drop sounds --------------------------------------------------------------- */
@@ -1104,14 +1371,14 @@ OPENSC2_TEST(haptics_scripts)
 	/* every id 1..17 has steps and an end; nothing outside */
 	for (uint8_t id = 0; id <= 20; id++) {
 		uint8_t count;
-		const struct osc2_hap_step *s = osc2_hap_script(id, &count);
+		const struct opensc2_haptics_step *s = osc2_hap_script(id, &count);
 
 		if (id >= 1 && id <= 17) {
 			CHECK(s != NULL && count >= 2);
 			if (s) {
-				CHECK_EQ(s[count - 1].kind, OSC2_HAP_STEP_END);
+				CHECK_EQ(s[count - 1].kind, OPENSC2_HAPTICS_STEP_END);
 				for (uint8_t i = 0; i + 1 < count; i++) {
-					CHECK(s[i].kind != OSC2_HAP_STEP_END);
+					CHECK(s[i].kind != OPENSC2_HAPTICS_STEP_END);
 				}
 			}
 		} else {
@@ -1139,11 +1406,15 @@ OPENSC2_TEST(haptics_scripts)
 	CHECK_EQ(osc2_hap_player_poll(&p, t + 211, &c), OSC2_HAP_POLL_DONE);   /* the end, 90 ms on */
 	CHECK(!p.busy);
 	CHECK(osc2_hap_player_start(&p, 2, -12, t + 300));
-	/* gains add without wrapping round: -128 + a positive offset stays very quiet */
+	/* a step's offset is added in 8 bits, wrapping round as on the real controller */
 	osc2_hap_player_init(&p, OSC2_HAP_CH_RIGHT_GRIP);
 	CHECK(osc2_hap_player_start(&p, 11, -128, t));    /* the thump: +2 dB in the script */
 	CHECK_EQ(osc2_hap_player_poll(&p, t + 1, &c), OSC2_HAP_POLL_STEP);
 	CHECK_EQ(c.gain_db, -126);
+	osc2_hap_player_init(&p, OSC2_HAP_CH_RIGHT_GRIP);
+	CHECK(osc2_hap_player_start(&p, 11, 127, t));
+	CHECK_EQ(osc2_hap_player_poll(&p, t + 1, &c), OSC2_HAP_POLL_STEP);
+	CHECK_EQ(c.gain_db, -127);                        /* 127 + 2 wraps to the table's bottom */
 	/* script 13's pulses play at full scale whatever the gain */
 	osc2_hap_player_init(&p, OSC2_HAP_CH_LEFT_PAD);
 	CHECK(osc2_hap_player_start(&p, 13, -20, t));
@@ -1157,7 +1428,7 @@ OPENSC2_TEST(haptics_scripts)
 	/* the drop sounds are a second or so long */
 	{
 		uint8_t count;
-		const struct osc2_hap_step *s16 = osc2_hap_script(16, &count);
+		const struct opensc2_haptics_step *s16 = osc2_hap_script(16, &count);
 		uint32_t total = 0;
 
 		for (uint8_t i = 0; i < count; i++) {
@@ -1204,7 +1475,7 @@ OPENSC2_TEST(haptics_drop)
 	CHECK_EQ(osc2_hap_drop_poll(&d, 6000), OSC2_HAP_DROP_REARMED);
 	CHECK(osc2_hap_drop_fall(&d, 6001));
 	/* the IMU's stream off while the sound is due: no sound, no re-arm until the next init */
-	osc2_hap_drop_cancel(&d);
+	(void)osc2_hap_drop_imu_stopped(&d);
 	CHECK_EQ(d.state, OSC2_HAP_DROP_OFF);
 	CHECK_EQ(osc2_hap_drop_wait(&d, 6100), -1);
 	CHECK_EQ(osc2_hap_drop_poll(&d, 6251), OSC2_HAP_DROP_NOTHING);
@@ -1214,12 +1485,12 @@ OPENSC2_TEST(haptics_drop)
 	osc2_hap_drop_init(&d);
 	CHECK(osc2_hap_drop_fall(&d, 0));
 	CHECK_EQ(osc2_hap_drop_poll(&d, 250), OSC2_HAP_DROP_PLAY);
-	osc2_hap_drop_cancel(&d);
+	(void)osc2_hap_drop_imu_stopped(&d);
 	CHECK_EQ(osc2_hap_drop_poll(&d, 5000), OSC2_HAP_DROP_NOTHING);
 	CHECK(!osc2_hap_drop_fall(&d, 6000));
 	/* armed: nothing changes */
 	osc2_hap_drop_init(&d);
-	osc2_hap_drop_cancel(&d);
+	(void)osc2_hap_drop_imu_stopped(&d);
 	CHECK_EQ(d.state, OSC2_HAP_DROP_ARMED);
 	CHECK(osc2_hap_drop_fall(&d, 1));
 	/* the pick: 48 of 256 values script 16, 80 script 17, the rest nothing */
@@ -1251,7 +1522,7 @@ OPENSC2_TEST(haptics_drop)
 
 static const char *const builtin_haptics[] = {
 	"RENDER tone200 PATH 1 SEED 14cb MASTER -3 S27 -10 BLOCKS 3 OUT 8303fac8006400000000 "
-	"CRC ab9de1fd 6bbe0906 dfc8e7cc",
+	"CRC 5d48ec30 c669ddbe fa0d6679",
 };
 
 static void haptics_line(char *tok[], int n, void *ctx)
@@ -1284,7 +1555,7 @@ static void haptics_line(char *tok[], int n, void *ctx)
 	blocks = atoi(tok[i_blocks + 1]);
 	hap_fresh();
 	osc2_hap_seed(&hap, (uint32_t)strtoul(tok[i_seed + 1], NULL, 16));
-	hap.master_db = (int16_t)atoi(tok[i_master + 1]);
+	osc2_hap_set_gains(&hap, (int8_t)atoi(tok[i_master + 1]));
 	i_out++;
 	len = vec_hex(tok, n, &i_out, report, sizeof(report));
 	CHECK(len > 0);
@@ -1358,7 +1629,7 @@ static uint8_t hrt_feed(const uint8_t *report, size_t len, uint32_t now)
 	int n = opensc2_decode_output(report, len, o);
 
 	CHECK(n >= 1);
-	return osc2_hap_rt_feed(&hrt, o, n, -10, now);
+	return osc2_hap_rt_feed(&hrt, 1, o, n, -10, now);
 }
 
 OPENSC2_TEST(haptics_run_feed_and_capture)
@@ -1447,7 +1718,17 @@ OPENSC2_TEST(haptics_run_write_order)
 	memset(&r88[2], 0x11, 31);               /* the left grip's bytes, [1..31] of the payload */
 	memset(&r88[33], 0x22, 31);              /* the right grip's, [32..62] */
 	osc2_hap_rt_init(&hrt);
-	/* no format: the rings only fill; less than 256 bytes free (format 0's water mark): 0x08 */
+	/* the formats first: s16le at 8 kHz on the grips (water mark 256), s8 at 4 kHz on the pads
+	 * (64); before a format nothing reports 0x08 */
+	{
+		static const uint8_t f_grips[4] = { 0x86, 2, 2, 0 }, f_pads[4] = { 0x86, 2, 5, 5 };
+
+		(void)hrt_feed(f_grips, sizeof(f_grips), 0);
+		(void)hrt_feed(f_pads, sizeof(f_pads), 0);
+		(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS);
+		(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+		CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 4);   /* four 0x20 */
+	}
 	for (int i = 0; i < 8; i++) {
 		(void)hrt_feed(r88, sizeof(r88), 0);
 	}
@@ -1465,10 +1746,10 @@ OPENSC2_TEST(haptics_run_write_order)
 	CHECK_EQ(lg->buf[0], 0x11);
 	CHECK_EQ(rg->buf[0], 0x22);
 	/* both pads: the right pad's id (4) before the left pad's (3) */
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < 7; i++) {
 		(void)hrt_feed(r87, sizeof(r87), 0);
 	}
-	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 0);   /* 248 bytes each */
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 0);   /* 434 bytes each */
 	(void)hrt_feed(r87, sizeof(r87), 0);
 	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 2);
 	CHECK_EQ(it[0].data[0], 4);
@@ -1478,7 +1759,9 @@ OPENSC2_TEST(haptics_run_write_order)
 OPENSC2_TEST(haptics_run_scripts_cues_drops)
 {
 	struct osc2_hap_out_item it[16];
-	struct osc2_hap_rt_glue glue = { .features = 1, .amp_mode = 1, .outputs = 2 };
+	struct osc2_hap_rt_glue glue = {
+		.features = 1, .amp_mode = 1, .outputs = 2, .master_db = -3,
+	};
 	uint8_t result[OSC2_HAP_STATUS_LEN], rlen, wake;
 	uint8_t play_cue[3] = { OSC2_HAP_PLAY_CUE, 0, 2 }, fall[2] = { OSC2_HAP_PLAY_FALL, 40 };
 	uint8_t seed[4] = { 0x78, 0x56, 0x34, 0x12 };
@@ -1600,6 +1883,325 @@ OPENSC2_TEST(haptics_helpers)
 
 /* The system state machine's cue events and the synthesiser that plays them (system.c's
  * play_cue() hands each cue to opensc2_haptics_play_cue()) map every cue and chime level alike. */
+/* ---- what the real controller's arithmetic adds -------------------------------------------- */
+
+OPENSC2_TEST(haptics_release_and_lead_in)
+{
+	/* a generator that ends by itself stays in the mix, silent, for 1 more sample on the pads
+	 * and 4 on the grips: a tone that ends with a block keeps the sequencer for one more */
+	struct osc2_hap_cmd c = hap_tone(OSC2_HAP_CH_LEFT_PAD, 0, 200, 4, 0, 0);
+	uint8_t block[OSC2_HAP_BLOCK_MAX_BYTES];
+
+	hap_fresh();
+	hap_queue_ok(&c);
+	osc2_hap_apply(&hap, OSC2_HAP_PADS);
+	(void)osc2_hap_render(&hap, OSC2_HAP_PADS, true, block);   /* 16 lead-in + 16 of tone */
+	CHECK_EQ(osc2_hap_gen_mask(&hap, OSC2_HAP_CH_LEFT_PAD), 0);
+	CHECK(osc2_hap_busy(&hap, OSC2_HAP_PADS));
+	(void)osc2_hap_render(&hap, OSC2_HAP_PADS, false, block);
+	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_PADS));
+	for (int i = 0; i < 64; i++) {
+		CHECK_EQ(block[i], 128);
+	}
+	/* a stopped one leaves at once */
+	hap_fresh();
+	c = hap_tone(OSC2_HAP_CH_RIGHT_GRIP, 0, 200, 100, 0, 0);
+	hap_queue_ok(&c);
+	osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
+	(void)osc2_hap_render(&hap, OSC2_HAP_GRIPS, true, block);
+	c.op = OSC2_HAP_OP_STOP;
+	c.type = OSC2_HAP_GEN_TONE;
+	hap_queue_ok(&c);
+	osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
+	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	/* the channel gains are 0, silence, until the master gain is configured */
+	osc2_hap_init(&hap);
+	memset(&cap, 0, sizeof(cap));
+	c = hap_tone(OSC2_HAP_CH_LEFT_GRIP, 0, 200, 20, 0, 0);
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 2, true);
+	CHECK_EQ(hap_peak(0, 0, cap.frames), 0);
+	memset(&c, 0, sizeof(c));
+	c.op = OSC2_HAP_OP_GAIN;
+	c.channel = OSC2_HAP_CH_LEFT_GRIP;
+	c.gain_db = 0;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 1, false);
+	CHECK(hap_peak(0, 0, cap.frames) > 30000);
+}
+
+OPENSC2_TEST(haptics_rumble_and_tone_edges)
+{
+	struct osc2_hap_cmd c;
+
+	/* a tone above the channel's rate: the one-cycle wrap leaves the phase behind and the
+	 * polynomial far outside its range, which clips (6 kHz on a pad, -20 dB) */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	c = hap_tone(OSC2_HAP_CH_RIGHT_PAD, -20, 6000, 50, 0, 0);
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_PADS, 3, true);
+	for (int i = 16 + 8; i < 16 + 80; i++) {
+		CHECK_EQ(cap.s[1][i], 32767);
+	}
+	/* a rumble whose burst rate is 0: its first burst only, then silence while it lasts */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	memset(&c, 0, sizeof(c));
+	c.op = OSC2_HAP_OP_START;
+	c.channel = OSC2_HAP_CH_RIGHT_GRIP;
+	c.type = OSC2_HAP_GEN_RUMBLE;
+	c.duration_ms = 200;
+	c.rumble.freq_mhz = 50000;
+	c.rumble.burst_mhz = 0;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_GRIPS, 26, true);
+	CHECK(hap_peak(1, 32, 32 + 320) > 30000);
+	CHECK_EQ(hap_peak(1, 32 + 322, 32 + 1600), 0);
+	CHECK(!osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+}
+
+OPENSC2_TEST(haptics_stream_starts_and_formats)
+{
+	uint8_t bytes[64];
+	struct osc2_hap_stream *st;
+
+	memset(bytes, 0, sizeof(bytes));
+	/* each write that finds enough audio queues a start until one is applied */
+	hap_fresh();
+	hap_format(OSC2_HAP_CH_LEFT_GRIP, 0);
+	for (int i = 0; i < 5; i++) {
+		(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
+	}
+	CHECK_EQ(hap.seq[OSC2_HAP_GRIPS].q_count, 0);              /* 256 held: not more */
+	(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
+	CHECK_EQ(hap.seq[OSC2_HAP_GRIPS].q_count, 1);
+	(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
+	(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
+	CHECK_EQ(hap.seq[OSC2_HAP_GRIPS].q_count, 3);
+	/* a byte of 12 and up on a channel whose stream never ran: no bytes per sample, so it
+	 * reads nothing, plays a silent value and never runs dry, until it is stopped */
+	hap_fresh();
+	hap_format(OSC2_HAP_CH_LEFT_GRIP, 12);
+	for (int i = 0; i < 3; i++) {
+		(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
+	}
+	hap_run(OSC2_HAP_GRIPS, 20, true);
+	CHECK(osc2_hap_busy(&hap, OSC2_HAP_GRIPS));
+	CHECK_EQ(osc2_hap_stream_fill(&hap, OSC2_HAP_CH_LEFT_GRIP), 192);
+	/* after a format that ran, a byte of 12 and up keeps that sample size and rate: 8-bit
+	 * samples then read as s8, even after a mu-law format */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	hap_format(OSC2_HAP_CH_LEFT_GRIP, 8);
+	memset(bytes, 0x80, sizeof(bytes));                        /* mu-law +32124 */
+	for (int i = 0; i < 4; i++) {
+		(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
+	}
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	CHECK_EQ(cap.s[0][32], 32124);
+	st = &hap.seq[OSC2_HAP_GRIPS].ch[0].stream;
+	{
+		struct osc2_hap_cmd c;
+
+		memset(&c, 0, sizeof(c));
+		c.op = OSC2_HAP_OP_STOP;
+		c.channel = OSC2_HAP_CH_LEFT_GRIP;
+		c.type = OSC2_HAP_GEN_STREAM;
+		hap_queue_ok(&c);
+		osc2_hap_apply(&hap, OSC2_HAP_GRIPS);
+	}
+	(void)hap_status_flags(OSC2_HAP_GRIPS, OSC2_HAP_CH_LEFT_GRIP);
+	hap_format(OSC2_HAP_CH_LEFT_GRIP, 14);
+	CHECK_EQ(st->water, 16);
+	for (int i = 0; i < 3; i++) {
+		(void)osc2_hap_stream_write(&hap, OSC2_HAP_CH_LEFT_GRIP, bytes, 64);
+	}
+	memset(&cap, 0, sizeof(cap));
+	hap_run(OSC2_HAP_GRIPS, 1, true);
+	CHECK_EQ(cap.s[0][32], -32767);                            /* 0x80 as s8: -128 / 127 */
+}
+
+OPENSC2_TEST(haptics_settings_and_keys)
+{
+	struct osc2_hap_out_item it[8];
+	struct osc2_hap_cmd c;
+	uint8_t wake = 0;
+
+	osc2_hap_rt_init(&hrt);
+	/* the start-up handover: both settings to the four channels */
+	CHECK_EQ(osc2_hap_rt_settings(&hrt, OPENSC2_SETTINGS_ALL, 0, -3), 3);
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_PADS].q_count, 4);
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_GRIPS].q_count, 4);
+	CHECK(!osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS));
+	CHECK(!osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS));
+	CHECK_EQ(osc2_hap_rt_amp(&hrt, OSC2_HAP_PADS), 0);
+	CHECK_EQ(osc2_hap_rt_amp(&hrt, OSC2_HAP_PADS), -1);         /* taken */
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_PADS].ch[0].gain_q16, -(int32_t)osc2_hap_gain_q16_db(-3));
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_PADS].ch[1].gain_q16, (int32_t)osc2_hap_gain_q16_db(-3));
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_GRIPS].ch[1].gain_q16, -(int32_t)osc2_hap_gain_q16_db(-3));
+	/* nothing changed: nothing goes out; a change: that setting only */
+	CHECK_EQ(osc2_hap_rt_settings(&hrt, OPENSC2_SETTINGS_ALL, 0, -3), 0);
+	CHECK_EQ(osc2_hap_rt_settings(&hrt, OPENSC2_SETTINGS_ALL, 1, -3), 3);
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_PADS].q_count, 2);
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	CHECK_EQ(osc2_hap_rt_amp(&hrt, OSC2_HAP_PADS), 1);
+	CHECK(hrt.engine.seq[OSC2_HAP_PADS].amp_held);
+	(void)osc2_hap_rt_settings(&hrt, OPENSC2_SETTING_HAPTIC_GAIN_DB, 1, 6);
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS);
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_GRIPS].ch[0].gain_q16, (int32_t)osc2_hap_gain_q16_db(6));
+	/* the keys by name: at once, the low 8 bits of a gain; a full queue stops the handout
+	 * at the first channel it does not reach */
+	CHECK_EQ(osc2_hap_rt_key(&hrt, OSC2_HAP_KEY_GAIN, (int16_t)0x01F4, &wake), 0);   /* -12 */
+	CHECK_EQ(wake, 3);
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_PADS].ch[1].gain_q16, (int32_t)osc2_hap_gain_q16_db(-12));
+	CHECK_EQ(osc2_hap_rt_key(&hrt, OSC2_HAP_KEY_AMP, 0, &wake), 0);
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_GRIPS);
+	CHECK_EQ(osc2_hap_rt_amp(&hrt, OSC2_HAP_GRIPS), 0);
+	c = hap_tone(OSC2_HAP_CH_LEFT_PAD, 0, 100, 100, 0, 0);
+	for (int i = 0; i < OSC2_HAP_QUEUE_MAX; i++) {
+		CHECK(osc2_hap_rt_queue(&hrt, &c));
+	}
+	CHECK_EQ(osc2_hap_rt_key(&hrt, OSC2_HAP_KEY_GAIN, 0, &wake), -35);   /* -ENOMSG */
+	CHECK_EQ(hrt.engine.seq[OSC2_HAP_GRIPS].q_count, 0);         /* never reached */
+	/* the amplifier mode's other values do nothing */
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	(void)osc2_hap_rt_amp(&hrt, OSC2_HAP_PADS);
+	memset(&c, 0, sizeof(c));
+	c.op = OSC2_HAP_OP_AMP;
+	c.channel = OSC2_HAP_CH_LEFT_PAD;
+	c.format = 2;
+	CHECK(osc2_hap_rt_queue(&hrt, &c));
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	CHECK_EQ(osc2_hap_rt_amp(&hrt, OSC2_HAP_PADS), -1);
+	/* a stop's 0x02 goes out when the sequencer takes it, with the link of the report that
+	 * stopped (for the test hooks' note); the library's own stops have none */
+	(void)hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8);
+	{
+		static const uint8_t zero_pulse[8] = { 0x81, 0 };
+
+		CHECK_EQ(hrt_feed(zero_pulse, sizeof(zero_pulse), 0), 1);
+	}
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 0);       /* not before */
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 1);
+	CHECK_EQ(it[0].data[0], 4);                                  /* the right pad */
+	CHECK_EQ(opensc2_get_le32(&it[0].data[1]), OSC2_HAP_FLAG_STOPPED);
+	CHECK_EQ(it[0].data[5], 1);                                  /* USB, as fed */
+	memset(&c, 0, sizeof(c));
+	c.op = OSC2_HAP_OP_STOP;
+	c.channel = OSC2_HAP_CH_RIGHT_PAD;
+	c.type = OSC2_HAP_GEN_ALL;
+	CHECK(osc2_hap_rt_queue(&hrt, &c));
+	(void)osc2_hap_rt_idle(&hrt, OSC2_HAP_PADS);
+	CHECK_EQ(hrt_items(OSC2_HAP_OUT_STATUS, 0, it, 8), 1);
+	CHECK_EQ(it[0].data[5], OSC2_HAP_LINK_NONE);
+}
+
+OPENSC2_TEST(haptics_app_sounds)
+{
+	static const uint8_t pcm[4] = { 127, 0x81, 64, 0 };     /* s8 */
+	static const struct opensc2_haptics_sound snd = { pcm, 4, 4 };   /* s8 "at 8 kHz" */
+	static const struct opensc2_haptics_step steps[] = {
+		{ .delay_ms = 5, .kind = OPENSC2_HAPTICS_STEP_TONE, .gain_db = -6, .a = 440,
+		  .b = 100, .c = 320, .d = 100,
+		  .flags = OPENSC2_HAPTICS_STEP_FIXED_GAIN | OPENSC2_HAPTICS_STEP_ON_CHANNEL,
+		  .channel = OSC2_HAP_CH_RIGHT_GRIP },
+		{ .delay_ms = 20, .kind = OPENSC2_HAPTICS_STEP_CLIP, .gain_db = 3, .clip = &snd },
+		{ .delay_ms = 30, .kind = OPENSC2_HAPTICS_STEP_END },
+	};
+	static const struct opensc2_haptics_step bad_kind[] = { { .kind = 7 } };
+	static const struct opensc2_haptics_step bad_channel[] = {
+		{ .kind = OPENSC2_HAPTICS_STEP_TONE, .flags = OPENSC2_HAPTICS_STEP_ON_CHANNEL,
+		  .channel = 4 },
+	};
+	static const struct opensc2_haptics_step bad_clip[] = {
+		{ .kind = OPENSC2_HAPTICS_STEP_CLIP },
+	};
+	struct osc2_hap_player p;
+	struct osc2_hap_cmd c;
+	uint8_t count;
+
+	CHECK_EQ(osc2_hap_script_set(0, steps, 3), -EINVAL);
+	CHECK_EQ(osc2_hap_script_set(18, steps, 3), -EINVAL);
+	CHECK_EQ(osc2_hap_script_set(3, steps, 0), -EINVAL);
+	CHECK_EQ(osc2_hap_script_set(3, bad_kind, 1), -EINVAL);
+	CHECK_EQ(osc2_hap_script_set(3, bad_channel, 1), -EINVAL);
+	CHECK_EQ(osc2_hap_script_set(3, bad_clip, 1), -EINVAL);
+	CHECK_EQ(osc2_hap_script_set(3, steps, 3), 0);
+	CHECK(osc2_hap_script(3, &count) == steps && count == 3);
+	/* the steps: a tone at its own gain on its own channel, then a clip at the script's gain
+	 * plus 3 dB on the script's channel, then the end */
+	osc2_hap_player_init(&p, OSC2_HAP_CH_LEFT_PAD);
+	CHECK(osc2_hap_player_start(&p, 3, -12, 100));
+	CHECK_EQ(osc2_hap_player_poll(&p, 104, &c), OSC2_HAP_POLL_NONE);
+	CHECK_EQ(osc2_hap_player_poll(&p, 105, &c), OSC2_HAP_POLL_STEP);
+	CHECK_EQ(c.channel, OSC2_HAP_CH_RIGHT_GRIP);
+	CHECK_EQ(c.type, OSC2_HAP_GEN_TONE);
+	CHECK_EQ(c.gain_db, -6);
+	CHECK_EQ(c.tone.lfo_mhz, 32000u);
+	CHECK_EQ(osc2_hap_player_poll(&p, 125, &c), OSC2_HAP_POLL_STEP);
+	CHECK_EQ(c.channel, OSC2_HAP_CH_LEFT_PAD);
+	CHECK_EQ(c.type, OSC2_HAP_GEN_CLIP);
+	CHECK_EQ(c.gain_db, -9);
+	CHECK(c.clip.data == pcm && c.clip.samples == 4 && c.format == 4);
+	CHECK_EQ(osc2_hap_player_poll(&p, 155, &c), OSC2_HAP_POLL_DONE);
+	/* back to OpenSC2's own */
+	CHECK_EQ(osc2_hap_script_set(3, NULL, 0), 0);
+	CHECK(osc2_hap_script(3, &count) != steps && count >= 2);
+
+	/* a click of the application's: one sample per output sample, as on the real controller,
+	 * whatever its format's rate (8 kHz here, on a 4 kHz pad) */
+	hap_fresh();
+	osc2_hap_set_gains(&hap, 0);
+	osc2_hap_set_click(&hap, 0, &snd);
+	memset(&c, 0, sizeof(c));
+	c.op = OSC2_HAP_OP_START;
+	c.channel = OSC2_HAP_CH_RIGHT_PAD;
+	c.type = OSC2_HAP_GEN_CLICK_A;
+	hap_queue_ok(&c);
+	hap_run(OSC2_HAP_PADS, 1, true);
+	CHECK(cap.s[1][16] > 32000);
+	CHECK(cap.s[1][17] < -32000);
+	CHECK(cap.s[1][18] > 16000);
+	CHECK_EQ(cap.s[1][19], 0);
+	CHECK_EQ(hap_last_nonzero(1), 16 + 3);
+	osc2_hap_set_click(&hap, 0, NULL);
+	CHECK(hap.click[0].data == (const uint8_t *)osc2_hap_click_a && hap.click[0].samples == 70);
+}
+
+OPENSC2_TEST(haptics_drop_imu_stopped)
+{
+	struct osc2_hap_drop d;
+
+	/* the IMU stopped within the 5 s after a fall: the sound and the re-arm are cancelled, and
+	 * the drop sounds stay off until a reboot */
+	osc2_hap_drop_init(&d);
+	CHECK(!osc2_hap_drop_imu_stopped(&d));                     /* armed: nothing to cancel */
+	CHECK(osc2_hap_drop_fall(&d, 1000));
+	CHECK(osc2_hap_drop_imu_stopped(&d));
+	CHECK_EQ(osc2_hap_drop_poll(&d, 1250), OSC2_HAP_DROP_NOTHING);
+	CHECK_EQ(osc2_hap_drop_poll(&d, 6000), OSC2_HAP_DROP_NOTHING);
+	CHECK_EQ(osc2_hap_drop_wait(&d, 6000), -1);
+	CHECK(!osc2_hap_drop_fall(&d, 10000));
+	/* after the sound, before the re-arm: the same */
+	osc2_hap_drop_init(&d);
+	CHECK(osc2_hap_drop_fall(&d, 1000));
+	CHECK_EQ(osc2_hap_drop_poll(&d, 1250), OSC2_HAP_DROP_PLAY);
+	CHECK(osc2_hap_drop_imu_stopped(&d));
+	CHECK(!osc2_hap_drop_fall(&d, 7000));
+	/* after the re-arm: nothing to cancel */
+	osc2_hap_drop_init(&d);
+	CHECK(osc2_hap_drop_fall(&d, 1000));
+	CHECK_EQ(osc2_hap_drop_poll(&d, 1250), OSC2_HAP_DROP_PLAY);
+	CHECK_EQ(osc2_hap_drop_poll(&d, 6000), OSC2_HAP_DROP_REARMED);
+	CHECK(!osc2_hap_drop_imu_stopped(&d));
+	CHECK(osc2_hap_drop_fall(&d, 7000));
+}
+
 OPENSC2_TEST(haptics_cue_map_is_the_machines)
 {
 	CHECK_EQ(OSC2_HAP_CUE_COUNT, OSC2_CUE_COUNT);

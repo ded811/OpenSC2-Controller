@@ -111,7 +111,7 @@ void opensc2_haptics_free_fall(void)
 	cal_host.free_falls++;
 }
 
-void opensc2_haptics_free_fall_cancel(void)
+void opensc2_haptics_imu_stopped(void)
 {
 	cal_host.fall_cancels++;
 }

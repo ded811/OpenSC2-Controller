@@ -206,13 +206,31 @@ def _run(ctx, rig):
                 # the blocks rendered at once
                 c.true("ended %.0f ms after it started (60..140)" % dt, 60 <= dt <= 140)
                 c.eq("its parameters (Hz, ms, LFO, depth)", gens[0]["p"], (200, 100, 0, 0))
+            es = _wait(rig, start, H.RING_HAP_BLOCK, 14, 1.0, path=H.GRIPS)
             blocks = H.entries(es, H.RING_HAP_BLOCK, path=H.GRIPS)
-            # 32 frames of lead-in and 800 of tone: blocks 0..12, 64 frames each
-            c.eq("blocks 0..12, the first with the lead-in, the last before the drain",
+            # 32 frames of lead-in and 800 of tone: blocks 0..12, 64 frames each; the tone ends
+            # with block 12 but stays in the mix for 4 more samples, as on the real controller,
+            # so block 13 (silent) is the last before the drain
+            c.eq("blocks 0..13, the first with the lead-in, the last before the drain",
                  [(b["index"], b["flags"]) for b in blocks],
-                 [(0, H.BLOCK_FIRST)] + [(i, 0) for i in range(1, 12)] + [(12, H.BLOCK_LAST)])
+                 [(0, H.BLOCK_FIRST)] + [(i, 0) for i in range(1, 13)] + [(13, H.BLOCK_LAST)])
             st = _quiet(rig)
             c.eq("quiet again", (st["busy"], st["running"]), (0, 0))
+            # the pads' block time: 32 samples at the real pads' 256 us each (8.192 ms), so a
+            # 1 s tone on a pad (16 frames of lead-in, then 4000 samples: blocks 0..125) ends
+            # in block 125, rendered 124 block times after the start: 1015.8 ms, where 8 ms
+            # blocks would give 992 ms. Only while the timer paces the pads (no output there).
+            if not st["outputs"] & 1:
+                start = rig.ring_next()
+                rig.output(bytes([0x83, 0, 0xFA]) + struct.pack("<HHHB", 200, 1000, 0, 0))
+                es = _wait(rig, start, H.RING_HAP_GEN, 1, 2.5, what=H.GEN_END)
+                gens = H.entries(es, H.RING_HAP_GEN, channel=H.CH_LEFT_PAD, type=H.GEN_TONE)
+                if c.eq("a 1 s pad tone: started, then ended", [g["what"] for g in gens],
+                        [H.GEN_START, H.GEN_END]):
+                    dt = _ms(gens[0], gens[1])
+                    c.true("ended %.1f ms after it started, at 8.192 ms a block (1004..1030)"
+                           % dt, 1004 <= dt <= 1030)
+                _quiet(rig)
 
     if ctx.want("haptics.rumble"):
         with ctx.check(GROUP, "haptics.rumble") as c:
@@ -343,6 +361,9 @@ def _run(ctx, rig):
             c.eq("the last write did not fit: 0x01, the ring full",
                  (writes[-1]["flags"], writes[-1]["fill"]) if writes else None,
                  (H.FLAG_DROPPED, 512))
+            # without a format the water mark is 0, as on the real controller: no 0x08 at all
+            c.eq("no 0x08 before a format", [w["flags"] for w in writes[:-1]],
+                 [0] * max(0, len(writes) - 1))
             # 0x86's stop empties it
             start = rig.ring_next()
             rig.output(bytes([0x86, 1, 3, 0]))
@@ -385,6 +406,21 @@ def _run(ctx, rig):
             es = _wait(rig, start, H.RING_HAP_SCRIPT, 1, 1.0, what=H.SCRIPT_DROP)
             drops = H.entries(es, H.RING_HAP_SCRIPT, what=H.SCRIPT_DROP)
             c.eq("byte 200 picks no sound", [(d["id"], d["extra"]) for d in drops], [(0, 200)])
+            # the IMU stopping within the 5 s after a fall cancels the sound and the re-arm: the
+            # drop sounds stay off until a reboot (here: until HAP_RESET)
+            _reset(rig)
+            c.eq("the IMU stopped while armed: nothing to cancel", _play(rig, H.PLAY_IMU_OFF), 0)
+            start = rig.ring_next()
+            c.eq("a free fall is taken", _play(rig, H.PLAY_FALL, 10), 1)
+            c.eq("the IMU stopped after it: cancelled", _play(rig, H.PLAY_IMU_OFF), 1)
+            rig.sleep(0.4)
+            es = rig.ring_all(start)[2]
+            c.eq("no drop sound came", H.entries(es, H.RING_HAP_SCRIPT, what=H.SCRIPT_DROP), [])
+            c.eq("a later fall is not taken", _play(rig, H.PLAY_FALL, 10), 0)
+            st = _status(rig)
+            c.eq("the drop sounds off (state 3)", st["drop_state"], 3)
+            _reset(rig)
+            c.eq("armed again after HAP_RESET", _status(rig)["drop_state"], 0)
 
     if ctx.want("haptics.amp_mode"):
         with ctx.check(GROUP, "haptics.amp_mode") as c:

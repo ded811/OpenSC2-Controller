@@ -455,7 +455,7 @@ In `prj.conf`; every option is in [docs/api.md](../docs/api.md#kconfig-options).
 | `CONFIG_OPENSC2_NO_HOST_WIRELESS_MS=5000` | **not here**: only in the charger [test build](#test-build-the-charger-fallback) (`test-charger.conf`), a testing aid that is not the real controller's behaviour |
 | `CONFIG_OPENSC2_BATTERY=y` | **not here**: in the [battery build](#a-battery-build) (`battery.conf`) |
 | `CONFIG_OPENSC2_SYSTEM=n` | without the real controller's power, chord, LED and cue rules (v0.2.0's behaviour; the LED then shows the puck's patterns while wireless and green or amber while wired) |
-| `CONFIG_OPENSC2_HAPTICS_SYNTH=y` | the [haptics build](#haptics-build-the-synthesiser) (`haptics.conf`): the library renders the haptic reports itself |
+| `CONFIG_OPENSC2_HAPTICS_SYNTH=n` | without the [haptics synthesiser](#haptics-build-the-synthesiser), which `prj.conf` turns on: the haptic reports reach only the callbacks, the motor follows the decoded rumble |
 | `CONFIG_OPENSC2_BLE=y` | **not here**: in the [Bluetooth build](#test-build-bluetooth-le) (`ble.conf`), which needs the Bluetooth stack's lines too |
 | `CONFIG_OPENSC2_WATCHDOG=y` | with the real controller's hardware watchdog, which is on by default but off in a build for the UF2 bootloader such as this one (`watchdog.conf`; not yet tried on hardware with this firmware, and its notes say how to flash the board again if a `.uf2` copy is ever cut short) |
 | `CONFIG_OPENSC2_DOCK=y` | **not here**: in the [dock build](#the-dock-build-untested) (`dock.conf`), which moves four pins |
@@ -541,8 +541,9 @@ cost about 3 KB of RAM. How to run the suite and read its report:
 
 ## Haptics build: the synthesiser
 
-`app/haptics.conf` builds the blank canvas with the library's haptics synthesiser
-(`CONFIG_OPENSC2_HAPTICS_SYNTH`; built, not yet tested on hardware): it renders everything Steam
+The default build (`prj.conf`) has the library's haptics synthesiser, as `app/haptics.conf` does
+on its own (`CONFIG_OPENSC2_HAPTICS_SYNTH`; built, not yet tested on hardware): it renders
+everything Steam
 plays on the controller's haptics (rumble, pulses, clicks, tones, sweeps, scripts, PCM streams) into
 sample blocks as the real controller does, plays sounds of OpenSC2's own (scripts, cues, drop
 sounds) and sends the PCM streams' flow control (`0x44`). Wire-wise it differs from the default

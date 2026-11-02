@@ -11,8 +11,10 @@
  *   - one mutex around every call into the logic, never held while an output plays, a report is
  *     sent or an entry is written into the test hooks' ring, and one that lets a single thread at
  *     a time send what the logic made, in order;
- *   - the master gain (setting 76) before every block, the amplifier mode (setting 75), the rumble
- *     gain offset (setting 27) as each rumble report arrives.
+ *   - settings 75 (amplifier mode) and 76 (master gain) handed to the four channels as configure
+ *     commands at the end of start-up and whenever they change, as the real controller's settings
+ *     handler does (osc2_haptics_setting()), and the rumble gain offset (setting 27) as each
+ *     rumble report arrives.
  * The output reports come from report.c's dispatcher (osc2_haptics_outputs()), after the
  * application's callbacks.
  */
@@ -21,6 +23,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/random/random.h>
+#include <opensc2/codec.h>
 #include <opensc2/haptics.h>
 #include "internal.h"
 #include "haptics_glue.h"
@@ -29,8 +32,17 @@
 
 LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 
-#define IDLE_POLL_MS 100     /* an idle sequencer looks at setting 75 this often */
-#define BLOCK_US 8000        /* both paths: 32 frames at 4 kHz, 64 at 8 kHz */
+/* A block's time when the timer paces a path: the grips' 64 frames at 8 kHz, and the pads' 32
+ * samples at the real controller's pad rate, 256 us a sample (about 3906 Hz: its PWM holds each
+ * sample 16 periods of 16 us), so a pad stream drains at the real speed even without an output;
+ * exactly 4 kHz with the PWM DAC's option for it. */
+#define GRIP_BLOCK_US 8000
+#if defined(CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K)
+#define PAD_BLOCK_US 8000
+#else
+#define PAD_BLOCK_US 8192
+#endif
+#define BLOCK_US(path) ((path) == OSC2_HAP_PADS ? PAD_BLOCK_US : GRIP_BLOCK_US)
 #define FLUSH_CHUNK 8
 
 static struct osc2_hap_rt rt;
@@ -48,7 +60,8 @@ struct seq {
 	const struct opensc2_haptics_output *out;
 	opensc2_haptics_level_fn level_fn;
 	void *level_user;
-	bool amp_on;
+	bool amp_on;             /* the enable as last set */
+	bool amp_held;           /* amplifier mode 1 applied: the enable held on */
 	volatile bool running;   /* in a playback or its drain */
 	uint8_t block[OSC2_HAP_BLOCK_MAX_BYTES];
 };
@@ -71,7 +84,6 @@ static void lock(void)
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
 	rt.notes = osc2_test_core_armed(&osc2_test_core_obj);
 #endif
-	rt.engine.master_db = opensc2_setting_get(OPENSC2_SETTING_HAPTIC_GAIN_DB);
 }
 
 static void unlock(void)
@@ -84,6 +96,12 @@ static void emit(const struct osc2_hap_out_item *it)
 	if (it->what == OSC2_HAP_OUT_STATUS) {
 		/* flow control, input report 0x44, on the link in use */
 		(void)opensc2_send_haptic_status(it->data[0], opensc2_get_le32(&it->data[1]));
+#if defined(CONFIG_OPENSC2_TEST_HOOKS)
+		if (it->data[5] != 0xFFu) {
+			/* the reply to a stop, noted with the link of the report that stopped */
+			osc2_test_note_status(it->data[5], it->data[0], opensc2_get_le32(&it->data[1]));
+		}
+#endif
 		return;
 	}
 #if defined(CONFIG_OPENSC2_TEST_HOOKS)
@@ -152,11 +170,8 @@ static void script_fn(struct k_work *work)
 
 /* ---- the sequencers -------------------------------------------------------------------------- */
 
-static bool amp_held(void)
-{
-	return opensc2_setting_get(OPENSC2_SETTING_AMPLIFIER_MODE) == 1;
-}
-
+/* The enable, as the real sequencer drives its pin: on as a playback starts and off once it has
+ * drained, unless amplifier mode 1 holds it on. */
 static void amp(struct seq *s, const struct opensc2_haptics_output *out, bool on)
 {
 	if (s->amp_on != on) {
@@ -167,22 +182,64 @@ static void amp(struct seq *s, const struct opensc2_haptics_output *out, bool on
 	}
 }
 
+/* An amplifier mode the sequencer just applied (osc2_hap_rt_amp()): mode 1 raises the enable at
+ * once and holds it, mode 0 drops it at once, even in the middle of a sound. Call with the lock
+ * not held. */
+static void amp_mode(struct seq *s, const struct opensc2_haptics_output *out, int8_t mode)
+{
+	if (mode < 0) {
+		return;
+	}
+	s->amp_held = mode == 1;
+	if (s->amp_held) {
+		amp(s, out, true);
+	} else {
+		s->amp_on = true;            /* driven low whatever it was */
+		amp(s, out, false);
+	}
+}
+
+/* Wait until the output can take the next block without waiting, as the real sequencer waits for
+ * one of its two blocks to come back before it renders the next: with the output's ready(), or
+ * without an output on the timer (block k at t0 + (k - 1) block times). */
+static void wait_room(struct seq *s, const struct opensc2_haptics_output *out, int64_t t0,
+		      uint32_t k)
+{
+	if (out) {
+		if (out->api->ready) {
+			(void)out->api->ready(out);
+		}
+	} else if (k >= 2) {
+		k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)(k - 1) * BLOCK_US(s->path)));
+	}
+}
+
 static void playback(struct seq *s, const struct opensc2_haptics_output *out,
 		     opensc2_haptics_level_fn level_fn, void *level_user)
 {
 	size_t frames = s->path == OSC2_HAP_PADS ? OPENSC2_HAPTICS_PAD_FRAMES :
 			OPENSC2_HAPTICS_GRIP_FRAMES;
-	int64_t t0 = 0;
+	int64_t t0 = (int64_t)k_ticks_to_us_floor64((uint64_t)k_uptime_ticks());
 	uint32_t k = 0;
 	bool busy = true;
 
-	/* The amplifier comes on with the first start (setting 75 = 1 already holds it). */
-	amp(s, out, true);
 	while (busy) {
 		bool first = k == 0;
+		int8_t mode = -1;
 
+		if (!first) {
+			/* Every command queued since the last block, then the wait for room: what
+			 * arrives during the wait is applied to the block after this one. */
+			lock();
+			osc2_hap_rt_apply(&rt, s->path);
+			mode = osc2_hap_rt_amp(&rt, s->path);
+			unlock();
+			flush();
+			amp_mode(s, out, mode);
+			wait_room(s, out, t0, k);
+		}
 		lock();
-		(void)osc2_hap_rt_block(&rt, s->path, first, s->block, &busy);
+		(void)osc2_hap_rt_render(&rt, s->path, first, s->block, &busy);
 		unlock();
 		flush();
 		if (out) {
@@ -200,38 +257,36 @@ static void playback(struct seq *s, const struct opensc2_haptics_output *out,
 				err = out->api->write(out, s->block, frames);
 				first = err == 0;
 			}
-			if (first && out->api->start) {
-				(void)out->api->start(out);
-			}
-		} else {
 			if (first) {
-				t0 = (int64_t)k_ticks_to_us_floor64((uint64_t)k_uptime_ticks());
-			} else if (k >= 2) {
-				/* No output: take blocks as one with two buffers would, one every
-				 * 8 ms. */
-				k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)(k - 1) * BLOCK_US));
+				/* The first block queued: the enable up (unless held), then start. */
+				if (!s->amp_held) {
+					amp(s, out, true);
+				}
+				if (out->api->start) {
+					(void)out->api->start(out);
+				}
 			}
-			if (level_fn) {
-				level_fn((enum opensc2_haptics_path)s->path,
-					 opensc2_haptics_block_level((enum opensc2_haptics_path)s->path,
-								     s->block, frames),
-					 level_user);
-			}
+		} else if (level_fn) {
+			level_fn((enum opensc2_haptics_path)s->path,
+				 opensc2_haptics_block_level((enum opensc2_haptics_path)s->path,
+							     s->block, frames),
+				 level_user);
 		}
 		k++;
 	}
-	/* Nothing plays any more: let what was written play out, then the amplifier off. */
+	/* Nothing plays any more: let what was written play out, then the enable off. Commands that
+	 * arrive meanwhile wait for the next start. */
 	if (out) {
 		if (out->api->stop) {
 			(void)out->api->stop(out, false);
 		}
 	} else {
-		k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)k * BLOCK_US));
+		k_sleep(K_TIMEOUT_ABS_US(t0 + (int64_t)k * BLOCK_US(s->path)));
 		if (level_fn) {
 			level_fn((enum opensc2_haptics_path)s->path, 0, level_user);
 		}
 	}
-	if (!amp_held()) {
+	if (!s->amp_held) {
 		amp(s, out, false);
 	}
 }
@@ -246,19 +301,22 @@ static void seq_thread(void *p1, void *p2, void *p3)
 		const struct opensc2_haptics_output *out;
 		opensc2_haptics_level_fn level_fn;
 		void *level_user;
+		int8_t mode;
 		bool busy;
 
-		(void)k_sem_take(s->wake, K_MSEC(IDLE_POLL_MS));
+		/* Asleep until a command arrives. */
+		(void)k_sem_take(s->wake, K_FOREVER);
 		lock();
-		/* Commands that arrive while idle (a format, a stop) are answered now. */
+		/* Every command waiting is applied now (a format, a stop, a gain: answered at once,
+		 * without starting the output). */
 		busy = osc2_hap_rt_idle(&rt, s->path);
+		mode = osc2_hap_rt_amp(&rt, s->path);
 		out = s->out;
 		level_fn = s->level_fn;
 		level_user = s->level_user;
 		unlock();
 		flush();
-		/* Setting 75 = 1 holds the amplifier on between sounds; 0 lets it follow playback. */
-		amp(s, out, amp_held());
+		amp_mode(s, out, mode);
 		if (busy) {
 			s->running = true;
 			playback(s, out, level_fn, level_user);
@@ -289,17 +347,46 @@ void osc2_haptics_outputs(uint8_t link, const struct opensc2_output *out, int n)
 {
 	uint8_t paths;
 
-	ARG_UNUSED(link);
 	if (n <= 0) {
 		return;
 	}
 	lock();
-	paths = osc2_hap_rt_feed(&rt, out, n, opensc2_setting_get(OPENSC2_SETTING_RUMBLE_GAIN_DB),
-				 now_ms());
+	paths = osc2_hap_rt_feed(&rt, link, out, n,
+				 opensc2_setting_get(OPENSC2_SETTING_RUMBLE_GAIN_DB), now_ms());
 	schedule_locked();
 	unlock();
 	wake(paths);
 	flush();
+}
+
+void osc2_haptics_setting(uint8_t number)
+{
+	uint8_t paths;
+
+	if (number != OPENSC2_SETTINGS_ALL && number != OPENSC2_SETTING_AMPLIFIER_MODE &&
+	    number != OPENSC2_SETTING_HAPTIC_GAIN_DB) {
+		return;
+	}
+	lock();
+	paths = osc2_hap_rt_settings(&rt, number,
+				     opensc2_setting_get(OPENSC2_SETTING_AMPLIFIER_MODE),
+				     opensc2_setting_get(OPENSC2_SETTING_HAPTIC_GAIN_DB));
+	unlock();
+	wake(paths);
+	flush();
+}
+
+int osc2_haptics_key(uint8_t key, int16_t value)
+{
+	uint8_t paths;
+	int err;
+
+	lock();
+	err = osc2_hap_rt_key(&rt, key, value, &paths);
+	unlock();
+	wake(paths);
+	flush();
+	return err;
 }
 
 void osc2_haptics_library(const struct opensc2_haptic *h, uint8_t n)
@@ -321,6 +408,7 @@ uint8_t osc2_haptics_test_op(uint8_t op, const uint8_t *args, uint8_t alen, uint
 {
 	struct osc2_hap_rt_glue glue = {
 		.amp_mode = (uint8_t)opensc2_setting_get(OPENSC2_SETTING_AMPLIFIER_MODE),
+		.master_db = opensc2_setting_get(OPENSC2_SETTING_HAPTIC_GAIN_DB),
 		.features = IS_ENABLED(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS) ? 1u : 0u,
 	};
 	uint8_t status, paths = 0;
@@ -482,15 +570,65 @@ void opensc2_haptics_free_fall(void)
 #endif
 }
 
-void opensc2_haptics_free_fall_cancel(void)
+int opensc2_haptics_play_report(const uint8_t *report, size_t len)
+{
+	struct opensc2_output out[2];
+	uint8_t paths;
+	int n;
+
+	if (!report || len < 1) {
+		return -EINVAL;
+	}
+	n = opensc2_decode_output(report, len, out);
+	if (n < 0) {
+		return -EINVAL;
+	}
+	if (n == 0) {
+		return 0;
+	}
+	lock();
+	paths = osc2_hap_rt_feed(&rt, OSC2_HAP_LINK_NONE, out, n,
+				 opensc2_setting_get(OPENSC2_SETTING_RUMBLE_GAIN_DB), now_ms());
+	schedule_locked();
+	unlock();
+	wake(paths);
+	flush();
+	return n;
+}
+
+void opensc2_haptics_imu_stopped(void)
 {
 #if defined(CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS)
 	(void)atomic_set(&fall_waiting, 0);   /* a fall not taken yet goes too */
+#endif
 	lock();
-	osc2_hap_drop_cancel(&rt.drop);
+	(void)osc2_hap_rt_imu_stopped(&rt);
 	schedule_locked();
 	unlock();
-#endif
+	flush();
+}
+
+int opensc2_haptics_set_click(uint8_t click, const struct opensc2_haptics_sound *sound)
+{
+	if ((click != OPENSC2_HAPTIC_CMD_CLICK_A && click != OPENSC2_HAPTIC_CMD_CLICK_B) ||
+	    (sound && (!sound->data || sound->format >= 12u))) {
+		return -EINVAL;
+	}
+	lock();
+	osc2_hap_set_click(&rt.engine, click == OPENSC2_HAPTIC_CMD_CLICK_B ? 1u : 0u, sound);
+	unlock();
+	return 0;
+}
+
+int opensc2_haptics_set_script(uint8_t id, const struct opensc2_haptics_step *steps,
+			       uint8_t count)
+{
+	int err;
+
+	lock();
+	err = osc2_hap_script_set(id, steps, count);
+	unlock();
+	return err;
 }
 
 int opensc2_haptics_info(struct opensc2_haptics_info *info)

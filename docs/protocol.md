@@ -238,10 +238,10 @@ usable without Steam. OpenSC2 does the same, on every link:
   a frequency sweep, `0x85` one of the built-in haptic scripts, `0x86` to `0x89` PCM streamed to
   the actuators (`0x86` starts or stops it and sets the format, the others carry the samples);
   `0x8A` does nothing. Most of them start with a target byte that picks the pads or the grips. The
-  library decodes each one for the application ([api.md](api.md#outputs)) and, with its optional
-  haptics synthesiser, also plays them as the real controller's two sequencers do: sample blocks for
-  the four channels, outputs the application provides, the streams' flow control `0x44`
-  ([api.md](api.md#the-haptics-synthesiser); gap 35).
+  library decodes each one for the application ([api.md](api.md#outputs)) and, with its haptics
+  synthesiser (in the app), also plays them as the real controller's two sequencers do: sample
+  blocks for the four channels, outputs the application provides, the streams' flow control and
+  the replies to stops, `0x44` ([api.md](api.md#the-haptics-synthesiser); gap 35).
 - **The LED**: Steam sets its brightness (setting 45) and can override its colour (`0xC5`, shown
   while setting 37 is on); the library hands both to the application. The real controller's
   status LED shows its mode by colour: green while wired, white with a little blue on the puck's
@@ -549,11 +549,12 @@ open, the library does what should work with Steam and the puck, and says so her
     ([Steam's wired session](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/03-usb-and-hid.md#the-wired-session-as-steam-runs-it));
     the documentation of its haptics explains them: every stop-all stops the channel's stream,
     which reports `0x02`, whether or not anything was streaming. The library sends the same
-    replies for the same stops, in the documented order, with `CONFIG_OPENSC2_HAPTIC_STOP_STATUS`
-    (on by default, and always with the haptics synthesiser; [api.md](api.md#other-input-reports)). They go out as soon as the output is
-    decoded; the real controller sends them when its haptics thread takes the stop, within about a
-    millisecond while idle and up to one 8 ms block later while something plays. Steam does not
-    appear to need them.
+    replies for the same stops, in the documented order. With the haptics synthesiser (in the
+    app) its sequencers send them as the real ones do, when each takes the stop: within about a
+    millisecond while idle, up to one 8 ms block later while something plays, and not at all for a
+    stop that a full queue lost. Without it, `CONFIG_OPENSC2_HAPTIC_STOP_STATUS` (on by default;
+    [api.md](api.md#other-input-reports)) sends them as soon as the output is decoded. Steam does
+    not appear to need them.
 20. **Identity on the cable.** The USB strings are the real ones by default and the serial string is
     the identity's unit serial, kept equal to `0xAE` tag 1 and the radio identity record. A
     development board reports its own "OSC..." serial, which no real controller has. With the
@@ -645,7 +646,11 @@ open, the library does what should work with Steam and the puck, and says so her
     0/0 brings the real controller's announcement at every power-on (gap 34), and
     `opensc2_charge_target_mv()` gives its upper value to a board whose charger can stop there (the
     real controller programs its charger chip with it; a board without such a charger cannot).
-    Nothing acts on the haptics settings yet. As on the real controller, `0xED` answers `mte/charge_level` only while it holds a
+    With the haptics synthesiser, `0xEE` on
+    `settings/haptics/haptic_master_gain_db` or `.../amplifier_mode` goes to the four channels at
+    once, as on the real controller, past settings 76 and 75 (which `0x89` still reads as they
+    were); `.../enabled` is only kept, as there. As
+    on the real controller, `0xED` answers `mte/charge_level` only while it holds a
     valid window (both values 0, or 3400 to 4120 mV in 10 mV steps), and `0xEF` saves what `0xED`
     would read back, as the real controller saves what the key's read function gives: it fails for
     the `settings/haptics/` keys (no read function) and for an invalid charge window, and writes
@@ -862,24 +867,25 @@ open, the library does what should work with Steam and the puck, and says so her
       cannot reach a charger chip itself. Its register values, and the gauge's curves, are Valve's
       data: OpenSC2 has curves of its own, and a board can give its own
       (`opensc2_gauge_set_curves()`).
-35. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, off by default; built, not yet
-    tested on hardware). Written from the research documentation's description of the real
-    controller's sequencers, generators, scripts, cues, streams and rumble emulation
-    ([docs/controller/08-haptics.md](https://github.com/ded811/steam-controller-2-reverse-engineered/blob/main/docs/controller/08-haptics.md)),
-    with these choices:
+
+35. **The haptics synthesiser** (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; built, not yet
+    tested on hardware). Re-implemented from the protocol documentation's description of the real
+    controller's sequencers, generators, scripts, cues, streams and rumble emulation, rule for
+    rule, the accidents of its arithmetic included, in integers, so blocks are bit for bit the same
+    on the board and on a PC:
 
     | Point | OpenSC2 |
     | --- | --- |
-    | Valve's data | not used: the two clicks are damped sine bursts of OpenSC2's own at the real clicks' lengths; scripts 1 to 17, the cues' sounds and the two drop sounds are short sounds of OpenSC2's own (tones, sweeps, pulses), not the real controller's step data, melodies or recordings; the 18th script, which nothing plays, is left out |
-    | Copied as the real controller plays it | the rumble's bursts at a constant 12 Hz (its rate formula divides by the 32-bit maximum), every 668 samples, the second of a fresh start 667 samples after the first; the left grip's LFO dipping to 8.8 Hz just above a fifth of full speed; `0x81` with a count of 0 playing nothing; formats 12 and above answered "set" (`0x20`) while the previous format stays; the rumble's random burst gains from the documented generator and seed; the left pad and the right grip rendered with the gain negated |
-    | Kept correct where only a sound would differ | gains added without wrapping round (the real controller adds in 8 bits, so `0x85` near -128 dB plays at +30 dB); a pulse train shorter than one sample plays nothing (the real arithmetic plays -1 for 65,536 samples); a sweep with 0 Hz at an end plays nothing and one with equal ends a plain tone with the fades (the real arithmetic produces invalid numbers, which play as a full-scale push; with only the end frequency at 0 Hz, one invalid sample and then silence); long sweeps do not wrap at 16 bits; a generator that ends leaves the mix at once (the real one lingers 1 or 4 silent samples); setting 75 going to 0 does not cut a playing sound (the real one drops the enable at once); a fall's drop sound is not cancelled for good when the IMU stops |
-    | Arithmetic | integers only, a sine table of OpenSC2's own (peak 1.0; the real polynomial peaks at about 1.0045), so blocks are bit for bit reproducible; the PWM DAC plays the pads at exactly 4 kHz (the real one at about 3906 Hz) |
-    | Not documented, chosen | an 8 kHz format on a pad is refused (`0x10`) before a format change while playing (`0x40`); a channel that never had a format plays formats 12 and above as s16le at 8 kHz; a tone's first sample is sin(0); a clip's last sample holds through its interpolated steps; the free-fall helper's thresholds (0.35 g for 150 ms; the real controller uses its IMU's detector); the DRV2605's amplitude is the louder path's block peak |
-    | Stops and `0x44` | the synthesiser sends `0x01`, `0x08`, `0x04`, `0x02` when a stream runs dry, `0x10`, `0x20` and `0x40`, in the order they happen; it does not send the `0x02` the real controller sends after every stop: those are gap 19's replies (`CONFIG_OPENSC2_HAPTIC_STOP_STATUS`, which the synthesiser selects), so they never come twice |
-    | Setting 70 | does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
+    | As the real controller plays it | the fifth-order polynomial sine (peak about 1.0045) with its one-cycle phase wrap (a tone above the channel's rate turns into clipped noise); values that are not a number (a sweep from 0 Hz, with equal ends, of duration 0 or with its 16-bit count wrapped to 0 while rising) playing +1, full scale, over the whole channel mix, an end of 0 Hz spoiling the first sample only, a wrapped falling one growing to full scale through the fade-out's arithmetic; the sweep's 16-bit count (longer sweeps run faster and higher), its fade-out to 0 and over the whole of a sweep under 5 ms; pulse periods in 16 bits (under one sample, a constant -1 for 65,536 samples a period); a generator that ends by itself lingering 1 (pads) or 4 (grips) silent samples, which can add a silent block; dB sums in 8 bits (click A from `0x82` +122 dB, script offsets, the rumble's left gain); the real scalings and roundings; the channels rendered one after the other, the negated one first (which orders two `0x44` of one block) |
+    | Streams | the interpolated values computed ahead survive a stop and play first at the next start; a stream that runs dry with half a 16-bit sample left loses that byte, one that cannot interpolate plays its current sample once; no water mark before a format (no `0x08`; `0x01` for every write once the ring is full); a format byte of 12 and up sets the water mark and start point and keeps the last sample size and rate (s8 after mu-law; on a channel whose stream never ran, no bytes at all: a silent value without end); each write that finds enough audio queues a start until one is applied; the `0x02` replies to stops sent when the sequencer takes them (gap 19) |
+    | Timing | a command is applied before the thread waits for the output to take a block, and the block rendered after the wait (an output's optional `ready()`; the built-in outputs have it): a command is heard about 4 ms after it on an idle path and 16 to 24 ms after it while something plays, and a stream's bytes are read and its flags sent when the real one does; commands arriving while a path drains wait for its next start; a path without an output is paced by a timer at the real block times, 8 ms on the grips and 8.192 ms on the pads |
+    | Settings 75 and 76 | handed to the four channels as configure commands at the end of start-up and on every change, through the queues (a command a full queue loses keeps the old value; the hand-out stops at the first channel it does not reach); the channel gains are 0, silence, until then; amplifier mode 1 raises the enable at once and holds it, 0 drops it at once, even in the middle of a sound; the keys by name act on the channels directly (gap 26). Setting 70 does not silence the synthesiser (on the real controller only lizard mode's pad feedback reads it) |
+    | The pads' PWM DAC | 256 steps of 16 us, each sample held 16 periods: about 3906 Hz, as the real one (`CONFIG_OPENSC2_HAPTICS_OUT_PWM_DAC_EXACT_4K` for exactly 4 kHz). One difference of the pins: the real controller hands its samples to the PWM as they are, without the polarity bit, so its pins are low for a sample's counts and high for the rest (256 - v); OpenSC2's are high for v, the same waveform inverted. Which is right depends only on what the pins drive, the board's wiring |
+    | `0x87` and `0x89` through the puck | the record's length, one more than the report's, as the real controller's handlers get it: `0x87` takes one byte from beyond the report and `0x89` accepts an n one larger, the extra byte the next record's length byte or whatever the receive buffer holds there |
+    | The drop sounds | reported by the application (the blank canvas: a software detector, below 0.35 g for 150 ms, where the real controller uses its IMU's own); the IMU stopping within 5 s of a fall cancels the sound and leaves the drop sounds off until a reboot (`opensc2_haptics_imu_stopped()`), as on the real controller |
+    | Valve's data | not carried: the two clicks are damped sine bursts of OpenSC2's own at the real clicks' lengths; scripts 1 to 17 (the cues' and the drop sounds' too) are short sounds of OpenSC2's own; the 18th script, which nothing plays, is left out. A board can give its own clicks and scripts, recordings included ([api.md](api.md#sounds-the-application-supplies)) |
+    | Still different | an output report shorter than its fields is refused (the real handlers read past its end into whatever the link's receive buffer holds, which cannot be reproduced); the pad frame's word order inside OpenSC2's output API is left first (the real device's first word is the right pad: only which pin carries which pad, the board's choice); integer arithmetic where the real one has floats: values within a count of the real ones at first; the real phases are floats that gather rounding as they run, so after seconds a tone is some tens of counts away (78 after 5 s of 1 kHz on a grip), a sweep within a few tens of counts (its phase summed sample by sample, each step taken half a sample on so the sum stays with the real closed form; over sweeps of several seconds it drifts by up to a few hundredths of a cycle), a tone far above the rate saturating at 65536 where the real values grow without end, the constant of a wrapped falling sweep exact where the real one is rounded away (for very long or very flat ones the real float phase has no correct digits left); the free-fall detector above |
     | `0x88` | with more than 31 bytes a side the report does nothing, as on the real controller (in every build: the decoder; v0.2.0 clamped it to 31) |
-    | `0x87` and `0x89` through the puck | copied: as on the real controller, the radio hands an output report on with its record's length, which counts the report ID too, and the byte after the report with it (the next byte of the packet, or 0 past its end); so through the puck `0x87` takes that byte as its last sample byte and `0x89` accepts n one larger (n = 62 in a full report). On the cable and over Bluetooth a report has its own length |
-    | When a command is heard | about 4 ms after it on an idle path, as on the real controller; while something plays 8 to 16 ms after it, one block sooner than the real controller's 16 to 24 ms: OpenSC2's thread takes the queued commands once the output has taken the block before, right before it renders the next, where the real one takes them before it waits for the output |
 
 36. **The dock's answers are whole frames.** The real controller leaves every answer byte it does
     not write as it was: a probe's type and result, a SET's payload, the bytes after a GET's answer

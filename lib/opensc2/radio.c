@@ -753,8 +753,10 @@ static void handle_records(const struct rx_item *it)
 		}
 		case OPENSC2_REC_OUTPUT: {
 			/* The record's length goes with it: the output reports see one byte more
-			 * than on USB (radio_rules.h). */
-			uint8_t report[OPENSC2_PAYLOAD_MAX + 1];
+			 * than on USB (radio_rules.h). Static: the radio thread alone runs this, and
+			 * its stack is kept for the dispatch (the application's callbacks, the
+			 * haptics synthesiser's feed). */
+			static uint8_t report[OPENSC2_PAYLOAD_MAX + 1];
 			size_t n = osc2_radio_output_record(it->data, it->len, &rec, report);
 
 			if (n) {

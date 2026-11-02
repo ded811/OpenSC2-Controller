@@ -2,13 +2,14 @@
  * Copyright (c) 2026 the OpenSC2-Controller authors
  * SPDX-License-Identifier: MIT
  *
- * The haptics synthesiser (CONFIG_OPENSC2_HAPTICS_SYNTH, off by default): the library turns the
+ * The haptics synthesiser (CONFIG_OPENSC2_HAPTICS_SYNTH, on in the app): the library turns the
  * output reports (rumble 0x80, pulses, clicks, tones, sweeps, scripts and PCM streams 0x81..0x89)
  * into sample blocks for the controller's four haptic channels, as the real controller's two
- * sequencers do, and hands the blocks to outputs the application provides (an I2S amplifier, a
- * PWM "DAC", a motor driver). It also plays OpenSC2's own built-in sounds: the scripts of report
- * 0x85, the cues (chimes) and the drop sounds, and sends the PCM streams' flow control, input
- * report 0x44.
+ * sequencers do, arithmetic quirks included, and hands the blocks to outputs the application
+ * provides (an I2S amplifier, a PWM "DAC", a motor driver). It also plays the built-in sounds:
+ * the scripts of report 0x85, the cues (chimes) and the drop sounds (OpenSC2's own, or the
+ * application's: opensc2_haptics_set_script(), opensc2_haptics_set_click()), and sends input
+ * report 0x44: the PCM streams' flow control and the replies to stops.
  *
  *     static const struct opensc2_haptics_output_api amp_api = { .write = amp_write };
  *     static const struct opensc2_haptics_output amp = { .api = &amp_api };
@@ -51,20 +52,29 @@ enum opensc2_haptics_path {
 #define OPENSC2_HAPTICS_GRIP_FRAMES   64
 
 /* ---- outputs ----------------------------------------------------------------------------------
- * One output per path. A sequencer idles until something plays; then it renders a first block
- * (4 ms of silence first), calls enable(true), write(first block) and start(), and keeps writing
- * one block after the other, staying one block ahead of what plays: write() must block until the
- * output can take the next block (an output with two buffers returns at once for the first two
- * and then when one has played). Once nothing plays any more, it calls stop(false) (drain: return
- * when everything written has played) and enable(false). Controller setting 75 = 1 holds the
- * enable on between sounds. Every call comes from the sequencer's own thread. Without an output a
- * path renders anyway, paced by a timer, so the test hooks can check what it renders.
+ * One output per path, run as the real controller runs its two outputs. A sequencer idles until a
+ * command makes something play; then it renders a first block (4 ms of silence first), calls
+ * write(first block), enable(true) and start(), and keeps writing one block after the other,
+ * staying one block ahead of what plays: before each block it applies the commands that arrived,
+ * calls ready() (wait until the output can take a block without waiting: an output with two
+ * buffers returns at once for the second and then when one has played), renders the block and
+ * writes it. Once nothing plays any more, it calls stop(false) (drain: return when everything
+ * written has played) and enable(false); commands that arrive meanwhile wait for the next start.
+ * Amplifier mode 1 (controller setting 75) calls enable(true) at once and holds it; mode 0 calls
+ * enable(false) at once, even in the middle of a sound. Every call comes from the sequencer's own
+ * thread. Without an output a path renders anyway, paced by a timer, so the test hooks can check
+ * what it renders.
  */
 struct opensc2_haptics_output;
 
 struct opensc2_haptics_output_api {
 	/* Start playing what was written (once per playback, after the first block). Optional. */
 	int (*start)(const struct opensc2_haptics_output *out);
+	/* Wait until write() would take a block without waiting (one of the two buffers has
+	 * played). Optional: without it the sequencer renders a block before the wait, a block's
+	 * time earlier than the real controller does, so a PCM stream's bytes are read and its 0x44
+	 * flags sent that much sooner. */
+	int (*ready)(const struct opensc2_haptics_output *out);
 	/* One block, valid during the call only. 0, or -EPIPE when the output ran out of blocks (an
 	 * underrun): the sequencer then stops it (stop(true)), writes the block again and starts it
 	 * again. Required. */
@@ -88,8 +98,9 @@ int opensc2_haptics_set_output(enum opensc2_haptics_path path,
 
 /* For an actuator that has only an amplitude (an ERM motor's duty cycle, a DRV2605 in real-time
  * playback): `fn` gets the level of every block of `path` (opensc2_haptics_block_level(), 0..255)
- * as it is rendered, every 8 ms while something plays, and 0 once nothing plays any more. The
- * blocks are paced by a timer, as without an output; an output set with
+ * as it is rendered, every block while something plays (8 ms on the grips, 8.192 ms on the pads,
+ * the real controller's block times), and 0 once nothing plays any more. The blocks are paced by
+ * a timer, as without an output; an output set with
  * opensc2_haptics_set_output() takes precedence. NULL removes it. Called from the path's thread. */
 typedef void (*opensc2_haptics_level_fn)(enum opensc2_haptics_path path, uint8_t level,
 					 void *user_data);
@@ -112,25 +123,34 @@ int opensc2_haptics_set_level_output(enum opensc2_haptics_path path, opensc2_hap
 #define OPENSC2_HAPTICS_CUE_HOST_ASLEEP     10
 
 /* Play cue `cue` on both grips at chime level `level` (pass opensc2_chime_level(): 1 quiet,
- * -18 dB; 2 normal, -12 dB; anything else silent; cues 6 and 7 play 1 dB lower). The sounds are
- * OpenSC2's own. 0 when it started on at least one grip (a grip whose script still runs keeps
- * it), -ENODATA when the cue plays nothing at that level, -EBUSY when both grips are busy,
- * -ENOTSUP without the synthesiser. */
+ * -18 dB; 2 normal, -12 dB; anything else silent; cues 6 and 7 play 1 dB lower; cue 8 at +2 dB
+ * at any level). The sounds are the scripts': OpenSC2's own unless the application gave its own
+ * (opensc2_haptics_set_script()). 0 when it started on at least one grip (a grip whose script
+ * still runs keeps it), -ENODATA when the cue plays nothing at that level, -EBUSY when both grips
+ * are busy, -ENOTSUP without the synthesiser. */
 int opensc2_haptics_play_cue(uint8_t cue, uint8_t level);
 
-/* Play built-in script `id` (1..17, OpenSC2's own sounds) on the channels in `channels`
- * (OPENSC2_HAPTIC_* bits) at `gain_db`, as report 0x85 does. Returns how many channels it started
- * on (a channel whose script still runs refuses it), or a negative errno. */
+/* Play script `id` (1..17: OpenSC2's own sounds, or the application's) on the channels in
+ * `channels` (OPENSC2_HAPTIC_* bits) at `gain_db`, as report 0x85 does. Returns how many channels
+ * it started on (a channel whose script still runs refuses it), or a negative errno. */
 int opensc2_haptics_play_script(uint8_t channels, uint8_t id, int8_t gain_db);
 
-/* Click A or B (OPENSC2_HAPTIC_CMD_CLICK_A, _B) on the pads in `channels` at `gain_db`; the grips
- * refuse clicks, as on the real controller. Lizard mode's pad ticks are click A at +8 dB, its pad
- * presses click B at +6 dB. Returns how many channels it queued, or a negative errno. */
+/* Click A or B (OPENSC2_HAPTIC_CMD_CLICK_A, _B) on the pads in `channels` at `gain_db` as given
+ * (report 0x82 plays click A 6 dB above its gain byte); the grips refuse clicks, as on the real
+ * controller. Lizard mode's pad ticks are click A at +8 dB, its pad presses click B at +6 dB.
+ * Returns how many channels it queued, or a negative errno. */
 int opensc2_haptics_click(uint8_t channels, uint8_t click, int8_t gain_db);
 
 /* Stop everything on the channels in `channels` (a stop-all, as report 0x82 command 0): how many
  * channels it queued, or a negative errno. */
 int opensc2_haptics_stop(uint8_t channels);
+
+/* Play an output report (`report[0]` its ID, 0x80..0x89, then its fields) through the synthesiser
+ * as if a host had sent it: any rumble, pulse, click, tone, sweep, script or PCM stream, with the
+ * real controller's rules and 0x44 replies (the application's rumble and haptic callbacks are not
+ * called). The number of outputs it decoded (0: an ID that plays nothing), -EINVAL for a report
+ * shorter than its fields, -ENOTSUP without the synthesiser. */
+int opensc2_haptics_play_report(const uint8_t *report, size_t len);
 
 /* Play a recording on `channel` (0..3): `samples` samples in stream format `format` (0..11, as
  * report 0x86 numbers them: format / 4 is s16le, s8 or mu-law, format % 4 the rate 8, 4, 2 or
@@ -141,15 +161,74 @@ int opensc2_haptics_play_clip(uint8_t channel, const uint8_t *data, uint16_t sam
 /* A free fall (CONFIG_OPENSC2_HAPTICS_DROP_SOUNDS): from any context, an IMU's free-fall interrupt
  * included (it only notes the time; the rest runs in the system work queue), or from a thread on
  * opensc2_freefall_update(). 250 ms after the fall a random byte picks one of the two drop sounds
- * (3 in 16 and 5 in 16) or none, on the left grip; further falls count again 5 s after this one.
- * Every other opensc2_haptics_* call takes the synthesiser's mutex: from threads only, never from
- * an interrupt. */
+ * (scripts 16 and 17: 3 in 16 and 5 in 16) or none, on the left grip; further falls count again
+ * 5 s after this one. As on the real controller, report falls only while the IMU streams. Every
+ * other opensc2_haptics_* call takes the synthesiser's mutex: from threads only, never from an
+ * interrupt. */
 void opensc2_haptics_free_fall(void);
 
-/* The IMU's stream went off (<opensc2/imu.h> calls it for a board that set its IMU up): a drop
- * sound still waiting its 250 ms is not played, and after a fall further falls never count again
- * until the next boot, as on the real controller. From a thread. */
-void opensc2_haptics_free_fall_cancel(void);
+/* The IMU stopped streaming (its mode off, the controller going to sleep): as on the real
+ * controller, a drop sound still due and the 5 s re-arm are cancelled, so after a fall in the last
+ * 5 s the drop sounds stay off until the next boot. Call it whenever the IMU stops (it does
+ * nothing otherwise). From a thread. */
+void opensc2_haptics_imu_stopped(void);
+
+/* ---- sounds the application supplies --------------------------------------------------------------
+ * The real controller's clicks, scripts and drop sounds are Valve's recordings and step data, which
+ * OpenSC2 does not carry: it plays sounds of its own in their places. A board can give its own
+ * instead, at any time; they take effect from the next click or script on. Everything given must
+ * stay valid (static const) while it may play.
+ */
+
+/* A recording: `samples` samples in stream format `format` (0..11, as report 0x86 numbers them:
+ * format / 4 is s16le, s8 or mu-law, format % 4 the rate 8, 4, 2 or 1 kHz). */
+struct opensc2_haptics_sound {
+	const uint8_t *data;
+	uint16_t samples;
+	uint8_t format;
+};
+
+/* Click A (OPENSC2_HAPTIC_CMD_CLICK_A) or B (_CLICK_B) from now on, NULL for OpenSC2's own (70 and
+ * 93 samples of s8 at 4 kHz, the real clicks' lengths). As on the real controller a click plays
+ * one sample per output sample whatever its format's rate says (the pads run at 4 kHz), and the
+ * grips refuse clicks. -EINVAL for another click, data missing or a format above 11. */
+int opensc2_haptics_set_click(uint8_t click, const struct opensc2_haptics_sound *sound);
+
+/* A script step (opensc2_haptics_set_script()). Each step runs `delay_ms` after the step before it
+ * ran (at least 1 ms; the first after the request) and starts one sound without waiting for it to
+ * end; an END step ends the script `delay_ms` after the step before, and frees the channel. */
+enum opensc2_haptics_step_kind {
+	OPENSC2_HAPTICS_STEP_END = 0,
+	OPENSC2_HAPTICS_STEP_TONE = 1,     /* a Hz, b ms, c LFO in 0.1 Hz (0: none), d LFO depth % */
+	OPENSC2_HAPTICS_STEP_SWEEP = 2,    /* a start Hz, b end Hz, c ms */
+	OPENSC2_HAPTICS_STEP_PULSE = 3,    /* a on us, b off us, c periods (full scale: no gain) */
+	OPENSC2_HAPTICS_STEP_CLICK_A = 4,  /* the pads only, as every click */
+	OPENSC2_HAPTICS_STEP_CLICK_B = 5,
+	OPENSC2_HAPTICS_STEP_CLIP = 6,     /* `clip`, a recording */
+};
+
+#define OPENSC2_HAPTICS_STEP_FIXED_GAIN 0x01   /* `gain_db` as it is, not added to the script's */
+#define OPENSC2_HAPTICS_STEP_ON_CHANNEL 0x02   /* always on `channel`, whatever runs the script */
+
+struct opensc2_haptics_step {
+	uint16_t delay_ms;
+	uint8_t kind;                      /* enum opensc2_haptics_step_kind */
+	int8_t gain_db;                    /* added to the script's gain in 8 bits (wrapping round) */
+	uint16_t a, b, c;
+	uint8_t d;
+	uint8_t flags;                     /* OPENSC2_HAPTICS_STEP_* flags */
+	uint8_t channel;                   /* with OPENSC2_HAPTICS_STEP_ON_CHANNEL: 0..3 */
+	const struct opensc2_haptics_sound *clip;   /* OPENSC2_HAPTICS_STEP_CLIP */
+};
+
+/* Script `id` (1..17: report 0x85, the cues' scripts 1, 2, 3, 4, 5, 8, 9 and 10, the drop sounds'
+ * 16 and 17) as `count` steps of the application's, from its next start on (a script that runs
+ * goes on with the steps it has); NULL for OpenSC2's own. A script without an END step ends 1 ms
+ * after its last step. -EINVAL for an id outside 1..17, no steps, or a step that cannot play (an
+ * unknown kind, a channel above 3, a clip without data or in a format above 11); -ENOTSUP without
+ * the synthesiser. */
+int opensc2_haptics_set_script(uint8_t id, const struct opensc2_haptics_step *steps,
+			       uint8_t count);
 
 /* What the synthesiser does now. */
 struct opensc2_haptics_info {

@@ -32,11 +32,23 @@ static const struct gpio_dt_spec amp_en = GPIO_DT_SPEC_GET(NODE, enable_gpios);
 #endif
 
 K_MEM_SLAB_DEFINE_STATIC(i2s_blocks, BLOCK_BYTES, 2, 4);
+static void *next_block;   /* a free block ready() took for the next write() */
 
 static int i2s_out_start(const struct opensc2_haptics_output *out)
 {
 	ARG_UNUSED(out);
 	return i2s_trigger(i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
+}
+
+static int i2s_out_ready(const struct opensc2_haptics_output *out)
+{
+	ARG_UNUSED(out);
+	/* Both blocks queued: wait for the older one to have played. */
+	if (!next_block && k_mem_slab_alloc(&i2s_blocks, &next_block, K_MSEC(WAIT_MS)) != 0) {
+		next_block = NULL;
+		return -EPIPE;
+	}
+	return 0;
 }
 
 static int i2s_out_write(const struct opensc2_haptics_output *out, const void *block,
@@ -46,15 +58,15 @@ static int i2s_out_write(const struct opensc2_haptics_output *out, const void *b
 	void *mem;
 	int err;
 
-	ARG_UNUSED(out);
 	if (bytes > BLOCK_BYTES) {
 		return -EINVAL;
 	}
-	/* Both blocks queued: wait for the older one to have played. */
-	err = k_mem_slab_alloc(&i2s_blocks, &mem, K_MSEC(WAIT_MS));
+	err = i2s_out_ready(out);
 	if (err) {
-		return -EPIPE;
+		return err;
 	}
+	mem = next_block;
+	next_block = NULL;
 	memcpy(mem, block, bytes);
 	err = i2s_write(i2s_dev, mem, bytes);
 	if (err) {
@@ -106,6 +118,7 @@ static void i2s_out_enable(const struct opensc2_haptics_output *out, bool on)
 
 static const struct opensc2_haptics_output_api i2s_out_api = {
 	.start = i2s_out_start,
+	.ready = i2s_out_ready,
 	.write = i2s_out_write,
 	.stop = i2s_out_stop,
 	.enable = i2s_out_enable,

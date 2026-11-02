@@ -101,8 +101,8 @@ or the chord is tapped.
 pairing). The library raises cue events; the haptics synthesiser, when it is built in, plays
 OpenSC2's own sound for each, otherwise the application does.
 
-**Haptics synthesiser.** An option of the library (`CONFIG_OPENSC2_HAPTICS_SYNTH`, not yet tested
-on hardware) that plays Steam's haptic output reports itself, as the real controller's
+**Haptics synthesiser.** A part of the library (`CONFIG_OPENSC2_HAPTICS_SYNTH`, on by default; not
+yet tested on hardware) that plays Steam's haptic output reports itself, as the real controller's
 sequencers do, as sample blocks for actuators the application drives, with sounds of
 OpenSC2's own ([api.md](api.md#the-haptics-synthesiser)).
 
