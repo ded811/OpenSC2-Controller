@@ -9,6 +9,7 @@
  * documentation's description, not from this code.
  */
 #include <opensc2/battery.h>
+#include <opensc2/charger.h>
 #include <opensc2/gauge.h>
 #include "fuel_rules.h"
 
@@ -231,6 +232,59 @@ OPENSC2_TEST(fuel_level_and_model)
 		CHECK_EQ(opensc2_gauge_scale(high, 2, 4200), 100);
 		CHECK_EQ(opensc2_gauge_stretch(500, 2500), 50);
 	}
+}
+
+/* The two forms of the real controller's charging rules give the same answers: the library's fuel
+ * gauge (fuel_rules.c) and the pure helpers a board runs with its own gauge (<opensc2/charger.h>).
+ * A pseudo-random walk of input power, charger status and battery voltage, one pass a second, with
+ * the charge state, the charge voltage asked for and the input-voltage limit compared every pass. */
+OPENSC2_TEST(fuel_matches_charger_helpers)
+{
+	struct osc2_fuel f;
+	struct osc2_fuel_out fo;
+	struct opensc2_charger c;
+	struct opensc2_charger_out co;
+	uint32_t seed = 12345;
+	int mismatches = 0;
+	int seen[5] = { 0 };
+	int gave_up = 0;
+
+	osc2_fuel_init(&f, &fuel_cfg, &fo);
+	opensc2_charger_init(&c, NULL, 0, &co);
+	CHECK_EQ(co.set_charge, true);
+	CHECK_EQ(co.charge_mv, fo.charge_mv);
+	for (uint32_t pass = 1; pass <= 20000; pass++) {
+		uint32_t now = pass * 1000u;
+		bool input;
+		uint8_t status;
+		uint16_t mv;
+		uint8_t cs;
+
+		seed = seed * 1103515245u + 12345u;
+		input = ((seed >> 16) % 8u) != 0;             /* mostly on, now and then off */
+		status = (uint8_t)((seed >> 20) % 4u);        /* off, precharge, charging, done */
+		if ((pass / 97u) % 3u == 0) {
+			input = true;                         /* a stretch of a supply that does not */
+			status = OPENSC2_CHARGER_OFF;         /* charge: the check walks down, gives up */
+		}
+		mv = (uint16_t)(3500u + (seed >> 4) % 700u);
+		f.voltage_mv = mv;
+		fuel_pass(&f, now, input, status, &fo);
+		cs = opensc2_charger_step(&c, input, (enum opensc2_charger_status)status, mv, now, &co);
+		if (cs != osc2_fuel_charge_state(&f) ||
+		    (co.set_charge ? co.charge_mv : 0) != fo.charge_mv ||
+		    (co.set_vin_limit ? co.vin_limit_mv : 0) != fo.vin_limit_mv) {
+			mismatches++;
+		}
+		seen[cs & 0x07]++;
+		gave_up += (cs & 0x80) != 0;
+	}
+	CHECK_EQ(mismatches, 0);
+	/* every state was reached after the first step, and the supply check gave up */
+	for (int i = 1; i < 5; i++) {   /* 0 only before the first step */
+		CHECK(seen[i] > 0);
+	}
+	CHECK(gave_up > 0);
 }
 
 /* The boost of the capacitive readings without input power: x1.2 for a stick-touch word, x1.5 for
