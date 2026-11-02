@@ -41,7 +41,7 @@ LOG_MODULE_DECLARE(opensc2, CONFIG_OPENSC2_LOG_LEVEL);
 /* Bit 15 of a value is the pin's polarity: set, the pin is high for the value's counts of each
  * period (Zephyr's PWM driver sets it so for normal polarity); clear, the pin would be low for
  * them, and both pads would come out inverted (as the real controller's pins do: it leaves the bit
- * clear; docs/protocol.md, gap 35). */
+ * clear; docs/protocol.md, gap 20). */
 #define HIGH_FOR_VALUE 0x8000u
 #define SILENCE (HIGH_FOR_VALUE | (TOP / 2u))
 #define WAIT_MS 40

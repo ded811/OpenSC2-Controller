@@ -9,7 +9,7 @@
  *             Vendor command 0x85 raises the two switches (the keyboard and the mouse buttons),
  *             0x81 lowers them; the keyboard hears of a switch through its own view of setting 9,
  *             so a raise while it runs stays pending until its next "off" (docs/protocol.md,
- *             gap 11).
+ *             gap 7).
  *   keyboard: A = Enter, B and VIEW = Escape, the D-pad = arrow keys, MENU = Tab. While it runs it
  *             hears of every change of one of those eight buttons, the way a button driver
  *             reports it: then every held button, in bit order, takes the next key slot (its key,

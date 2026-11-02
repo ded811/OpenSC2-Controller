@@ -6,7 +6,7 @@
  * Zephyr headers, so the host tests build it too): the HID report descriptor, the two device
  * profiles, the descriptors a host reads, and the framing of feature report 1.
  *
- * Where each detail of the report descriptor comes from (docs/protocol.md, gap 13, says the same):
+ * Where each detail of the report descriptor comes from (all 372 bytes are the real controller's):
  *  - the USB page of the protocol documentation the same authors wrote (not public yet): 372 bytes;
  *    the three collections in this order (mouse, keyboard, vendor); every report's ID, direction
  *    and size; the vendor collection's item rule (every field a byte, with a usage equal to its

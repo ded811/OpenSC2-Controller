@@ -325,7 +325,7 @@ int osc2_cal_by_name(uint8_t opcode, const uint8_t *payload, uint8_t len)
 		/* After the deferred writes asked for before it (an 0xFE's erase above all), so that
 		 * an "erase, then store the new calibration" keeps the new keys. The real controller
 		 * does not wait: there an erase still running can delete a key saved after it
-		 * (docs/protocol.md, gap 31). */
+		 * (docs/protocol.md, gap 16). */
 		osc2_cal_flush_wait();
 		return osc2_cal_flash_write(keys[k].name, value, keys[k].size);
 	}

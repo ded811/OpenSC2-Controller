@@ -8,8 +8,7 @@
  * steam-controller-2-reverse-engineered, not public yet; docs/protocol.md sums it up and lists the
  * pages). Three details of the report descriptor come directly from the same authors' study of the
  * controller's firmware: the sizes of its mouse and keyboard collections, the form of its vendor
- * items and the order of its reports (lib/opensc2/usb_desc.c and docs/protocol.md, gap 13, name
- * the source of each detail).
+ * items and the order of its reports (lib/opensc2/usb_desc.c names the source of each detail).
  *
  * All multi-byte values on the wire are little endian.
  */
@@ -217,7 +216,7 @@ extern const uint8_t opensc2_hid_report_desc[OPENSC2_HID_REPORT_DESC_LEN];
 #define OPENSC2_USB_FEATURE_LEN      64
 
 /* The two forms of the real controller's USB device (its July and October 2026 firmware), as the
- * protocol documentation gives them (not public yet; docs/protocol.md, gap 14, has both). They
+ * protocol documentation gives them (not public yet; docs/protocol.md, gap 8, has both). They
  * differ only in these fields; everything else (descriptors, reports, commands) is the same. */
 struct opensc2_usb_profile {
 	uint16_t bcd_usb;
