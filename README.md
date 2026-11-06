@@ -44,7 +44,8 @@ Who it is for: makers who want to build a controller that Steam treats as a Stea
 and firmware developers who want that protocol in their own nRF52840 project.
 
 Valve's puck is the small USB receiver and charging dock that comes with the Steam Controller 2.
-Steam talks to wireless controllers through it.
+Steam talks to wireless controllers through it. Like the real controller, the board can instead
+connect over Bluetooth LE, straight to the PC; a wireless boot uses one of the two.
 
 ```mermaid
 flowchart LR
@@ -55,6 +56,7 @@ flowchart LR
   lib -- "USB-C cable: wired mode and pairing" --> pc["PC with Steam"]
   lib -. "2.4 GHz radio: wireless mode" .-> puck["Valve's puck"]
   puck -- "USB" --> pc
+  lib -. "Bluetooth LE: wireless mode, no puck" .-> pc
 ```
 
 ## What works
@@ -236,6 +238,10 @@ stateDiagram-v2
   [*] --> Wireless: no USB power, the pairing button held, or right after the reboot Steam asks for
   Wired --> Wireless: Steam pairs it and reboots it, or the pairing button
   Wireless --> Wired: a new power-up on USB, or opensc2 reboot wired
+  note right of Wireless
+    one transport per boot, the one stored on the board:
+    the puck (bond 1 or 2) or Bluetooth LE (slot 1 or 2)
+  end note
 ```
 
 Lizard mode: until Steam takes over, a Steam Controller 2 acts as a plain mouse and keyboard (the

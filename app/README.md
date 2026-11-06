@@ -196,6 +196,10 @@ stateDiagram-v2
   [*] --> Wireless: no USB power, the pairing button held, or right after the reboot Steam asks for
   Wired --> Wireless: Steam pairs it and reboots it, or the pairing button
   Wireless --> Wired: a new power-up on USB, or opensc2 reboot wired
+  note right of Wireless
+    one transport per boot, the one stored on the board:
+    the puck (bond 1 or 2) or Bluetooth LE (slot 1 or 2)
+  end note
 ```
 
 | At power-up | Mode |
